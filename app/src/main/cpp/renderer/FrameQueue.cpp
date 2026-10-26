@@ -90,6 +90,7 @@ void FrameQueue::validateRenderFrame(Frame* frame, int requiredWidth, int requir
 void FrameQueue::pushRenderedFrame(Frame* frame)
 {
     std::unique_lock lock(frameLock);
+    frame->sequence = ++lastFrameSequence;
     presentQueue.push_front(frame);
     presentFrameReadyCondition.notify_one();
 }

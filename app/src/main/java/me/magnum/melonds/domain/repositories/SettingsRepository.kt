@@ -21,6 +21,8 @@ interface SettingsRepository {
     fun isRewindEnabled(): Boolean
     fun getRewindWindowPosition(): RewindWindowPosition
     fun isSustainedPerformanceModeEnabled(): Boolean
+    fun isPerformanceLoggingEnabled(): Boolean
+    fun getPerformanceLogDirectory(): Uri?
 
     fun getRomSearchDirectories(): Array<Uri>
     fun clearRomSearchDirectories()

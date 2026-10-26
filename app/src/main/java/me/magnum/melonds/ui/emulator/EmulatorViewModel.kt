@@ -71,6 +71,7 @@ import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.domain.services.EmulatorManager
 import me.magnum.melonds.impl.emulator.EmulatorSession
 import me.magnum.melonds.impl.layout.UILayoutProvider
+import me.magnum.melonds.impl.perf.PerformanceLogger
 import me.magnum.melonds.ui.emulator.component.RetroAchievementsSubmissionHandler
 import me.magnum.melonds.ui.emulator.firmware.FirmwarePauseMenuOption
 import me.magnum.melonds.ui.emulator.model.EmulatorState
@@ -113,6 +114,7 @@ class EmulatorViewModel @Inject constructor(
     private val emulatorManager: EmulatorManager,
     private val emulatorSession: EmulatorSession,
     private val retroAchievementsSubmissionHandler: RetroAchievementsSubmissionHandler,
+    private val performanceLogger: PerformanceLogger,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -267,6 +269,7 @@ class EmulatorViewModel @Inject constructor(
                 _emulatorState.value = EmulatorState.RunningRom(rom)
                 startTrackingFps()
                 startTrackingPlayTime(rom)
+                updatePerformanceLoggingSession(_emulatorState.value)
             }
         }
     }
@@ -291,6 +294,7 @@ class EmulatorViewModel @Inject constructor(
                     FirmwareLaunchResult.LaunchSuccessful -> {
                         _emulatorState.value = EmulatorState.RunningFirmware(consoleType)
                         startTrackingFps()
+                        updatePerformanceLoggingSession(_emulatorState.value)
                     }
                 }
             }
@@ -319,6 +323,7 @@ class EmulatorViewModel @Inject constructor(
 
     fun onSettingsChanged() {
         val currentState = _emulatorState.value
+        updatePerformanceLoggingSession(currentState)
         sessionCoroutineScope.launch {
             val sessionUpdateActions = emulatorSession.updateRetroAchievementsSettings(
                 retroAchievementsRepository.isUserAuthenticated(),
@@ -334,6 +339,28 @@ class EmulatorViewModel @Inject constructor(
             }
 
             dispatchSessionUpdateActions(sessionUpdateActions)
+        }
+    }
+
+    /**
+     * Starts or stops performance logging for the running ROM or firmware when the setting is toggled while the emulator is running.
+     */
+    private fun updatePerformanceLoggingSession(currentState: EmulatorState) {
+        val sessionName = getPerformanceLogSessionName(currentState) ?: return
+        if (settingsRepository.isPerformanceLoggingEnabled()) {
+            if (!performanceLogger.isSessionActive()) {
+                performanceLogger.startSession(sessionName)
+            }
+        } else {
+            performanceLogger.stopSession()
+        }
+    }
+
+    private fun getPerformanceLogSessionName(state: EmulatorState): String? {
+        return when (state) {
+            is EmulatorState.RunningRom -> state.rom.name
+            is EmulatorState.RunningFirmware -> "firmware_${state.console.name}"
+            else -> null
         }
     }
 
@@ -399,11 +426,13 @@ class EmulatorViewModel @Inject constructor(
         viewModelScope.launch {
             _achievementsEvent.emit(RAEventUi.Reset)
         }
+        performanceLogger.stopSession()
         emulatorManager.stopEmulator()
         screenshotFrameBufferProvider.clearBuffer()
     }
 
     private fun stopEmulatorAndExit() {
+        performanceLogger.stopSession()
         emulatorManager.stopEmulator()
         _uiEvent.tryEmit(EmulatorUiEvent.CloseEmulator)
     }
@@ -462,6 +491,7 @@ class EmulatorViewModel @Inject constructor(
                     FirmwarePauseMenuOption.SETTINGS -> _uiEvent.tryEmit(EmulatorUiEvent.OpenScreen.SettingsScreen)
                     FirmwarePauseMenuOption.RESET -> resetEmulator()
                     FirmwarePauseMenuOption.EXIT -> {
+                        performanceLogger.stopSession()
                         emulatorManager.stopEmulator()
                         _uiEvent.tryEmit(EmulatorUiEvent.CloseEmulator)
                     }
@@ -642,6 +672,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     private fun resetEmulatorState(newState: EmulatorState) {
+        performanceLogger.stopSession()
         sessionCoroutineScope.notifyNewSessionStarted()
         emulatorSession.reset()
         raSessionJob = null
@@ -1041,6 +1072,7 @@ class EmulatorViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        performanceLogger.stopSession()
         sessionCoroutineScope.cancel()
         emulatorManager.cleanEmulator()
     }

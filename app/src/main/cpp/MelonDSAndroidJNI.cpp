@@ -21,6 +21,7 @@
 #include "RetroAchievementsMapper.h"
 #include "performancehint/ThreadSafePerformanceHintSession.h"
 #include "performancehint/PerformanceHintManagerFactory.h"
+#include "perf/FrameSampleRing.h"
 
 #include "Platform.h"
 
@@ -57,6 +58,13 @@ MelonDSAndroidCameraHandler* androidCameraHandler;
 static const int64_t FRAME_DURATION_60FPS_NS = 16666666;
 static const int64_t FRAME_DURATION_1000FPS_NS = 1000000; // 1ms. Used as frame time when fast-forward is enabled
 ThreadSafePerformanceHintSession* performanceHintSession = nullptr;
+
+// Performance logging. Each frame sample contains: frame end timestamp, work duration, sleep duration, interval since the previous frame end (all in
+// ns), emulated line count and flags. 16384 samples are enough for over 1 second of emulation at 16x speed between each drain
+static const int64_t PERF_FRAME_FLAG_FAST_FORWARD = 1;
+static const int64_t PERF_FRAME_FLAG_AFTER_PAUSE = 2;
+FrameSampleRing<16384, 6> perfFrameSamples;
+std::atomic_bool isPerfCaptureEnabled = false;
 
 extern "C"
 {
@@ -260,7 +268,7 @@ JNIEXPORT void JNICALL
 Java_me_magnum_melonds_MelonEmulator_presentFrame(JNIEnv* env, jobject thiz, jlong deadlineNs, jobject renderFrameCallback)
 {
     jclass presentFrameWrapperClass = env->GetObjectClass(renderFrameCallback);
-    jmethodID renderFrameMethodId = env->GetMethodID(presentFrameWrapperClass, "renderFrame", "(ZI)V");
+    jmethodID renderFrameMethodId = env->GetMethodID(presentFrameWrapperClass, "renderFrame", "(ZIJ)V");
 
     std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadlineTime;
     if (deadlineNs > 0)
@@ -285,13 +293,13 @@ Java_me_magnum_melonds_MelonEmulator_presentFrame(JNIEnv* env, jobject thiz, jlo
     if (presentationFrame != nullptr)
     {
         eglWaitSyncKHR(currentDisplay, presentationFrame->renderFence, 0);
-        env->CallVoidMethod(renderFrameCallback, renderFrameMethodId, true, (jint) presentationFrame->frameTexture);
+        env->CallVoidMethod(renderFrameCallback, renderFrameMethodId, true, (jint) presentationFrame->frameTexture, (jlong) presentationFrame->sequence);
         EGLSyncKHR presentFence = eglCreateSyncKHR(currentDisplay, EGL_SYNC_FENCE_KHR, nullptr);
         presentationFrame->presentFence = presentFence;
     }
     else
     {
-        env->CallVoidMethod(renderFrameCallback, renderFrameMethodId, false, 0);
+        env->CallVoidMethod(renderFrameCallback, renderFrameMethodId, false, 0, (jlong) 0);
     }
 }
 
@@ -299,6 +307,47 @@ JNIEXPORT jfloat JNICALL
 Java_me_magnum_melonds_MelonEmulator_getFPS(JNIEnv* env, jobject thiz)
 {
     return fps;
+}
+
+JNIEXPORT void JNICALL
+Java_me_magnum_melonds_MelonEmulator_setPerformanceCaptureEnabled(JNIEnv* env, jobject thiz, jboolean enabled)
+{
+    if (enabled)
+    {
+        // Drop samples left over from a previous capture. This must be called from the same thread that drains the samples
+        perfFrameSamples.discardAll();
+    }
+    isPerfCaptureEnabled = enabled;
+}
+
+JNIEXPORT jint JNICALL
+Java_me_magnum_melonds_MelonEmulator_drainPerformanceFrameSamples(JNIEnv* env, jobject thiz, jlongArray buffer)
+{
+    const std::size_t fields = decltype(perfFrameSamples)::FIELDS;
+    std::size_t maxSamples = (std::size_t) env->GetArrayLength(buffer) / fields;
+
+    std::size_t count = perfFrameSamples.drain(maxSamples, [&](const int64_t* source, std::size_t sampleOffset, std::size_t sampleCount) {
+        env->SetLongArrayRegion(buffer, (jsize) (sampleOffset * fields), (jsize) (sampleCount * fields), (const jlong*) source);
+    });
+    return (jint) count;
+}
+
+JNIEXPORT jlong JNICALL
+Java_me_magnum_melonds_MelonEmulator_getDroppedPerformanceFrameSampleCount(JNIEnv* env, jobject thiz)
+{
+    return (jlong) perfFrameSamples.getDroppedSampleCount();
+}
+
+JNIEXPORT jint JNICALL
+Java_me_magnum_melonds_MelonEmulator_getPerformanceEmulationStateFlags(JNIEnv* env, jobject thiz)
+{
+    // Must match MelonEmulator.PERF_STATE_FLAG_*
+    jint flags = 0;
+    if (started && paused)
+        flags |= 1;
+    if (MelonDSAndroid::isSleeping())
+        flags |= 2;
+    return flags;
 }
 
 JNIEXPORT void JNICALL
@@ -617,6 +666,7 @@ void* emulate(void*)
     double lastTick = startTick;
     double lastMeasureFpsTick = startTick;
     double frameLimitError = 0.0;
+    bool isFirstFrameAfterPause = true;
 
     MelonDSAndroid::start();
 
@@ -637,6 +687,7 @@ void* emulate(void*)
             frameLimitError = 0;
             lastTick = getCurrentMillis();
             isThreadReallyPaused = false;
+            isFirstFrameAfterPause = true;
         }
 
         if (stop) {
@@ -646,6 +697,8 @@ void* emulate(void*)
 
         pthread_mutex_unlock(&emuThreadMutex);
 
+        double frameBeginTick = lastTick;
+        double sleepDuration = 0;
         auto frameStart = std::chrono::steady_clock::now();
 
         u32 nLines = MelonDSAndroid::loop();
@@ -678,6 +731,7 @@ void* emulate(void*)
                 };
                 clock_nanosleep(CLOCK_MONOTONIC, 0, &sleepTime, nullptr);
                 double timeAfterSleep = getCurrentMillis();
+                sleepDuration = timeAfterSleep - currentTick;
                 frameLimitError -= timeAfterSleep - currentTick;
                 currentTick = timeAfterSleep;
             }
@@ -687,6 +741,21 @@ void* emulate(void*)
             frameLimitError = 0;
             lastTick = getCurrentMillis();
         }
+
+        if (isPerfCaptureEnabled.load(std::memory_order_relaxed)) [[unlikely]]
+        {
+            int64_t flags = (isFastForwardEnabled ? PERF_FRAME_FLAG_FAST_FORWARD : 0) | (isFirstFrameAfterPause ? PERF_FRAME_FLAG_AFTER_PAUSE : 0);
+            const int64_t sample[6] = {
+                (int64_t) (lastTick * 1000000.0),
+                (int64_t) std::chrono::nanoseconds(frameDuration).count(),
+                (int64_t) (sleepDuration * 1000000.0),
+                (int64_t) ((lastTick - frameBeginTick) * 1000000.0),
+                (int64_t) nLines,
+                flags,
+            };
+            perfFrameSamples.push(sample);
+        }
+        isFirstFrameAfterPause = false;
 
         observedFrames++;
         if (observedFrames >= 30) {

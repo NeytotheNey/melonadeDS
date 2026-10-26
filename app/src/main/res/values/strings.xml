@@ -201,6 +201,7 @@
     <string name="settings_section_rendering">Rendering</string>
     <string name="settings_section_device">Device</string>
     <string name="settings_section_speed">Speed</string>
+    <string name="settings_section_diagnostics">Diagnostics</string>
     <string name="settings_section_folders">Folders</string>
     <string name="settings_section_icons">Icons</string>
     <string name="settings_section_rom_cache">ROM cache</string>
@@ -234,6 +235,10 @@
     <string name="rewind_window_position">Rewind window position</string>
     <string name="sustained_performance_mode">Sustained performance mode</string>
     <string name="sustained_performance_mode_summary">When enabled, peak performance will be lower but thermal throttling will be less pronounced.</string>
+    <string name="performance_logging">Performance logging</string>
+    <string name="performance_logging_summary">Writes frame timing and memory usage CSV files, plus a summary, for each emulation session.</string>
+    <string name="performance_log_directory">Log folder</string>
+    <string name="performance_log_directory_default">Default: %1$s</string>
     <string name="check_for_updates">Check for updates</string>
     <string name="check_for_updates_summary">When enabled, the app will periodically check for available updates</string>
     <string name="rom_icon_filtering">Icon filtering</string>

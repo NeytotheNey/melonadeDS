@@ -21,6 +21,8 @@ struct Frame {
     u32 height{};
     EGLSyncKHR renderFence{};
     EGLSyncKHR presentFence{};
+    // Increases every time a frame is pushed for presentation. Allows the presenter to tell new frames from repeated ones and detect skipped frames
+    u64 sequence{};
 };
 
 class FrameQueue
@@ -41,6 +43,7 @@ private:
     std::queue<Frame*> freeQueue{};
     std::deque<Frame*> presentQueue{};
     Frame* previousFrame = nullptr;
+    u64 lastFrameSequence = 0;
 };
 
 #endif //FRAMEQUEUE_H

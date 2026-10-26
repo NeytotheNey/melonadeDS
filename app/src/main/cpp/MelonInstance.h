@@ -55,6 +55,8 @@ public:
     int receiveNetPacket(u8* data);
 
     Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline);
+    // Whether the emulated console was asleep (lid closed) during the last frame, in which case no frames are presented
+    bool isSleeping() { return sleeping.load(std::memory_order_relaxed); }
 
     void updateConfiguration(std::shared_ptr<EmulatorConfiguration> newConfiguration);
     void requestNdsSaveWrite(const u8* saveData, u32 saveLength, u32 writeOffset, u32 writeLength);
@@ -85,6 +87,7 @@ private:
     NDS* nds;
     std::shared_ptr<Net> net;
 
+    std::atomic_bool sleeping = false;
     std::atomic<float> motionData[6] = { 0.0f, 0.0f, 9.80665f, 0.0f, 0.0f, 0.0f };
 
     std::unique_ptr<RetroAchievements::RetroAchievementsManager> retroAchievementsManager;

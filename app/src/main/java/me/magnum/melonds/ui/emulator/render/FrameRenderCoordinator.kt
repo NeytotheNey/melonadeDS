@@ -9,6 +9,7 @@ import me.magnum.melonds.MelonDSAndroidInterface
 import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import me.magnum.melonds.domain.model.render.RenderStrategy
+import me.magnum.melonds.impl.perf.DisplayPerformanceCapture
 import me.magnum.melonds.ui.emulator.EmulatorSurfaceView
 
 class FrameRenderCoordinator {
@@ -85,7 +86,7 @@ class FrameRenderCoordinator {
         private val renderStatistics = RenderStatistics()
 
         private val frameRenderCallback = object : FrameRenderCallback {
-            override fun renderFrame(isValidFrame: Boolean, frameTextureId: Int) {
+            override fun renderFrame(isValidFrame: Boolean, frameTextureId: Int, frameSequence: Long) {
                 val renderStart = System.nanoTime()
 
                 presentFrameWrapper.apply {
@@ -99,6 +100,18 @@ class FrameRenderCoordinator {
 
                 val renderDuration = System.nanoTime() - renderStart
                 renderStatistics.trackRenderEvent(renderDuration)
+
+                if (DisplayPerformanceCapture.isEnabled) {
+                    val stateFlags = MelonEmulator.getPerformanceEmulationStateFlags()
+                    DisplayPerformanceCapture.record(
+                        timestampNs = renderStart,
+                        renderDurationNs = renderDuration,
+                        isValidFrame = isValidFrame,
+                        frameSequence = frameSequence,
+                        isEmulationPaused = (stateFlags and MelonEmulator.PERF_STATE_FLAG_PAUSED) != 0,
+                        isDsSleeping = (stateFlags and MelonEmulator.PERF_STATE_FLAG_DS_SLEEP) != 0,
+                    )
+                }
             }
         }
 

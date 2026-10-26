@@ -200,6 +200,15 @@ class SharedPreferencesSettingsRepository(
         return preferences.getBoolean("enable_sustained_performance", false)
     }
 
+    override fun isPerformanceLoggingEnabled(): Boolean {
+        return preferences.getBoolean("enable_perf_logging", false)
+    }
+
+    override fun getPerformanceLogDirectory(): Uri? {
+        val dirPreference = preferences.getStringSet("perf_log_dir", null)?.firstOrNull()
+        return dirPreference?.toUri()
+    }
+
     override fun getRomSearchDirectories(): Array<Uri> {
         val dirPreference = preferences.getStringSet("rom_search_dirs", emptySet())
         return dirPreference?.map { it.toUri() }?.toTypedArray() ?: emptyArray()

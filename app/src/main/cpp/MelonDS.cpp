@@ -218,6 +218,14 @@ namespace MelonDSAndroid
         return instance->getPresentationFrame(deadline);
     }
 
+    bool isSleeping()
+    {
+        if (!instance)
+            return false;
+
+        return instance->isSleeping();
+    }
+
     void pause()
     {
         pauseAudio();

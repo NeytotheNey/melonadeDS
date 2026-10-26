@@ -14,6 +14,12 @@ import me.magnum.melonds.ui.emulator.rewind.model.RewindWindow
 import java.nio.ByteBuffer
 
 object MelonEmulator {
+    const val PERF_FRAME_SAMPLE_FIELDS = 6
+    const val PERF_FRAME_FLAG_FAST_FORWARD = 1L
+    const val PERF_FRAME_FLAG_AFTER_PAUSE = 2L
+    const val PERF_STATE_FLAG_PAUSED = 1
+    const val PERF_STATE_FLAG_DS_SLEEP = 2
+
     enum class LoadResult(val isTerminal: Boolean) {
         SUCCESS(false),
         SUCCESS_GBA_FAILED(false),
@@ -88,6 +94,30 @@ object MelonEmulator {
     external fun presentFrame(deadlineNs: Long, frameRenderCallback: FrameRenderCallback)
 
 	external fun getFPS(): Float
+
+    /**
+     * Enables or disables per-frame performance capture on the emulator thread. Enabling it discards any pending samples. Must be called from the
+     * same thread (or serialized context) that calls [drainPerformanceFrameSamples].
+     */
+    external fun setPerformanceCaptureEnabled(enabled: Boolean)
+
+    /**
+     * Copies pending frame samples into [buffer] and returns the number of samples copied. Each sample takes [PERF_FRAME_SAMPLE_FIELDS] entries:
+     * frame end timestamp (ns, CLOCK_MONOTONIC), work duration (ns), sleep duration (ns), interval since the previous frame end (ns), emulated line
+     * count and flags ([PERF_FRAME_FLAG_FAST_FORWARD], [PERF_FRAME_FLAG_AFTER_PAUSE]).
+     */
+    external fun drainPerformanceFrameSamples(buffer: LongArray): Int
+
+    /**
+     * Number of frame samples that were dropped because the capture buffer was full since capture was last enabled.
+     */
+    external fun getDroppedPerformanceFrameSampleCount(): Long
+
+    /**
+     * Current emulation state as [PERF_STATE_FLAG_PAUSED] and [PERF_STATE_FLAG_DS_SLEEP] flags. Used by the performance logger to tell periods
+     * where no new frames are expected (emulator paused, DS lid closed) apart from real stalls.
+     */
+    external fun getPerformanceEmulationStateFlags(): Int
 
 	external fun pauseEmulation()
 

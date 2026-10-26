@@ -46,4 +46,24 @@
                 android:entryValues="@array/fast_forward_speed_multiplier_values"
                 android:defaultValue="-1" />
     </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/settings_section_diagnostics">
+
+        <SwitchPreference
+                android:key="enable_perf_logging"
+                android:title="@string/performance_logging"
+                android:summary="@string/performance_logging_summary"
+                app:iconSpaceReserved="false"
+                android:defaultValue="false" />
+
+        <me.magnum.melonds.ui.settings.preferences.StoragePickerPreference
+                android:key="perf_log_dir"
+                android:title="@string/performance_log_directory"
+                android:dependency="enable_perf_logging"
+                android:widgetLayout="@layout/preference_widget_chevron"
+                app:iconSpaceReserved="false"
+                app:type="directory"
+                app:permissions="read_write"
+                app:persistPermissions="true" />
+    </PreferenceCategory>
 </PreferenceScreen>

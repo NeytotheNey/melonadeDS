@@ -376,6 +376,7 @@ u32 MelonInstance::runFrame()
     }
 
     bool isSleeping = nds->CPUStop & CPUStop_Sleep;
+    sleeping.store(isSleeping, std::memory_order_relaxed);
     if (!isSleeping) [[likely]]
     {
         renderFrame->renderFence = eglCreateSyncKHR(currentDisplay, EGL_SYNC_FENCE_KHR, nullptr);
