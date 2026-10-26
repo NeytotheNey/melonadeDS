@@ -10,22 +10,21 @@ import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material.ContentAlpha
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.LocalContentAlpha
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Scaffold
-import androidx.compose.material.SnackbarHostState
-import androidx.compose.material.SnackbarResult
-import androidx.compose.material.Text
-import androidx.compose.material.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.CheckBox
-import androidx.compose.material.rememberScaffoldState
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -49,7 +48,7 @@ import me.magnum.melonds.ui.cheats.CheatsNavigation
 import me.magnum.melonds.ui.cheats.CheatsViewModel
 import me.magnum.melonds.ui.cheats.model.CheatsScreenUiState
 
-@OptIn(ExperimentalSerializationApi::class)
+@OptIn(ExperimentalSerializationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun CheatsScreen(
     viewModel: CheatsViewModel,
@@ -77,7 +76,6 @@ fun CheatsScreen(
     }
     val resources = LocalResources.current
     val snackbarHostState = remember { SnackbarHostState() }
-    val scaffoldState = rememberScaffoldState(snackbarHostState = snackbarHostState)
     val coroutineScope = rememberCoroutineScope()
     val navigateBack = {
         if (navController.previousBackStackEntry == null) {
@@ -115,9 +113,9 @@ fun CheatsScreen(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        scaffoldState = scaffoldState,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            Box(Modifier.background(MaterialTheme.colors.primaryVariant).statusBarsPadding()) {
+            Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
                 TopAppBar(
                     title = {
                         Text(
@@ -126,7 +124,6 @@ fun CheatsScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                     },
-                    backgroundColor = MaterialTheme.colors.primary,
                     navigationIcon = {
                         IconButton(onClick = { navigateBack() }) {
                             Icon(
@@ -137,13 +134,11 @@ fun CheatsScreen(
                     },
                     actions = {
                         if (showEnabledCheatsButton) {
-                            CompositionLocalProvider(LocalContentAlpha provides ContentAlpha.high) {
-                                IconButton(onClick = { viewModel.openEnabledCheats() }) {
-                                    Icon(
-                                        painter = rememberVectorPainter(Icons.Outlined.CheckBox),
-                                        contentDescription = stringResource(R.string.enabled_cheats),
-                                    )
-                                }
+                            IconButton(onClick = { viewModel.openEnabledCheats() }) {
+                                Icon(
+                                    painter = rememberVectorPainter(Icons.Outlined.CheckBox),
+                                    contentDescription = stringResource(R.string.enabled_cheats),
+                                )
                             }
                         }
                     },
@@ -151,7 +146,7 @@ fun CheatsScreen(
                 )
             }
         },
-        backgroundColor = MaterialTheme.colors.surface,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets.safeDrawing,
     ) { padding ->
         NavHost(
@@ -197,7 +192,8 @@ fun CheatsScreen(
                         coroutineScope.launch {
                             val result = snackbarHostState.showSnackbar(
                                 message = resources.getString(R.string.cheat_deleted, it.name),
-                                actionLabel = resources.getString(R.string.undo)
+                                actionLabel = resources.getString(R.string.undo),
+                                duration = SnackbarDuration.Short,
                             )
                             if (result == SnackbarResult.ActionPerformed) {
                                 viewModel.undoCheatDeletion(it)

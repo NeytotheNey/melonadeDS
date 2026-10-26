@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Card behind each settings row. PreferenceCardDecoration changes the corners depending on where the row sits in its
+     group. The ripple has no mask, so it is clipped to the rounded shape -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="?attr/colorControlHighlight">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="?attr/colorSurfaceContainer" />
+            <corners android:radius="@dimen/preference_card_corner_radius_inner" />
+        </shape>
+    </item>
+</ripple>

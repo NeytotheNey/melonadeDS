@@ -1,16 +1,15 @@
 package me.magnum.melonds.ui.settings.fragments
 
 import android.os.Bundle
-import android.view.ContextThemeWrapper
 import android.view.LayoutInflater
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.preference.Preference
 import androidx.preference.SwitchPreference
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -127,13 +126,13 @@ class RetroAchievementsPreferencesFragment : BasePreferenceFragment(), Preferenc
     }
 
     private fun showLoginDialog(existingUsername: String?) {
-        val themedDialogContext = ContextThemeWrapper(requireContext(), R.style.MaterialDialog)
-        val binding = DialogRetroachievementsLoginBinding.inflate(LayoutInflater.from(themedDialogContext))
+        val dialogBuilder = MaterialAlertDialogBuilder(requireContext())
+        val binding = DialogRetroachievementsLoginBinding.inflate(LayoutInflater.from(dialogBuilder.context))
         if (existingUsername != null) {
             binding.textUsername.setText(existingUsername)
         }
 
-        AlertDialog.Builder(themedDialogContext)
+        dialogBuilder
             .setTitle(R.string.login_with_retro_achievements)
             .setView(binding.root)
             .setPositiveButton(R.string.login) { dialog, _ ->
@@ -150,7 +149,7 @@ class RetroAchievementsPreferencesFragment : BasePreferenceFragment(), Preferenc
     }
 
     private fun showLogoutConfirmationDialog() {
-        AlertDialog.Builder(requireContext())
+        MaterialAlertDialogBuilder(requireContext())
             .setTitle(R.string.retroachievements_logout)
             .setMessage(R.string.retroachievements_logout_confirmation)
             .setPositiveButton(R.string.retroachievements_logout) { dialog, _ ->

@@ -32,7 +32,7 @@ class RomsPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTitl
 
     private lateinit var clearRomCachePreference: Preference
 
-    override fun getTitle() = getString(R.string.category_roms)
+    override fun getTitle() = getString(R.string.settings_game_library)
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.pref_roms, rootKey)

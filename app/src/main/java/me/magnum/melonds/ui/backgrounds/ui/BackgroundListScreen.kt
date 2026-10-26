@@ -27,21 +27,24 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.FloatingActionButton
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Scaffold
-import androidx.compose.material.SnackbarDuration
-import androidx.compose.material.SnackbarResult
-import androidx.compose.material.Text
-import androidx.compose.material.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.rememberScaffoldState
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,7 +68,7 @@ import me.magnum.melonds.ui.common.component.dialog.rememberTextInputDialogState
 import me.magnum.melonds.utils.BitmapRegionDecoderCompat
 import java.util.UUID
 
-@OptIn(ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalSharedTransitionApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun BackgroundListScreen(
     viewModel: BackgroundsViewModel,
@@ -100,16 +103,15 @@ fun BackgroundListScreen(
 
     val backgroundDeletedMessage = stringResource(R.string.background_deleted)
     val undoMessage = stringResource(R.string.undo)
-    val scaffoldState = rememberScaffoldState()
+    val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
 
     Scaffold(
-        scaffoldState = scaffoldState,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            Box(Modifier.background(MaterialTheme.colors.primaryVariant).statusBarsPadding()) {
+            Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
                 TopAppBar(
                     title = { Text(stringResource(R.string.backgrounds)) },
-                    backgroundColor = MaterialTheme.colors.primary,
                     navigationIcon = {
                         IconButton(onClick = onBackClick) {
                             Icon(
@@ -136,7 +138,7 @@ fun BackgroundListScreen(
                 )
             }
         },
-        backgroundColor = MaterialTheme.colors.surface,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets.safeDrawing,
     ) { padding ->
         if (backgrounds == null) {
@@ -162,7 +164,7 @@ fun BackgroundListScreen(
                 onDeleteBackgroundClick = {
                     viewModel.deleteBackground(it)
                     coroutineScope.launch {
-                        val result = scaffoldState.snackbarHostState.showSnackbar(
+                        val result = snackbarHostState.showSnackbar(
                             message = backgroundDeletedMessage,
                             actionLabel = undoMessage,
                             duration = SnackbarDuration.Long,
@@ -188,7 +190,7 @@ private fun Loading(modifier: Modifier) {
     Box(modifier) {
         CircularProgressIndicator(
             modifier = Modifier.align(Alignment.Center),
-            color = MaterialTheme.colors.secondary,
+            color = MaterialTheme.colorScheme.primary,
         )
     }
 }

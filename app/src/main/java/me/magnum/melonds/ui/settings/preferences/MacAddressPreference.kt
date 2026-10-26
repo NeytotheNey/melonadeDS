@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.preference.Preference
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import me.magnum.melonds.R
 import me.magnum.melonds.databinding.DialogMacAddressEditorBinding
 import me.magnum.melonds.domain.model.MacAddress
@@ -25,7 +26,7 @@ class MacAddressPreference(context: Context, attrs: AttributeSet?) : Preference(
         }
         setMacAddressText(currentMacAddress, binding.textMacAddress)
 
-        val dialog = AlertDialog.Builder(context)
+        val dialog = MaterialAlertDialogBuilder(context)
                 .setTitle(title)
                 .setView(binding.root)
                 .setPositiveButton(R.string.ok) { dialog, _ ->

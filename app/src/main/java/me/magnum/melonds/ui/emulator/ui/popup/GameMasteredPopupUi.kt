@@ -15,9 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.Card
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -69,7 +70,7 @@ fun GameMasteredPopupUi(
             .padding(16.dp)
             .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = gameMasteryColor)
             .widthIn(max = 400.dp),
-        backgroundColor = gameMasteryColor,
+        colors = CardDefaults.cardColors(containerColor = gameMasteryColor),
         shape = RoundedCornerShape(8.dp),
     ) {
         Row(
@@ -136,14 +137,14 @@ fun GameMasteredPopupUi(
                         Column(Modifier.padding(start = 8.dp)) {
                             Text(
                                 text = masteryText,
-                                style = MaterialTheme.typography.body2,
+                                style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                             )
                             if (userInfo.isNotEmpty()) {
                                 Text(
                                     text = userInfo,
-                                    style = MaterialTheme.typography.body2,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     maxLines = 1,
                                 )
                             }

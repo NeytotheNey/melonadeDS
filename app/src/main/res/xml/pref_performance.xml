@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen
+        xmlns:android="http://schemas.android.com/apk/res/android"
+        xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory android:title="@string/settings_section_emulation">
+
+        <SwitchPreference
+                android:key="enable_jit"
+                android:title="@string/enable_jit"
+                android:summary="@string/enable_jit_summary"
+                app:iconSpaceReserved="false"
+                android:defaultValue="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/settings_section_rendering">
+
+        <SwitchPreference
+                android:key="enable_threaded_rendering"
+                android:title="@string/threaded_rendering"
+                android:summary="@string/threaded_rendering_summary"
+                app:iconSpaceReserved="false"
+                android:defaultValue="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+            android:key="category_performance_device"
+            android:title="@string/settings_section_device">
+
+        <SwitchPreference
+                android:key="enable_sustained_performance"
+                android:title="@string/sustained_performance_mode"
+                android:summary="@string/sustained_performance_mode_summary"
+                app:iconSpaceReserved="false"
+                android:defaultValue="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/settings_section_speed">
+
+        <ListPreference
+                android:key="fast_forward_speed_multiplier"
+                android:title="@string/fast_forward_max_speed"
+                android:summary="%s"
+                app:iconSpaceReserved="false"
+                android:entries="@array/fast_forward_speed_multiplier_options"
+                android:entryValues="@array/fast_forward_speed_multiplier_values"
+                android:defaultValue="-1" />
+    </PreferenceCategory>
+</PreferenceScreen>

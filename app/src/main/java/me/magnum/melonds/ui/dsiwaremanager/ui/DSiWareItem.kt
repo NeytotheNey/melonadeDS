@@ -3,13 +3,13 @@ package me.magnum.melonds.ui.dsiwaremanager.ui
 import android.content.res.Configuration.UI_MODE_NIGHT_YES
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.Divider
-import androidx.compose.material.DropdownMenu
-import androidx.compose.material.DropdownMenuItem
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -80,13 +80,13 @@ fun DSiWareItem(
             ) {
                 Text(
                     text = item.name,
-                    style = MaterialTheme.typography.body1.copy(fontSize = 18.sp),
+                    style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
                     overflow = TextOverflow.Ellipsis,
                     maxLines = 1,
                 )
                 CaptionText(
                     text = item.producer,
-                    style = MaterialTheme.typography.body2,
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             }
             IconButton(onClick = { dropdownMenu = DSiWareItemDropdownMenu.MAIN }) {
@@ -94,7 +94,7 @@ fun DSiWareItem(
                     modifier = Modifier.size(32.dp),
                     painter = painterResource(id = R.drawable.ic_menu),
                     contentDescription = stringResource(id = R.string.delete),
-                    tint = MaterialTheme.colors.onSurface,
+                    tint = MaterialTheme.colorScheme.onSurface,
                 )
 
                 ItemDropdownMenu(
@@ -114,7 +114,7 @@ fun DSiWareItem(
             }
 
         }
-        Divider()
+        HorizontalDivider()
     }
 }
 
@@ -134,15 +134,18 @@ private fun ItemDropdownMenu(
                 expanded = true,
                 onDismissRequest = { onOpenMenu(DSiWareItemDropdownMenu.NONE) },
             ) {
-                DropdownMenuItem(onClick = { onOpenMenu(DSiWareItemDropdownMenu.IMPORT) }) {
-                    Text(text = stringResource(id = R.string.dsiware_manager_import_data))
-                }
-                DropdownMenuItem(onClick = { onOpenMenu(DSiWareItemDropdownMenu.EXPORT) }) {
-                    Text(text = stringResource(id = R.string.dsiware_manager_export_data))
-                }
-                DropdownMenuItem(onClick = onDeleteItem) {
-                    Text(text = stringResource(id = R.string.delete))
-                }
+                DropdownMenuItem(
+                    text = { Text(text = stringResource(id = R.string.dsiware_manager_import_data)) },
+                    onClick = { onOpenMenu(DSiWareItemDropdownMenu.IMPORT) },
+                )
+                DropdownMenuItem(
+                    text = { Text(text = stringResource(id = R.string.dsiware_manager_export_data)) },
+                    onClick = { onOpenMenu(DSiWareItemDropdownMenu.EXPORT) },
+                )
+                DropdownMenuItem(
+                    text = { Text(text = stringResource(id = R.string.delete)) },
+                    onClick = onDeleteItem,
+                )
             }
         }
         DSiWareItemDropdownMenu.IMPORT -> {
@@ -195,11 +198,10 @@ private fun ItemDropdownMenu(
 @Composable
 private fun FileTypeDropdownItem(fileType: DSiWareTitleFileType, enabled: Boolean, onClick: () -> Unit) {
     DropdownMenuItem(
+        text = { Text(text = fileType.fileName) },
         onClick = onClick,
         enabled = enabled,
-    ) {
-        Text(text = fileType.fileName)
-    }
+    )
 }
 
 @Preview(showBackground = true)

@@ -20,27 +20,26 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.ContentAlpha
-import androidx.compose.material.Divider
-import androidx.compose.material.DropdownMenu
-import androidx.compose.material.DropdownMenuItem
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.LocalContentAlpha
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.RadioButton
-import androidx.compose.material.Scaffold
-import androidx.compose.material.SnackbarHostState
-import androidx.compose.material.SnackbarResult
-import androidx.compose.material.Text
-import androidx.compose.material.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.rememberScaffoldState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -124,6 +123,7 @@ fun LayoutsScreen(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LayoutsScreenContent(
     layouts: List<LayoutConfiguration>,
@@ -137,7 +137,6 @@ private fun LayoutsScreenContent(
     onBackClick: () -> Unit,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
-    val scaffoldState = rememberScaffoldState(snackbarHostState = snackbarHostState)
     val initialFocusRequester = remember { FocusRequester() }
     val deleteLayoutEvent = remember {
         MutableSharedFlow<LayoutConfiguration>(extraBufferCapacity = 10, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -148,9 +147,9 @@ private fun LayoutsScreenContent(
     }
 
     Scaffold(
-        scaffoldState = scaffoldState,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            Box(Modifier.background(MaterialTheme.colors.primaryVariant).statusBarsPadding()) {
+            Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
                 TopAppBar(
                     navigationIcon = {
                         IconButton(onClick = onBackClick) {
@@ -161,23 +160,19 @@ private fun LayoutsScreenContent(
                         }
                     },
                     title = { Text(stringResource(R.string.layouts)) },
-                    backgroundColor = MaterialTheme.colors.primary,
-                    contentColor = MaterialTheme.colors.onPrimary,
                     windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
                     actions = {
-                        CompositionLocalProvider(LocalContentAlpha provides ContentAlpha.high) {
-                            IconButton(onClick = onCreateLayout) {
-                                Icon(
-                                    painter = rememberVectorPainter(Icons.Default.Add),
-                                    contentDescription = stringResource(R.string.action_layouts_new),
-                                )
-                            }
+                        IconButton(onClick = onCreateLayout) {
+                            Icon(
+                                painter = rememberVectorPainter(Icons.Default.Add),
+                                contentDescription = stringResource(R.string.action_layouts_new),
+                            )
                         }
                     },
                 )
             }
         },
-        backgroundColor = MaterialTheme.colors.surface,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets.safeDrawing,
     ) { padding ->
         LazyColumn(
@@ -201,7 +196,7 @@ private fun LayoutsScreenContent(
                         onDeleteLayout(layout)
                     },
                 )
-                Divider()
+                HorizontalDivider()
             }
         }
     }
@@ -212,6 +207,7 @@ private fun LayoutsScreenContent(
             val result = snackbarHostState.showSnackbar(
                 message = resources.getString(R.string.named_layout_deleted, layout.name),
                 actionLabel = resources.getString(R.string.undo),
+                duration = SnackbarDuration.Short,
             )
             if (result == SnackbarResult.ActionPerformed) {
                 onUndoDelete(layout)
@@ -262,7 +258,7 @@ private fun LayoutItem(
                 .weight(1f)
                 .padding(start = 32.dp),
             text = layout.name.orEmpty(),
-            style = MaterialTheme.typography.body1,
+            style = MaterialTheme.typography.bodyLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -288,31 +284,28 @@ private fun LayoutItem(
                     onDismissRequest = { showMenu = false },
                 ) {
                     DropdownMenuItem(
+                        text = { Text(stringResource(R.string.edit)) },
                         onClick = {
                             showMenu = false
                             onEditLayout()
                         },
-                    ) {
-                        Text(stringResource(R.string.edit))
-                    }
+                    )
 
                     DropdownMenuItem(
+                        text = { Text(stringResource(R.string.copy)) },
                         onClick = {
                             showMenu = false
                             onCopyLayout()
                         },
-                    ) {
-                        Text(stringResource(R.string.copy))
-                    }
+                    )
 
                     DropdownMenuItem(
+                        text = { Text(stringResource(R.string.delete)) },
                         onClick = {
                             showMenu = false
                             onDeleteLayout()
                         },
-                    ) {
-                        Text(stringResource(R.string.delete))
-                    }
+                    )
                 }
             }
         } else {

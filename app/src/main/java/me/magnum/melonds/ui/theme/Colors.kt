@@ -1,37 +1,87 @@
 package me.magnum.melonds.ui.theme
 
-import androidx.compose.material.darkColors
-import androidx.compose.material.lightColors
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.colorResource
-import me.magnum.melonds.R
 
-val uncheckedThumbColor: Color @Composable get() = colorResource(id = R.color.switchThumbUnselected)
 val gameMasteryColor: Color get() = Color(0xFFFFD700)
 
-val LightMelonColors @Composable get() = lightColors(
-    primary = Color(0xFFF44336),          // R.color.colorPrimary
-    primaryVariant = Color(0xFFD32F2F),   // R.color.colorPrimaryDark
-    secondary = Color(0xFF5C913B),        // R.color.colorAccent
-    secondaryVariant = Color(0xFF5C913B), // R.color.colorAccent
-    background = Color(0xFFFFFFFF),       // R.color.colorBackground
-    surface = Color(0xFFFAFAFA),          // R.color.colorSurface
-    onPrimary = Color(0xFFFFFFFF),        // R.color.colorOnSecondary
-    onSecondary = Color(0xFFFFFFFF),      // R.color.colorOnSecondary
-    onSurface = Color(0xFF222222),        // R.color.textColorPrimary
-    onBackground = Color(0xFF767676),     // R.color.textColorSecondary
+// Generated from the melonDS red (#F44336) as the seed colour (fidelity palettes with tonal spot neutrals). Keep in sync with the m3* colours in
+// res/values/colors.xml and res/values-night/colors.xml, which are used by the View based screens when dynamic colours are not in use
+val LightMelonColors = lightColorScheme(
+    primary = Color(0xFFB81311),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFDC3128),
+    onPrimaryContainer = Color(0xFFFFFBFF),
+    inversePrimary = Color(0xFFFFB4A9),
+    secondary = Color(0xFFA23D32),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFFE8172),
+    onSecondaryContainer = Color(0xFF731A13),
+    tertiary = Color(0xFF006576),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFF008095),
+    onTertiaryContainer = Color(0xFFF9FDFF),
+    error = Color(0xFFBA1A1A),
+    onError = Color(0xFFFFFFFF),
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF93000A),
+    background = Color(0xFFFFF8F7),
+    onBackground = Color(0xFF231918),
+    surface = Color(0xFFFFF8F7),
+    onSurface = Color(0xFF231918),
+    surfaceVariant = Color(0xFFF5DDDA),
+    onSurfaceVariant = Color(0xFF534341),
+    surfaceTint = Color(0xFFB81311),
+    inverseSurface = Color(0xFF392E2C),
+    inverseOnSurface = Color(0xFFFFEDEA),
+    outline = Color(0xFF857370),
+    outlineVariant = Color(0xFFD8C2BE),
+    scrim = Color(0xFF000000),
+    surfaceBright = Color(0xFFFFF8F7),
+    surfaceDim = Color(0xFFE8D6D3),
+    surfaceContainer = Color(0xFFFCEAE7),
+    surfaceContainerHigh = Color(0xFFF7E4E1),
+    surfaceContainerHighest = Color(0xFFF1DEDC),
+    surfaceContainerLow = Color(0xFFFFF0EE),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
 )
 
-val DarkMelonColors @Composable get() = darkColors(
-    primary = Color(0xFF333333),          // R.color.colorPrimary,
-    primaryVariant = Color(0xFF222222),   // R.color.colorPrimaryDark,
-    secondary = Color(0xFFF44336),        // R.color.colorAccent,
-    secondaryVariant = Color(0xFFF44336), // R.color.colorAccent,
-    background = Color(0xFF000000),       // R.color.colorBackground,
-    surface = Color(0xFF303030),          // R.color.colorSurface,
-    onPrimary = Color(0xFFFFFFFF),        // R.color.colorOnSecondary,
-    onSecondary = Color(0xFFFFFFFF),      // R.color.colorOnSecondary,
-    onSurface = Color(0xFFFFFFFF),        // R.color.textColorPrimary,
-    onBackground = Color(0xFFC1C1C1),     // R.color.textColorSecondary,
+val DarkMelonColors = darkColorScheme(
+    primary = Color(0xFFFFB4A9),
+    onPrimary = Color(0xFF690002),
+    primaryContainer = Color(0xFFFF5545),
+    onPrimaryContainer = Color(0xFF450001),
+    inversePrimary = Color(0xFFBB1614),
+    secondary = Color(0xFFFFB4A9),
+    onSecondary = Color(0xFF630E0A),
+    secondaryContainer = Color(0xFF83251D),
+    onSecondaryContainer = Color(0xFFFF9A8C),
+    tertiary = Color(0xFF6AD5EE),
+    onTertiary = Color(0xFF003640),
+    tertiaryContainer = Color(0xFF239EB6),
+    onTertiaryContainer = Color(0xFF002129),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+    background = Color(0xFF1A1110),
+    onBackground = Color(0xFFF1DEDC),
+    surface = Color(0xFF1A1110),
+    onSurface = Color(0xFFF1DEDC),
+    surfaceVariant = Color(0xFF534341),
+    onSurfaceVariant = Color(0xFFD8C2BE),
+    surfaceTint = Color(0xFFFFB4A9),
+    inverseSurface = Color(0xFFF1DEDC),
+    inverseOnSurface = Color(0xFF392E2C),
+    outline = Color(0xFFA08C89),
+    outlineVariant = Color(0xFF534341),
+    scrim = Color(0xFF000000),
+    surfaceBright = Color(0xFF423735),
+    surfaceDim = Color(0xFF1A1110),
+    surfaceContainer = Color(0xFF271D1C),
+    surfaceContainerHigh = Color(0xFF322826),
+    surfaceContainerHighest = Color(0xFF3D3231),
+    surfaceContainerLow = Color(0xFF231918),
+    surfaceContainerLowest = Color(0xFF140C0B),
 )

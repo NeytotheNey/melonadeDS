@@ -2,8 +2,8 @@ package me.magnum.melonds.ui.emulator.ui
 
 import android.content.Intent
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material.LocalContentColor
-import androidx.compose.material.MaterialTheme
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -46,7 +46,7 @@ fun AchievementListDialog(
 
         // Force dark colors here because the background will be dark
         MelonTheme(isDarkTheme = true) {
-            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colors.onSurface) {
+            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
                 AchievementList(
                     modifier = Modifier.fillMaxSize(),
                     state = achievementListState,

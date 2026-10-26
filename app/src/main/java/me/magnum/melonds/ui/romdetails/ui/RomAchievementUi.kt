@@ -18,11 +18,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
-import androidx.compose.material.Icon
-import androidx.compose.material.LinearProgressIndicator
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -126,16 +126,16 @@ fun RomAchievementUi(
                         }
                     },
                     inlineContent = mapOf(
-                        "icon-missable" to InlineTextContent(Placeholder(MaterialTheme.typography.body1.fontSize, MaterialTheme.typography.body1.fontSize, PlaceholderVerticalAlign.Center)) {
+                        "icon-missable" to InlineTextContent(Placeholder(MaterialTheme.typography.bodyLarge.fontSize, MaterialTheme.typography.bodyLarge.fontSize, PlaceholderVerticalAlign.Center)) {
                             Icon(
                                 modifier = Modifier.fillMaxSize(),
                                 painter = painterResource(id = R.drawable.ic_status_warn),
-                                tint = MaterialTheme.typography.body1.color,
+                                tint = MaterialTheme.typography.bodyLarge.color,
                                 contentDescription = null,
                             )
                         }
                     ),
-                    style = MaterialTheme.typography.body1,
+                    style = MaterialTheme.typography.bodyLarge,
                     maxLines = nameMaxLines,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -143,7 +143,7 @@ fun RomAchievementUi(
                 val descriptionMaxLines = if (expanded) Int.MAX_VALUE else 2
                 Text(
                     text = achievement.description,
-                    style = MaterialTheme.typography.caption,
+                    style = MaterialTheme.typography.bodySmall,
                     maxLines = descriptionMaxLines,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -155,7 +155,7 @@ fun RomAchievementUi(
                         Text(
                             modifier = Modifier.padding(end = 8.dp),
                             text = stringResource(R.string.achievement_progress, achievementModel.runtimeAchievement.progress, achievementModel.runtimeAchievement.target),
-                            style = MaterialTheme.typography.caption,
+                            style = MaterialTheme.typography.bodySmall,
                         )
 
                         val achievementProgress = achievementModel.runtimeAchievement.relativeProgress()
@@ -164,8 +164,8 @@ fun RomAchievementUi(
                                 .weight(1f)
                                 .height(4.dp)
                                 .clip(RoundedCornerShape(50)),
-                            progress = achievementProgress,
-                            color = MaterialTheme.colors.secondary,
+                            progress = { achievementProgress },
+                            color = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }
@@ -183,7 +183,7 @@ fun RomAchievementUi(
                         appendInlineContent(id = "icon-points", alternateText = stringResource(id = R.string.points))
                     },
                     inlineContent = mapOf(
-                        "icon-points" to InlineTextContent(Placeholder(MaterialTheme.typography.body1.fontSize, MaterialTheme.typography.body1.fontSize, PlaceholderVerticalAlign.Center)) {
+                        "icon-points" to InlineTextContent(Placeholder(MaterialTheme.typography.bodyLarge.fontSize, MaterialTheme.typography.bodyLarge.fontSize, PlaceholderVerticalAlign.Center)) {
                             Image(
                                 modifier = Modifier.fillMaxSize(),
                                 painter = painterResource(id = R.drawable.ic_points),
@@ -193,7 +193,7 @@ fun RomAchievementUi(
                     ),
                     fontWeight = FontWeight.Bold
                 )
-                Text(text = stringResource(id = R.string.points_abbreviated), style = MaterialTheme.typography.caption)
+                Text(text = stringResource(id = R.string.points_abbreviated), style = MaterialTheme.typography.bodySmall)
             }
         }
 
@@ -209,16 +209,16 @@ fun RomAchievementUi(
                         append(stringResource(id = R.string.achievement_missable_description))
                     },
                     inlineContent = mapOf(
-                        "icon-missable" to InlineTextContent(Placeholder(MaterialTheme.typography.caption.fontSize, MaterialTheme.typography.caption.fontSize, PlaceholderVerticalAlign.Center)) {
+                        "icon-missable" to InlineTextContent(Placeholder(MaterialTheme.typography.bodySmall.fontSize, MaterialTheme.typography.bodySmall.fontSize, PlaceholderVerticalAlign.Center)) {
                             Icon(
                                 modifier = Modifier.fillMaxSize(),
                                 painter = painterResource(id = R.drawable.ic_status_warn),
-                                tint = MaterialTheme.typography.caption.color,
+                                tint = MaterialTheme.typography.bodySmall.color,
                                 contentDescription = null,
                             )
                         }
                     ),
-                    style = MaterialTheme.typography.caption,
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
 
@@ -239,7 +239,7 @@ fun RomAchievementUi(
                 Spacer(Modifier.width(4.dp))
                 Text(
                     text = stringResource(id = R.string.view_achievement).uppercase(),
-                    style = MaterialTheme.typography.button,
+                    style = MaterialTheme.typography.labelLarge,
                 )
             }
         }

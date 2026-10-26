@@ -15,9 +15,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
-import androidx.compose.material.Icon
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Sync
@@ -106,7 +106,7 @@ private fun Content(
     initialPendingSubmissionsSummary: RetroAchievementsSubmissionHandler.PendingSubmissionsSummary?,
     pendingSubmissionsSummary: RetroAchievementsSubmissionHandler.PendingSubmissionsSummary?,
 ) {
-    val baseLineHeight = MaterialTheme.typography.body1.lineHeight
+    val baseLineHeight = MaterialTheme.typography.bodyLarge.lineHeight
     val resources = LocalResources.current
     val rotationAnimation = rememberInfiniteTransition("spinner-rotation")
 
@@ -147,19 +147,19 @@ private fun Content(
     Column {
         Text(
             text = stringResource(R.string.retroachievements_unsynchronized_data_info),
-            style = MaterialTheme.typography.body1,
+            style = MaterialTheme.typography.bodyLarge,
         )
         Text(
             modifier = Modifier.padding(vertical = 8.dp),
             text = textContent,
-            style = MaterialTheme.typography.body1,
+            style = MaterialTheme.typography.bodyLarge,
             inlineContent = mapOf(
                 "pending-achievement" to InlineTextContent(Placeholder(baseLineHeight, baseLineHeight, PlaceholderVerticalAlign.Center)) {
                     Icon(
                         modifier = Modifier.fillMaxSize(),
                         painter = painterResource(R.drawable.ic_trophy),
                         contentDescription = null,
-                        tint = MaterialTheme.colors.secondary,
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 },
                 "pending-leaderboard" to InlineTextContent(Placeholder(baseLineHeight, baseLineHeight, PlaceholderVerticalAlign.Center)) {
@@ -167,7 +167,7 @@ private fun Content(
                         modifier = Modifier.fillMaxSize(),
                         imageVector = Icons.Default.Leaderboard,
                         contentDescription = null,
-                        tint = MaterialTheme.colors.secondary,
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 },
                 "spinner" to InlineTextContent(Placeholder(baseLineHeight, baseLineHeight, PlaceholderVerticalAlign.Center)) {
@@ -186,10 +186,10 @@ private fun Content(
                         },
                         imageVector = Icons.Default.Sync,
                         contentDescription = null,
-                        tint = MaterialTheme.colors.secondary,
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 },
-                "checkmark" to InlineTextContent(Placeholder(MaterialTheme.typography.body1.fontSize, MaterialTheme.typography.body1.fontSize, PlaceholderVerticalAlign.Center)) {
+                "checkmark" to InlineTextContent(Placeholder(MaterialTheme.typography.bodyLarge.fontSize, MaterialTheme.typography.bodyLarge.fontSize, PlaceholderVerticalAlign.Center)) {
                     Image(
                         modifier = Modifier.fillMaxSize(),
                         painter = painterResource(id = R.drawable.ic_completed),
@@ -205,7 +205,7 @@ private fun Content(
                     append(resources.getString(R.string.retroachievements_unsynchronized_data_loss_info))
                 }
             },
-            style = MaterialTheme.typography.body1,
+            style = MaterialTheme.typography.bodyLarge,
         )
     }
 
@@ -220,10 +220,10 @@ private fun ExitingInformation() {
                 append(" ")
                 appendInlineContent("checkmark")
             },
-            style = MaterialTheme.typography.body1,
+            style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Bold,
             inlineContent = mapOf(
-                "checkmark" to InlineTextContent(Placeholder(MaterialTheme.typography.body1.fontSize, MaterialTheme.typography.body1.fontSize, PlaceholderVerticalAlign.Center)) {
+                "checkmark" to InlineTextContent(Placeholder(MaterialTheme.typography.bodyLarge.fontSize, MaterialTheme.typography.bodyLarge.fontSize, PlaceholderVerticalAlign.Center)) {
                     Image(
                         modifier = Modifier.fillMaxSize(),
                         painter = painterResource(id = R.drawable.ic_completed),
@@ -234,7 +234,7 @@ private fun ExitingInformation() {
         )
         Text(
             text = stringResource(R.string.retroachievements_unsynchronized_data_exiting),
-            style = MaterialTheme.typography.body1,
+            style = MaterialTheme.typography.bodyLarge,
         )
     }
 }

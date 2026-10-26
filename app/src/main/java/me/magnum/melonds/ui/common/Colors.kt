@@ -1,35 +1,30 @@
 package me.magnum.melonds.ui.common
 
-import androidx.compose.material.*
-import androidx.compose.material.ExposedDropdownMenuDefaults.outlinedTextFieldColors
+import androidx.compose.material3.ButtonColors
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SwitchColors
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.TextFieldColors
 import androidx.compose.runtime.Composable
-import me.magnum.melonds.ui.theme.uncheckedThumbColor
 
 @Composable
 fun melonSwitchColors(): SwitchColors {
-    return SwitchDefaults.colors(
-        uncheckedThumbColor = uncheckedThumbColor,
-    )
+    return SwitchDefaults.colors()
 }
 
 @Composable
 fun melonButtonColors(): ButtonColors {
-    return ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary, contentColor = MaterialTheme.colors.onSecondary)
+    return ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)
 }
 
 @Composable
 fun melonTextButtonColors(): ButtonColors {
-    return ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colors.secondary)
+    return ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
 }
 
-@OptIn(ExperimentalMaterialApi::class)
 @Composable
 fun melonOutlinedTextFieldColors(): TextFieldColors {
-    return outlinedTextFieldColors(
-        cursorColor = MaterialTheme.colors.secondary,
-        unfocusedBorderColor = MaterialTheme.colors.onBackground,
-        focusedBorderColor = MaterialTheme.colors.secondary.copy(alpha = ContentAlpha.high),
-        focusedLabelColor = MaterialTheme.colors.secondary.copy(alpha = ContentAlpha.high),
-        focusedTrailingIconColor = MaterialTheme.colors.secondary.copy(alpha = ContentAlpha.high),
-    )
+    return OutlinedTextFieldDefaults.colors()
 }

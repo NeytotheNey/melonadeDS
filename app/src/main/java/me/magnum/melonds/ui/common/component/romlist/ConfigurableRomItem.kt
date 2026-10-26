@@ -11,13 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.ContentAlpha
-import androidx.compose.material.Divider
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.LocalContentAlpha
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
@@ -52,7 +51,7 @@ fun ConfigurableRomItem(
     contentPadding: PaddingValues = DefaultRomItemPadding,
 ) {
     val (mainFocusRequester, romDetailsFocusRequester) = remember { FocusRequester.createRefs() }
-    CompositionLocalProvider(LocalContentAlpha provides if (enabled) ContentAlpha.high else ContentAlpha.disabled) {
+    CompositionLocalProvider(LocalContentColor provides if (enabled) LocalContentColor.current else LocalContentColor.current.copy(alpha = 0.38f)) {
         Column(modifier) {
             Row(
                 modifier = Modifier.height(IntrinsicSize.Min).focusRequester(mainFocusRequester)
@@ -87,7 +86,7 @@ fun ConfigurableRomItem(
                     )
                 }
             }
-            Divider()
+            HorizontalDivider()
         }
     }
 }

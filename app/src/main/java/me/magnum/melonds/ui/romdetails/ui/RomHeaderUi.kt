@@ -20,26 +20,22 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.Button
-import androidx.compose.material.ButtonDefaults
-import androidx.compose.material.ContentAlpha
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.LocalContentAlpha
-import androidx.compose.material.LocalElevationOverlay
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Tab
-import androidx.compose.material.TabRow
-import androidx.compose.material.TabRowDefaults
-import androidx.compose.material.TabRowDefaults.tabIndicatorOffset
-import androidx.compose.material.Text
-import androidx.compose.material.TopAppBar
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -53,6 +49,7 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.window.core.layout.WindowSizeClass
 import coil.compose.AsyncImage
@@ -76,71 +73,68 @@ fun RomHeaderUi(
     onNavigateBack: () -> Unit,
     onTabClicked: (RomDetailsTab) -> Unit,
 ) {
-    CompositionLocalProvider(
-        LocalElevationOverlay provides null,
-        LocalContentAlpha provides ContentAlpha.high,
+    Surface(
+        modifier = modifier,
+        shadowElevation = 4.dp,
     ) {
-        Surface(
-            modifier = modifier,
-            elevation = 4.dp,
-        ) {
-            Column(Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top))) {
-                val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
-                val isLandscape = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
-                if (isLandscape) {
-                    LandscapeTopBar(
-                        rom = rom,
-                        initialFocusRequester = initialFocusRequester,
-                        onLaunchRom = onLaunchRom,
-                        onNavigateBack = onNavigateBack,
-                    )
-                } else {
-                    PortraitTopBar(
-                        rom = rom,
-                        initialFocusRequester = initialFocusRequester,
-                        onLaunchRom = onLaunchRom,
-                        onNavigateBack = onNavigateBack,
+        Column(Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top))) {
+            val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
+            val isLandscape = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
+            if (isLandscape) {
+                LandscapeTopBar(
+                    rom = rom,
+                    initialFocusRequester = initialFocusRequester,
+                    onLaunchRom = onLaunchRom,
+                    onNavigateBack = onNavigateBack,
+                )
+            } else {
+                PortraitTopBar(
+                    rom = rom,
+                    initialFocusRequester = initialFocusRequester,
+                    onLaunchRom = onLaunchRom,
+                    onNavigateBack = onNavigateBack,
+                )
+            }
+
+            PrimaryTabRow(
+                modifier = Modifier.fillMaxWidth(),
+                selectedTabIndex = pagerState.currentPage,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                indicator = {
+                    TabRowDefaults.PrimaryIndicator(
+                        modifier = Modifier.tabIndicatorOffset(pagerState.currentPage, matchContentSize = true),
+                        width = Dp.Unspecified,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
-
-                TabRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    selectedTabIndex = pagerState.currentPage,
-                    backgroundColor = MaterialTheme.colors.surface,
-                    contentColor = MaterialTheme.colors.onSurface,
-                    indicator = { tabPositions ->
-                        TabRowDefaults.Indicator(
-                            modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
-                            color = MaterialTheme.colors.secondary,
+            ) {
+                Tab(
+                    selected = pagerState.currentPage == RomDetailsTab.CONFIG.tabIndex,
+                    onClick = { onTabClicked(RomDetailsTab.CONFIG) },
+                    text = {
+                        Text(
+                            text = stringResource(id = R.string.rom_details_configuration_tab).uppercase(),
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
-                ) {
-                    Tab(
-                        selected = pagerState.currentPage == RomDetailsTab.CONFIG.tabIndex,
-                        onClick = { onTabClicked(RomDetailsTab.CONFIG) },
-                        text = {
-                            Text(
-                                text = stringResource(id = R.string.rom_details_configuration_tab).uppercase(),
-                                color = MaterialTheme.colors.onSurface,
-                            )
-                        }
-                    )
-                    Tab(
-                        selected = pagerState.currentPage == RomDetailsTab.RETRO_ACHIEVEMENTS.tabIndex,
-                        onClick = { onTabClicked(RomDetailsTab.RETRO_ACHIEVEMENTS) },
-                        text = {
-                            Text(
-                                text = stringResource(id = R.string.retro_achievements_tab).uppercase(),
-                                color = MaterialTheme.colors.onSurface
-                            )
-                        }
-                    )
-                }
+                )
+                Tab(
+                    selected = pagerState.currentPage == RomDetailsTab.RETRO_ACHIEVEMENTS.tabIndex,
+                    onClick = { onTabClicked(RomDetailsTab.RETRO_ACHIEVEMENTS) },
+                    text = {
+                        Text(
+                            text = stringResource(id = R.string.retro_achievements_tab).uppercase(),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                )
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PortraitTopBar(
     rom: Rom,
@@ -149,32 +143,34 @@ private fun PortraitTopBar(
     onNavigateBack: () -> Unit,
 ) {
     TopAppBar(
-        backgroundColor = MaterialTheme.colors.surface,
-        elevation = 0.dp,
         title = {
-            if (LocalInspectionMode.current) {
-                Box(Modifier.size(42.dp).background(Color.Gray))
-            } else {
-                AsyncImage(
-                    modifier = Modifier.size(42.dp),
-                    model = rom,
-                    contentDescription = null,
-                    filterQuality = FilterQuality.None,
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (LocalInspectionMode.current) {
+                    Box(Modifier.size(42.dp).background(Color.Gray))
+                } else {
+                    AsyncImage(
+                        modifier = Modifier.size(42.dp),
+                        model = rom,
+                        contentDescription = null,
+                        filterQuality = FilterQuality.None,
+                    )
+                }
+
+                Text(
+                    modifier = Modifier.padding(start = 16.dp),
+                    text = rom.config.customName ?: rom.name,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-
-            Text(
-                modifier = Modifier.padding(start = 16.dp),
-                text = rom.config.customName ?: rom.name,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
         },
         navigationIcon = {
             IconButton(onClick = onNavigateBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
             }
         },
+        // Insets are already applied by the parent
+        windowInsets = WindowInsets(0),
     )
 
     Row(
@@ -191,6 +187,7 @@ private fun PortraitTopBar(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ColumnScope.LandscapeTopBar(
     rom: Rom,
@@ -199,39 +196,41 @@ private fun ColumnScope.LandscapeTopBar(
     onNavigateBack: () -> Unit,
 ) {
     TopAppBar(
-        backgroundColor = MaterialTheme.colors.surface,
-        elevation = 0.dp,
         title = {
-            if (LocalInspectionMode.current) {
-                Box(Modifier.size(42.dp).background(Color.Gray))
-            } else {
-                AsyncImage(
-                    modifier = Modifier.size(42.dp),
-                    model = rom,
-                    contentDescription = null,
-                    filterQuality = FilterQuality.None,
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (LocalInspectionMode.current) {
+                    Box(Modifier.size(42.dp).background(Color.Gray))
+                } else {
+                    AsyncImage(
+                        modifier = Modifier.size(42.dp),
+                        model = rom,
+                        contentDescription = null,
+                        filterQuality = FilterQuality.None,
+                    )
+                }
+
+                Column(Modifier.padding(start = 16.dp).weight(1f)) {
+                    Text(
+                        text = rom.config.customName ?: rom.name,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    PlayTimeText(rom.totalPlayTime)
+                }
+
+                PlayButton(
+                    modifier = Modifier.padding(horizontal = 16.dp).focusRequester(initialFocusRequester),
+                    onClick = onLaunchRom,
                 )
             }
-
-            Column(Modifier.padding(start = 16.dp).weight(1f)) {
-                Text(
-                    text = rom.config.customName ?: rom.name,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                PlayTimeText(rom.totalPlayTime)
-            }
-
-            PlayButton(
-                modifier = Modifier.padding(horizontal = 16.dp).focusRequester(initialFocusRequester),
-                onClick = onLaunchRom,
-            )
         },
         navigationIcon = {
             IconButton(onClick = onNavigateBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
             }
         },
+        // Insets are already applied by the parent
+        windowInsets = WindowInsets(0),
     )
 }
 
@@ -244,7 +243,7 @@ private fun PlayButton(
         modifier = modifier.widthIn(min = 132.dp),
         shape = RoundedCornerShape(50),
         onClick = onClick,
-        colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary, contentColor = MaterialTheme.colors.onSecondary),
+        colors = ButtonDefaults.buttonColors(containerColor =MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
     ) {
         Text(text = stringResource(R.string.play).uppercase())
     }
@@ -264,7 +263,7 @@ private fun PlayTimeText(playTime: Duration) {
     }
     Text(
         text = romPlayTime,
-        style = MaterialTheme.typography.body1,
+        style = MaterialTheme.typography.bodyLarge,
         maxLines = 1,
     )
 }

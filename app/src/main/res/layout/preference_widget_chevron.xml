@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Trailing chevron for settings rows that open another screen or picker -->
+<ImageView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="24dp"
+    android:layout_height="24dp"
+    android:src="@drawable/ic_settings_chevron"
+    android:importantForAccessibility="no"
+    android:tint="?attr/colorOnSurfaceVariant" />

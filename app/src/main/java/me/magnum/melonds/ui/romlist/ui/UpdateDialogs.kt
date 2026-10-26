@@ -1,15 +1,15 @@
 package me.magnum.melonds.ui.romlist.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.AlertDialog
-import androidx.compose.material.LinearProgressIndicator
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -37,43 +37,36 @@ fun ProdUpdateAvailableDialog(
         title = {
             Text(
                 text = stringResource(R.string.update_available, versionString),
-                style = MaterialTheme.typography.h6,
+                style = MaterialTheme.typography.titleLarge,
             )
         },
         text = {
             MarkdownText(
                 markdown = update.description,
-                style = MaterialTheme.typography.body2,
+                style = MaterialTheme.typography.bodyMedium,
             )
         },
-        buttons = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+        confirmButton = {
+            TextButton(
+                onClick = onUpdate,
+                colors = melonTextButtonColors(),
             ) {
-                androidx.compose.foundation.layout.Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
+                Text(stringResource(R.string.update).uppercase())
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(
+                    onClick = onSkip,
+                    colors = melonTextButtonColors(),
                 ) {
-                    TextButton(
-                        onClick = onSkip,
-                        colors = melonTextButtonColors(),
-                    ) {
-                        Text(stringResource(R.string.skip_update).uppercase())
-                    }
-                    TextButton(
-                        onClick = onDismiss,
-                        colors = melonTextButtonColors(),
-                    ) {
-                        Text(stringResource(R.string.cancel).uppercase())
-                    }
-                    TextButton(
-                        onClick = onUpdate,
-                        colors = melonTextButtonColors(),
-                    ) {
-                        Text(stringResource(R.string.update).uppercase())
-                    }
+                    Text(stringResource(R.string.skip_update).uppercase())
+                }
+                TextButton(
+                    onClick = onDismiss,
+                    colors = melonTextButtonColors(),
+                ) {
+                    Text(stringResource(R.string.cancel).uppercase())
                 }
             }
         },
@@ -90,13 +83,13 @@ fun NightlyUpdateDialog(
         title = {
             Text(
                 text = stringResource(R.string.nightly_update_available),
-                style = MaterialTheme.typography.h6,
+                style = MaterialTheme.typography.titleLarge,
             )
         },
         text = {
             Text(
                 text = stringResource(R.string.nightly_update_available_message),
-                style = MaterialTheme.typography.body2,
+                style = MaterialTheme.typography.bodyMedium,
             )
         },
         confirmButton = {
@@ -132,27 +125,27 @@ fun DownloadProgressDialog(
         title = {
             Text(
                 text = stringResource(R.string.downloading_update),
-                style = MaterialTheme.typography.h6,
+                style = MaterialTheme.typography.titleLarge,
             )
         },
         text = {
             Column {
                 if (downloadProgress.totalSize > 0) {
                     LinearProgressIndicator(
-                        progress = progress,
+                        progress = { progress },
                         modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colors.primary,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 } else {
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colors.primary,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = stringResource(R.string.download_progress_sizes, downloadedMb, totalMb),
-                    style = MaterialTheme.typography.body2,
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             }
         },

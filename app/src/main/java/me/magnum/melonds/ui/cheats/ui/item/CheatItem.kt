@@ -6,19 +6,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.Checkbox
-import androidx.compose.material.ContentAlpha
-import androidx.compose.material.DropdownMenu
-import androidx.compose.material.DropdownMenuItem
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.LocalContentAlpha
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,48 +84,44 @@ fun CheatItem(
 
             if (hasDescription) {
                 CaptionText(
-                    style = MaterialTheme.typography.body2,
+                    style = MaterialTheme.typography.bodyMedium,
                     text = cheat.description,
                 )
             }
         }
 
         // Cheat can always be edited even if it's not valid
-        CompositionLocalProvider(LocalContentAlpha provides ContentAlpha.high) {
-            IconButton(
-                modifier = Modifier
-                    .focusRequester(optionsFocusRequester)
-                    .focusProperties {
-                        start = mainFocusRequester
-                    },
-                onClick = { showCheatOptions = true },
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = stringResource(R.string.options),
-                )
+        IconButton(
+            modifier = Modifier
+                .focusRequester(optionsFocusRequester)
+                .focusProperties {
+                    start = mainFocusRequester
+                },
+            onClick = { showCheatOptions = true },
+        ) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = stringResource(R.string.options),
+            )
 
-                DropdownMenu(
-                    expanded = showCheatOptions,
-                    onDismissRequest = { showCheatOptions = false },
-                ) {
-                    DropdownMenuItem(
-                        onClick = {
-                            showCheatOptions = false
-                            onEditClick()
-                        },
-                    ) {
-                        Text(stringResource(R.string.edit))
-                    }
-                    DropdownMenuItem(
-                        onClick = {
-                            showCheatOptions = false
-                            onDeleteClick()
-                        },
-                    ) {
-                        Text(stringResource(R.string.delete))
-                    }
-                }
+            DropdownMenu(
+                expanded = showCheatOptions,
+                onDismissRequest = { showCheatOptions = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.edit)) },
+                    onClick = {
+                        showCheatOptions = false
+                        onEditClick()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.delete)) },
+                    onClick = {
+                        showCheatOptions = false
+                        onDeleteClick()
+                    },
+                )
             }
         }
     }

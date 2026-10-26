@@ -7,6 +7,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.widget.doOnTextChanged
 import androidx.fragment.app.DialogFragment
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import me.magnum.melonds.R
 import me.magnum.melonds.databinding.DialogTextInputBinding
 
@@ -37,7 +38,7 @@ class TextInputDialog : DialogFragment() {
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         binding = DialogTextInputBinding.inflate(layoutInflater)
-        val dialog = AlertDialog.Builder(requireContext())
+        val dialog = MaterialAlertDialogBuilder(requireContext())
                 .setTitle(title)
                 .setView(binding.root)
                 .setPositiveButton(R.string.ok) { _, _ ->

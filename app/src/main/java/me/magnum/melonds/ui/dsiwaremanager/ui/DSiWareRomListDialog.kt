@@ -16,14 +16,15 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.Divider
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Scaffold
-import androidx.compose.material.Text
-import androidx.compose.material.TopAppBar
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
@@ -98,6 +99,7 @@ private fun DSiWareRomListDialogImpl(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FullScreenDialog(
     romsUiState: DSiWareMangerRomListUiState,
@@ -109,13 +111,12 @@ private fun FullScreenDialog(
         Scaffold(
             topBar = {
                 // Add spacing for status bar to have a different color
-                Box(Modifier.background(MaterialTheme.colors.primaryVariant).statusBarsPadding()) {
+                Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
                     TopAppBar(
                         modifier = Modifier.fillMaxWidth(),
                         title = {
                             Text(
                                 text = stringResource(id = R.string.select_dsiware_title),
-                                color = MaterialTheme.colors.onPrimary,
                             )
                         },
                         navigationIcon = {
@@ -123,16 +124,14 @@ private fun FullScreenDialog(
                                 Icon(
                                     imageVector = Icons.Filled.Close,
                                     contentDescription = stringResource(id = R.string.close),
-                                    tint = MaterialTheme.colors.onPrimary,
                                 )
                             }
                         },
-                        backgroundColor = MaterialTheme.colors.primary,
                         windowInsets = WindowInsets.safeDrawing.exclude(WindowInsets(bottom = Int.MAX_VALUE)),
                     )
                 }
             },
-            backgroundColor = MaterialTheme.colors.surface,
+            containerColor = MaterialTheme.colorScheme.surface,
             contentWindowInsets = WindowInsets.safeDrawing,
         ) { padding ->
             when (romsUiState) {
@@ -240,7 +239,7 @@ private fun DSiWareRomList(
 
     Column(modifier) {
         if (canBeScrolled) {
-            Divider()
+            HorizontalDivider()
         }
 
         LazyColumn(

@@ -20,11 +20,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.Button
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.Divider
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
@@ -163,7 +163,7 @@ fun AchievementList(
         when (state) {
             RomRetroAchievementsUiState.Loading -> {
                 CircularProgressIndicator(
-                    color = MaterialTheme.colors.secondary,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
             is RomRetroAchievementsUiState.Ready -> {
@@ -204,7 +204,7 @@ private fun Content(
     val selectedSet = remember(selectedSetId) {
         sets.first { it.setId == selectedSetId }
     }
-    val backgroundColor = MaterialTheme.colors.background
+    val backgroundColor = MaterialTheme.colorScheme.background
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val coroutineScope = rememberCoroutineScope()
@@ -313,11 +313,11 @@ private fun Content(
                     Text(
                         modifier = Modifier.padding(start = 16.dp, top = if (index == 0) 0.dp else 16.dp, end = 16.dp, bottom = 4.dp).fillMaxWidth(),
                         text = getBucketTitle(bucket.bucket),
-                        style = MaterialTheme.typography.h6,
+                        style = MaterialTheme.typography.titleLarge,
                     )
-                    Divider(
+                    HorizontalDivider(
                         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-                        color = MaterialTheme.colors.onSurface,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
 

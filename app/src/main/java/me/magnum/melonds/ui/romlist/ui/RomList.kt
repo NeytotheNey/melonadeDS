@@ -11,12 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.ExperimentalMaterialApi
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
-import androidx.compose.material.pullrefresh.PullRefreshIndicator
-import androidx.compose.material.pullrefresh.pullRefresh
-import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
@@ -40,7 +40,7 @@ import me.magnum.melonds.ui.common.component.romlist.RomItem
 import me.magnum.melonds.ui.romlist.RomIcon
 import me.magnum.melonds.ui.theme.MelonTheme
 
-@OptIn(ExperimentalMaterialApi::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun RomList(
     modifier: Modifier = Modifier,
@@ -50,12 +50,22 @@ fun RomList(
     contentPadding: PaddingValues = PaddingValues(0.dp),
     romItem: @Composable (Modifier, Rom) -> Unit,
 ) {
-    val pullRefreshState = rememberPullRefreshState(
-        refreshing = isRefreshing,
-        onRefresh = onRefresh,
-    )
+    val pullRefreshState = rememberPullToRefreshState()
 
-    Box(modifier.pullRefresh(pullRefreshState)) {
+    PullToRefreshBox(
+        modifier = modifier,
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        state = pullRefreshState,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = contentPadding.calculateTopPadding()),
+                isRefreshing = isRefreshing,
+                state = pullRefreshState,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        },
+    ) {
         when {
             roms == null -> {
                 // This is just a temporary state while ROM data is not loaded
@@ -90,13 +100,6 @@ fun RomList(
                 }
             }
         }
-
-        PullRefreshIndicator(
-            modifier = Modifier.align(Alignment.TopCenter),
-            refreshing = isRefreshing,
-            state = pullRefreshState,
-            contentColor = MaterialTheme.colors.secondary,
-        )
     }
 }
 
@@ -108,7 +111,7 @@ private fun EmptyContent(modifier: Modifier) {
     ) {
         Text(
             text = stringResource(R.string.no_roms_found),
-            style = MaterialTheme.typography.body1,
+            style = MaterialTheme.typography.bodyLarge,
         )
     }
 }

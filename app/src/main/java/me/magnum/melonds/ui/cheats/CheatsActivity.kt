@@ -1,9 +1,7 @@
 package me.magnum.melonds.ui.cheats
 
-import android.graphics.Color
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -29,7 +27,7 @@ class CheatsActivity : AppCompatActivity() {
     private val viewModel: CheatsViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT))
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
         val romInfo = intent.parcelable<RomInfoParcelable>(KEY_ROM_INFO)

@@ -3,240 +3,208 @@ package me.magnum.melonds.impl
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import androidx.core.content.pm.PackageInfoCompat
 import androidx.documentfile.provider.DocumentFile
+import com.google.gson.Gson
+import com.google.gson.JsonParser
+import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.serialization.json.Json
+import me.magnum.melonds.impl.PendingSettingsRestore.Companion.CONTROLLER_FILE
+import me.magnum.melonds.impl.PendingSettingsRestore.Companion.DATA_FILES
+import me.magnum.melonds.impl.PendingSettingsRestore.Companion.KEPT_PREF_KEYS
+import me.magnum.melonds.impl.PendingSettingsRestore.Companion.LAST_VERSION_KEY
+import me.magnum.melonds.impl.PendingSettingsRestore.Companion.LAYOUTS_FILE
+import me.magnum.melonds.impl.PendingSettingsRestore.Companion.READY_MARKER
+import me.magnum.melonds.impl.PendingSettingsRestore.Companion.ROM_DATA_FILE
+import me.magnum.melonds.impl.PendingSettingsRestore.Companion.SETTINGS_FILE
+import me.magnum.melonds.impl.PendingSettingsRestore.Companion.STAGING_DIR
+import me.magnum.melonds.impl.dtos.input.ControllerConfigurationDto
+import me.magnum.melonds.impl.dtos.layout.LayoutConfigurationDto
+import me.magnum.melonds.impl.dtos.rom.RomDto
+import me.magnum.melonds.utils.PackageManagerCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileNotFoundException
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Backs up the settings to a folder and restores them from one.
+ *
+ * A restore is done in two steps. [restore] checks the backup and copies it into an app-private staging folder, and then the app
+ * restarts. On the next start, [PendingSettingsRestore] swaps the staged files and preferences in before anything else reads them. This
+ * way the repositories, which keep their data in memory and save it back to the same files, can never write old data over a restore.
+ */
 @Singleton
 class SettingsBackupManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val preferences: SharedPreferences,
+    private val gson: Gson,
+    private val json: Json,
 ) {
-    companion object {
-        private const val SETTINGS_FILE = "settings.json"
-        private const val CONTROLLER_FILE = "controller_config.json"
-        private const val LAYOUTS_FILE = "layouts.json"
-        private const val INTERNAL_LAYOUT_FILE = "internal_layout.json"
-        private const val EXTERNAL_LAYOUT_FILE = "external_layout.json"
-        private const val ROM_DATA_FILE = "rom_data.json"
-        private val EXCLUDED_PREF_KEYS = setOf(
-            "ra_username",
-            "ra_token",
-            "sram_dir",
-            "rom_search_dirs",
-            "bios_dir",
-            "dsi_bios_dir"
-        )
-        private val LONG_PREF_KEYS = setOf(
-            "ra_hash_library_last_updated",
-            "github_updates_nightly_next_check_date",
-            "github_updates_nightly_last_release_date",
-            "github_updates_last_check",
-            "last_version",
-        )
-    }
+
+    /**
+     * The backup was made by a newer version of the app. The migrations can't convert data back to an older format.
+     */
+    class BackupFromNewerVersionException : IOException("The backup was made by a newer version of the app")
 
     fun backup(treeUri: Uri) {
-        val root = DocumentFile.fromTreeUri(context, treeUri) ?: return
+        val root = DocumentFile.fromTreeUri(context, treeUri) ?: throw IOException("Could not open the backup folder")
 
-        val settingsDoc = root.findFile(SETTINGS_FILE)
-            ?: root.createFile("application/json", SETTINGS_FILE)
-            ?: return
-        context.contentResolver.openOutputStream(settingsDoc.uri)?.use { outStream ->
-            val json = JSONObject()
-            for ((key, value) in preferences.all) {
-                if (key in EXCLUDED_PREF_KEYS) continue
-                when (value) {
-                    is Boolean, is Int, is Long, is Float, is String -> json.put(key, value)
-                    is Set<*> -> {
-                        val array = JSONArray()
-                        value.forEach { array.put(it) }
-                        json.put(key, array)
-                    }
+        val settingsJson = JSONObject()
+        for ((key, value) in preferences.all) {
+            if (key in KEPT_PREF_KEYS) continue
+            when (value) {
+                is Boolean, is Int, is Long, is Float, is String -> settingsJson.put(key, value)
+                is Set<*> -> {
+                    val array = JSONArray()
+                    value.forEach { array.put(it) }
+                    settingsJson.put(key, array)
                 }
             }
-            outStream.writer().use { it.write(json.toString()) }
         }
 
-        val controllerFile = File(context.filesDir, CONTROLLER_FILE)
-        if (controllerFile.exists()) {
-            val controllerDoc = root.findFile(CONTROLLER_FILE)
-                ?: root.createFile("application/json", CONTROLLER_FILE)
-                ?: return
-            context.contentResolver.openOutputStream(controllerDoc.uri)?.use { out ->
-                controllerFile.inputStream().use { it.copyTo(out) }
+        // A restore needs settings.json, so it's removed first and written last. An interrupted backup then leaves a folder that can't be
+        // restored, instead of one with files from two different backups
+        root.findFile(SETTINGS_FILE)?.let {
+            if (!it.delete()) {
+                throw IOException("Could not replace $SETTINGS_FILE")
             }
         }
-
-        val layoutsFile = File(context.filesDir, LAYOUTS_FILE)
-        if (layoutsFile.exists()) {
-            val layoutsDoc = root.findFile(LAYOUTS_FILE)
-                ?: root.createFile("application/json", LAYOUTS_FILE)
-                ?: return
-            context.contentResolver.openOutputStream(layoutsDoc.uri)?.use { out ->
-                layoutsFile.inputStream().use { it.copyTo(out) }
-            }
-        }
-
-        val romDataFile = File(context.filesDir, ROM_DATA_FILE)
-        if (romDataFile.exists()) {
-            val romDataDoc = root.findFile(ROM_DATA_FILE)
-                ?: root.createFile("application/json", ROM_DATA_FILE)
-                ?: return
-            context.contentResolver.openOutputStream(romDataDoc.uri)?.use { out ->
-                romDataFile.inputStream().use { it.copyTo(out) }
-            }
-        }
+        DATA_FILES.forEach { backupFile(root, it) }
+        writeDocument(root, SETTINGS_FILE, settingsJson.toString().toByteArray())
     }
 
+    /**
+     * Checks the backup in [treeUri] and stages it. Nothing the app uses is changed here. The app has to restart afterwards, and the
+     * restore is applied by [PendingSettingsRestore] on the next start, even if that restart doesn't happen right away.
+     */
     fun restore(treeUri: Uri) {
-        val root = DocumentFile.fromTreeUri(context, treeUri) ?: return
+        val root = DocumentFile.fromTreeUri(context, treeUri) ?: throw IOException("Could not open the backup folder")
 
-        val settingsDoc = root.findFile(SETTINGS_FILE)
-        settingsDoc?.uri?.let { uri ->
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                val text = input.reader().readText()
-                val json = JSONObject(text)
-                val editor = preferences.edit()
-                for (key in json.keys()) {
-                    if (key in EXCLUDED_PREF_KEYS) continue
-                    val value = json.get(key)
-                    when (value) {
-                        is Boolean -> editor.putBoolean(key, value)
-                        is Int -> {
-                            if (key in LONG_PREF_KEYS) {
-                                editor.putLong(key, value.toLong())
-                            } else {
-                                editor.putInt(key, value)
-                            }
-                        }
-                        is Long -> editor.putLong(key, value)
-                        is Double -> editor.putFloat(key, value.toFloat())
-                        is String -> editor.putString(key, value)
-                        is JSONArray -> {
-                            val set = mutableSetOf<String>()
-                            for (i in 0 until value.length()) {
-                                set.add(value.getString(i))
-                            }
-                            editor.putStringSet(key, set)
-                        }
-                        is Number -> {
-                            val current = preferences.all[key]
-                            when {
-                                current is Long || key in LONG_PREF_KEYS -> editor.putLong(key, value.toLong())
-                                current is Int -> editor.putInt(key, value.toInt())
-                                current is Float -> editor.putFloat(key, value.toFloat())
-                                value is Double -> editor.putFloat(key, value.toFloat())
-                                else -> editor.putLong(key, value.toLong())
-                            }
-                        }
-                    }
-                }
-                editor.apply()
-            }
+        // Read and check every file first, so a missing or broken file never gets staged
+        val settingsText = readDocument(root, SETTINGS_FILE) ?: throw FileNotFoundException("$SETTINGS_FILE not found in the selected folder")
+        // JSONObject ignores anything after the object, so check that the whole file is a single object first
+        if (!parseWholeDocument(settingsText).isJsonObject) {
+            throw IOException("$SETTINGS_FILE is not a JSON object")
+        }
+        val settingsJson = JSONObject(settingsText)
+
+        val currentVersion = getCurrentVersion()
+        // A backup without a version is treated as being in the current format
+        val backupVersion = if (settingsJson.has(LAST_VERSION_KEY)) settingsJson.getLong(LAST_VERSION_KEY) else currentVersion
+        if (backupVersion > currentVersion) {
+            throw BackupFromNewerVersionException()
         }
 
-        val controllerDoc = root.findFile(CONTROLLER_FILE)
-        controllerDoc?.uri?.let { uri ->
-            val dest = File(context.filesDir, CONTROLLER_FILE)
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                dest.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
+        val dataFiles = DATA_FILES.mapNotNull { fileName ->
+            readDocument(root, fileName)?.let { fileName to it }
+        }
+        dataFiles.forEach { (fileName, text) ->
+            validateDataFile(fileName, text, isCurrentFormat = backupVersion == currentVersion)
         }
 
-        val layoutsDoc = root.findFile(LAYOUTS_FILE)
-        layoutsDoc?.uri?.let { uri ->
-            val dest = File(context.filesDir, LAYOUTS_FILE)
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                dest.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
+        val stagingDir = File(context.filesDir, STAGING_DIR)
+        // Also removes an earlier restore that was staged but never applied. Its marker goes first, because deleteRecursively() removes
+        // files in no particular order, and a marker left with only some of the files would apply a partial restore
+        File(stagingDir, READY_MARKER).delete()
+        stagingDir.deleteRecursively()
+        if (!stagingDir.mkdirs()) {
+            throw IOException("Could not create the restore folder")
+        }
+        File(stagingDir, SETTINGS_FILE).writeText(settingsText)
+        dataFiles.forEach { (fileName, text) ->
+            File(stagingDir, fileName).writeText(text)
+        }
+        // Written last, so a restore that was only partly staged is never applied
+        if (!File(stagingDir, READY_MARKER).createNewFile()) {
+            throw IOException("Could not mark the restore as ready")
+        }
+    }
+
+    /**
+     * Checks a data file the way the app loads it, because the loaders quietly fall back to empty data or defaults when a file can't be
+     * read, and the next save would then wipe the user's data. A backup from an older version is in an older format that only the
+     * migrations understand, so for those only the JSON itself is checked.
+     */
+    private fun validateDataFile(fileName: String, text: String, isCurrentFormat: Boolean) {
+        val document = parseWholeDocument(text)
+        val expectedStructure = if (fileName == CONTROLLER_FILE) document.isJsonObject else document.isJsonArray
+        if (!expectedStructure) {
+            throw IOException("$fileName doesn't have the expected structure")
+        }
+        if (!isCurrentFormat) {
+            return
         }
 
-        val romDataDoc = root.findFile(ROM_DATA_FILE)
-        romDataDoc?.uri?.let { uri ->
-            val dest = File(context.filesDir, ROM_DATA_FILE)
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                dest.outputStream().use { output ->
-                    input.copyTo(output)
-                }
+        // The same parsers and DTOs as SharedPreferencesSettingsRepository, InternalLayoutsRepository and FileSystemRomsRepository
+        when (fileName) {
+            CONTROLLER_FILE -> json.decodeFromString<ControllerConfigurationDto>(text).toControllerConfiguration()
+            LAYOUTS_FILE -> {
+                val layoutListType = object : TypeToken<List<LayoutConfigurationDto>>() {}.type
+                val layouts = gson.fromJson<List<LayoutConfigurationDto>>(text, layoutListType) ?: throw IOException("$fileName is empty")
+                layouts.forEach { it.toModel() }
+            }
+            ROM_DATA_FILE -> {
+                val romListType = object : TypeToken<List<RomDto>>() {}.type
+                val roms = gson.fromJson<List<RomDto>>(text, romListType) ?: throw IOException("$fileName is empty")
+                roms.forEach { it.toModel() }
             }
         }
     }
 
-    fun backupInternalLayout(treeUri: Uri) {
-        backupFilteredLayout(treeUri, INTERNAL_LAYOUT_FILE, "INTERNAL")
+    /**
+     * Parses [text] as one JSON document and fails if anything other than whitespace comes after it, like Gson and kotlinx do.
+     */
+    private fun parseWholeDocument(text: String) = JsonParser.parseString(text)
+
+    private fun getCurrentVersion(): Long {
+        val packageInfo = PackageManagerCompat.getPackageInfo(context.packageManager, context.packageName, 0)
+        return PackageInfoCompat.getLongVersionCode(packageInfo)
     }
 
-    fun backupExternalLayout(treeUri: Uri) {
-        backupFilteredLayout(treeUri, EXTERNAL_LAYOUT_FILE, "EXTERNAL")
-    }
-
-    fun restoreInternalLayout(treeUri: Uri) {
-        restoreFilteredLayout(treeUri, INTERNAL_LAYOUT_FILE, "INTERNAL")
-    }
-
-    fun restoreExternalLayout(treeUri: Uri) {
-        restoreFilteredLayout(treeUri, EXTERNAL_LAYOUT_FILE, "EXTERNAL")
-    }
-
-    private fun backupFilteredLayout(treeUri: Uri, fileName: String, target: String) {
-        val root = DocumentFile.fromTreeUri(context, treeUri) ?: return
-
-        val layoutsSrc = File(context.filesDir, LAYOUTS_FILE)
-        if (!layoutsSrc.exists()) return
-
-        val layoutsText = runCatching { layoutsSrc.readText() }.getOrNull() ?: return
-        val allLayouts = runCatching { JSONArray(layoutsText) }.getOrNull() ?: return
-        val filtered = JSONArray()
-        for (i in 0 until allLayouts.length()) {
-            val obj = allLayouts.optJSONObject(i) ?: continue
-            if (obj.optString("target") == target) {
-                filtered.put(obj)
-            }
-        }
-
-        val dest = root.findFile(fileName) ?: root.createFile("application/json", fileName) ?: return
-        context.contentResolver.openOutputStream(dest.uri)?.use { out ->
-            out.writer().use { it.write(filtered.toString()) }
-        }
-    }
-
-    private fun restoreFilteredLayout(treeUri: Uri, fileName: String, target: String) {
-        val root = DocumentFile.fromTreeUri(context, treeUri) ?: return
-        val src = root.findFile(fileName) ?: return
-
-        val backupArray = context.contentResolver.openInputStream(src.uri)?.use { input ->
-            runCatching { JSONArray(input.reader().readText()) }.getOrNull()
-        } ?: return
-
-        val layoutsFile = File(context.filesDir, LAYOUTS_FILE)
-        val existingArray = if (layoutsFile.exists()) {
-            runCatching { JSONArray(layoutsFile.readText()) }.getOrElse { JSONArray() }
+    private fun backupFile(root: DocumentFile, fileName: String) {
+        val source = File(context.filesDir, fileName)
+        if (source.isFile) {
+            writeDocument(root, fileName, source.readBytes())
         } else {
-            JSONArray()
-        }
-
-        val merged = JSONArray()
-        for (i in 0 until existingArray.length()) {
-            val obj = existingArray.optJSONObject(i) ?: continue
-            if (obj.optString("target") != target) {
-                merged.put(obj)
+            // Remove a copy left by an older backup in the same folder, so a restore doesn't bring back data that no longer exists
+            root.findFile(fileName)?.let {
+                if (!it.delete()) {
+                    throw IOException("Could not remove the old $fileName")
+                }
             }
         }
-        for (i in 0 until backupArray.length()) {
-            merged.put(backupArray.getJSONObject(i))
+    }
+
+    private fun writeDocument(root: DocumentFile, fileName: String, content: ByteArray) {
+        val existingDocument = root.findFile(fileName)
+        if (existingDocument != null) {
+            // "wt" truncates the file. Some providers don't truncate with the default "w" mode, which would leave the end of an older,
+            // longer backup in the file
+            val outputStream = runCatching { context.contentResolver.openOutputStream(existingDocument.uri, "wt") }.getOrNull()
+            if (outputStream != null) {
+                outputStream.use { it.write(content) }
+                return
+            }
+
+            // The provider doesn't support "wt". Recreate the document instead, so that "w" starts from an empty file
+            if (!existingDocument.delete()) {
+                throw IOException("Could not replace $fileName")
+            }
         }
-        layoutsFile.outputStream().use { out ->
-            out.writer().use { it.write(merged.toString()) }
-        }
+
+        val document = root.createFile("application/json", fileName) ?: throw IOException("Could not create $fileName")
+        val outputStream = context.contentResolver.openOutputStream(document.uri, "w") ?: throw IOException("Could not write $fileName")
+        outputStream.use { it.write(content) }
+    }
+
+    private fun readDocument(root: DocumentFile, fileName: String): String? {
+        val document = root.findFile(fileName) ?: return null
+        val inputStream = context.contentResolver.openInputStream(document.uri) ?: throw IOException("Could not read $fileName")
+        return inputStream.use { it.reader().readText() }
     }
 }
-

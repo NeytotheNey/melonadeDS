@@ -1,33 +1,35 @@
 package me.magnum.melonds.ui.romlist
 
 import android.content.Intent
-import android.graphics.Color
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.compose.material.AlertDialog
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.android.material.color.DynamicColors
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
+import me.magnum.melonds.MelonDSApplication
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.ConsoleType
 import me.magnum.melonds.domain.model.DownloadProgress
 import me.magnum.melonds.domain.model.RomScanningStatus
 import me.magnum.melonds.domain.model.appupdate.AppUpdate
 import me.magnum.melonds.domain.model.rom.Rom
+import me.magnum.melonds.impl.PendingSettingsRestore
 import me.magnum.melonds.parcelables.RomParcelable
 import me.magnum.melonds.ui.common.melonTextButtonColors
 import me.magnum.melonds.ui.common.rom.EmulatorLaunchValidatorDelegate
@@ -49,7 +51,9 @@ class RomListActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
-        enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT))
+        // installSplashScreen() switches to the post-splash theme, which overrides the dynamic colours applied when the activity was created
+        DynamicColors.applyToActivityIfAvailable(this, (application as MelonDSApplication).dynamicColorsOptions)
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
         val emulatorLauncherValidatorDelegate = EmulatorLaunchValidatorDelegate(this, object : EmulatorLaunchValidatorDelegate.Callback {
@@ -68,6 +72,9 @@ class RomListActivity : AppCompatActivity() {
             }
         })
 
+        // Whether a settings restore was applied when the app started. Read once, so only on the first creation of this screen
+        val restoreResult = if (savedInstanceState == null) PendingSettingsRestore.consumeResult(this) else null
+
         setContent {
             val roms by viewModel.roms.collectAsStateWithLifecycle()
             val romScanningStatus by viewModel.romScanningStatus.collectAsStateWithLifecycle(initialValue = RomScanningStatus.NOT_SCANNING)
@@ -76,6 +83,8 @@ class RomListActivity : AppCompatActivity() {
             var currentUpdate by remember { mutableStateOf<AppUpdate?>(null) }
             var downloadProgress by remember { mutableStateOf<DownloadProgress?>(null) }
             var showInvalidDirectoryDialog by remember { mutableStateOf(false) }
+            // Saveable, so the message survives a rotation, since the result can only be read once
+            var restoreResultToShow by rememberSaveable { mutableStateOf(restoreResult) }
 
             LaunchedEffect(Unit) {
                 updatesViewModel.appUpdate.collectLatest {
@@ -193,6 +202,23 @@ class RomListActivity : AppCompatActivity() {
                         confirmButton = {
                             TextButton(
                                 onClick = { showInvalidDirectoryDialog = false },
+                                colors = melonTextButtonColors(),
+                            ) {
+                                Text(stringResource(R.string.ok).uppercase())
+                            }
+                        },
+                    )
+                }
+
+                restoreResultToShow?.let { restoreSucceeded ->
+                    AlertDialog(
+                        onDismissRequest = { restoreResultToShow = null },
+                        text = {
+                            Text(stringResource(if (restoreSucceeded) R.string.settings_restore_success else R.string.settings_restore_failed_kept))
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = { restoreResultToShow = null },
                                 colors = melonTextButtonColors(),
                             ) {
                                 Text(stringResource(R.string.ok).uppercase())

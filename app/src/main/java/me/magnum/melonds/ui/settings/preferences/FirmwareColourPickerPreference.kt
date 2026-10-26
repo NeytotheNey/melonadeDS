@@ -5,10 +5,10 @@ import android.util.AttributeSet
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.appcompat.app.AlertDialog
 import androidx.core.view.children
 import androidx.preference.Preference
 import androidx.preference.PreferenceViewHolder
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import me.magnum.melonds.R
 import me.magnum.melonds.databinding.DialogFirmwareColourPickerBinding
 import me.magnum.melonds.domain.model.FirmwareColour
@@ -46,7 +46,7 @@ class FirmwareColourPickerPreference(context: Context, attrs: AttributeSet?) : P
 
         val binding = DialogFirmwareColourPickerBinding.inflate(LayoutInflater.from(context))
 
-        val alertDialog = AlertDialog.Builder(context)
+        val alertDialog = MaterialAlertDialogBuilder(context)
                 .setTitle(title)
                 .setView(binding.root)
                 .setNegativeButton(R.string.cancel) { dialog, _ ->

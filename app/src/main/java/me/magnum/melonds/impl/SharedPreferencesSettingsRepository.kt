@@ -178,6 +178,10 @@ class SharedPreferencesSettingsRepository(
         return Theme.valueOf(themePreference.uppercase())
     }
 
+    override fun isDynamicColorsEnabled(): Boolean {
+        return preferences.getBoolean("dynamic_colors", true)
+    }
+
     override fun getFastForwardSpeedMultiplier(): Float {
         val speedMultiplierPreference = preferences.getString("fast_forward_speed_multiplier", "-1")!!
         return speedMultiplierPreference.toFloat()
@@ -588,6 +592,12 @@ class SharedPreferencesSettingsRepository(
     override fun observeTheme(): Flow<Theme> {
         return getOrCreatePreferenceSharedFlow("theme") {
             getTheme()
+        }
+    }
+
+    override fun observeDynamicColorsEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow("dynamic_colors") {
+            isDynamicColorsEnabled()
         }
     }
 

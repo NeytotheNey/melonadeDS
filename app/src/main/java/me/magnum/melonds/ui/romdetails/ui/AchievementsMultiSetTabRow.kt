@@ -20,8 +20,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,8 +60,8 @@ fun AchievementsMultiSetTabRow(
     selectedSetId: Long,
     onSetSelected: (Long) -> Unit,
 ) {
-    val backgroundColor = MaterialTheme.colors.onBackground
-    val selectorIndicatorColor = MaterialTheme.colors.secondary
+    val backgroundColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val selectorIndicatorColor = MaterialTheme.colorScheme.primary
     val selectedSetIndex = remember(sets, selectedSetId) {
         sets.indexOfFirst { it.setId == selectedSetId }
     }
@@ -233,8 +233,8 @@ private fun MultiSetTab(
 
         Text(
             text = set.setTitle ?: stringResource(R.string.ra_base_set),
-            style = MaterialTheme.typography.body2,
-            color = if (selected) MaterialTheme.colors.onSecondary else MaterialTheme.colors.onSurface,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
             lineHeight = 16.sp,
             maxLines = 2,
         )

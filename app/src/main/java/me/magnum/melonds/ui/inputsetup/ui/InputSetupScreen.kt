@@ -19,13 +19,14 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Scaffold
-import androidx.compose.material.Text
-import androidx.compose.material.TopAppBar
-import androidx.compose.material.TextButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
@@ -75,6 +76,7 @@ fun InputSetupScreen(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InputSetupScreenContent(
     inputConfig: List<InputConfig>,
@@ -98,10 +100,9 @@ private fun InputSetupScreenContent(
 
     Scaffold(
         topBar = {
-            Box(Modifier.background(MaterialTheme.colors.primaryVariant).statusBarsPadding()) {
+            Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
                 TopAppBar(
                     title = { Text(stringResource(R.string.key_mapping)) },
-                    backgroundColor = MaterialTheme.colors.primary,
                     navigationIcon = {
                         IconButton(onClick = onBackClick) {
                             Icon(
@@ -114,7 +115,7 @@ private fun InputSetupScreenContent(
                 )
             }
         },
-        backgroundColor = MaterialTheme.colors.surface,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets.safeDrawing,
     ) { padding ->
         Box(Modifier.fillMaxSize().consumeWindowInsets(padding)) {
@@ -185,13 +186,13 @@ private fun Input(
 
             Text(
                 text = getInputName(config.input) ?: "",
-                style = MaterialTheme.typography.body1,
+                style = MaterialTheme.typography.bodyLarge,
             )
 
             Text(
                 text = inputString,
-                style = MaterialTheme.typography.body1,
-                color = MaterialTheme.colors.onBackground,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (config.hasKeyAssigned()) {
@@ -213,7 +214,7 @@ private fun WaitingForInputOverlay(onCancel: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colors.background.copy(alpha = 0.8f))
+            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.8f))
             .clickable(enabled = true, onClick = { })
     ) {
         Column(
@@ -222,7 +223,7 @@ private fun WaitingForInputOverlay(onCancel: () -> Unit) {
         ) {
             Text(
                 text = stringResource(R.string.waiting_for_input),
-                style = MaterialTheme.typography.h6,
+                style = MaterialTheme.typography.titleLarge,
             )
             Spacer(Modifier.height(16.dp))
             TextButton(onClick = onCancel) {

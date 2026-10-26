@@ -19,12 +19,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.Scaffold
-import androidx.compose.material.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -38,7 +40,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import coil.compose.AsyncImage
@@ -46,7 +47,7 @@ import coil.request.ImageRequest
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.Background
 
-@SuppressLint("UnusedMaterialScaffoldPaddingParameter")
+@SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @OptIn(ExperimentalLayoutApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun BackgroundPreviewScreen(
@@ -73,13 +74,17 @@ fun BackgroundPreviewScreen(
     }
 
     DisposableEffect(insetsController) {
+        // The preview is always shown on a black background, so the navigation bar icons must be light
+        val originalLightNavigationBars = insetsController.isAppearanceLightNavigationBars
+        insetsController.isAppearanceLightNavigationBars = false
         insetsController.hide(WindowInsetsCompat.Type.statusBars())
         onDispose {
+            insetsController.isAppearanceLightNavigationBars = originalLightNavigationBars
             insetsController.show(WindowInsetsCompat.Type.systemBars())
         }
     }
 
-    Scaffold(backgroundColor = Color.Black) {
+    Scaffold(containerColor = Color.Black) {
         with(sharedTransitionScope) {
             AsyncImage(
                 modifier = Modifier
@@ -112,6 +117,7 @@ fun BackgroundPreviewScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppBar(onBackClick: () -> Unit) {
     TopAppBar(
@@ -132,8 +138,12 @@ private fun AppBar(onBackClick: () -> Unit) {
                 )
             }
         },
-        elevation = 0.dp,
-        backgroundColor = Color.Transparent,
-        contentColor = Color.White,
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = Color.Transparent,
+            navigationIconContentColor = Color.White,
+            titleContentColor = Color.White,
+            actionIconContentColor = Color.White,
+        ),
+        windowInsets = WindowInsets(0),
     )
 }

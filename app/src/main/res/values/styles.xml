@@ -1,15 +1,55 @@
 <resources>
-    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/colorPrimary</item>
-        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
-        <item name="colorAccent">@color/colorAccent</item>
-        <item name="colorOnPrimary">@color/colorOnPrimary</item>
-        <item name="colorOnSecondary">@color/colorOnSecondary</item>
+    <!-- Shared by AppTheme and EmulatorTheme. These colours are used when dynamic colours are not available or are disabled -->
+    <style name="Base.AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/m3Primary</item>
+        <item name="colorOnPrimary">@color/m3OnPrimary</item>
+        <item name="colorPrimaryContainer">@color/m3PrimaryContainer</item>
+        <item name="colorOnPrimaryContainer">@color/m3OnPrimaryContainer</item>
+        <item name="colorPrimaryInverse">@color/m3InversePrimary</item>
+        <item name="colorSecondary">@color/m3Secondary</item>
+        <item name="colorOnSecondary">@color/m3OnSecondary</item>
+        <item name="colorSecondaryContainer">@color/m3SecondaryContainer</item>
+        <item name="colorOnSecondaryContainer">@color/m3OnSecondaryContainer</item>
+        <item name="colorTertiary">@color/m3Tertiary</item>
+        <item name="colorOnTertiary">@color/m3OnTertiary</item>
+        <item name="colorTertiaryContainer">@color/m3TertiaryContainer</item>
+        <item name="colorOnTertiaryContainer">@color/m3OnTertiaryContainer</item>
+        <item name="colorError">@color/m3Error</item>
+        <item name="colorOnError">@color/m3OnError</item>
+        <item name="colorErrorContainer">@color/m3ErrorContainer</item>
+        <item name="colorOnErrorContainer">@color/m3OnErrorContainer</item>
+        <item name="android:colorBackground">@color/m3Background</item>
+        <item name="colorOnBackground">@color/m3OnBackground</item>
+        <item name="colorSurface">@color/m3Surface</item>
+        <item name="colorOnSurface">@color/m3OnSurface</item>
+        <item name="colorSurfaceVariant">@color/m3SurfaceVariant</item>
+        <item name="colorOnSurfaceVariant">@color/m3OnSurfaceVariant</item>
+        <item name="colorSurfaceInverse">@color/m3InverseSurface</item>
+        <item name="colorOnSurfaceInverse">@color/m3InverseOnSurface</item>
+        <item name="colorOutline">@color/m3Outline</item>
+        <item name="colorOutlineVariant">@color/m3OutlineVariant</item>
+        <item name="colorSurfaceBright">@color/m3SurfaceBright</item>
+        <item name="colorSurfaceDim">@color/m3SurfaceDim</item>
+        <item name="colorSurfaceContainerLowest">@color/m3SurfaceContainerLowest</item>
+        <item name="colorSurfaceContainerLow">@color/m3SurfaceContainerLow</item>
+        <item name="colorSurfaceContainer">@color/m3SurfaceContainer</item>
+        <item name="colorSurfaceContainerHigh">@color/m3SurfaceContainerHigh</item>
+        <item name="colorSurfaceContainerHighest">@color/m3SurfaceContainerHighest</item>
+        <item name="colorAccent">?attr/colorPrimary</item>
+        <item name="android:colorAccent">?attr/colorPrimary</item>
+    </style>
+
+    <style name="AppTheme" parent="Base.AppTheme">
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightNavigationBar">@bool/lightNavigationBar</item>
         <item name="toolbarNavigationButtonStyle">@style/Toolbar.Button.Navigation</item>
         <item name="actionOverflowMenuStyle">@style/Menu.OverflowUnder</item>
         <item name="preferenceTheme">@style/Preference</item>
+    </style>
+
+    <!-- Applied on top of the activity theme by DynamicColors when dynamic colours are enabled -->
+    <style name="ThemeOverlay.MelonDS.DynamicColors" parent="ThemeOverlay.Material3.DynamicColors.DayNight">
+        <item name="melonDynamicColorsApplied">true</item>
     </style>
 
     <style name="SplashTheme" parent="Theme.SplashScreen">
@@ -19,41 +59,24 @@
         <item name="postSplashScreenTheme">@style/AppTheme</item>
     </style>
 
-    <style name="EmulatorTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="EmulatorTheme" parent="Base.AppTheme">
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowContentOverlay">@null</item>
         <item name="android:windowTranslucentNavigation">true</item>
-
-        <item name="colorPrimary">@color/colorPrimary</item>
-        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
-        <item name="colorAccent">@color/colorAccent</item>
     </style>
 
-    <style name="MaterialDialog" parent="Theme.MaterialComponents.DayNight.Dialog">
-        <item name="colorPrimary">@color/colorAccent</item>
-        <item name="colorAccent">@color/colorAccent</item>
-        <item name="android:colorBackground">@color/colorBackground</item>
-        <item name="colorSurface">@color/colorSurface</item>
-    </style>
-
-    <style name="Toolbar">
-        <item name="android:background">@color/colorPrimary</item>
-        <item name="android:elevation">4dp</item>
-        <item name="android:theme">@style/ThemeOverlay.AppCompat.Dark.ActionBar</item>
-        <item name="popupTheme">@style/ThemeOverlay.AppCompat.DayNight</item>
+    <!-- Matches the Compose M3 TopAppBar: surface coloured, no elevation -->
+    <style name="Toolbar" parent="Widget.Material3.Toolbar.Surface">
         <item name="titleTextAppearance">@style/Toolbar.TitleText</item>
     </style>
 
     <style name="Toolbar.Button.Navigation" parent="Widget.AppCompat.Toolbar.Button.Navigation">
-        <item name="tint">@color/colorOnPrimary</item>
+        <item name="tint">?attr/colorOnSurface</item>
     </style>
 
-    <style name="Toolbar.TitleText" parent="TextAppearance.Widget.AppCompat.Toolbar.Title">
-        <item name="android:textSize">20sp</item>
-        <item name="lineHeight">24sp</item>
-    </style>
+    <style name="Toolbar.TitleText" parent="TextAppearance.Material3.TitleLarge" />
 
     <style name="FullscreenDialog">
         <item name="android:windowEnterAnimation">@anim/dialog_slide_in</item>
@@ -66,6 +89,42 @@
 
     <style name="Preference" parent="@style/PreferenceThemeOverlay">
         <item name="android:tint">@color/buttonContrasted</item>
+        <item name="preferenceStyle">@style/PreferenceCard</item>
+        <item name="preferenceCategoryStyle">@style/PreferenceCard.Category</item>
+        <item name="dialogPreferenceStyle">@style/PreferenceCard.Dialog</item>
+        <item name="editTextPreferenceStyle">@style/PreferenceCard.EditText</item>
+        <item name="switchPreferenceStyle">@style/Preference.SwitchPreference.MaterialSwitch</item>
+        <item name="switchPreferenceCompatStyle">@style/Preference.SwitchPreferenceCompat.MaterialSwitch</item>
+    </style>
+
+    <!-- Settings rows drawn as grouped cards. The row layouts set the card background and PreferenceCardDecoration rounds its corners -->
+    <style name="PreferenceCard" parent="@style/Preference.Material">
+        <item name="android:layout">@layout/preference_card</item>
+    </style>
+
+    <style name="PreferenceCard.Category" parent="@style/Preference.Category.Material">
+        <item name="android:layout">@layout/preference_category_card</item>
+        <item name="allowDividerAbove">false</item>
+        <item name="allowDividerBelow">false</item>
+    </style>
+
+    <style name="PreferenceCard.Dialog" parent="@style/Preference.DialogPreference.Material">
+        <item name="android:layout">@layout/preference_card</item>
+    </style>
+
+    <style name="PreferenceCard.EditText" parent="@style/Preference.DialogPreference.EditTextPreference.Material">
+        <item name="android:layout">@layout/preference_card</item>
+    </style>
+
+    <!-- Use M3 switches in the preference screens. The ids must match the ones expected by SwitchPreference and SwitchPreferenceCompat -->
+    <style name="Preference.SwitchPreference.MaterialSwitch" parent="@style/Preference.SwitchPreference.Material">
+        <item name="android:layout">@layout/preference_card</item>
+        <item name="android:widgetLayout">@layout/preference_widget_material_switch</item>
+    </style>
+
+    <style name="Preference.SwitchPreferenceCompat.MaterialSwitch" parent="@style/Preference.SwitchPreferenceCompat.Material">
+        <item name="android:layout">@layout/preference_card</item>
+        <item name="android:widgetLayout">@layout/preference_widget_material_switch_compat</item>
     </style>
 
     <style name="Button.Ripple" parent="android:Widget.ImageButton">
@@ -80,6 +139,12 @@
 
     <style name="Button.Editor" parent="Widget.AppCompat.Button.Borderless">
         <item name="android:textColor">@color/textLayoutEditor</item>
+    </style>
+
+    <style name="Button.Birthday" parent="Widget.Material3.Button.TonalButton">
+        <item name="android:minWidth">0dp</item>
+        <item name="android:paddingStart">0dp</item>
+        <item name="android:paddingEnd">0dp</item>
     </style>
 
     <style name="Menu.OverflowUnder" parent="Widget.AppCompat.PopupMenu.Overflow">

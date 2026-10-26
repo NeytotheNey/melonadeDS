@@ -21,17 +21,18 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.LocalTextStyle
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.OutlinedTextField
-import androidx.compose.material.Scaffold
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
-import androidx.compose.material.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -127,6 +128,7 @@ private fun CheatFormPopupDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CheatFormFullscreenDialog(
     cheatFormState: CheatFormState,
@@ -180,16 +182,14 @@ private fun CheatFormFullscreenDialog(
                         ) {
                             Text(
                                 text = stringResource(R.string.save).uppercase(),
-                                color = MaterialTheme.colors.secondary,
+                                color = MaterialTheme.colorScheme.primary,
                             )
                         }
                     },
-                    backgroundColor = MaterialTheme.colors.surface,
-                    elevation = 0.dp,
                     windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
                 )
             },
-            backgroundColor = MaterialTheme.colors.surface,
+            containerColor = MaterialTheme.colorScheme.surface,
             contentWindowInsets = WindowInsets.safeDrawing,
         ) { padding ->
             CheatFormBody(
@@ -222,7 +222,7 @@ private fun CheatFormBody(
     ) {
         CompositionLocalProvider(
             LocalTextSelectionColors provides TextSelectionColors(
-                handleColor = MaterialTheme.colors.secondary,
+                handleColor = MaterialTheme.colorScheme.primary,
                 backgroundColor = LocalTextSelectionColors.current.backgroundColor,
             )
         ) {

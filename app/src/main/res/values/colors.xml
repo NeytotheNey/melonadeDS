@@ -1,5 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- M3 colour scheme generated from the melonDS red (#F44336). Keep in sync with LightMelonColors in ui/theme/Colors.kt -->
+    <color name="m3Primary">#B81311</color>
+    <color name="m3OnPrimary">#FFFFFF</color>
+    <color name="m3PrimaryContainer">#DC3128</color>
+    <color name="m3OnPrimaryContainer">#FFFBFF</color>
+    <color name="m3InversePrimary">#FFB4A9</color>
+    <color name="m3Secondary">#A23D32</color>
+    <color name="m3OnSecondary">#FFFFFF</color>
+    <color name="m3SecondaryContainer">#FE8172</color>
+    <color name="m3OnSecondaryContainer">#731A13</color>
+    <color name="m3Tertiary">#006576</color>
+    <color name="m3OnTertiary">#FFFFFF</color>
+    <color name="m3TertiaryContainer">#008095</color>
+    <color name="m3OnTertiaryContainer">#F9FDFF</color>
+    <color name="m3Error">#BA1A1A</color>
+    <color name="m3OnError">#FFFFFF</color>
+    <color name="m3ErrorContainer">#FFDAD6</color>
+    <color name="m3OnErrorContainer">#93000A</color>
+    <color name="m3Background">#FFF8F7</color>
+    <color name="m3OnBackground">#231918</color>
+    <color name="m3Surface">#FFF8F7</color>
+    <color name="m3OnSurface">#231918</color>
+    <color name="m3SurfaceVariant">#F5DDDA</color>
+    <color name="m3OnSurfaceVariant">#534341</color>
+    <color name="m3InverseSurface">#392E2C</color>
+    <color name="m3InverseOnSurface">#FFEDEA</color>
+    <color name="m3Outline">#857370</color>
+    <color name="m3OutlineVariant">#D8C2BE</color>
+    <color name="m3SurfaceBright">#FFF8F7</color>
+    <color name="m3SurfaceDim">#E8D6D3</color>
+    <color name="m3SurfaceContainer">#FCEAE7</color>
+    <color name="m3SurfaceContainerHigh">#F7E4E1</color>
+    <color name="m3SurfaceContainerHighest">#F1DEDC</color>
+    <color name="m3SurfaceContainerLow">#FFF0EE</color>
+    <color name="m3SurfaceContainerLowest">#FFFFFF</color>
+
     <color name="colorPrimary">#f44336</color>
     <color name="colorPrimaryDark">#d32f2f</color>
     <color name="colorAccent">@color/melonMain</color>
@@ -12,7 +48,6 @@
     <color name="textColorSecondary">#89000000</color>
 
     <color name="toolbarBackground">@color/colorPrimary</color>
-    <color name="switchThumbUnselected">#ececec</color>
 
     <color name="itemSelected">#AAA</color>
 
@@ -24,10 +59,9 @@
     <color name="divider">#DCDCDC</color>
 
     <color name="textLayoutEditor">@android:color/black</color>
+    <color name="layoutEditorPanelBackground">#AFFF</color>
 
     <color name="navigationBarBackground">#EEE</color>
-    <color name="prefSwitchRailColor">#805C913B</color>
-    <color name="prefSwitchBackground">#FCCC</color>
 
     <color name="melonMain">#5C913B</color>
     <color name="melonDark">#49732F</color>

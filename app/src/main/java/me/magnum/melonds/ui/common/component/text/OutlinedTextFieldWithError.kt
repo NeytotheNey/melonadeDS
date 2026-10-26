@@ -6,12 +6,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.LocalContentColor
-import androidx.compose.material.LocalTextStyle
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.OutlinedTextField
-import androidx.compose.material.TextFieldColors
-import androidx.compose.material.TextFieldDefaults
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextFieldColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
@@ -42,8 +42,8 @@ fun OutlinedTextFieldWithError(
     maxLines: Int = if (singleLine) 1 else Int.MAX_VALUE,
     minLines: Int = 1,
     interactionSource: MutableInteractionSource? = null,
-    shape: Shape = TextFieldDefaults.OutlinedTextFieldShape,
-    colors: TextFieldColors = TextFieldDefaults.outlinedTextFieldColors()
+    shape: Shape = OutlinedTextFieldDefaults.shape,
+    colors: TextFieldColors = OutlinedTextFieldDefaults.colors()
 ) {
     Column(
         modifier = Modifier.animateContentSize(),
@@ -74,8 +74,8 @@ fun OutlinedTextFieldWithError(
 
         if (isError && error != null) {
             CompositionLocalProvider(
-                LocalTextStyle provides MaterialTheme.typography.caption,
-                LocalContentColor provides MaterialTheme.colors.error,
+                LocalTextStyle provides MaterialTheme.typography.bodySmall,
+                LocalContentColor provides MaterialTheme.colorScheme.error,
             ) {
                 error()
             }

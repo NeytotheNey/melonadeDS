@@ -27,14 +27,15 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.Button
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Scaffold
-import androidx.compose.material.Text
-import androidx.compose.material.TopAppBar
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
@@ -81,6 +82,7 @@ import me.magnum.melonds.ui.theme.MelonTheme
 private const val FAB_ITEM_FROM_FILE = 1
 private const val FAB_ITEM_FROM_ROM_LIST = 2
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DSiWareManagerScreen(
     viewModel: DSiWareManagerViewModel,
@@ -107,10 +109,9 @@ fun DSiWareManagerScreen(
     val currentState = state
     Scaffold(
         topBar = {
-            Box(Modifier.background(MaterialTheme.colors.primaryVariant).statusBarsPadding()) {
+            Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
                 TopAppBar(
                     title = { Text(stringResource(R.string.dsiware_manager)) },
-                    backgroundColor = MaterialTheme.colors.primary,
                     navigationIcon = {
                         IconButton(onClick = onBackClick) {
                             Icon(
@@ -154,7 +155,7 @@ fun DSiWareManagerScreen(
                 }
             }
         },
-        backgroundColor = MaterialTheme.colors.surface,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets.safeDrawing,
     ) { padding ->
         when (currentState) {
@@ -196,7 +197,7 @@ fun DSiWareManagerScreen(
             properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
             onDismissRequest = { },
         ) {
-            CircularProgressIndicator(color = MaterialTheme.colors.secondary)
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
         }
     }
 
@@ -270,7 +271,7 @@ private fun Loading(modifier: Modifier) {
     Box(modifier) {
         CircularProgressIndicator(
             modifier = Modifier.align(Alignment.Center),
-            color = MaterialTheme.colors.secondary,
+            color = MaterialTheme.colorScheme.primary,
         )
     }
 }

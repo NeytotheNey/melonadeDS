@@ -5,7 +5,14 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material.*
+import androidx.compose.material3.AlertDialogDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,7 +40,7 @@ fun SingleChoiceItem(
         mutableStateOf(false)
     }
 
-    CompositionLocalProvider(LocalContentAlpha provides if (enabled) ContentAlpha.high else ContentAlpha.disabled) {
+    CompositionLocalProvider(LocalContentColor provides if (enabled) LocalContentColor.current else LocalContentColor.current.copy(alpha = 0.38f)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -45,7 +52,7 @@ fun SingleChoiceItem(
         ) {
             Text(
                 text = name,
-                style = MaterialTheme.typography.body1,
+                style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -80,7 +87,9 @@ private fun SingleChoiceDialog(
         onDismissRequest = onDismissRequest,
     ) {
         Card(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            shape = AlertDialogDefaults.shape,
+            colors = CardDefaults.cardColors(containerColor = AlertDialogDefaults.containerColor),
         ) {
             Column(Modifier.fillMaxWidth()) {
                 Box(
@@ -92,7 +101,7 @@ private fun SingleChoiceDialog(
                     Text(
                         modifier = Modifier,
                         text = title,
-                        style = MaterialTheme.typography.h6,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -136,8 +145,8 @@ private fun SingleChoiceDialog(
                     ) {
                         Text(
                             text = stringResource(id = R.string.cancel).uppercase(),
-                            style = MaterialTheme.typography.button,
-                            color = MaterialTheme.colors.secondary,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }

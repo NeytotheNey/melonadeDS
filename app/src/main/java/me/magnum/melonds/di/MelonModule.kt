@@ -58,8 +58,8 @@ object MelonModule {
 
     @Provides
     @Singleton
-    fun provideSettingsBackupManager(@ApplicationContext context: Context, sharedPreferences: SharedPreferences): SettingsBackupManager {
-        return SettingsBackupManager(context, sharedPreferences)
+    fun provideSettingsBackupManager(@ApplicationContext context: Context, sharedPreferences: SharedPreferences, gson: Gson, json: Json): SettingsBackupManager {
+        return SettingsBackupManager(context, sharedPreferences, gson, json)
     }
 
     @Provides

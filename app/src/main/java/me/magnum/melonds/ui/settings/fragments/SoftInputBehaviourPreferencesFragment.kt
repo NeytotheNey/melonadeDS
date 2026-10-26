@@ -15,10 +15,10 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.Divider
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.RadioButton
-import androidx.compose.material.Text
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,7 +87,7 @@ private fun SoftInputBehaviourPreferencesScreen() {
     ) {
         SoftInputBehaviour.entries.forEachIndexed { index, behaviour ->
             if (index > 0) {
-                Divider(modifier = Modifier.padding(start = 68.dp, end = 16.dp))
+                HorizontalDivider(modifier = Modifier.padding(start = 68.dp, end = 16.dp))
             }
 
             SoftInputBehaviourEntry(
@@ -129,11 +129,11 @@ private fun SoftInputBehaviourEntry(
         ) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.body1,
+                style = MaterialTheme.typography.bodyLarge,
             )
             CaptionText(
                 text = description,
-                style = MaterialTheme.typography.body2,
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
     }

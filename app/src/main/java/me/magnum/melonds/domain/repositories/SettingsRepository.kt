@@ -16,6 +16,7 @@ interface SettingsRepository {
     suspend fun getEmulatorConfiguration(): EmulatorConfiguration
 
     fun getTheme(): Theme
+    fun isDynamicColorsEnabled(): Boolean
     fun getFastForwardSpeedMultiplier(): Float
     fun isRewindEnabled(): Boolean
     fun getRewindWindowPosition(): RewindWindowPosition
@@ -72,6 +73,7 @@ interface SettingsRepository {
     fun areCheatsEnabled(): Boolean
 
     fun observeTheme(): Flow<Theme>
+    fun observeDynamicColorsEnabled(): Flow<Boolean>
     fun observeRomIconFiltering(): Flow<RomIconFiltering>
     fun observeRomSearchDirectories(): Flow<Array<Uri>>
     fun observeSelectedLayoutId(): Flow<UUID>

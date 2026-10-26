@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.Card
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.material3.AlertDialogDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,7 +38,11 @@ fun BaseDialog(
         onDismissRequest = onDismiss,
         //properties = DialogProperties(decorFitsSystemWindows = false),
     ) {
-        Card(Modifier.fillMaxWidth().safeDrawingPadding()) {
+        Card(
+            modifier = Modifier.fillMaxWidth().safeDrawingPadding(),
+            shape = AlertDialogDefaults.shape,
+            colors = CardDefaults.cardColors(containerColor = AlertDialogDefaults.containerColor),
+        ) {
             Column(Modifier.fillMaxWidth()) {
                 Box(
                     modifier = Modifier
@@ -46,7 +52,7 @@ fun BaseDialog(
                 ) {
                     Text(
                         text = title,
-                        style = MaterialTheme.typography.h6,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,

@@ -10,11 +10,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.Card
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.OutlinedTextField
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,7 +67,7 @@ fun RetroAchievementsLoginDialog(
                     Text(
                         modifier = Modifier,
                         text = stringResource(id = R.string.login_with_retro_achievements),
-                        style = MaterialTheme.typography.h6,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -122,7 +122,7 @@ fun RetroAchievementsLoginDialog(
                     ) {
                         Text(
                             text = stringResource(id = R.string.cancel).uppercase(),
-                            style = MaterialTheme.typography.button,
+                            style = MaterialTheme.typography.labelLarge,
                         )
                     }
 
@@ -132,7 +132,7 @@ fun RetroAchievementsLoginDialog(
                     ) {
                         Text(
                             text = stringResource(id = R.string.login).uppercase(),
-                            style = MaterialTheme.typography.button,
+                            style = MaterialTheme.typography.labelLarge,
                         )
                     }
                 }

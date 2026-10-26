@@ -3,10 +3,10 @@ package me.magnum.melonds.ui.settings.fragments
 import android.Manifest
 import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SeekBarPreference
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.MicSource
 import me.magnum.melonds.extensions.isMicrophonePermissionGranted
@@ -54,7 +54,7 @@ class AudioPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
 
     private fun requestMicrophonePermission(overrideRationaleRequest: Boolean) {
         if (!overrideRationaleRequest && shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) {
-            AlertDialog.Builder(requireContext())
+            MaterialAlertDialogBuilder(requireContext())
                 .setTitle(R.string.microphone_permission_required)
                 .setMessage(R.string.microphone_permission_required_info)
                 .setPositiveButton(R.string.ok) { _, _ -> requestMicrophonePermission(true) }

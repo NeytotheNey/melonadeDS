@@ -3,6 +3,14 @@
     <bool name="lightNavigationBar">true</bool>
     <integer name="fragment_translate_duration">250</integer>
 
+    <!-- Settings rows drawn as grouped cards -->
+    <dimen name="preference_card_margin_horizontal">16dp</dimen>
+    <dimen name="preference_card_gap">2dp</dimen>
+    <dimen name="preference_card_corner_radius_outer">24dp</dimen>
+    <dimen name="preference_card_corner_radius_inner">4dp</dimen>
+    <dimen name="preference_list_padding_bottom">24dp</dimen>
+    <item name="preference_card_background" type="id" />
+
     <fraction name="fragment_translate_enter_pop_origin">-100%</fraction>
     <fraction name="fragment_translate_enter_push_origin">100%</fraction>
     <fraction name="fragment_translate_exit_pop_destination">100%</fraction>

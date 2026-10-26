@@ -10,6 +10,7 @@
         android:paddingEnd="?attr/dialogPreferredPadding">
 
     <Button
+            style="@style/Button.Birthday"
             android:id="@+id/buttonBirthdayDayIncrease"
             android:layout_width="50sp"
             android:layout_height="wrap_content"
@@ -36,6 +37,7 @@
             tools:text="31" />
 
     <Button
+            style="@style/Button.Birthday"
             android:id="@+id/buttonBirthdayDayDecrease"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -55,6 +57,7 @@
             app:layout_constraintTop_toBottomOf="@+id/buttonBirthdayDayDecrease" />
 
     <Button
+            style="@style/Button.Birthday"
             android:id="@+id/buttonBirthdayMonthIncrease"
             android:layout_width="50sp"
             android:layout_height="wrap_content"
@@ -78,6 +81,7 @@
             tools:text="12" />
 
     <Button
+            style="@style/Button.Birthday"
             android:id="@+id/buttonBirthdayMonthDecrease"
             android:layout_width="0dp"
             android:layout_height="wrap_content"

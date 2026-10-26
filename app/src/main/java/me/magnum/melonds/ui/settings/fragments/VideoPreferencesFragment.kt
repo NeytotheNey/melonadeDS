@@ -6,17 +6,13 @@ import android.os.Bundle
 import androidx.core.content.getSystemService
 import androidx.preference.ListPreference
 import androidx.preference.Preference
+import androidx.preference.PreferenceCategory
 import dagger.hilt.android.AndroidEntryPoint
 import me.magnum.melonds.R
-import me.magnum.melonds.common.DirectoryAccessValidator
-import me.magnum.melonds.common.UriPermissionManager
 import me.magnum.melonds.domain.model.VideoRenderer
-import me.magnum.melonds.domain.model.camera.DSiCameraSourceType
 import me.magnum.melonds.domain.repositories.LayoutsRepository
 import me.magnum.melonds.domain.repositories.SettingsRepository
-import me.magnum.melonds.ui.settings.PreferenceFragmentHelper
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
-import me.magnum.melonds.ui.settings.preferences.StoragePickerPreference
 import me.magnum.melonds.utils.enumValueOfIgnoreCase
 import javax.inject.Inject
 
@@ -27,22 +23,16 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         const val GLES_3_2 = 0x30002
     }
 
-    private val helper by lazy { PreferenceFragmentHelper(this, uriPermissionManager, directoryAccessValidator) }
-    @Inject lateinit var uriPermissionManager: UriPermissionManager
-    @Inject lateinit var directoryAccessValidator: DirectoryAccessValidator
     @Inject lateinit var layoutsRepository: LayoutsRepository
     @Inject lateinit var settingsRepository: SettingsRepository
 
-    private val softwareRendererPreferences = mutableListOf<Preference>()
     private val openGlRendererPreferences = mutableListOf<Preference>()
     private val computeRendererPreferences = mutableListOf<Preference>()
+    private lateinit var renderingCategory: PreferenceCategory
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.pref_video, rootKey)
-
-        softwareRendererPreferences.apply {
-            add(findPreference("enable_threaded_rendering")!!)
-        }
+        renderingCategory = findPreference("category_display_3d_rendering")!!
 
         openGlRendererPreferences.apply {
             add(findPreference("video_internal_resolution")!!)
@@ -53,8 +43,6 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         }
 
         val rendererPreference = findPreference<ListPreference>("video_renderer")!!
-        val dsiCameraSourcePreference = findPreference<ListPreference>("dsi_camera_source")!!
-        val dsiCameraImagePreference = findPreference<StoragePickerPreference>("dsi_camera_static_image")!!
 
         val activityManager = requireContext().getSystemService<ActivityManager>()
 
@@ -83,15 +71,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
             }
         }
 
-        dsiCameraSourcePreference.setOnPreferenceChangeListener { _, newValue ->
-            updateDsiCameraImagePreference(dsiCameraImagePreference, newValue as String)
-            true
-        }
-
-        helper.setupStoragePickerPreference(dsiCameraImagePreference)
-
         onRendererPreferenceChanged(rendererPreference.value)
-        updateDsiCameraImagePreference(dsiCameraImagePreference, dsiCameraSourcePreference.value)
     }
 
     private fun onRendererPreferenceChanged(rendererValue: String) {
@@ -100,27 +80,21 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
             VideoRenderer.SOFTWARE -> {
                 computeRendererPreferences.forEach { it.isVisible = false }
                 openGlRendererPreferences.forEach { it.isVisible = false }
-                softwareRendererPreferences.forEach { it.isVisible = true }
             }
             VideoRenderer.OPENGL -> {
-                softwareRendererPreferences.forEach { it.isVisible = false }
                 computeRendererPreferences.forEach { it.isVisible = false }
                 openGlRendererPreferences.forEach { it.isVisible = true }
             }
             VideoRenderer.COMPUTE -> {
-                softwareRendererPreferences.forEach { it.isVisible = false }
                 openGlRendererPreferences.forEach { it.isVisible = false }
                 computeRendererPreferences.forEach { it.isVisible = true }
             }
         }
-    }
-
-    private fun updateDsiCameraImagePreference(preference: StoragePickerPreference, dsiCameraSourceValue: String) {
-        val newSource = enumValueOfIgnoreCase<DSiCameraSourceType>(dsiCameraSourceValue)
-        preference.isEnabled = newSource == DSiCameraSourceType.STATIC_IMAGE
+        // The renderer option is hidden on devices without GLES 3.2, which can leave the section empty
+        updateGroupVisibility(renderingCategory)
     }
 
     override fun getTitle(): String {
-        return getString(R.string.category_video)
+        return getString(R.string.settings_display)
     }
 }

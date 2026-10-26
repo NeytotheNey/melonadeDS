@@ -29,6 +29,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.findViewTreeViewModelStoreOwner
 import androidx.lifecycle.get
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.squareup.picasso.Callback
 import com.squareup.picasso.Picasso
 import me.magnum.melonds.R
@@ -410,8 +411,7 @@ class LayoutEditorManagerView(
         val instantiatedComponents = binding.viewLayoutEditor.getInstantiatedComponents()
         val componentsToShow = LayoutComponent.entries.filterNot { instantiatedComponents.contains(it) }
 
-        val themedContext = android.view.ContextThemeWrapper(context, R.style.AppTheme)
-        val dialogBuilder = AlertDialog.Builder(themedContext)
+        val dialogBuilder = MaterialAlertDialogBuilder(context)
             .setTitle(R.string.choose_component)
             .setNegativeButton(R.string.cancel) { dialog, _ ->
                 dialog.cancel()
@@ -434,8 +434,7 @@ class LayoutEditorManagerView(
         val values = MenuOption.entries
         val options = Array(values.size) { i -> resources.getString(values[i].stringRes) }
 
-        val themedContext = android.view.ContextThemeWrapper(context, R.style.AppTheme)
-        AlertDialog.Builder(themedContext)
+        MaterialAlertDialogBuilder(context)
             .setTitle(R.string.menu)
             .setItems(options) { _, which -> onMenuOptionSelected(values[which]) }
             .setNegativeButton(R.string.cancel, null)

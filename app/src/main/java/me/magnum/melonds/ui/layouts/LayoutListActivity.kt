@@ -1,8 +1,6 @@
 package me.magnum.melonds.ui.layouts
 
-import android.graphics.Color
 import android.os.Bundle
-import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -18,7 +16,7 @@ class LayoutListActivity : AppCompatActivity() {
     private val viewModel: LayoutsViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT))
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
             MelonTheme {

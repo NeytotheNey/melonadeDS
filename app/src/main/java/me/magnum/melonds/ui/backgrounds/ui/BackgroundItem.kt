@@ -15,16 +15,16 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.Card
-import androidx.compose.material.DropdownMenu
-import androidx.compose.material.DropdownMenuItem
-import androidx.compose.material.ExperimentalMaterialApi
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -91,7 +91,7 @@ fun NoneBackgroundItem(
     )
 }
 
-@OptIn(ExperimentalMaterialApi::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun BackgroundItemBase(
     backgroundId: String?,
@@ -111,13 +111,13 @@ private fun BackgroundItemBase(
         modifier = if (isSelected) {
             Modifier.border(
                 width = 4.dp,
-                color = MaterialTheme.colors.secondary,
+                color = MaterialTheme.colorScheme.primary,
                 shape = MaterialTheme.shapes.medium,
             )
         } else {
             Modifier
         },
-        elevation = 4.dp,
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         onClick = onClick,
     ) {
         Column(
@@ -172,21 +172,19 @@ private fun BackgroundItemBase(
                             onDismissRequest = { isOptionsPopupVisible = false },
                         ) {
                             DropdownMenuItem(
+                                text = { Text(stringResource(R.string.preview)) },
                                 onClick = {
                                     isOptionsPopupVisible = false
                                     onPreviewClick()
                                 },
-                            ) {
-                                Text(stringResource(R.string.preview))
-                            }
+                            )
                             DropdownMenuItem(
+                                text = { Text(stringResource(R.string.delete)) },
                                 onClick = {
                                     isOptionsPopupVisible = false
                                     onDeleteClick()
                                 },
-                            ) {
-                                Text(stringResource(R.string.delete))
-                            }
+                            )
                         }
                     }
                 }

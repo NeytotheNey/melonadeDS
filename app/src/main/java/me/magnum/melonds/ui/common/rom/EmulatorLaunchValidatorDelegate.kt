@@ -4,10 +4,10 @@ import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.ConfigurationDirResult
@@ -70,7 +70,7 @@ class EmulatorLaunchValidatorDelegate(
     }
 
     private fun showIncorrectConfigurationDirectoryDialogForFirmware(configurationDirResult: ConfigurationDirResult) {
-        AlertDialog.Builder(context)
+        MaterialAlertDialogBuilder(context)
             .setTitle(R.string.firmware_launch_failed)
             .setMessage(R.string.firmware_launch_bad_setup)
             .setPositiveButton(R.string.settings) { _, _ ->
@@ -85,7 +85,7 @@ class EmulatorLaunchValidatorDelegate(
     }
 
     private fun showIncorrectConfigurationDirectoryDialogForRom(configurationDirResult: ConfigurationDirResult) {
-        AlertDialog.Builder(context)
+        MaterialAlertDialogBuilder(context)
             .setTitle(R.string.rom_launch_failed)
             .setMessage(R.string.rom_launch_custom_bios_firmware_bad_setup)
             .setPositiveButton(R.string.settings) { _, _ ->
@@ -106,7 +106,7 @@ class EmulatorLaunchValidatorDelegate(
             RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed.Reason.TitleNotInstalled -> context.getString(R.string.failed_launch_dsiware_title_not_installed)
         }
 
-        AlertDialog.Builder(context)
+        MaterialAlertDialogBuilder(context)
             .setTitle(R.string.failed_launch_dsiware_title)
             .setMessage(message)
             .setPositiveButton(R.string.dsiware_manager) { _, _ ->
@@ -121,7 +121,7 @@ class EmulatorLaunchValidatorDelegate(
     }
 
     private fun showInvalidDirectoryAccessDialog() {
-        AlertDialog.Builder(context)
+        MaterialAlertDialogBuilder(context)
             .setTitle(R.string.error_invalid_directory)
             .setMessage(R.string.error_invalid_directory_description)
             .setPositiveButton(R.string.ok, null)

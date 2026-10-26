@@ -44,6 +44,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.squareup.picasso.Picasso
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
@@ -165,6 +166,7 @@ class EmulatorActivity : AppCompatActivity() {
     lateinit var appForegroundStateObserver: AppForegroundStateObserver
 
     private var presentation: ExternalPresentation? = null
+    private var pauseMenuDialog: AlertDialog? = null
 
     private lateinit var handler: Handler
     private val displayListener = object : DisplayManager.DisplayListener {
@@ -699,7 +701,7 @@ class EmulatorActivity : AppCompatActivity() {
             viewModel.pauseEmulator(false)
 
             activeOverlays.addActiveOverlay(EmulatorOverlay.SWITCH_NEW_ROM_DIALOG)
-            AlertDialog.Builder(this)
+            MaterialAlertDialogBuilder(this)
                     .setTitle(getString(R.string.title_emulator_running))
                     .setMessage(getString(R.string.message_stop_emulation))
                     .setPositiveButton(R.string.ok) { _, _ ->
@@ -858,12 +860,17 @@ class EmulatorActivity : AppCompatActivity() {
     }
 
     private fun showPauseMenu(pauseMenu: PauseMenu) {
+        // Ignore repeated requests (e.g. a quick double tap on the menu button) while the menu is already open
+        if (pauseMenuDialog?.isShowing == true) {
+            return
+        }
+
         val options = Array(pauseMenu.options.size) {
             getString(pauseMenu.options[it].textResource)
         }
 
         activeOverlays.addActiveOverlay(EmulatorOverlay.PAUSE_MENU)
-        AlertDialog.Builder(this)
+        pauseMenuDialog = MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.pause)
                 .setItems(options) { _, which ->
                     val selectedOption = pauseMenu.options[which]
@@ -932,7 +939,7 @@ class EmulatorActivity : AppCompatActivity() {
 
         activeOverlays.addActiveOverlay(EmulatorOverlay.SAVE_STATES_DIALOG)
 
-        dialog = AlertDialog.Builder(this)
+        dialog = MaterialAlertDialogBuilder(this)
             .setTitle(getString(R.string.save_slot))
             .setView(recyclerView)
             .setNegativeButton(R.string.cancel) { _dialog, _ ->
@@ -949,7 +956,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     private fun showRomLoadErrorDialog() {
         activeOverlays.addActiveOverlay(EmulatorOverlay.ROM_LOAD_ERROR_DIALOG)
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setCancelable(false)
             .setTitle(R.string.error_load_rom)
             .setMessage(R.string.error_load_rom_message)
@@ -962,7 +969,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     private fun showRomNotFoundDialog(romPath: String) {
         activeOverlays.addActiveOverlay(EmulatorOverlay.ROM_NOT_FOUND_DIALOG)
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle(R.string.error_rom_not_found)
             .setMessage(getString(R.string.error_rom_not_found_info, romPath))
             .setPositiveButton(R.string.ok) { _, _ ->
@@ -976,7 +983,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     private fun showFirmwareLoadErrorDialog(error: EmulatorState.FirmwareLoadError) {
         activeOverlays.addActiveOverlay(EmulatorOverlay.FIRMWARE_LOAD_ERROR_DIALOG)
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setCancelable(false)
             .setTitle(R.string.error_load_firmware)
             .setMessage(resources.getString(R.string.error_load_firmware_message, error.reason.toString()))

@@ -3,37 +3,47 @@
         xmlns:android="http://schemas.android.com/apk/res/android"
         xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <me.magnum.melonds.ui.settings.preferences.StoragePickerPreference
-            android:key="rom_search_dirs"
-            android:title="@string/rom_search_directory"
-            app:iconSpaceReserved="false"
-            app:selection="multi"
-            app:type="directory"
-            app:permissions="read_write"
-            app:persistPermissions="true" />
+    <PreferenceCategory android:title="@string/settings_section_folders">
 
-    <ListPreference
-            android:key="rom_icon_filtering"
-            android:title="@string/rom_icon_filtering"
-            android:summary="%s"
-            app:iconSpaceReserved="false"
-            android:entries="@array/rom_icon_filtering_options"
-            android:entryValues="@array/rom_icon_filtering_values"
-            android:defaultValue="none" />
+        <me.magnum.melonds.ui.settings.preferences.StoragePickerPreference
+                android:key="rom_search_dirs"
+                android:title="@string/rom_search_directory"
+                android:widgetLayout="@layout/preference_widget_chevron"
+                app:iconSpaceReserved="false"
+                app:selection="multi"
+                app:type="directory"
+                app:permissions="read_write"
+                app:persistPermissions="true" />
+    </PreferenceCategory>
 
-    <!-- 7 steps of cache size. Real cache size is equal to 128MB * (2 ^ rom_cache_max_size) -->
-    <SeekBarPreference
-            android:key="rom_cache_max_size"
-            android:title="@string/max_rom_cache_size"
-            app:iconSpaceReserved="false"
-            app:updatesContinuously="true"
-            android:defaultValue="3"
-            app:min="0"
-            android:max="6" />
+    <PreferenceCategory android:title="@string/settings_section_icons">
 
-    <Preference
-            android:key="rom_cache_clear"
-            android:title="@string/clear_extracted_rom_cache"
-            android:summary="@string/cache_size_calculating"
-            app:iconSpaceReserved="false" />
+        <ListPreference
+                android:key="rom_icon_filtering"
+                android:title="@string/rom_icon_filtering"
+                android:summary="%s"
+                app:iconSpaceReserved="false"
+                android:entries="@array/rom_icon_filtering_options"
+                android:entryValues="@array/rom_icon_filtering_values"
+                android:defaultValue="none" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/settings_section_rom_cache">
+
+        <!-- 7 steps of cache size. Real cache size is equal to 128MB * (2 ^ rom_cache_max_size) -->
+        <me.magnum.melonds.ui.settings.preferences.SliderPreference
+                android:key="rom_cache_max_size"
+                android:title="@string/max_rom_cache_size"
+                app:iconSpaceReserved="false"
+                app:updatesContinuously="true"
+                android:defaultValue="3"
+                app:min="0"
+                android:max="6" />
+
+        <Preference
+                android:key="rom_cache_clear"
+                android:title="@string/clear_extracted_rom_cache"
+                android:summary="@string/cache_size_calculating"
+                app:iconSpaceReserved="false" />
+    </PreferenceCategory>
 </PreferenceScreen>

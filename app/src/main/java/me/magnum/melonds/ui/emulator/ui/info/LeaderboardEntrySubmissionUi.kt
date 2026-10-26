@@ -3,8 +3,8 @@ package me.magnum.melonds.ui.emulator.ui.info
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,11 +43,11 @@ internal fun LeaderboardEntrySubmissionUi(
             Column(Modifier.padding(start = 4.dp)) {
                 Text(
                     text = info.title,
-                    style = MaterialTheme.typography.caption.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
                 )
                 Text(
                     text = stringResource(R.string.leaderboard_submission_info, info.formattedScore, info.rank, info.numberOfEntries),
-                    style = MaterialTheme.typography.caption,
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
         }

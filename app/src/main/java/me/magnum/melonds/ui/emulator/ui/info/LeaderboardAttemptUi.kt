@@ -7,8 +7,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,12 +70,12 @@ internal fun LeaderboardAttemptUi(
                     Column(Modifier.padding(start = 4.dp)) {
                         Text(
                             text = stringResource(R.string.leaderboard_attempt_started),
-                            style = MaterialTheme.typography.caption.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
                             maxLines = 1,
                         )
                         Text(
                             text = info.leaderboard.title,
-                            style = MaterialTheme.typography.caption,
+                            style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
                         )
                     }
@@ -84,7 +84,7 @@ internal fun LeaderboardAttemptUi(
                     Text(
                         modifier = Modifier.padding(start = 4.dp),
                         text = info.currentValue,
-                        style = MaterialTheme.typography.body1,
+                        style = MaterialTheme.typography.bodyLarge,
                     )
                 }
             }

@@ -18,26 +18,25 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.ContentAlpha
-import androidx.compose.material.DropdownMenu
-import androidx.compose.material.DropdownMenuItem
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.LocalContentAlpha
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Scaffold
-import androidx.compose.material.Text
-import androidx.compose.material.TextField
-import androidx.compose.material.TextFieldDefaults
-import androidx.compose.material.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SortByAlpha
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -57,7 +56,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.unit.dp
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.ConsoleType
 import me.magnum.melonds.domain.model.SortingMode
@@ -104,7 +102,7 @@ fun RomListScreen(
             }
         },
         topBar = {
-            Box(Modifier.background(MaterialTheme.colors.primaryVariant).statusBarsPadding()) {
+            Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
                 if (isSearchActive) {
                     SearchTopBar(
                         query = searchQuery,
@@ -132,7 +130,7 @@ fun RomListScreen(
                 }
             }
         },
-        backgroundColor = MaterialTheme.colors.surface,
+        containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets.safeDrawing,
     ) { padding ->
         if (hasSearchDirectories) {
@@ -160,6 +158,7 @@ fun RomListScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RomListTopBar(
     showOverflowMenu: Boolean,
@@ -174,159 +173,161 @@ private fun RomListTopBar(
     var showSortMenu by remember { mutableStateOf(false) }
     var showFirmwareMenu by remember { mutableStateOf(false) }
 
-    val actionFocusRequesters = remember { List(4) { FocusRequester() } }
+    val actionFocusRequesters = remember { List(5) { FocusRequester() } }
     var lastFocusedActionIndex by rememberSaveable { mutableIntStateOf(-1) }
 
     TopAppBar(
         title = {
             Text(stringResource(R.string.app_name))
         },
-        backgroundColor = MaterialTheme.colors.primary,
-        contentColor = MaterialTheme.colors.onPrimary,
         windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
         actions = {
-            CompositionLocalProvider(LocalContentAlpha provides ContentAlpha.high) {
-                Row(
-                    modifier = Modifier.onFocusChanged { focusState ->
-                        if (focusState.isFocused) {
-                            if (lastFocusedActionIndex != -1) {
-                                actionFocusRequesters[lastFocusedActionIndex].requestFocus()
-                            } else {
-                                actionFocusRequesters.first().requestFocus()
-                            }
+            Row(
+                modifier = Modifier.onFocusChanged { focusState ->
+                    if (focusState.isFocused) {
+                        if (lastFocusedActionIndex != -1) {
+                            actionFocusRequesters[lastFocusedActionIndex].requestFocus()
+                        } else {
+                            actionFocusRequesters.first().requestFocus()
                         }
-                    }.focusable(),
+                    }
+                }.focusable(),
+            ) {
+                IconButton(
+                    modifier = Modifier.focusRequester(actionFocusRequesters[0]).onFocusChanged {
+                        if (it.isFocused) lastFocusedActionIndex = 0
+                    },
+                    onClick = onSearchClick,
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = stringResource(R.string.action_search_roms),
+                    )
+                }
+
+                // Sort menu
+                Box {
                     IconButton(
-                        modifier = Modifier.focusRequester(actionFocusRequesters[0]).onFocusChanged {
-                            if (it.isFocused) lastFocusedActionIndex = 0
+                        modifier = Modifier.focusRequester(actionFocusRequesters[1]).onFocusChanged {
+                            if (it.isFocused) lastFocusedActionIndex = 1
                         },
-                        onClick = onSearchClick,
+                        onClick = { showSortMenu = true },
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = stringResource(R.string.action_search_roms),
+                            painter = painterResource(R.drawable.ic_sort),
+                            contentDescription = stringResource(R.string.action_sort_roms),
                         )
                     }
-
-                    // Sort menu
-                    Box {
-                        IconButton(
-                            modifier = Modifier.focusRequester(actionFocusRequesters[1]).onFocusChanged {
-                                if (it.isFocused) lastFocusedActionIndex = 1
-                            },
-                            onClick = { showSortMenu = true },
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_sort),
-                                contentDescription = stringResource(R.string.action_sort_roms),
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showSortMenu,
-                            onDismissRequest = { showSortMenu = false },
-                        ) {
-                            DropdownMenuItem(onClick = {
+                    DropdownMenu(
+                        expanded = showSortMenu,
+                        onDismissRequest = { showSortMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_sort_alphabetically)) },
+                            onClick = {
                                 showSortMenu = false
                                 onSortChange(SortingMode.ALPHABETICALLY)
-                            }) {
+                            },
+                            leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.SortByAlpha,
                                     contentDescription = null,
                                 )
-                                Text(
-                                    modifier = Modifier.padding(start = 8.dp),
-                                    text = stringResource(R.string.action_sort_alphabetically),
-                                )
-                            }
-                            DropdownMenuItem(onClick = {
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_sort_recently_played)) },
+                            onClick = {
                                 showSortMenu = false
                                 onSortChange(SortingMode.RECENTLY_PLAYED)
-                            }) {
+                            },
+                            leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.AccessTime,
                                     contentDescription = null,
                                 )
-                                Text(
-                                    modifier = Modifier.padding(start = 8.dp),
-                                    text = stringResource(R.string.action_sort_recently_played),
-                                )
-                            }
-                        }
-                    }
-
-                    // Firmware boot menu
-                    Box {
-                        IconButton(
-                            modifier = Modifier.focusRequester(actionFocusRequesters[2]).onFocusChanged {
-                                if (it.isFocused) lastFocusedActionIndex = 2
                             },
-                            onClick = { showFirmwareMenu = true },
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_firmware),
-                                contentDescription = stringResource(R.string.action_boot_firmware),
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showFirmwareMenu,
-                            onDismissRequest = { showFirmwareMenu = false },
-                        ) {
-                            DropdownMenuItem(
-                                onClick = {
-                                    showFirmwareMenu = false
-                                    onFirmwareBoot(ConsoleType.DS)
-                                },
-                            ) {
-                                Text(stringResource(R.string.console_ds))
-                            }
-                            DropdownMenuItem(
-                                onClick = {
-                                    showFirmwareMenu = false
-                                    onFirmwareBoot(ConsoleType.DSi)
-                                },
-                            ) {
-                                Text(stringResource(R.string.console_dsi))
-                            }
-                        }
+                        )
                     }
+                }
 
-                    // Overflow menu
-                    Box {
-                        IconButton(
-                            modifier = Modifier.focusRequester(actionFocusRequesters[3]).onFocusChanged {
-                                if (it.isFocused) lastFocusedActionIndex = 3
+                // Firmware boot menu
+                Box {
+                    IconButton(
+                        modifier = Modifier.focusRequester(actionFocusRequesters[2]).onFocusChanged {
+                            if (it.isFocused) lastFocusedActionIndex = 2
+                        },
+                        onClick = { showFirmwareMenu = true },
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_firmware),
+                            contentDescription = stringResource(R.string.action_boot_firmware),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showFirmwareMenu,
+                        onDismissRequest = { showFirmwareMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.console_ds)) },
+                            onClick = {
+                                showFirmwareMenu = false
+                                onFirmwareBoot(ConsoleType.DS)
                             },
-                            onClick = { onOverflowMenuChange(true) },
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = null,
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showOverflowMenu,
-                            onDismissRequest = { onOverflowMenuChange(false) },
-                        ) {
-                            DropdownMenuItem(onClick = {
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.console_dsi)) },
+                            onClick = {
+                                showFirmwareMenu = false
+                                onFirmwareBoot(ConsoleType.DSi)
+                            },
+                        )
+                    }
+                }
+
+                IconButton(
+                    modifier = Modifier.focusRequester(actionFocusRequesters[3]).onFocusChanged {
+                        if (it.isFocused) lastFocusedActionIndex = 3
+                    },
+                    onClick = onNavigateToSettings,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = stringResource(R.string.settings),
+                    )
+                }
+
+                // Overflow menu
+                Box {
+                    IconButton(
+                        modifier = Modifier.focusRequester(actionFocusRequesters[4]).onFocusChanged {
+                            if (it.isFocused) lastFocusedActionIndex = 4
+                        },
+                        onClick = { onOverflowMenuChange(true) },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = null,
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showOverflowMenu,
+                        onDismissRequest = { onOverflowMenuChange(false) },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.dsiware_manager)) },
+                            onClick = {
                                 onOverflowMenuChange(false)
                                 onNavigateToDsiWareManager()
-                            }) {
-                                Text(stringResource(R.string.dsiware_manager))
-                            }
-                            DropdownMenuItem(onClick = {
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_refresh_rom_list)) },
+                            onClick = {
                                 onOverflowMenuChange(false)
                                 onRefresh()
-                            }) {
-                                Text(stringResource(R.string.action_refresh_rom_list))
-                            }
-                            DropdownMenuItem(onClick = {
-                                onOverflowMenuChange(false)
-                                onNavigateToSettings()
-                            }) {
-                                Text(stringResource(R.string.settings))
-                            }
-                        }
+                            },
+                        )
                     }
                 }
             }
@@ -334,6 +335,7 @@ private fun RomListTopBar(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SearchTopBar(
     query: String,
@@ -348,39 +350,37 @@ private fun SearchTopBar(
     }
 
     TopAppBar(
-        backgroundColor = MaterialTheme.colors.primary,
-        contentColor = MaterialTheme.colors.onPrimary,
-        windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
-    ) {
-        TextField(
-            modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
-            value = query,
-            onValueChange = onQueryChange,
-            placeholder = {
-                Text(
-                    text = stringResource(R.string.hint_search_roms),
-                    color = MaterialTheme.colors.onPrimary.copy(alpha = 0.6f),
+        navigationIcon = {
+            IconButton(onClick = onClose) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = stringResource(R.string.close),
                 )
-            },
-            leadingIcon = {
-                IconButton(onClick = onClose) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.close),
-                        tint = MaterialTheme.colors.onPrimary,
+            }
+        },
+        title = {
+            TextField(
+                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                value = query,
+                onValueChange = onQueryChange,
+                textStyle = MaterialTheme.typography.bodyLarge,
+                placeholder = {
+                    Text(
+                        text = stringResource(R.string.hint_search_roms),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                }
-            },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
-            colors = TextFieldDefaults.textFieldColors(
-                textColor = MaterialTheme.colors.onPrimary,
-                backgroundColor = Color.Transparent,
-                cursorColor = MaterialTheme.colors.onPrimary,
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-            ),
-        )
-    }
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                ),
+            )
+        },
+        windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
+    )
 }

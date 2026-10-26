@@ -6,8 +6,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.OutlinedTextField
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -41,7 +41,7 @@ fun TextInputDialog(
             content = { padding ->
                 CompositionLocalProvider(
                     LocalTextSelectionColors provides TextSelectionColors(
-                        handleColor = MaterialTheme.colors.secondary,
+                        handleColor = MaterialTheme.colorScheme.primary,
                         backgroundColor = LocalTextSelectionColors.current.backgroundColor,
                     )
                 ) {

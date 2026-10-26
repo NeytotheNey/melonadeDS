@@ -1,8 +1,8 @@
 package me.magnum.melonds.ui.common.component.text
 
-import androidx.compose.material.LocalContentColor
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
@@ -35,9 +35,10 @@ fun CaptionText(
     maxLines: Int = Int.MAX_VALUE,
     minLines: Int = 1,
     onTextLayout: (TextLayoutResult) -> Unit = {},
-    style: TextStyle = MaterialTheme.typography.caption,
+    style: TextStyle = MaterialTheme.typography.bodySmall,
 ) {
-    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colors.onBackground) {
+    // Keep the alpha of the current content colour so that captions inside disabled items are also shown as disabled
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = LocalContentColor.current.alpha)) {
         Text(
             text = text,
             modifier = modifier,

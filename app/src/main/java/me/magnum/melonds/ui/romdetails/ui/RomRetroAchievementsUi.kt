@@ -16,12 +16,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
-import androidx.compose.material.Button
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.Divider
-import androidx.compose.material.LinearProgressIndicator
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -154,7 +154,7 @@ private fun Loading(modifier: Modifier) {
         modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
-        CircularProgressIndicator(color = MaterialTheme.colors.secondary)
+        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
     }
 }
 
@@ -230,7 +230,7 @@ private fun Ready(
                 modifier = Modifier.fillMaxWidth().focusable(),
                 achievementsSummary = selectedSet.setSummary,
             )
-            Divider(Modifier.fillMaxWidth())
+            HorizontalDivider(Modifier.fillMaxWidth())
         }
 
         items(
@@ -273,7 +273,7 @@ private fun Header(
                 append(')')
             },
             inlineContent = mapOf(
-                "icon-points" to InlineTextContent(Placeholder(MaterialTheme.typography.body1.fontSize, MaterialTheme.typography.body1.fontSize, PlaceholderVerticalAlign.Center)) {
+                "icon-points" to InlineTextContent(Placeholder(MaterialTheme.typography.bodyLarge.fontSize, MaterialTheme.typography.bodyLarge.fontSize, PlaceholderVerticalAlign.Center)) {
                     Image(
                         modifier = Modifier.fillMaxSize(),
                         painter = painterResource(id = R.drawable.ic_points),
@@ -290,7 +290,7 @@ private fun Header(
                 append(stringResource(id = R.string.completed_achievements, achievementsSummary.completedAchievements, achievementsSummary.totalAchievements, achievementsSummary.completedPercentage))
             },
             inlineContent = mapOf(
-                "icon-completed" to InlineTextContent(Placeholder(MaterialTheme.typography.body1.fontSize, MaterialTheme.typography.body1.fontSize, PlaceholderVerticalAlign.Center)) {
+                "icon-completed" to InlineTextContent(Placeholder(MaterialTheme.typography.bodyLarge.fontSize, MaterialTheme.typography.bodyLarge.fontSize, PlaceholderVerticalAlign.Center)) {
                     Image(
                         modifier = Modifier.fillMaxSize(),
                         painter = painterResource(id = R.drawable.ic_completed),
@@ -305,8 +305,8 @@ private fun Header(
                 .fillMaxWidth()
                 .height(6.dp)
                 .clip(RoundedCornerShape(50)),
-            progress = achievementsSummary.completedAchievements / achievementsSummary.totalAchievements.toFloat(),
-            color = MaterialTheme.colors.secondary,
+            progress = { achievementsSummary.completedAchievements / achievementsSummary.totalAchievements.toFloat() },
+            color = MaterialTheme.colorScheme.primary,
         )
     }
 }

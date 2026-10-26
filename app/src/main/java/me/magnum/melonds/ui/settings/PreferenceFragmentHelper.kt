@@ -1,13 +1,12 @@
 package me.magnum.melonds.ui.settings
 
 import androidx.activity.result.ActivityResultCallback
-import androidx.appcompat.app.AlertDialog
 import androidx.core.net.toUri
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceManager
-import com.smp.masterswitchpreference.MasterSwitchPreference
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import me.magnum.melonds.R
 import me.magnum.melonds.common.DirectoryAccessValidator
 import me.magnum.melonds.common.UriPermissionManager
@@ -52,10 +51,6 @@ class PreferenceFragmentHelper(
                     val birthdayString = (value as String?) ?: "01/01"
                     preference.summary = birthdayString
                 }
-                is MasterSwitchPreference -> {
-                    val isOn = (value as Boolean)
-                    preference.summary = if (isOn) preference.context.getString(R.string.on) else preference.context.getString(R.string.off)
-                }
                 is MacAddressPreference -> {
                     val addressString = value as String?
                     preference.summary = addressString ?: preference.context.getString(R.string.not_set)
@@ -78,10 +73,9 @@ class PreferenceFragmentHelper(
         preference.addOnPreferenceChangeListener(sBindPreferenceSummaryToValueListener)
 
         // Trigger the listener immediately with the preference's current value. Special handling
-        // for directory pickers and master switches since they can't be converted to string
+        // for directory pickers since they can't be converted to string
         val initialValue: Any? = when (preference) {
             is StoragePickerPreference -> PreferenceManager.getDefaultSharedPreferences(preference.context).getStringSet(preference.key, null)
-            is MasterSwitchPreference -> PreferenceManager.getDefaultSharedPreferences(preference.context).getBoolean(preference.key, false)
             else -> PreferenceManager.getDefaultSharedPreferences(preference.context).getString(preference.key, null)
         }
         sBindPreferenceSummaryToValueListener.onPreferenceChange(preference, initialValue)
@@ -143,7 +137,7 @@ class PreferenceFragmentHelper(
     }
 
     private fun showInvalidDirectoryAccessDialog() {
-        AlertDialog.Builder(fragment.requireContext())
+        MaterialAlertDialogBuilder(fragment.requireContext())
             .setTitle(R.string.error_invalid_directory)
             .setMessage(R.string.error_invalid_directory_description)
             .setPositiveButton(R.string.ok, null)

@@ -17,9 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.Card
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -106,13 +106,13 @@ fun AchievementPopupUi(
                         Column(Modifier.padding(start = 8.dp)) {
                             Text(
                                 text = stringResource(id = R.string.achievement_unlocked),
-                                style = MaterialTheme.typography.body2,
+                                style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                             )
                             Text(
                                 text = achievement.getCleanTitle(),
-                                style = MaterialTheme.typography.body2,
+                                style = MaterialTheme.typography.bodyMedium,
                                 maxLines = 1,
                             )
                         }
@@ -121,7 +121,7 @@ fun AchievementPopupUi(
                         Text(
                             modifier = Modifier.padding(start = 8.dp),
                             text = achievement.description,
-                            style = MaterialTheme.typography.body2,
+                            style = MaterialTheme.typography.bodyMedium,
                         )
                     }
                 }

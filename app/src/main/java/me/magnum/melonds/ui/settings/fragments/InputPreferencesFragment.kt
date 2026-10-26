@@ -3,6 +3,7 @@ package me.magnum.melonds.ui.settings.fragments
 import android.content.Intent
 import android.os.Bundle
 import androidx.preference.Preference
+import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SeekBarPreference
 import androidx.preference.SwitchPreference
@@ -22,7 +23,7 @@ class InputPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
 
     private lateinit var softInputBehaviourPreference: SoftwareInputBehaviourPreference
 
-    override fun getTitle() = getString(R.string.input)
+    override fun getTitle() = getString(R.string.settings_controls)
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.pref_input, rootKey)
@@ -36,6 +37,7 @@ class InputPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
             touchVibratePreference.isVisible = false
         }
         vibrationStrengthPreference.isVisible = false
+        updateGroupVisibility(findPreference<PreferenceCategory>("category_controls_vibration")!!)
 
         vibrationStrengthPreference.setOnPreferenceChangeListener { _, newValue ->
             val strength = newValue as Int

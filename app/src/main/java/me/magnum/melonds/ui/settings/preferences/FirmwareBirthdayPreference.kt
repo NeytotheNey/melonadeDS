@@ -4,8 +4,8 @@ import android.content.Context
 import android.util.AttributeSet
 import android.view.LayoutInflater
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.preference.Preference
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import me.magnum.melonds.R
 import me.magnum.melonds.databinding.DialogFirmwareBirthdayBinding
 import java.text.NumberFormat
@@ -36,7 +36,7 @@ class FirmwareBirthdayPreference(context: Context, attrs: AttributeSet?) : Prefe
         super.onClick()
         val binding = DialogFirmwareBirthdayBinding.inflate(LayoutInflater.from(context))
 
-        AlertDialog.Builder(context)
+        MaterialAlertDialogBuilder(context)
                 .setTitle(title)
                 .setView(binding.root)
                 .setPositiveButton(R.string.ok) { dialog, _ ->

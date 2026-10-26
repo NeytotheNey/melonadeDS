@@ -2,9 +2,9 @@ package me.magnum.melonds.ui.settings.fragments
 
 import android.net.Uri
 import android.os.Bundle
-import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.viewModels
 import androidx.preference.ListPreference
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
 import me.magnum.melonds.R
 import me.magnum.melonds.common.DirectoryAccessValidator
@@ -54,7 +54,7 @@ class CustomFirmwarePreferencesFragment : BasePreferenceFragment(), PreferenceFr
                     ConsoleType.DSi -> R.string.dsi_incorrect_bios_dir_info
                 }
 
-                AlertDialog.Builder(requireContext())
+                MaterialAlertDialogBuilder(requireContext())
                         .setMessage(textRes)
                         .setPositiveButton(R.string.ok, null)
                         .show()

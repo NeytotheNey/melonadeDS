@@ -1,8 +1,8 @@
 package me.magnum.melonds.ui.emulator.ui.info
 
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
@@ -26,7 +26,7 @@ internal fun AchievementProgressUi(progressInfo: AchievementProgress) {
         Text(
             modifier = Modifier.padding(start = 4.dp),
             text = progressInfo.progress,
-            style = MaterialTheme.typography.body1,
+            style = MaterialTheme.typography.bodyLarge,
         )
     }
 }

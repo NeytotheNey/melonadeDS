@@ -7,9 +7,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.Card
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,14 +53,14 @@ fun RAIntegrationEventUi(modifier: Modifier, event: RAIntegrationEvent) {
                     Column {
                         Text(
                             text = stringResource(id = R.string.achievements_failed_load),
-                            style = MaterialTheme.typography.body2,
+                            style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colors.error,
+                            color = MaterialTheme.colorScheme.error,
                             maxLines = 1,
                         )
                         Text(
                             text = stringResource(id = R.string.achievements_failed_load_tip),
-                            style = MaterialTheme.typography.body2,
+                            style = MaterialTheme.typography.bodyMedium,
                             maxLines = 1,
                         )
                     }
@@ -69,14 +69,14 @@ fun RAIntegrationEventUi(modifier: Modifier, event: RAIntegrationEvent) {
                     Column {
                         Text(
                             text = stringResource(id = R.string.achievements_login_expired),
-                            style = MaterialTheme.typography.body2,
+                            style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colors.error,
+                            color = MaterialTheme.colorScheme.error,
                             maxLines = 1,
                         )
                         Text(
                             text = stringResource(id = R.string.achievements_login_expired_tip),
-                            style = MaterialTheme.typography.body2,
+                            style = MaterialTheme.typography.bodyMedium,
                             maxLines = 1,
                         )
                     }
@@ -84,7 +84,7 @@ fun RAIntegrationEventUi(modifier: Modifier, event: RAIntegrationEvent) {
                 is RAIntegrationEvent.LoadedNoAchievements -> {
                     Text(
                         text = stringResource(id = R.string.game_has_no_achievements),
-                        style = MaterialTheme.typography.body2,
+                        style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
                     )
                 }
@@ -92,13 +92,13 @@ fun RAIntegrationEventUi(modifier: Modifier, event: RAIntegrationEvent) {
                     Column {
                         Text(
                             text = stringResource(id = R.string.achievements_loaded),
-                            style = MaterialTheme.typography.body2,
+                            style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                         )
                         Text(
                             text = stringResource(id = R.string.achievements_unlocked_compact, event.unlockedAchievements, event.totalAchievements),
-                            style = MaterialTheme.typography.body2,
+                            style = MaterialTheme.typography.bodyMedium,
                             maxLines = 1,
                         )
                     }

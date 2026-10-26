@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen
+        xmlns:android="http://schemas.android.com/apk/res/android"
+        xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory android:title="@string/settings_section_look">
+
+        <ListPreference
+                android:key="theme"
+                android:title="@string/theme"
+                android:summary="%s"
+                app:iconSpaceReserved="false"
+                android:entries="@array/theme_options"
+                android:entryValues="@array/theme_values"
+                android:defaultValue="light" />
+
+        <SwitchPreference
+                android:key="dynamic_colors"
+                android:title="@string/dynamic_colors"
+                android:summary="@string/dynamic_colors_summary"
+                app:iconSpaceReserved="false"
+                android:defaultValue="true" />
+    </PreferenceCategory>
+
+    <!-- Shown or hidden by settings_backup_restore_enabled in feature_switches.xml -->
+    <PreferenceCategory
+            android:title="@string/settings_section_backup_restore"
+            app:isPreferenceVisible="@bool/settings_backup_restore_enabled">
+
+        <Preference
+                android:key="backup_settings"
+                android:title="@string/backup_settings"
+                android:summary="@string/backup_settings_summary"
+                app:iconSpaceReserved="false" />
+
+        <Preference
+                android:key="restore_settings"
+                android:title="@string/restore_settings"
+                android:summary="@string/restore_settings_summary"
+                app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+</PreferenceScreen>

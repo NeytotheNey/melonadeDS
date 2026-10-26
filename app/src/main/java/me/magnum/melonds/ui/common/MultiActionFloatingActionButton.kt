@@ -4,10 +4,10 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.FloatingActionButton
-import androidx.compose.material.Icon
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,7 +46,7 @@ fun MultiActionFloatingActionButton(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(50),
-                        elevation = 4.dp,
+                        shadowElevation = 4.dp,
                     ) {
                         Text(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
