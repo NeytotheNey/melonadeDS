@@ -5,6 +5,7 @@ import android.view.View
 import me.magnum.melonds.common.vibration.TouchVibrator
 import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.Point
+import me.magnum.melonds.ui.common.view.PressedInputsView
 import kotlin.math.pow
 
 abstract class MultiButtonInputHandler(inputListener: IInputListener, enableHapticFeedback: Boolean, touchVibrator: TouchVibrator) : FeedbackInputHandler(inputListener, enableHapticFeedback, touchVibrator) {
@@ -62,8 +63,10 @@ abstract class MultiButtonInputHandler(inputListener: IInputListener, enableHapt
             inputListener.onKeyReleased(it)
         }
 
+        var pressedInputsChanged = false
         if (tempInputList.isNotEmpty()) {
             performHapticFeedback(v, HapticFeedbackType.KEY_RELEASE)
+            pressedInputsChanged = true
         }
 
         tempInputList.clear()
@@ -75,10 +78,15 @@ abstract class MultiButtonInputHandler(inputListener: IInputListener, enableHapt
 
         if (tempInputList.isNotEmpty()) {
             performHapticFeedback(v, HapticFeedbackType.KEY_PRESS)
+            pressedInputsChanged = true
         }
 
         pressedInputs.clear()
         pressedInputs.addAll(newPressedInputs)
+
+        if (pressedInputsChanged) {
+            (v as? PressedInputsView)?.setPressedInputs(pressedInputs)
+        }
 
         return true
     }

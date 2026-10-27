@@ -9,12 +9,18 @@ class SingleButtonInputHandler(inputListener: IInputListener, private val input:
     override fun onTouch(v: View, event: MotionEvent): Boolean {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
+                v.isPressed = true
                 inputListener.onKeyPress(input)
                 performHapticFeedback(v, HapticFeedbackType.KEY_PRESS)
             }
             MotionEvent.ACTION_UP -> {
+                v.isPressed = false
                 inputListener.onKeyReleased(input)
                 performHapticFeedback(v, HapticFeedbackType.KEY_RELEASE)
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                v.isPressed = false
+                inputListener.onKeyReleased(input)
             }
         }
         return true

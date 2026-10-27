@@ -17,6 +17,9 @@ open class LayoutView(context: Context, attrs: AttributeSet?) : FrameLayout(cont
         layoutDirection = LAYOUT_DIRECTION_LTR
     }
 
+    // Component views draw their own pressed state, so the layout being pressed shouldn't propagate to them
+    override fun dispatchSetPressed(pressed: Boolean) {}
+
     fun setLayoutComponentViewBuilderFactory(factory: LayoutComponentViewBuilderFactory) {
         viewBuilderFactory = factory
     }

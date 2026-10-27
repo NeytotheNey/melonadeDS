@@ -2,11 +2,11 @@ package me.magnum.melonds.ui.emulator.input.view
 
 import android.content.Context
 import android.util.AttributeSet
-import androidx.appcompat.widget.AppCompatImageView
+import me.magnum.melonds.ui.common.view.PressableImageView
 
 class ToggleableImageView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null
-) : AppCompatImageView(context, attrs) {
+) : PressableImageView(context, attrs) {
 
     var enabledDrawable: Int? = null
     var disabledDrawable: Int? = null
