@@ -10,7 +10,6 @@ std::weak_ptr<MelonDSAndroid::MelonInstance> activeInstance;
 
 std::shared_ptr<oboe::AudioStream> audioStream;
 std::shared_ptr<OboeCallback> outputCallback;
-std::shared_ptr<oboe::StabilizedCallback> stabilizedOutputCallback;
 
 std::shared_ptr<oboe::AudioStream> micInputStream;
 std::shared_ptr<MicInputOboeCallback> micInputCallback;
@@ -46,7 +45,6 @@ namespace MelonDSAndroid
         }
 
         outputCallback = std::make_shared<OboeCallback>(volume, resetAudioOutputStream);
-        stabilizedOutputCallback = std::make_shared<oboe::StabilizedCallback>(outputCallback.get());
 
         outputCallback->activeInstance = activeInstance;
 
@@ -59,16 +57,16 @@ namespace MelonDSAndroid
         streamBuilder.setPerformanceMode(performanceMode);
         streamBuilder.setSharingMode(oboe::SharingMode::Shared);
         streamBuilder.setUsage(oboe::Usage::Game);
-        streamBuilder.setDataCallback(stabilizedOutputCallback);
-        streamBuilder.setErrorCallback(stabilizedOutputCallback);
+        streamBuilder.setDataCallback(outputCallback);
+        streamBuilder.setErrorCallback(outputCallback);
 
         oboe::Result result = streamBuilder.openStream(audioStream);
-        audioStream->setPerformanceHintEnabled(true);
-        audioStream->setBufferSizeInFrames(std::min(audioStream->getBufferCapacityInFrames(), 2048));
         if (result != oboe::Result::OK) {
             Log(Error, "Failed to init audio stream");
             outputCallback = nullptr;
-            stabilizedOutputCallback = nullptr;
+        } else {
+            audioStream->setPerformanceHintEnabled(true);
+            audioStream->setBufferSizeInFrames(std::min(audioStream->getBufferCapacityInFrames(), 2048));
         }
     }
 
@@ -82,7 +80,6 @@ namespace MelonDSAndroid
 
             audioStream = nullptr;
             outputCallback = nullptr;
-            stabilizedOutputCallback = nullptr;
         }
     }
 
