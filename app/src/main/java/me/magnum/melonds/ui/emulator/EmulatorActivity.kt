@@ -202,6 +202,13 @@ class EmulatorActivity : AppCompatActivity() {
     private val frontendInputHandler = object : FrontendInputHandler() {
         var fastForwardEnabled = false
             private set
+        private var fastForwardHoldActive = false
+        /**
+         * Whether fast-forward is actually running, either through the toggle or while the hold input is pressed. Only the toggle is reflected in
+         * the on-screen fast-forward button.
+         */
+        val isFastForwardActive: Boolean
+            get() = fastForwardEnabled || fastForwardHoldActive
         var microphoneEnabled = true
             private set
 
@@ -218,19 +225,50 @@ class EmulatorActivity : AppCompatActivity() {
             setFastForwardEnabled(!fastForwardEnabled)
         }
 
+        override fun onFastForwardHoldPressed() {
+            setFastForwardHoldActive(true)
+        }
+
+        override fun onFastForwardHoldReleased() {
+            setFastForwardHoldActive(false)
+        }
+
         /**
          * Turns fast-forward off. Used when a new ROM or firmware starts, since the emulator starts without fast-forward.
          */
         fun resetFastForward() {
+            fastForwardHoldActive = false
             setFastForwardEnabled(false)
+        }
+
+        /**
+         * Stops a held fast-forward. Used when key events stop reaching the input handler (activity paused, focus lost or an overlay shown), since
+         * the key release might never arrive.
+         */
+        fun releaseFastForwardHold() {
+            setFastForwardHoldActive(false)
         }
 
         private fun setFastForwardEnabled(enabled: Boolean) {
             fastForwardEnabled = enabled
             binding.viewLayoutControls.setLayoutComponentToggleState(LayoutComponent.BUTTON_FAST_FORWARD_TOGGLE, fastForwardEnabled)
             presentation?.layoutView?.setLayoutComponentToggleState(LayoutComponent.BUTTON_FAST_FORWARD_TOGGLE, fastForwardEnabled)
-            MelonEmulator.setFastForwardEnabled(fastForwardEnabled)
-            frameRenderCoordinator.setFastForwardActive(fastForwardEnabled)
+            applyFastForwardState()
+        }
+
+        private fun setFastForwardHoldActive(active: Boolean) {
+            // Key repeats send the press again while the key is held. Skip them
+            if (fastForwardHoldActive == active) {
+                return
+            }
+            fastForwardHoldActive = active
+            applyFastForwardState()
+        }
+
+        private fun applyFastForwardState() {
+            val active = isFastForwardActive
+            MelonEmulator.setFastForwardEnabled(active)
+            frameRenderCoordinator.setFastForwardActive(active)
             updateDisplayModeLock(ContextCompat.getDisplayOrDefault(this@EmulatorActivity))
         }
 
@@ -295,6 +333,8 @@ class EmulatorActivity : AppCompatActivity() {
             presentation?.setPauseOverlayVisibility(false)
         },
         onOverlaysPresent = {
+            // Key events aren't forwarded to the input handler while overlays are shown, so the hold's release would be lost
+            frontendInputHandler.releaseFastForwardHold()
             enableScreenTimeOut()
             presentation?.setPauseOverlayVisibility(true)
         }
@@ -754,6 +794,10 @@ class EmulatorActivity : AppCompatActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus) {
+            // Key events stop arriving without focus, so the hold's release would be lost
+            frontendInputHandler.releaseFastForwardHold()
+        }
         setupFullscreen()
     }
 
@@ -789,7 +833,7 @@ class EmulatorActivity : AppCompatActivity() {
      * refresh rate.
      */
     private fun updateDisplayModeLock(display: Display) {
-        val lockActive = displayLock60HzEnabled && !frontendInputHandler.fastForwardEnabled
+        val lockActive = displayLock60HzEnabled && !frontendInputHandler.isFastForwardActive
         val preferredModeId = if (lockActive) (display.find60HzMode()?.modeId ?: 0) else 0
         val attributes = window.attributes
         // Changing the mode triggers onDisplayChanged(), which ends up here again. Only update the window when the mode actually changes
@@ -1066,6 +1110,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        frontendInputHandler.releaseFastForwardHold()
         enableScreenTimeOut()
         choreographerFrameRenderer.stopRendering()
         emulatorMotionManager.pause()
