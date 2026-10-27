@@ -1,6 +1,6 @@
 # Handoff: melonadeDS
 
-Branch `material3`, 19 commits on top of `8480c8fc` (Material 3 UI). Pushed to the private repo `origin` = github.com/NeytotheNey/melonadeDS (project name: melonadeDS). `upstream` = rafaelvcaetano/melonDS-android, fetch only (push URL set to `no_push`). Kept out of git with the local exclude: `build-*.log` and `perf_logs/`.
+Branch `material3`, 30 commits on top of `8480c8fc` (Material 3 UI). The last 6 (the video filter work, `17a5b1f6` onwards) aren't pushed yet; the rest are on the private repo `origin` = github.com/NeytotheNey/melonadeDS (project name: melonadeDS). `upstream` = rafaelvcaetano/melonDS-android, fetch only (push URL set to `no_push`). Kept out of git with the local exclude: `build-*.log` and `perf_logs/`.
 
 | Commit | What |
 |---|---|
@@ -18,6 +18,10 @@ Branch `material3`, 19 commits on top of `8480c8fc` (Material 3 UI). Pushed to t
 | `116fa1ce` | Layout editor phase 1: floating menu button, gesture-nav fixes, Save, discard confirm |
 | `5261e80c` | Layout editor: pill toolbar, expandable panel, corner resize handles |
 | `e3c2b59e` | Layout editor: snap grid (centred), fold and screen-to-screen snapping |
+| `17a5b1f6`, `c4fddc92` | Video filters: real frame size, Scale2x, two-pass FXAA |
+| `27c7c64e` | Video filter: Sharp (no shimmer) |
+| `0240eddd` | Video filter: MMPX, plus an output scale for filter pre-passes |
+| `9557cb59` | "DS screen colours" setting |
 
 ## Build and install
 
@@ -90,43 +94,33 @@ Compared against DraStic's shaders in `C:\Dev\drastic\decoded\assets\shaders` (`
 - Phone check (cover screen, BW2): all filters look right at 1x on the menu; Scale2x, 2xBR and FXAA also checked at OpenGL 2x on the menu and overworld. FXAA at 2x keeps text sharp and smooths 3D edges with no tearing. Screenshots in `perf_logs/filter-shots/`.
 - Notes: Scanlines exists but isn't in the settings list (was already so upstream). 2xBR is Hyllian's 2011 version and barely changes anything; xBR-lv2 would be an upgrade. LCD darkens the whole picture. Later candidates from DraStic: SMAA, Lottes CRT (DraStic sets its `res` to the target size, which breaks the scanlines; use the DS size).
 
-### In progress: Sharp, MMPX, DS screen colours
+### Sharp, MMPX, DS screen colours (done, phone-tested)
 
-Plan approved 2026-10-27 (full version: `C:\Users\neyto\.claude\plans\buzzing-purring-deer.md`). Sources, read with `gh api repos/libretro/<repo>/contents/<path> --jq .content | base64 -d`:
+Sources, read with `gh api repos/libretro/<repo>/contents/<path> --jq .content | base64 -d`:
 - sharp-shimmerless: `slang-shaders` `pixel-art-scaling/shaders/sharp-shimmerless.slang`, zadpos, public domain
-- MMPX: `glsl-shaders` `scalenx/shaders/mmpx.glsl`, McGuire & Gagiu, MIT (keep the notice)
+- MMPX: `glsl-shaders` `scalenx/shaders/mmpx.glsl`, McGuire & Gagiu, MIT (notice kept in the shader comment)
 - nds-color: `glsl-shaders` `handheld/shaders/color/nds-color.glsl`, hunterk/Pokefan531, public domain
 
-**1. Sharp (no shimmer): written, compiles. Uncommitted, not reviewed, not built or phone-tested.**
-- `SharpShader` in `ShaderProgramSource.kt`: a `#version 300 es` shader (for `fwidth`), LINEAR, `VideoFiltering.SHARP` / `sharp` / "Sharp (no shimmer)" added at the end of the enum, provider and all 8 settings arrays.
-- Per axis: `t = uv*texSize`, `d = clamp(fwidth(t), 1e-5, 1)`, sample at `floor(t+d/2) - 0.5 + w`, where `w` is the pixel's share past the texel boundary (capped at 1, so a pixel inside one texel samples its centre). Bilinear then blends by area.
-- At 8x (texels smaller than phone pixels) `d` caps at 1, which is plain linear filtering. On the cover screen it's sharp up to about 4x.
-- `SCREEN_BAND_FUNCTIONS` is now split: a shared range part plus `sampleScreen` for ES 1.00 (`texture2D`), and `SCREEN_BAND_FUNCTIONS_300` (`texture()`). The ES 1.00 text is unchanged.
-- The frame texture is CLAMP_TO_EDGE (`FrameQueue.cpp`), so the left/right edges behave like Linear.
+**Sharp (no shimmer)** (`27c7c64e`)
+- `SharpShader` in `ShaderProgramSource.kt` is `#version 300 es` (for `fwidth`), LINEAR. Per axis: `t = uv*texSize`, `d = clamp(fwidth(t), 1e-5, 1)`, sample at `floor(t+d/2) - 0.5 + w`, where `w` is the pixel's share past the texel boundary (capped at 1). Bilinear then blends the boundary pixel by area; everything else samples a texel centre.
+- `SCREEN_BAND_FUNCTIONS` is split into a shared range part plus `sampleScreen` for ES 1.00, and `SCREEN_BAND_FUNCTIONS_300` for 300 es.
+- At 8x texels are smaller than phone pixels, so `d` caps at 1 and it's plain linear downscaling.
+- Phone check: at 1x every DS pixel is 4.875 phone pixels on average (None mixes 4- and 5-wide columns), with one blended column per edge. No line at the screen gap. 2x and 8x clean, 60 FPS at 8x.
 
-**2. Pipeline output scale + MMPX: not started.**
-- `VideoFilter.prePasses` entries become `PrePass(source, scale = 1, nativeResolutionOnly = false)`.
-- Viewport per pass (it's set once today), FBO at input × scale, `texSize` = the pass's input size.
-- `renderPrePasses` returns the final texture and its size. The renderers set the screen shader's `texSize` from that, not from the frame size. The cache keys on it.
-- `nativeResolutionOnly` skips the pass when the frame is bigger than 256x386.
-- MMPX = pre-pass (scale 2, native only, NEAREST) + Sharp as the screen shader. All taps go through `sampleScreen` (it reaches ±3). Luma on real RGB, write the frame's BGR order back like FXAA's pre-pass.
-- The source's orientation (B = `srcY-1`, `fract().y < 0.5` = top quadrants) matches our v, so it ports as-is. `MMPX` / `mmpx` / "MMPX" go at the end of the lists.
+**MMPX** (`0240eddd`)
+- Pre-passes are now `FilterPrePass(source, scale = 1, nativeResolutionOnly = false)`. Each pass gets its own viewport and an FBO at input × scale, with `texSize` = its input size. `renderPrePasses` returns a reused `FilterOutput` (texture + size), and the renderers set the screen shader's `texSize` from it. Native-only passes are skipped when the frame is bigger than 256x386.
+- MMPX = `MmpxPrePassShader` (2x, native only, NEAREST, all taps through `sampleScreen`, luma on real RGB, writes BGR back) + Sharp as the screen shader.
+- Phone check: at 1x it rounds sprite curves and smooths slanted 3D lines while leaving straight lines and square corners alone. It lines up with Sharp to the pixel (no shift). At 2x the pre-pass is skipped and every still pixel is identical to Sharp at 2x.
 
-**3. DS screen colours: not started.**
-- A SwitchPreference "DS screen colours" (Image category, default off), plumbed like `video_filtering`: `SharedPreferencesSettingsRepository` (`combine` goes 5 → 6), `SettingsRepository`, `RendererConfiguration`, `RuntimeRendererConfiguration`, `EmulatorViewModel` ~770, then the renderers rebuild their pipeline.
-- `ShaderFactory` inserts `#define COLOR_CORRECTION` (after `#version` if present). A shared `finishColor()` snippet goes in every screen shader, never in pre-passes:
-  `c = clamp(pow(c,1.91)*0.89,0,1)`, then `R'=.87R+.255G-.125B`, `G'=.10R+.645G+.255B`, `B'=.10R+.17G+.73B`, then clamp (R' can go negative), then `pow(c,1/1.91)`.
-- Screenshots stay uncorrected (native `ScreenshotRenderer.cpp` skips filters).
+**DS screen colours** (`9557cb59`)
+- Switch in Settings → Video → Image, key `video_ds_screen_colors`, default off. Plumbed like `video_filtering`. `SharedPreferencesSettingsRepository` pairs it with the filter flow, so `combine` still has 5 inputs. The perf logger records it as `ds_screen_colors`.
+- `ShaderFactory` inserts `#define COLOR_CORRECTION` (after `#version` if present) into screen shaders only. `COLOR_FUNCTIONS`' `finishColor()` ends every screen shader: `pow(clamp(c),1.91)*0.89` → matrix (new R = .87R+.255G−.125B, new G = .10R+.645G+.255B, new B = .10R+.17G+.73B) → clamp → `pow(1/1.91)`. Pre-passes never get it. Screenshots/save-state thumbnails stay uncorrected (native, no filters).
+- `ExternalLayoutRender` doesn't get it, the same as it never gets the filter (inherited, it's not instantiated anyway).
+- Phone check: white goes to 240, colours go paler and cooler, and the setting applies on return from settings and switches back cleanly. Screenshots of the colour change don't match the formula exactly for saturated colours. That's because the phone is in Display P3 ("Vivid" screen mode) and screencap returns that colour space: the measured transform has the same eigenvalues as the formula's matrix, so it's the same transform in a different space. Vivid mode also partly undoes the paler look; "Natural" shows it as intended.
 
-**Then:**
-1. A fresh review agent goes over the whole diff.
-2. Build and install.
-3. Phone checks:
-   - Sharp at 1x: every DS pixel the same width, no shimmer when scrolling. Also check 2x and 8x.
-   - MMPX at 1x and 2x.
-   - DS colours on/off with None and with MMPX.
-   - Existing filters unchanged with colours off.
-4. One commit per feature.
+Review: a fresh agent found no defects. It compiled every shader string in ANGLE with and without the define, ran MMPX against a CPU port of the original (0 mismatches; flipped orientation gave 17k), and checked Sharp against an exact area-weighted reference. Its two small findings (non-ASCII characters in shader comments, the perf logger missing the setting) were fixed in the commits above.
+
+All other filters checked by eye with colours off, and logcat shows no `ShaderFactory` errors. Screenshots in `perf_logs/filter-shots/`.
 
 ## Performance work (done, parked)
 
