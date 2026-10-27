@@ -61,6 +61,14 @@ private:
     std::unique_ptr<u8[]> SecondaryBuffer;
     u32 SecondaryBufferLength;
 
+    // Serializes FlushSecondaryBuffer() calls. Kept separate from SecondaryBufferLock
+    // so that CheckFlush() never has to wait for file I/O.
+    Platform::Mutex* FlushLock;
+    // Snapshot of SecondaryBuffer that gets written to the file outside of SecondaryBufferLock.
+    // Only touched while holding FlushLock.
+    std::unique_ptr<u8[]> WriteBuffer;
+    u32 WriteBufferLength;
+
     time_t TimeAtLastFlushRequest;
 
     // We keep versions in case the user closes the application before

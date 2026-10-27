@@ -28,6 +28,11 @@ SaveManager::SaveManager(std::string path)
     SecondaryBufferLength = 0;
     SecondaryBufferLock = Platform::Mutex_Create();
 
+    FlushLock = Platform::Mutex_Create();
+    WriteBuffer = nullptr;
+    WriteBufferLength = 0;
+
+    Thread = nullptr;
     Running = false;
 
     Path = path;
@@ -57,9 +62,12 @@ SaveManager::~SaveManager()
     }
 
     SecondaryBuffer = nullptr;
+    WriteBuffer = nullptr;
 
+    Platform::Mutex_Free(FlushLock);
     Platform::Mutex_Free(SecondaryBufferLock);
-    Platform::Thread_Free(Thread);
+    if (Thread)
+        Platform::Thread_Free(Thread);
 
     Buffer = nullptr;
 }
@@ -170,24 +178,47 @@ void SaveManager::FlushSecondaryBuffer(u8* dst, u32 dstLength)
     // When flushing to memory, we don't know if dst already has any data so we only check that we CAN flush.
     if (dst && dstLength < SecondaryBufferLength) return;
 
-    Platform::Mutex_Lock(SecondaryBufferLock);
+    Platform::Mutex_Lock(FlushLock);
     if (dst)
     {
+        Platform::Mutex_Lock(SecondaryBufferLock);
         memcpy(dst, SecondaryBuffer.get(), SecondaryBufferLength);
+        PreviousFlushVersion = FlushVersion;
+        TimeAtLastFlushRequest = 0;
+        Platform::Mutex_Unlock(SecondaryBufferLock);
     }
     else
     {
+        // Only hold SecondaryBufferLock long enough to snapshot the data. Holding it during
+        // the file write would stall the emulator thread in CheckFlush() on slow storage.
+        Platform::Mutex_Lock(SecondaryBufferLock);
+        if (WriteBufferLength != SecondaryBufferLength)
+        {
+            WriteBufferLength = SecondaryBufferLength;
+            WriteBuffer = std::make_unique<u8[]>(WriteBufferLength);
+        }
+
+        memcpy(WriteBuffer.get(), SecondaryBuffer.get(), WriteBufferLength);
+        u32 version = FlushVersion;
+        Platform::Mutex_Unlock(SecondaryBufferLock);
+
         FileHandle* f = Platform::OpenFile(Path, FileMode::Write);
         if (f)
         {
-            FileWrite(SecondaryBuffer.get(), SecondaryBufferLength, 1, f);
-            Log(LogLevel::Info, "SaveManager: Wrote %u bytes to %s\n", SecondaryBufferLength, Path.c_str());
+            FileWrite(WriteBuffer.get(), WriteBufferLength, 1, f);
+            Log(LogLevel::Info, "SaveManager: Wrote %u bytes to %s\n", WriteBufferLength, Path.c_str());
             CloseFile(f);
         }
+
+        // Only mark the version we wrote as flushed. If a flush was requested during the write,
+        // leave its timestamp alone so that it still gets its own debounced write.
+        Platform::Mutex_Lock(SecondaryBufferLock);
+        PreviousFlushVersion = version;
+        if (FlushVersion == version)
+            TimeAtLastFlushRequest = 0;
+        Platform::Mutex_Unlock(SecondaryBufferLock);
     }
-    PreviousFlushVersion = FlushVersion;
-    TimeAtLastFlushRequest = 0;
-    Platform::Mutex_Unlock(SecondaryBufferLock);
+    Platform::Mutex_Unlock(FlushLock);
 }
 
 bool SaveManager::NeedsFlush()
