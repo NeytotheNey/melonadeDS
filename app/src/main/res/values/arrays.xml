@@ -57,6 +57,7 @@
         <item>scale2x</item>
         <item>fxaa</item>
         <item>sharp</item>
+        <item>mmpx</item>
     </string-array>
 
     <string-array name="dsi_camera_source_values">

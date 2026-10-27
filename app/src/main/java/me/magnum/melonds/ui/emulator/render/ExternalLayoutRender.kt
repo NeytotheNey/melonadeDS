@@ -208,7 +208,8 @@ class ExternalLayoutRender(
     override fun drawFrame(presentFrameWrapper: PresentFrameWrapper) {
         // Runs before anything is drawn to the surface. Returns the frame texture itself for filters without pre-passes. Also called for
         // invalid frames, which clear its cache
-        val textureId = filter.renderPrePasses(presentFrameWrapper)
+        val screenTexture = filter.renderPrePasses(presentFrameWrapper)
+        val textureId = screenTexture.textureId
         if (!presentFrameWrapper.isValidFrame) {
             return
         }
@@ -222,7 +223,8 @@ class ExternalLayoutRender(
         }
 
         shader.use()
-        shader.setTextureSize(presentFrameWrapper.textureWidth, presentFrameWrapper.textureHeight)
+        // A pre-pass with a scale makes the texture bigger than the frame
+        shader.setTextureSize(screenTexture.width, screenTexture.height)
         GLES30.glDisableVertexAttribArray(shader.attribAlpha)
 
         posTop?.let { buf ->

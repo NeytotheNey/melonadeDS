@@ -2,9 +2,30 @@ package me.magnum.melonds.common.opengl
 
 import android.opengl.GLES30
 import android.util.Log
+import me.magnum.melonds.domain.model.SCREEN_HEIGHT
+import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+
+/**
+ * The texture that a [VideoFilterPipeline]'s screen shader should draw, and its size in texels. The pipeline owns one instance and
+ * updates it on every [VideoFilterPipeline.renderPrePasses] call, so read it before the next one.
+ */
+class FilterOutput {
+    var textureId = 0
+        private set
+    var width = 0
+        private set
+    var height = 0
+        private set
+
+    internal fun set(textureId: Int, width: Int, height: Int) {
+        this.textureId = textureId
+        this.width = width
+        this.height = height
+    }
+}
 
 /**
  * The GL objects of a [VideoFilter]: the compiled screen shader and, if the filter has pre-passes, their shaders and offscreen textures. Must be
@@ -15,10 +36,16 @@ class VideoFilterPipeline(filter: VideoFilter) {
     private companion object {
         const val TAG = "VideoFilterPipeline"
         val COLOR_ATTACHMENTS = intArrayOf(GLES30.GL_COLOR_ATTACHMENT0)
+        // Size of the frame texture when the 3D renderer isn't upscaled: both screens and the 2 empty lines between them
+        const val NATIVE_TEXTURE_WIDTH = SCREEN_WIDTH
+        const val NATIVE_TEXTURE_HEIGHT = SCREEN_HEIGHT * 2 + 2
     }
 
     val screenShader: Shader = ShaderFactory.createShaderProgram(filter.screenShader)
-    private val prePasses = filter.prePasses.map { PrePass(ShaderFactory.createShaderProgram(it)) }
+    private val prePasses = filter.prePasses.map { PrePass(ShaderFactory.createShaderProgram(it.source), it.scale, it.nativeResolutionOnly) }
+
+    // Returned by renderPrePasses(). Reused so that no garbage is created on every frame
+    private val output = FilterOutput()
 
     // Full-target quad shared by all the pre-passes. Created on first use
     private var quadVao = 0
@@ -29,6 +56,10 @@ class VideoFilterPipeline(filter: VideoFilter) {
     private var lastFrameSequence = 0L
     private var lastFrameWidth = 0
     private var lastFrameHeight = 0
+    // What renderPrePasses() returned for that frame
+    private var lastOutputTextureId = 0
+    private var lastOutputWidth = 0
+    private var lastOutputHeight = 0
 
     // GL state saved around the pre-passes. Allocated once to avoid garbage on every frame
     private val savedViewport = IntArray(4)
@@ -43,69 +74,97 @@ class VideoFilterPipeline(filter: VideoFilter) {
     private var savedBlendEnabled = false
 
     /**
-     * Runs the pre-passes over the frame and returns the texture that [screenShader] should draw. That is the frame texture itself when the
-     * filter has no pre-passes. The returned texture has the same size and layout as the frame texture, so the screen UVs and texSize don't
-     * change. Call it before drawing anything to the surface: on tiled GPUs, switching framebuffers in the middle of a frame makes the driver
-     * store the surface and load it back. All the GL state it touches is restored. Call it for invalid frames too, so the cache is cleared.
+     * Runs the pre-passes over the frame and returns the texture that [screenShader] should draw, with its size. That is the frame texture
+     * and its size when the filter has no pre-passes, or none of them run for this frame. The texture always has the frame texture's layout,
+     * so the screen UVs don't change, but a pass with a scale makes it bigger: set the screen shader's texSize from the returned size. The
+     * returned object is reused, so read it before the next call. Call it before drawing anything to the surface: on tiled GPUs, switching
+     * framebuffers in the middle of a frame makes the driver store the surface and load it back. All the GL state it touches is restored.
+     * Call it for invalid frames too, so the cache is cleared.
      */
-    fun renderPrePasses(frame: PresentFrameWrapper): Int {
+    fun renderPrePasses(frame: PresentFrameWrapper): FilterOutput {
+        output.set(frame.textureId, frame.textureWidth, frame.textureHeight)
+
         if (!frame.isValidFrame) {
             // There's always an invalid frame between emulator sessions. The new session restarts the frame sequence and can reuse the old
             // texture names, so a cached result could otherwise match the first frames of the new game
             lastFrameSequence = 0L
-            return frame.textureId
+            return output
         }
 
         if (prePasses.isEmpty()) {
-            return frame.textureId
+            return output
         }
 
         val width = frame.textureWidth
         val height = frame.textureHeight
         if (width <= 0 || height <= 0) {
-            return frame.textureId
+            return output
         }
 
         val isSameFrame = frame.frameSequence != 0L && frame.frameSequence == lastFrameSequence && frame.textureId == lastFrameTextureId &&
                 width == lastFrameWidth && height == lastFrameHeight
         if (isSameFrame) {
-            return prePasses.last().texture
+            output.set(lastOutputTextureId, lastOutputWidth, lastOutputHeight)
+            return output
         }
 
-        saveState()
-        GLES30.glDisable(GLES30.GL_BLEND)
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-        GLES30.glViewport(0, 0, width, height)
-        if (quadVao == 0) {
-            createQuad()
-        }
-        GLES30.glBindVertexArray(quadVao)
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
-
+        val isUpscaled = width > NATIVE_TEXTURE_WIDTH || height > NATIVE_TEXTURE_HEIGHT
         var inputTexture = frame.textureId
+        var inputWidth = width
+        var inputHeight = height
+        var isStateSaved = false
         var isComplete = true
-        for (pass in prePasses) {
-            if (!pass.prepareTarget(width, height)) {
+        // Indexed so that no iterator is created on every frame
+        for (i in prePasses.indices) {
+            val pass = prePasses[i]
+            if (pass.nativeResolutionOnly && isUpscaled) {
+                continue
+            }
+
+            if (!isStateSaved) {
+                saveState()
+                isStateSaved = true
+                GLES30.glDisable(GLES30.GL_BLEND)
+                GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+                if (quadVao == 0) {
+                    createQuad()
+                }
+                GLES30.glBindVertexArray(quadVao)
+                GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
+            }
+
+            val outputWidth = inputWidth * pass.scale
+            val outputHeight = inputHeight * pass.scale
+            if (!pass.prepareTarget(outputWidth, outputHeight)) {
                 isComplete = false
                 break
             }
-            pass.render(inputTexture, width, height)
+            GLES30.glViewport(0, 0, outputWidth, outputHeight)
+            pass.render(inputTexture, inputWidth, inputHeight)
             inputTexture = pass.texture
+            inputWidth = outputWidth
+            inputHeight = outputHeight
         }
 
-        restoreState()
+        if (isStateSaved) {
+            restoreState()
+        }
 
         if (!isComplete) {
-            // Draw the frame without the pre-passes rather than nothing
+            // Draw the frame without the pre-passes rather than nothing. The output still holds the frame texture and its size
             lastFrameSequence = 0L
-            return frame.textureId
+            return output
         }
 
         lastFrameTextureId = frame.textureId
         lastFrameSequence = frame.frameSequence
         lastFrameWidth = width
         lastFrameHeight = height
-        return inputTexture
+        lastOutputTextureId = inputTexture
+        lastOutputWidth = inputWidth
+        lastOutputHeight = inputHeight
+        output.set(inputTexture, inputWidth, inputHeight)
+        return output
     }
 
     fun delete() {
@@ -121,7 +180,8 @@ class VideoFilterPipeline(filter: VideoFilter) {
 
     private fun createQuad() {
         // Covers the whole target. UV (0, 0) is at NDC (-1, -1), which maps to texel (0, 0) of the target texture, so the fragment that writes
-        // target texel (x, y) gets the UV of the centre of source texel (x, y). The output keeps the source's orientation and layout
+        // target texel (x, y) gets the UV of the centre of that texel. With a scale of 1 that's also the centre of source texel (x, y), and with
+        // a scale of 2 it's the centre of one quadrant of source texel (x / 2, y / 2). The output keeps the source's orientation and layout
         val vertexData = floatArrayOf(
             // Position  UVs
             -1f, -1f,    0f, 0f,
@@ -186,7 +246,7 @@ class VideoFilterPipeline(filter: VideoFilter) {
         }
     }
 
-    private class PrePass(private val shader: Shader) {
+    private class PrePass(private val shader: Shader, val scale: Int, val nativeResolutionOnly: Boolean) {
         private var framebuffer = 0
         var texture = 0
             private set
@@ -231,9 +291,10 @@ class VideoFilterPipeline(filter: VideoFilter) {
         }
 
         /**
-         * Draws the input texture through this pass's shader into the target. The caller binds the quad and sets the viewport and blending.
+         * Draws the input texture through this pass's shader into the target, with the input's size as the shader's texSize. The caller
+         * binds the quad and sets the viewport (to the target's size) and blending.
          */
-        fun render(inputTexture: Int, width: Int, height: Int) {
+        fun render(inputTexture: Int, inputWidth: Int, inputHeight: Int) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
             // The quad covers every texel, so the old contents never have to be loaded
             GLES30.glInvalidateFramebuffer(GLES30.GL_FRAMEBUFFER, 1, COLOR_ATTACHMENTS, 0)
@@ -245,7 +306,7 @@ class VideoFilterPipeline(filter: VideoFilter) {
             GLES30.glVertexAttribPointer(shader.attribPos, 2, GLES30.GL_FLOAT, false, 4 * Float.SIZE_BYTES, 0)
             GLES30.glVertexAttribPointer(shader.attribUv, 2, GLES30.GL_FLOAT, false, 4 * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
             GLES30.glUniform1i(shader.uniformTex, 0)
-            shader.setTextureSize(width, height)
+            shader.setTextureSize(inputWidth, inputHeight)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         }
 

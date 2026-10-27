@@ -16,8 +16,14 @@ object VideoFilterShaderProvider {
         VideoFiltering.SCANLINES to VideoFilter(ShaderProgramSource.ScanlinesShader),
         VideoFiltering.SCALE2X to VideoFilter(ShaderProgramSource.Scale2xShader),
         // FXAA has to run once per frame texel, so it's a pre-pass. Quilez then scales the result up smoothly, like DraStic does
-        VideoFiltering.FXAA to VideoFilter(ShaderProgramSource.QuilezShader, listOf(ShaderProgramSource.FxaaPrePassShader)),
+        VideoFiltering.FXAA to VideoFilter(ShaderProgramSource.QuilezShader, listOf(FilterPrePass(ShaderProgramSource.FxaaPrePassShader))),
         VideoFiltering.SHARP to VideoFilter(ShaderProgramSource.SharpShader),
+        // MMPX doubles the frame texture, then Sharp scales that to the screen with every pixel the same size. When the 3D is upscaled the
+        // pre-pass is skipped, so it's just Sharp
+        VideoFiltering.MMPX to VideoFilter(
+            ShaderProgramSource.SharpShader,
+            listOf(FilterPrePass(ShaderProgramSource.MmpxPrePassShader, scale = 2, nativeResolutionOnly = true)),
+        ),
     )
 
     fun getFilter(filtering: VideoFiltering): VideoFilter = FILTER_MAP[filtering] ?: NO_FILTER

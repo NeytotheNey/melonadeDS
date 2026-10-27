@@ -12,4 +12,5 @@ enum class VideoFiltering {
     SCALE2X,
     FXAA,
     SHARP,
+    MMPX,
 }

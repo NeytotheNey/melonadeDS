@@ -415,6 +415,7 @@
         <item>Scale2x</item>
         <item>FXAA</item>
         <item>Sharp (no shimmer)</item>
+        <item>MMPX</item>
     </string-array>
 
     <string-array name="dsi_camera_source_options">

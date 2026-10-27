@@ -252,7 +252,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
         // Runs before anything is drawn to the surface. Returns the frame texture itself for filters without pre-passes. Also called for
         // invalid frames, which clear its cache
-        val screenTexture = screenFilter?.renderPrePasses(presentFrameWrapper) ?: presentFrameWrapper.textureId
+        val screenTexture = screenFilter?.renderPrePasses(presentFrameWrapper)
 
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         if (!presentFrameWrapper.isValidFrame) {
@@ -274,7 +274,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             shader.use()
 
             GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, screenTexture)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, screenTexture?.textureId ?: presentFrameWrapper.textureId)
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, shader.textureFiltering)
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, shader.textureFiltering)
 
@@ -282,7 +282,11 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             GLES30.glVertexAttribPointer(shader.attribUv, 2, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
             GLES30.glVertexAttribPointer(shader.attribAlpha, 1, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 4 * Float.SIZE_BYTES)
             GLES30.glUniform1i(shader.uniformTex, 0)
-            shader.setTextureSize(presentFrameWrapper.textureWidth, presentFrameWrapper.textureHeight)
+            // A pre-pass with a scale makes the texture bigger than the frame
+            shader.setTextureSize(
+                screenTexture?.width ?: presentFrameWrapper.textureWidth,
+                screenTexture?.height ?: presentFrameWrapper.textureHeight,
+            )
             GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, screenIndices)
 
             GLES30.glBindVertexArray(0)

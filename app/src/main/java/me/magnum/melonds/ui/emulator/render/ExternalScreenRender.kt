@@ -178,7 +178,7 @@ class ExternalScreenRender(
 
         // Runs before anything is drawn to the surface. Returns the frame texture itself for filters without pre-passes. Also called for
         // invalid frames, which clear its cache
-        val textureId = filter?.renderPrePasses(presentFrameWrapper) ?: presentFrameWrapper.textureId
+        val screenTexture = filter?.renderPrePasses(presentFrameWrapper)
         if (!presentFrameWrapper.isValidFrame) {
             return
         }
@@ -186,7 +186,7 @@ class ExternalScreenRender(
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         filter?.screenShader?.let {
             it.use()
-            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, screenTexture?.textureId ?: presentFrameWrapper.textureId)
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, it.textureFiltering)
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, it.textureFiltering)
             GLES30.glBindVertexArray(screensVao)
@@ -195,7 +195,11 @@ class ExternalScreenRender(
             GLES30.glVertexAttribPointer(it.attribUv, 2, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
             GLES30.glVertexAttribPointer(it.attribAlpha, 1, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, (2 + 2) * Float.SIZE_BYTES)
             GLES30.glUniform1i(it.uniformTex, 0)
-            it.setTextureSize(presentFrameWrapper.textureWidth, presentFrameWrapper.textureHeight)
+            // A pre-pass with a scale makes the texture bigger than the frame
+            it.setTextureSize(
+                screenTexture?.width ?: presentFrameWrapper.textureWidth,
+                screenTexture?.height ?: presentFrameWrapper.textureHeight,
+            )
             GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
         }
     }
