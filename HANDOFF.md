@@ -42,16 +42,20 @@ The user plays on the folded cover screen in portrait, with gesture navigation a
 - **Expanded panel**, docked on the half away from the item, clear of the ⋮ button: one Size slider (Width/Height for Free screens; tap a number to type it), 4:3 / 16:9 / Free, 1x/2x/3x/Fit (n × 256 px wide), opacity and "above other screen" (screens only), center H/V, nudge arrows, delete. Collapse goes back to the pill. The last mode is saved as `layout_editor_item_panel_expanded`.
 - **Corner handles** resize with the opposite corner fixed, keeping the aspect ratio when locked, and show "W × H" while dragging. There's a touch slop before resizing starts. Items under ~80 dp only get the bottom-right handle, so their middle stays draggable.
 
-### Next: phase 2, grid and snapping
+### Phase 2, grid and snapping (built and installed, not phone-tested, not committed)
 
-Port the snap grid from the user's DraStic mod (`C:\Dev\drastic\tools\smali-src\EditorGrid.java`, ~19 KB):
+Ported from the DraStic mod (`C:\Dev\drastic\tools\smali-src\EditorGrid.java`, and `Customizer.java` `q()` for screen alignment).
 
-- Grid overlay with an on/off switch and Small/Medium/Large (16/32/48 dp), remembered in prefs. The fine grid is drawn only while snapping is on. Put the setting in the ⋮ menu.
-- Snap while dragging, not on release. Controls snap their centre (`snapAxis`). Screens snap their nearest edge, and the editor's edges count as lines (`snapEdge`). Add the fold line when unfolded (`LayoutEditorActivity` already collects `FoldingFeature`s).
-- Snap the corner-handle resize too.
-- Screen-to-screen alignment: within 5%, snap a moved screen's centre or edges to the other screen's, and match sizes. DraStic does this on release in `Customizer.java` `q()` (L1072, `C:\Dev\drastic\java-src\sources\com\dsemu\drastic\ui\`).
-
-Where it hooks in, all in `ui/layouteditor/LayoutEditorView.kt`: `dragView` (move), `resizeFromHandle` / `constrainSize` (handles), `resizeSelectedView` / `resizeSelectedViewBy` (pill and panel), and `applyRect` (the single place that sets `modifiedByUser`). Draw the grid in `dispatchDraw` behind the components.
+- **Setting**: ⋮ menu → Grid opens a dialog with "Snap to grid" and Small/Medium/Large (16/32/48 dp). Saved right away as `layout_editor_snap_to_grid` (default off) and `layout_editor_grid_size` (default MEDIUM). `LayoutEditorView` listens to the prefs itself, so the external-display editor follows too.
+- **Grid origin** is the editor's centre on both axes, so a line always runs through the middle and the centre buttons land on the grid. The editor edges are lines too. (It started at 0,0 at first, which left centred controls off the grid on the 1248 px cover screen.)
+- **Drawing**: white grid lines behind the items, only while snapping is on. Lines are also drawn at the far edges, and the edge lines are inset so they aren't half clipped. The fold is drawn stronger.
+- **Dragging** snaps while moving. The view tracks the start rect plus the finger's total offset, so it never gets stuck on a line. Controls snap their centre to grid points (grid only, no fold). Screens snap their nearest edge to grid lines, the editor edges, the far side of the fold, and the other screen.
+- **Other screen**: its edges, centre and width/height are targets within 5% of the other screen's size (as in `q()`). Unlike DraStic, it works on both axes and allows flush side-by-side placement.
+- **Corner handles** snap the dragged edge, never past the minimum size. Pill, slider and typed sizes don't snap the size, only re-snap the position.
+- **Nudge**, D-pad and centre H/V never snap, and now go through `applyRect`. That way a no-op nudge doesn't count as a change.
+- Snapping maths is in `LayoutEditorSnapping.kt` (pure functions), prefs in `LayoutEditorGridSettings.kt`.
+- **Known minor**: a locked-ratio handle resize near the editor edge can stop just short of a line, because `constrainSize` shrinks it to fit. Also, a screen can still be dropped over the fold; it just never snaps onto it.
+- **To check on the phone**: the fold lines when unfolded (never tested on the device). Also check whether re-snapping on every pill/slider step feels jumpy (the first step after turning snapping on can jump a cell).
 
 ### Code map
 

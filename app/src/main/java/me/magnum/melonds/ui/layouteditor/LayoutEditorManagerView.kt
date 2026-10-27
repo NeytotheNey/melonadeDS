@@ -32,6 +32,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.squareup.picasso.Callback
 import com.squareup.picasso.Picasso
 import me.magnum.melonds.R
+import me.magnum.melonds.databinding.DialogLayoutEditorGridBinding
 import me.magnum.melonds.databinding.ViewLayoutEditorManagerBinding
 import me.magnum.melonds.domain.model.RuntimeBackground
 import me.magnum.melonds.domain.model.layout.LayoutComponent
@@ -386,6 +387,7 @@ class LayoutEditorManagerView(
             MenuOption.ADD_COMPONENT -> openButtonsMenu()
             MenuOption.PROPERTIES -> openPropertiesDialog()
             MenuOption.BACKGROUNDS -> openBackgroundsConfigDialog()
+            MenuOption.GRID -> openGridDialog()
             MenuOption.REVERT -> viewModel.revertLayoutChanges()
             MenuOption.RESET -> viewModel.resetLayout()
             MenuOption.SAVE -> {
@@ -433,6 +435,35 @@ class LayoutEditorManagerView(
     private fun openBackgroundsConfigDialog() {
         listener?.onStoreLayoutChanges()
         showBackgroundPropertiesDialog = true
+    }
+
+    /**
+     * Shows the snap grid setting. Changes are saved right away, and the editors pick them up from the preferences.
+     */
+    private fun openGridDialog() {
+        val gridSettings = LayoutEditorGridSettings(context)
+        val gridSizeButtons = mapOf(
+            LayoutEditorGridSize.SMALL to R.id.button_grid_small,
+            LayoutEditorGridSize.MEDIUM to R.id.button_grid_medium,
+            LayoutEditorGridSize.LARGE to R.id.button_grid_large,
+        )
+        val dialogBuilder = MaterialAlertDialogBuilder(context)
+        val dialogBinding = DialogLayoutEditorGridBinding.inflate(LayoutInflater.from(dialogBuilder.context))
+
+        dialogBinding.switchSnapToGrid.isChecked = gridSettings.isSnapEnabled
+        dialogBinding.switchSnapToGrid.setOnCheckedChangeListener { _, isChecked -> gridSettings.isSnapEnabled = isChecked }
+        dialogBinding.toggleGroupGridSize.check(gridSizeButtons.getValue(gridSettings.gridSize))
+        dialogBinding.toggleGroupGridSize.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (isChecked) {
+                gridSizeButtons.entries.firstOrNull { it.value == checkedId }?.let { gridSettings.gridSize = it.key }
+            }
+        }
+
+        dialogBuilder
+            .setTitle(R.string.layout_editor_grid)
+            .setView(dialogBinding.root)
+            .setPositiveButton(R.string.done, null)
+            .showInCurrentWindow()
     }
 
     private fun showLayoutNameInputDialog(onNameSet: () -> Unit) {

@@ -2,6 +2,7 @@ package me.magnum.melonds.ui.layouteditor
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -13,13 +14,16 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.*
 import me.magnum.melonds.domain.model.layout.LayoutComponent
 import me.magnum.melonds.domain.model.layout.PositionedLayoutComponent
+import me.magnum.melonds.domain.model.layout.ScreenFold
 import me.magnum.melonds.domain.model.layout.UILayout
+import me.magnum.melonds.domain.model.ui.Orientation
 import me.magnum.melonds.ui.common.LayoutComponentView
 import me.magnum.melonds.ui.common.LayoutView
 import me.magnum.melonds.ui.layouteditor.model.LayoutTarget
@@ -82,6 +86,21 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     private val sizeLabelBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, R.color.layoutEditorPanelBackground) }
     private val sizeLabelPadding = context.dpToPixels(8f)
 
+    private val gridSettings = LayoutEditorGridSettings(context)
+    private var gridSettingsListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
+    private var isSnapEnabled = false
+    private var gridCellSize = 1
+    private var screenFolds = emptyList<ScreenFold>()
+    // The editor background is always black, whatever the theme, so the grid is always light
+    private val gridPaint = Paint().apply {
+        color = ColorUtils.setAlphaComponent(Color.WHITE, 0x50)
+        strokeWidth = max(1f, context.dpToPixels(1f))
+    }
+    private val foldPaint = Paint().apply {
+        color = ColorUtils.setAlphaComponent(Color.WHITE, 0xB0)
+        strokeWidth = max(1f, context.dpToPixels(2f))
+    }
+
     init {
         super.setOnClickListener {
             if (selectedView != null) {
@@ -90,6 +109,34 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
                 otherClickListener?.onClick(it)
             }
         }
+        loadGridSettings()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // The setting can also be changed from the editor on the other display, so follow every change
+        gridSettingsListener = gridSettings.addListener { loadGridSettings() }
+        loadGridSettings()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        gridSettingsListener?.let { gridSettings.removeListener(it) }
+        gridSettingsListener = null
+    }
+
+    private fun loadGridSettings() {
+        isSnapEnabled = gridSettings.isSnapEnabled
+        gridCellSize = max(4, context.dpToPixels(gridSettings.gridSize.dp.toFloat()).roundToInt())
+        invalidate()
+    }
+
+    /**
+     * Sets the device's folds, in window coordinates. While snapping is on, their edges are drawn and count as snap lines.
+     */
+    fun setScreenFolds(folds: List<ScreenFold>) {
+        screenFolds = folds
+        invalidate()
     }
 
     override fun instantiateLayout(layoutConfiguration: UILayout, layoutTarget: LayoutTarget) {
@@ -137,10 +184,10 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         val currentlySelectedView = selectedView ?: return false
 
         when (event.keyCode) {
-            KeyEvent.KEYCODE_DPAD_UP -> dragView(currentlySelectedView, 0f, -1f)
-            KeyEvent.KEYCODE_DPAD_DOWN -> dragView(currentlySelectedView, 0f, 1f)
-            KeyEvent.KEYCODE_DPAD_LEFT -> dragView(currentlySelectedView, -1f, 0f)
-            KeyEvent.KEYCODE_DPAD_RIGHT -> dragView(currentlySelectedView, 1f, 0f)
+            KeyEvent.KEYCODE_DPAD_UP -> moveView(currentlySelectedView, 0f, -1f)
+            KeyEvent.KEYCODE_DPAD_DOWN -> moveView(currentlySelectedView, 0f, 1f)
+            KeyEvent.KEYCODE_DPAD_LEFT -> moveView(currentlySelectedView, -1f, 0f)
+            KeyEvent.KEYCODE_DPAD_RIGHT -> moveView(currentlySelectedView, 1f, 0f)
             else -> return false
         }
 
@@ -167,6 +214,10 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     }
 
     override fun dispatchDraw(canvas: Canvas) {
+        // The grid goes behind the components, the handles in front of them
+        if (isSnapEnabled) {
+            drawGrid(canvas)
+        }
         super.dispatchDraw(canvas)
         val view = selectedView?.view ?: return
 
@@ -202,6 +253,36 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
             canvas.drawRoundRect(handleRect, sizeLabelPadding, sizeLabelPadding, sizeLabelBackgroundPaint)
             canvas.drawText(label, centerX, centerY - (fontMetrics.ascent + fontMetrics.descent) / 2f, sizeLabelTextPaint)
         }
+    }
+
+    private fun drawGrid(canvas: Canvas) {
+        val viewWidth = width.toFloat()
+        val viewHeight = height.toFloat()
+        // The same lines the snapping uses: from the middle of the editor out, plus the editor edges
+        LayoutEditorSnapping.gridLines(width, gridCellSize).forEach {
+            val x = insetLine(it, width, gridPaint)
+            canvas.drawLine(x, 0f, x, viewHeight, gridPaint)
+        }
+        LayoutEditorSnapping.gridLines(height, gridCellSize).forEach {
+            val y = insetLine(it, height, gridPaint)
+            canvas.drawLine(0f, y, viewWidth, y, gridPaint)
+        }
+        getFoldGaps(vertical = true).flatMap { listOf(it.start, it.end) }.filter { it in 0..width }.distinct().forEach {
+            val x = insetLine(it, width, foldPaint)
+            canvas.drawLine(x, 0f, x, viewHeight, foldPaint)
+        }
+        getFoldGaps(vertical = false).flatMap { listOf(it.start, it.end) }.filter { it in 0..height }.distinct().forEach {
+            val y = insetLine(it, height, foldPaint)
+            canvas.drawLine(0f, y, viewWidth, y, foldPaint)
+        }
+    }
+
+    /**
+     * Moves lines at the editor edges inwards by half the stroke, so they aren't half cut off.
+     */
+    private fun insetLine(position: Int, limit: Int, paint: Paint): Float {
+        val halfStroke = paint.strokeWidth / 2f
+        return position.toFloat().coerceIn(halfStroke, max(halfStroke, limit - halfStroke))
     }
 
     private fun drawHandle(canvas: Canvas, left: Float, top: Float, right: Float, bottom: Float) {
@@ -294,21 +375,97 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         // The opposite corner stays fixed, so the view can grow until it reaches the editor edges on the dragged corner's side
         val fixedX = if (corner.isLeft) start.right else start.x
         val fixedY = if (corner.isTop) start.bottom else start.y
-        val desiredWidth = start.width + if (corner.isLeft) -offsetX else offsetX
-        val desiredHeight = start.height + if (corner.isTop) -offsetY else offsetY
+        var desiredWidth = start.width + if (corner.isLeft) -offsetX else offsetX
+        var desiredHeight = start.height + if (corner.isTop) -offsetY else offsetY
         val maxWidth = if (corner.isLeft) fixedX else width - fixedX
         val maxHeight = if (corner.isTop) fixedY else height - fixedY
 
         // With a locked aspect ratio, follow whichever side the finger wants to make bigger
         val ratio = getLockedAspectRatio(view)
-        val (newWidth, newHeight) = if (ratio != null) {
-            constrainSize(view, max(desiredWidth, desiredHeight * ratio), 0f, maxWidth, maxHeight)
-        } else {
-            constrainSize(view, desiredWidth, desiredHeight, maxWidth, maxHeight)
+        if (ratio != null) {
+            desiredWidth = max(desiredWidth, desiredHeight * ratio)
+            desiredHeight = desiredWidth / ratio
         }
+        if (isSnapEnabled) {
+            val (snappedWidth, snappedHeight) = snapResize(view, corner, fixedX, fixedY, desiredWidth, desiredHeight, ratio)
+            desiredWidth = snappedWidth
+            desiredHeight = snappedHeight
+        }
+        val (newWidth, newHeight) = constrainSize(view, desiredWidth, desiredHeight, maxWidth, maxHeight)
         val x = if (corner.isLeft) fixedX - newWidth else fixedX
         val y = if (corner.isTop) fixedY - newHeight else fixedY
         applyRect(view, Rect(x, y, newWidth, newHeight))
+    }
+
+    /**
+     * Snaps the dragged corner of a resize to the nearest lines, while the opposite corner stays at [fixedX], [fixedY]. With a locked aspect ratio
+     * only the dragged edge that's closer to a line snaps, and the other side follows the ratio.
+     */
+    private fun snapResize(view: LayoutComponentView, corner: Anchor, fixedX: Int, fixedY: Int, desiredWidth: Float, desiredHeight: Float, ratio: Float?): Pair<Float, Float> {
+        val (xAxis, yAxis) = getSnapAxes(view)
+        // The desired size can be negative when the finger goes past the fixed corner, so the side always comes from the corner being dragged
+        val edgeX = if (corner.isLeft) fixedX - desiredWidth else fixedX + desiredWidth
+        val edgeY = if (corner.isTop) fixedY - desiredHeight else fixedY + desiredHeight
+        // Same minimum as constrainSize, so a snapped size isn't bumped off its line again
+        val minWidth = ratio?.let { max(minComponentSize.toFloat(), minComponentSize * it) } ?: minComponentSize.toFloat()
+        val minHeight = ratio?.let { minWidth / it } ?: minComponentSize.toFloat()
+        val snappedX = LayoutEditorSnapping.snapResizedEdge(edgeX.roundToInt(), fixedX, ceil(minWidth).toInt(), !corner.isLeft, xAxis)
+        val snappedY = LayoutEditorSnapping.snapResizedEdge(edgeY.roundToInt(), fixedY, ceil(minHeight).toInt(), !corner.isTop, yAxis)
+        val snappedWidth = (if (corner.isLeft) fixedX - snappedX.position else snappedX.position - fixedX).toFloat()
+        val snappedHeight = (if (corner.isTop) fixedY - snappedY.position else snappedY.position - fixedY).toFloat()
+        return when {
+            ratio == null -> snappedWidth to snappedHeight
+            snappedX.distance <= snappedY.distance -> snappedWidth to snappedWidth / ratio
+            else -> snappedHeight * ratio to snappedHeight
+        }
+    }
+
+    /**
+     * Snaps an item that was moved, or resized to an explicit size: controls put their centre on the grid, screens put their nearest edge on a
+     * line.
+     */
+    private fun snapPosition(view: LayoutComponentView, rect: Rect): Rect {
+        val (xAxis, yAxis) = getSnapAxes(view)
+        return if (view.component.isScreen()) {
+            rect.copy(x = LayoutEditorSnapping.snapEdges(rect.x, rect.width, xAxis), y = LayoutEditorSnapping.snapEdges(rect.y, rect.height, yAxis))
+        } else {
+            rect.copy(x = LayoutEditorSnapping.snapCenter(rect.x, rect.width, xAxis), y = LayoutEditorSnapping.snapCenter(rect.y, rect.height, yAxis))
+        }
+    }
+
+    /**
+     * Returns the snap lines for the given item along the x and y axes. A screen can also line up with the other screen.
+     */
+    private fun getSnapAxes(view: LayoutComponentView): Pair<SnapAxis, SnapAxis> {
+        val otherScreen = when (view.component) {
+            LayoutComponent.TOP_SCREEN -> views[LayoutComponent.BOTTOM_SCREEN]
+            LayoutComponent.BOTTOM_SCREEN -> views[LayoutComponent.TOP_SCREEN]
+            else -> null
+        }?.getRect()
+        val xAxis = SnapAxis(width, gridCellSize, getFoldGaps(vertical = true), otherScreen?.let { SnapSpan(it.x, it.width) })
+        val yAxis = SnapAxis(height, gridCellSize, getFoldGaps(vertical = false), otherScreen?.let { SnapSpan(it.y, it.height) })
+        return xAxis to yAxis
+    }
+
+    /**
+     * Returns every fold that runs in the given direction, in editor coordinates. Vertical folds give spans along x, horizontal ones along y.
+     */
+    private fun getFoldGaps(vertical: Boolean): List<SnapSpan> {
+        if (screenFolds.isEmpty()) return emptyList()
+
+        // The fold bounds are in window coordinates
+        val location = IntArray(2)
+        getLocationInWindow(location)
+        val limit = if (vertical) width else height
+        return screenFolds.mapNotNull {
+            // A landscape fold splits the screen into a top and a bottom half, so its line is horizontal
+            val isVerticalFold = it.orientation == Orientation.PORTRAIT
+            when {
+                isVerticalFold != vertical -> null
+                vertical -> SnapSpan(it.foldBounds.x - location[0], it.foldBounds.width)
+                else -> SnapSpan(it.foldBounds.y - location[1], it.foldBounds.height)
+            }
+        }.filter { it.end >= 0 && it.start <= limit }
     }
 
     private fun getLockedAspectRatio(view: LayoutComponentView): Float? {
@@ -357,9 +514,11 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         layoutComponentView.view.setOnTouchListener(object : OnTouchListener {
             private var dragging = false
 
-            private var downOffsetX = -1f
-            private var downOffsetY = -1f
-            private var downPosition: Point? = null
+            // Where the finger went down, in editor coordinates, and where the view was then. A drag moves the view from there by the finger's
+            // total offset, so a snapped view can leave its line again
+            private var downX = -1f
+            private var downY = -1f
+            private var startRect: Rect? = null
             private var modifiedBeforeDown = false
 
             override fun onTouch(view: View?, motionEvent: MotionEvent?): Boolean {
@@ -378,22 +537,25 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
                 return when (motionEvent.action) {
                     MotionEvent.ACTION_DOWN -> {
                         dragging = false
-                        downOffsetX = motionEvent.x
-                        downOffsetY = motionEvent.y
-                        downPosition = layoutComponentView.getPosition()
+                        downX = view.x + motionEvent.x
+                        downY = view.y + motionEvent.y
+                        startRect = layoutComponentView.getRect()
                         modifiedBeforeDown = modifiedByUser
                         view.alpha = 1f
                         layoutComponentView.setHighlighted(true)
                         true
                     }
                     MotionEvent.ACTION_MOVE -> {
+                        // The event is relative to the view, which moves during the drag, so work in editor coordinates instead
+                        val offsetX = view.x + motionEvent.x - downX
+                        val offsetY = view.y + motionEvent.y - downY
+                        val start = startRect
                         if (!dragging) {
-                            val distance = sqrt((motionEvent.x - downOffsetX).pow(2f) + (motionEvent.y - downOffsetY).pow(2f))
-                            if (distance >= 25) {
+                            if (hypot(offsetX, offsetY) >= 25) {
                                 dragging = true
                             }
-                        } else {
-                            dragView(layoutComponentView, motionEvent.x - downOffsetX, motionEvent.y - downOffsetY)
+                        } else if (start != null) {
+                            dragView(layoutComponentView, start, offsetX, offsetY)
                         }
                         true
                     }
@@ -410,7 +572,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
                     MotionEvent.ACTION_CANCEL -> {
                         // The gesture was taken away (usually by the system back gesture). Undo the drag and don't select the view
                         if (dragging) {
-                            downPosition?.let { layoutComponentView.setPosition(it) }
+                            startRect?.let { layoutComponentView.setPosition(Point(it.x, it.y)) }
                             modifiedByUser = modifiedBeforeDown
                         }
                         view.alpha = 0.5f
@@ -495,17 +657,30 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         modifiedByUser = true
     }
 
-    private fun dragView(view: LayoutComponentView, offsetX: Float, offsetY: Float) {
-        val currentPosition = view.getPosition()
-        val finalX = min(max(currentPosition.x + offsetX, 0f), width - view.getWidth().toFloat())
-        val finalY = min(max(currentPosition.y + offsetY, 0f), height - view.getHeight().toFloat())
-        view.setPosition(Point(finalX.toInt(), finalY.toInt()))
-        modifiedByUser = true
+    /**
+     * Moves a view that's being dragged by touch to [startRect] moved by the finger's total offset. With snapping on, that unsnapped position is
+     * what gets snapped, so the view doesn't get stuck on a line once it's on it.
+     */
+    private fun dragView(view: LayoutComponentView, startRect: Rect, offsetX: Float, offsetY: Float) {
+        val x = min(max(startRect.x + offsetX, 0f), width - startRect.width.toFloat())
+        val y = min(max(startRect.y + offsetY, 0f), height - startRect.height.toFloat())
+        val rect = startRect.copy(x = x.toInt(), y = y.toInt())
+        applyRect(view, if (isSnapEnabled) snapPosition(view, rect) else rect)
+    }
+
+    /**
+     * Moves a view by the given offset, without snapping. Used by the nudge arrows and the D-pad, which are for fine adjustments.
+     */
+    private fun moveView(view: LayoutComponentView, offsetX: Float, offsetY: Float) {
+        val rect = view.getRect()
+        val finalX = min(max(rect.x + offsetX, 0f), width - rect.width.toFloat())
+        val finalY = min(max(rect.y + offsetY, 0f), height - rect.height.toFloat())
+        applyRect(view, rect.copy(x = finalX.toInt(), y = finalY.toInt()))
     }
 
     fun moveSelectedView(offsetX: Int, offsetY: Int) {
         val view = selectedView ?: return
-        dragView(view, offsetX.toFloat(), offsetY.toFloat())
+        moveView(view, offsetX.toFloat(), offsetY.toFloat())
         updateSelectedViewAnchorAfterLayout()
     }
 
@@ -545,25 +720,21 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
     fun centerSelectedViewHorizontally() {
         val view = selectedView ?: return
-        val centerX = (width - view.getWidth()) / 2
-        val position = view.getPosition()
-        view.setPosition(Point(centerX, position.y))
-        modifiedByUser = true
+        val rect = view.getRect()
+        applyRect(view, rect.copy(x = (width - rect.width) / 2))
         updateSelectedViewAnchorAfterLayout()
     }
 
     fun centerSelectedViewVertically() {
         val view = selectedView ?: return
-        val centerY = (height - view.getHeight()) / 2
-        val position = view.getPosition()
-        view.setPosition(Point(position.x, centerY))
-        modifiedByUser = true
+        val rect = view.getRect()
+        applyRect(view, rect.copy(y = (height - rect.height) / 2))
         updateSelectedViewAnchorAfterLayout()
     }
 
     /**
      * Resizes the selected view, keeping its anchor corner in place and the view inside the editor. With a locked aspect ratio the height is
-     * derived from the width.
+     * derived from the width. The size isn't snapped, since it was asked for explicitly, but with snapping on the position is snapped again.
      */
     fun resizeSelectedView(newWidth: Float, newHeight: Float) {
         val view = selectedView ?: return
@@ -572,12 +743,13 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
         val x = if (selectedViewAnchor.isLeft) rect.x else rect.right - constrainedWidth
         val y = if (selectedViewAnchor.isTop) rect.y else rect.bottom - constrainedHeight
-        applyRect(view, Rect(
+        val newRect = Rect(
             x.coerceIn(0, max(0, width - constrainedWidth)),
             y.coerceIn(0, max(0, height - constrainedHeight)),
             constrainedWidth,
             constrainedHeight,
-        ))
+        )
+        applyRect(view, if (isSnapEnabled) snapPosition(view, newRect) else newRect)
     }
 
     /**

@@ -488,6 +488,12 @@
     <string name="layout_editor_opacity">Opacity</string>
     <string name="layout_editor_opacity_value">%1$d%%</string>
     <string name="layout_editor_size_value">%1$d × %2$d</string>
+    <string name="layout_editor_grid">Grid</string>
+    <string name="layout_editor_snap_to_grid">Snap to grid</string>
+    <string name="layout_editor_grid_size">Grid size</string>
+    <string name="layout_editor_grid_small">Small</string>
+    <string name="layout_editor_grid_medium">Medium</string>
+    <string name="layout_editor_grid_large">Large</string>
     <string name="discard">Discard</string>
     <string name="layout_name">Layout name</string>
     <string name="layout_orientation">Layout orientation</string>

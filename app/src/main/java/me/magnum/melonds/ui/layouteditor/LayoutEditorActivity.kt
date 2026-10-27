@@ -52,6 +52,7 @@ class LayoutEditorActivity : AppCompatActivity() {
         ADD_COMPONENT(R.string.add_component),
         PROPERTIES(R.string.properties),
         BACKGROUNDS(R.string.background),
+        GRID(R.string.layout_editor_grid),
         REVERT(R.string.revert_changes),
         RESET(R.string.reset_default),
         SAVE(R.string.save),
@@ -228,6 +229,8 @@ class LayoutEditorActivity : AppCompatActivity() {
 
                     storeLayoutChanges()
                     viewModel.setScreenFolds(folds)
+                    // The folds are only on this display, so the editor on an external display doesn't get them
+                    layoutEditorManager.layoutEditorView.setScreenFolds(folds)
                 }
             }
         }
