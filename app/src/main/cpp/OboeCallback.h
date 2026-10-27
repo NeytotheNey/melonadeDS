@@ -8,15 +8,15 @@
 class OboeCallback : public oboe::AudioStreamCallback {
 private:
     int _volume;
-    void (*onErrorCallback)(void);
+    void (*onErrorCallback)(oboe::AudioStream* stream);
     std::ostream* _recordingStream;
     float audioSampleFrac;
 
 public:
     std::weak_ptr<MelonDSAndroid::MelonInstance> activeInstance;
 
-    OboeCallback(int volume, void (*onErrorCallback)(void)) : OboeCallback(volume, onErrorCallback, nullptr) { };
-    OboeCallback(int volume, void (*onErrorCallback)(void), std::ostream* recordingStream);
+    OboeCallback(int volume, void (*onErrorCallback)(oboe::AudioStream* stream)) : OboeCallback(volume, onErrorCallback, nullptr) { };
+    OboeCallback(int volume, void (*onErrorCallback)(oboe::AudioStream* stream), std::ostream* recordingStream);
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t numFrames) override;
     void onErrorAfterClose(oboe::AudioStream* stream, oboe::Result result) override;
     

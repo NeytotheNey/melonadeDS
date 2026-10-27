@@ -7,7 +7,7 @@ using namespace melonDS;
 
 #define INTERNAL_FRAME_RATE 59.8260982880808f
 
-OboeCallback::OboeCallback(int volume, void (*onErrorCallback)(void), std::ostream* recordingStream) : _volume(volume), onErrorCallback(onErrorCallback), _recordingStream(recordingStream) {
+OboeCallback::OboeCallback(int volume, void (*onErrorCallback)(oboe::AudioStream* stream), std::ostream* recordingStream) : _volume(volume), onErrorCallback(onErrorCallback), _recordingStream(recordingStream) {
     audioSampleFrac = 0;
 }
 
@@ -61,7 +61,7 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
 void OboeCallback::onErrorAfterClose(oboe::AudioStream* stream, oboe::Result result)
 {
     if (result == oboe::Result::ErrorDisconnected && onErrorCallback != nullptr) {
-        onErrorCallback();
+        onErrorCallback(stream);
     }
 }
 
