@@ -1,4 +1,5 @@
 #include "OboeCallback.h"
+#include "MelonDSAudio.h"
 #include "types.h"
 #include "Platform.h"
 #include "SPU.h"
@@ -31,7 +32,9 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
 
     int num_in = currentInstance->readAudioOutput((s16*) audioData, len_in);
 
-    if (num_in < 1)
+    // When muted (fast-forward with the mute setting on), the SPU output was still read above and is
+    // discarded here. Leaving it in the SPU buffer would play it as a stale burst once fast-forward ends
+    if (num_in < 1 || MelonDSAndroid::shouldMuteAudioOutput())
     {
         memset(audioData, 0, len * sizeof(s16) * 2);
         return oboe::DataCallbackResult::Continue;

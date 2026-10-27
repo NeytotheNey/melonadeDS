@@ -23,6 +23,7 @@ data class EmulatorConfiguration(
         val syncRtcToDevice: Boolean,
         val consoleType: ConsoleType,
         val soundEnabled: Boolean,
+        val muteFastForwardAudio: Boolean,
         val audioInterpolation: AudioInterpolation,
         val audioBitrate: AudioBitrate,
         val volume: Int,

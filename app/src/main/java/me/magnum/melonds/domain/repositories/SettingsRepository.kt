@@ -50,6 +50,7 @@ interface SettingsRepository {
     fun getDSiCameraStaticImage(): Uri?
 
     fun isSoundEnabled(): Boolean
+    fun shouldMuteFastForwardAudio(): Boolean
     fun getAudioLatency(): AudioLatency
     fun getMicSource(): MicSource
 

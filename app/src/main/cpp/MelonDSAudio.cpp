@@ -3,6 +3,7 @@
 #include "mic_blow.h"
 #include "OboeCallback.h"
 #include <oboe/Oboe.h>
+#include <atomic>
 #include <mutex>
 
 #define MIC_BUFFER_SIZE 2048
@@ -23,6 +24,9 @@ std::shared_ptr<oboe::AudioStream> micInputStream;
 std::shared_ptr<MicInputOboeCallback> micInputCallback;
 
 MelonDSAndroid::AudioSettings currentAudioSettings;
+// Read lock-free by the output data callback to decide whether to output silence while fast-forwarding
+std::atomic_bool isAudioFastForwardActive = false;
+std::atomic_bool muteFastForwardAudio = false;
 std::mutex micBufferMutex;
 int actualMicSource = 0;
 bool isMicInputEnabled = true;
@@ -286,6 +290,8 @@ namespace MelonDSAndroid
 
         isAudioRunning = false;
         isMicOn = false;
+        isAudioFastForwardActive = false;
+        muteFastForwardAudio = audioSettings.muteFastForwardAudio;
         actualMicSource = audioSettings.micSource;
         currentAudioSettings = audioSettings;
 
@@ -299,6 +305,8 @@ namespace MelonDSAndroid
     void updateAudioSettings(AudioSettings audioSettings)
     {
         std::lock_guard<std::mutex> lock(audioOutputMutex);
+
+        muteFastForwardAudio = audioSettings.muteFastForwardAudio;
 
         if (audioSettings.soundEnabled && audioSettings.volume > 0) {
             if (!audioStream) {
@@ -332,6 +340,17 @@ namespace MelonDSAndroid
         currentAudioSettings = audioSettings;
     }
 
+    void setAudioFastForwardActive(bool active)
+    {
+        isAudioFastForwardActive = active;
+    }
+
+    // Called from the real-time output callback. Must stay lock-free
+    bool shouldMuteAudioOutput()
+    {
+        return isAudioFastForwardActive.load(std::memory_order_relaxed) && muteFastForwardAudio.load(std::memory_order_relaxed);
+    }
+
     void setAudioActiveInstance(std::shared_ptr<MelonInstance> instance)
     {
         std::lock_guard<std::mutex> lock(audioOutputMutex);
@@ -346,6 +365,8 @@ namespace MelonDSAndroid
         std::lock_guard<std::mutex> lock(audioOutputMutex);
 
         isAudioRunning = false;
+        isAudioFastForwardActive = false;
+        muteFastForwardAudio = false;
         // Forget the settings so that startAudio() doesn't reopen a stream with no emulator to feed it
         currentAudioSettings = { };
         cleanupAudioOutputStream();

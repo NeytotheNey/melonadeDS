@@ -166,6 +166,7 @@ class SharedPreferencesSettingsRepository(
             syncRtcToDevice = preferences.getBoolean("sync_rtc_to_device", true),
             consoleType = consoleType,
             soundEnabled = isSoundEnabled(),
+            muteFastForwardAudio = shouldMuteFastForwardAudio(),
             audioInterpolation = getAudioInterpolation(),
             audioBitrate = getAudioBitrate(),
             volume = getVolume(),
@@ -368,6 +369,10 @@ class SharedPreferencesSettingsRepository(
 
     override fun isSoundEnabled(): Boolean {
         return preferences.getBoolean("sound_enabled", true)
+    }
+
+    override fun shouldMuteFastForwardAudio(): Boolean {
+        return preferences.getBoolean("mute_fast_forward_audio", true)
     }
 
     private fun getRewindPeriod(): Int {
