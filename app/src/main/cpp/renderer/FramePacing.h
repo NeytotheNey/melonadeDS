@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 
 /**
  * Tracks the display's vsync timestamps and estimates its refresh period from the interval between them. Timestamps are published from the
@@ -51,9 +52,12 @@ private:
     static constexpr double MATCHING_INTERVAL_TOLERANCE = 0.1;
     static constexpr double SMOOTHING_FACTOR = 1.0 / 16.0;
     // Number of consecutive matching intervals that don't match the current estimate after which the estimate is replaced. Allows the estimate
-    // to follow refresh rate changes (for example 120Hz to 60Hz, which would otherwise look like missed callbacks) without reacting to isolated
-    // missed callbacks
-    static constexpr int RESEED_INTERVAL_COUNT = 8;
+    // to follow refresh rate changes without reacting to isolated missed callbacks. Intervals shorter than the estimate can't be missed
+    // callbacks, so a faster refresh rate (for example 60Hz to 120Hz) is followed after very few of them. Until then, the render thread's due
+    // tolerance (half of the old period) is a whole new refresh, and the frame pacer sees the grid flip by half a period on every vsync. Longer
+    // intervals (for example 120Hz to 60Hz) take a few more, since a missed callback looks the same as one of them
+    static constexpr int RESEED_SHORTER_INTERVAL_COUNT = 3;
+    static constexpr int RESEED_LONGER_INTERVAL_COUNT = 4;
 
     void trackInterval(double interval)
     {
@@ -90,7 +94,9 @@ private:
             candidatePeriodNs = interval;
         }
 
-        if (candidateIntervalCount >= RESEED_INTERVAL_COUNT)
+        // All candidates match each other, so they are all on the same side of the estimate
+        int reseedIntervalCount = candidatePeriodNs < smoothedPeriodNs ? RESEED_SHORTER_INTERVAL_COUNT : RESEED_LONGER_INTERVAL_COUNT;
+        if (candidateIntervalCount >= reseedIntervalCount)
         {
             smoothedPeriodNs = candidatePeriodNs;
             candidateIntervalCount = 0;
@@ -125,6 +131,9 @@ public:
     static constexpr int64_t VSYNC_OFFSET_NS = 500000;
     // Pacing is only used while vsyncs keep arriving
     static constexpr int64_t MAX_VSYNC_AGE_NS = 100000000;
+    // When the refresh divisor changes, the chain of frame starts is kept if the frame period is within this fraction of the previous one. Each
+    // refresh rate is within 0.5% of a multiple of 60Hz (see [getRefreshDivisor]), so this holds for any change between two paced rates
+    static constexpr double MATCHING_FRAME_PERIOD_TOLERANCE = 0.02;
 
     /**
      * Returns the number of refreshes each 60 FPS frame should last (N, from 1 to [MAX_REFRESH_DIVISOR]) if the display's refresh rate is within
@@ -192,6 +201,9 @@ public:
      * After 2 frames in a row over budget, or once more than a frame period behind, the emulator is considered overloaded: frames start right away
      * so that heavy scenes never run slower than with the timer. They stay that way while the work is still over budget. Their due times keep
      * following the previous frame's, so they can never be presented ahead of a buffered frame that is still queued.
+     *
+     * When the refresh rate changes but the frame period doesn't (only the number of refreshes per frame changes), the chain of frame starts
+     * carries over to the new grid instead of re-locking from the current time.
      */
     FrameSchedule scheduleNextFrame(int64_t nowNs, int64_t lastVsyncNs, int64_t refreshPeriodNs, int divisor, int64_t lastWorkNs, bool isBufferEnabled)
     {
@@ -200,16 +212,37 @@ public:
         int64_t lateSlackNs = refreshPeriodNs / 4;
         int64_t dueOffsetNs = framePeriodNs * (isBufferEnabled ? 2 : 1);
 
+        bool isOverBudget = lastWorkNs > framePeriodNs;
+        overBudgetFrames = isOverBudget ? overBudgetFrames + 1 : 0;
+
         if (divisor != lockedDivisor)
         {
-            // The refresh rate changed. Start over on the new grid
+            // The refresh rate changed
+            bool wasLocked = isLocked;
             isLocked = false;
             isOverloaded = false;
             lockedDivisor = divisor;
-        }
 
-        bool isOverBudget = lastWorkNs > framePeriodNs;
-        overBudgetFrames = isOverBudget ? overBudgetFrames + 1 : 0;
+            // If each frame still lasts as long (for example from 60Hz to 120Hz, with twice the refreshes per frame), keep the chain of frame
+            // starts, moved to the first point at or after it on the new grid. When the new grid contains the old one, the frames keep landing on
+            // the vsyncs they were going to. Re-locking from the current time instead can start the frame up to half a frame early when the work
+            // was short, and present two frames on back to back refreshes. When the new grid is on the other parity (for example from 120Hz to
+            // 60Hz), the chain moves later by half a refresh. Moving it earlier would make two frames due on the same vsync, and skip one of them.
+            // The small tolerance keeps an aligned chain from being pushed a whole refresh later because of the estimate error
+            bool isSameFramePeriod = std::llabs(framePeriodNs - lastFramePeriodNs) <= (int64_t) ((double) lastFramePeriodNs * MATCHING_FRAME_PERIOD_TOLERANCE);
+            if (wasLocked && overBudgetFrames < 2 && isSameFramePeriod)
+            {
+                int64_t targetNs = getNextGridPoint(lastTargetNs + framePeriodNs - refreshPeriodNs / 8, gridOriginNs, refreshPeriodNs);
+                bool isTargetPlausible = nowNs - targetNs <= lateSlackNs && targetNs - nowNs <= framePeriodNs + refreshPeriodNs;
+                if (isTargetPlausible)
+                {
+                    isLocked = true;
+                    return scheduleLockedFrame(targetNs, dueOffsetNs, refreshPeriodNs, framePeriodNs);
+                }
+            }
+
+            // Otherwise, start over on the new grid below
+        }
 
         if (isOverloaded)
         {
