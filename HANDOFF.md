@@ -17,6 +17,7 @@ Branch `material3`, 19 commits on top of `8480c8fc` (Material 3 UI). Pushed to t
 | `8b12c09d` | This handoff file |
 | `116fa1ce` | Layout editor phase 1: floating menu button, gesture-nav fixes, Save, discard confirm |
 | `5261e80c` | Layout editor: pill toolbar, expandable panel, corner resize handles |
+| `e3c2b59e` | Layout editor: snap grid (centred), fold and screen-to-screen snapping |
 
 ## Build and install
 
@@ -42,7 +43,7 @@ The user plays on the folded cover screen in portrait, with gesture navigation a
 - **Expanded panel**, docked on the half away from the item, clear of the ⋮ button: one Size slider (Width/Height for Free screens; tap a number to type it), 4:3 / 16:9 / Free, 1x/2x/3x/Fit (n × 256 px wide), opacity and "above other screen" (screens only), center H/V, nudge arrows, delete. Collapse goes back to the pill. The last mode is saved as `layout_editor_item_panel_expanded`.
 - **Corner handles** resize with the opposite corner fixed, keeping the aspect ratio when locked, and show "W × H" while dragging. There's a touch slop before resizing starts. Items under ~80 dp only get the bottom-right handle, so their middle stays draggable.
 
-### Phase 2, grid and snapping (built and installed, not phone-tested, not committed)
+### Phase 2, grid and snapping (committed in `e3c2b59e`, centring checked on the phone)
 
 Ported from the DraStic mod (`C:\Dev\drastic\tools\smali-src\EditorGrid.java`, and `Customizer.java` `q()` for screen alignment).
 
