@@ -102,6 +102,12 @@ android {
         // Adds exported schema location as test app assets.
         getByName("androidTest").assets.directories += "$projectDir/schemas"
     }
+    packaging {
+        // minSdk >= 28 stores dex uncompressed, which doubles the unminified debug APK
+        dex {
+            useLegacyPackaging = true
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
