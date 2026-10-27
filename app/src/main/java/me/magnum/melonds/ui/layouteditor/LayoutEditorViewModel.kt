@@ -37,9 +37,12 @@ class LayoutEditorViewModel @Inject constructor(
     private val layoutsRepository: LayoutsRepository,
     private val backgroundsRepository: BackgroundRepository,
     private val uiLayoutProvider: UILayoutProvider,
-    savedStateHandle: SavedStateHandle
+    private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
+    /**
+     * The configuration as it was when the editor was opened or when it was last saved. Used to revert changes and to detect unsaved changes.
+     */
     private var initialLayoutConfiguration: LayoutConfiguration? = null
     private var currentLayoutVariant: UILayoutVariant? = null
 
@@ -185,11 +188,30 @@ class LayoutEditorViewModel @Inject constructor(
     }
 
     fun saveCurrentLayout() {
-        _currentLayoutConfiguration.value?.let {
-            viewModelScope.launch {
-                layoutsRepository.saveLayout(it)
-            }
+        val currentConfiguration = _currentLayoutConfiguration.value ?: return
+        // Give new layouts their ID now, so that saving again updates the same layout instead of creating a copy
+        val layoutToSave = if (currentConfiguration.id == null) {
+            currentConfiguration.copy(id = UUID.randomUUID())
+        } else {
+            currentConfiguration
         }
+
+        _currentLayoutConfiguration.value = layoutToSave
+        initialLayoutConfiguration = layoutToSave
+        // Remember the ID so that, if the process is killed, the editor reopens this layout instead of starting a new one
+        savedStateHandle[LayoutEditorActivity.KEY_LAYOUT_ID] = layoutToSave.id.toString()
+        viewModelScope.launch {
+            layoutsRepository.saveLayout(layoutToSave)
+        }
+    }
+
+    /**
+     * Whether the current configuration differs from the one that was opened or last saved. Layout changes made in the editor views must be stored in the
+     * current configuration before calling this.
+     */
+    fun hasUnsavedChanges(): Boolean {
+        val currentConfiguration = _currentLayoutConfiguration.value ?: return false
+        return currentConfiguration != initialLayoutConfiguration
     }
 
     fun revertLayoutChanges() {

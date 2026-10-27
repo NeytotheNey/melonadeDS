@@ -49,10 +49,12 @@ class LayoutEditorActivity : AppCompatActivity() {
     }
 
     enum class MenuOption(@field:StringRes val stringRes: Int) {
+        ADD_COMPONENT(R.string.add_component),
         PROPERTIES(R.string.properties),
         BACKGROUNDS(R.string.background),
         REVERT(R.string.revert_changes),
         RESET(R.string.reset_default),
+        SAVE(R.string.save),
         SAVE_AND_EXIT(R.string.save_and_exit),
         EXIT_WITHOUT_SAVING(R.string.exit_without_saving)
     }
@@ -114,6 +116,11 @@ class LayoutEditorActivity : AppCompatActivity() {
 
         override fun onStoreLayoutChanges() {
             storeLayoutChanges()
+        }
+
+        override fun onSaveLayout() {
+            storeLayoutChanges()
+            viewModel.saveCurrentLayout()
         }
 
         override fun onSaveLayoutAndExit() {

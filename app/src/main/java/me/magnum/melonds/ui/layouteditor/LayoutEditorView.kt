@@ -5,6 +5,8 @@ import android.util.AttributeSet
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import me.magnum.melonds.domain.model.*
 import me.magnum.melonds.domain.model.layout.LayoutComponent
 import me.magnum.melonds.domain.model.layout.PositionedLayoutComponent
@@ -52,6 +54,8 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     }
 
     override fun instantiateLayout(layoutConfiguration: UILayout, layoutTarget: LayoutTarget) {
+        // The selected view is about to be destroyed. Deselect it so that the scaling controls don't keep editing a stale view
+        deselectCurrentView()
         super.instantiateLayout(layoutConfiguration, layoutTarget)
         modifiedByUser = false
     }
@@ -113,19 +117,29 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
             private var downOffsetX = -1f
             private var downOffsetY = -1f
+            private var downPosition: Point? = null
+            private var modifiedBeforeDown = false
 
             override fun onTouch(view: View?, motionEvent: MotionEvent?): Boolean {
-                if (view == null)
+                if (view == null || motionEvent == null)
                     return false
+
+                // Let touches that start in the system gesture area (e.g. the back gesture) go through to the system instead of grabbing the view
+                if (motionEvent.action == MotionEvent.ACTION_DOWN && isInSystemGestureArea(view, motionEvent)) {
+                    return false
+                }
 
                 if (selectedView != null) {
                     deselectCurrentView()
                 }
 
-                return when (motionEvent?.action) {
+                return when (motionEvent.action) {
                     MotionEvent.ACTION_DOWN -> {
+                        dragging = false
                         downOffsetX = motionEvent.x
                         downOffsetY = motionEvent.y
+                        downPosition = layoutComponentView.getPosition()
+                        modifiedBeforeDown = modifiedByUser
                         view.alpha = 1f
                         layoutComponentView.setHighlighted(true)
                         true
@@ -141,7 +155,6 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
                         }
                         true
                     }
-                    MotionEvent.ACTION_CANCEL,
                     MotionEvent.ACTION_UP -> {
                         if (!dragging) {
                             selectView(layoutComponentView)
@@ -152,10 +165,34 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
                         }
                         true
                     }
+                    MotionEvent.ACTION_CANCEL -> {
+                        // The gesture was taken away (usually by the system back gesture). Undo the drag and don't select the view
+                        if (dragging) {
+                            downPosition?.let { layoutComponentView.setPosition(it) }
+                            modifiedByUser = modifiedBeforeDown
+                        }
+                        view.alpha = 0.5f
+                        layoutComponentView.setHighlighted(false)
+                        dragging = false
+                        true
+                    }
                     else -> false
                 }
             }
         })
+    }
+
+    private fun isInSystemGestureArea(view: View, motionEvent: MotionEvent): Boolean {
+        val gestureInsets = ViewCompat.getRootWindowInsets(this)?.getInsets(WindowInsetsCompat.Type.systemGestures()) ?: return false
+        if (gestureInsets.left == 0 && gestureInsets.right == 0) {
+            return false
+        }
+
+        // Convert the touch position to window coordinates, which is what the insets are relative to
+        val viewLocation = IntArray(2)
+        view.getLocationInWindow(viewLocation)
+        val touchX = viewLocation[0] + motionEvent.x
+        return touchX < gestureInsets.left || touchX > rootView.width - gestureInsets.right
     }
 
     private fun selectView(view: LayoutComponentView) {
@@ -180,6 +217,10 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         val widthScale = (view.getWidth() - minComponentSize) / (width - minComponentSize).toFloat()
         val heightScale = (view.getHeight() - minComponentSize) / (height - minComponentSize).toFloat()
         onViewSelectedListener?.invoke(view, widthScale, heightScale, width, height, minComponentSize)
+    }
+
+    fun deselectSelectedView() {
+        deselectCurrentView()
     }
 
     private fun deselectCurrentView() {

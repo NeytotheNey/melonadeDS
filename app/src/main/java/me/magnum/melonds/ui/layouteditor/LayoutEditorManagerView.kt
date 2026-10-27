@@ -1,9 +1,12 @@
 package me.magnum.melonds.ui.layouteditor
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.util.AttributeSet
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.AdapterView
@@ -20,15 +23,17 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.isGone
 import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.findViewTreeViewModelStoreOwner
 import androidx.lifecycle.get
+import androidx.preference.PreferenceManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.squareup.picasso.Callback
 import com.squareup.picasso.Picasso
@@ -38,6 +43,7 @@ import me.magnum.melonds.domain.model.RuntimeBackground
 import me.magnum.melonds.domain.model.consoleAspectRatio
 import me.magnum.melonds.domain.model.layout.LayoutComponent
 import me.magnum.melonds.extensions.setBackgroundMode
+import me.magnum.melonds.impl.dpToPixels
 import me.magnum.melonds.ui.common.component.dialog.TextInputDialog
 import me.magnum.melonds.ui.common.component.dialog.TextInputDialogState
 import me.magnum.melonds.ui.layouteditor.LayoutEditorActivity.MenuOption
@@ -52,10 +58,13 @@ import me.magnum.melonds.ui.layouteditor.ui.LayoutPropertiesDialog
 import me.magnum.melonds.ui.theme.MelonTheme
 import me.magnum.melonds.utils.getLayoutComponentName
 import java.util.UUID
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val CONTROLS_SLIDE_ANIMATION_DURATION_MS = 100L
+private const val FLOATING_MENU_BUTTON_IDLE_ALPHA = 0.6f
+private const val FLOATING_MENU_BUTTON_KEY_PREFIX = "layout_editor_menu_button"
 
 class LayoutEditorManagerView(
     private val layoutTarget: LayoutTarget,
@@ -68,6 +77,7 @@ class LayoutEditorManagerView(
     interface LayoutEditorManagerListener {
         fun openBackgroundPicker(layoutTarget: LayoutTarget, selectedBackgroundId: UUID?)
         fun onStoreLayoutChanges()
+        fun onSaveLayout()
         fun onSaveLayoutAndExit()
         fun onExit()
     }
@@ -89,7 +99,6 @@ class LayoutEditorManagerView(
     }
 
     var listener: LayoutEditorManagerListener? = null
-    private var areBottomControlsShown = true
     private var areScalingControlsShown = true
     private var selectedViewMinSize = 0
     private var currentWidthScale = 0f
@@ -99,7 +108,10 @@ class LayoutEditorManagerView(
     private var selectedAspectRatio = ScreenAspectRatio.RATIO_4_3
     private var topAspectRatio = ScreenAspectRatio.RATIO_4_3
     private var bottomAspectRatio = ScreenAspectRatio.RATIO_4_3
-    private var updatingAspectSpinner = false
+    private var fillingScalingControls = false
+    private var topCutoutInset = 0
+    private var isDraggingFloatingMenuButton = false
+    private val preferences by lazy { PreferenceManager.getDefaultSharedPreferences(context) }
 
     private var showLayoutPropertiesDialog by mutableStateOf(initialEditorState?.isPropertiesDialogShown ?: false)
     private var showBackgroundPropertiesDialog by mutableStateOf(initialEditorState?.isBackgroundPropertiesDialogShown ?: false)
@@ -198,13 +210,11 @@ class LayoutEditorManagerView(
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            if (insets.top != topCutoutInset) {
+                topCutoutInset = insets.top
+                positionFloatingMenuButton()
+            }
             binding.layoutScalingContainer.setPadding(
-                insets.left,
-                0,
-                insets.right,
-                insets.bottom,
-            )
-            binding.layoutControls.setPadding(
                 insets.left,
                 0,
                 insets.right,
@@ -214,12 +224,7 @@ class LayoutEditorManagerView(
             WindowInsetsCompat.CONSUMED
         }
 
-        binding.buttonAddButton.setOnClickListener {
-            openButtonsMenu()
-        }
-        binding.buttonMenu.setOnClickListener {
-            openMenu()
-        }
+        setupFloatingMenuButton()
         binding.buttonDeleteButton.setOnClickListener {
             binding.viewLayoutEditor.deleteSelectedView()
         }
@@ -231,14 +236,7 @@ class LayoutEditorManagerView(
         }
 
         binding.viewLayoutEditor.setLayoutComponentViewBuilderFactory(EditorLayoutComponentViewBuilderFactory())
-        binding.viewLayoutEditor.setOnClickListener {
-            if (areBottomControlsShown)
-                hideBottomControls()
-            else
-                showBottomControls()
-        }
         binding.viewLayoutEditor.setOnViewSelectedListener { view, widthScale, heightScale, maxWidth, maxHeight, minSize ->
-            hideBottomControls()
             // Force the scaling controls to restart so the new view always
             // receives fresh listeners even if they were already visible.
             hideScalingControls(false)
@@ -268,6 +266,7 @@ class LayoutEditorManagerView(
         }
         binding.seekBarSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (fillingScalingControls) return
                 val scale = progress / seekBar.max.toFloat()
                 val value = (binding.seekBarSize.max * scale + selectedViewMinSize).toInt()
                 binding.textSize.text = value.toString()
@@ -286,6 +285,7 @@ class LayoutEditorManagerView(
         }
         binding.seekBarWidth.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (fillingScalingControls) return
                 if (selectedViewIsScreen && fromUser && selectedAspectRatio.ratio != null) {
                     enforceAspectRatio(selectedAspectRatio, WIDTH)
                 } else {
@@ -308,6 +308,7 @@ class LayoutEditorManagerView(
         }
         binding.seekBarHeight.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (fillingScalingControls) return
                 if (selectedViewIsScreen && fromUser && selectedAspectRatio.ratio != null) {
                     enforceAspectRatio(selectedAspectRatio, HEIGHT)
                 } else {
@@ -327,6 +328,7 @@ class LayoutEditorManagerView(
 
         binding.seekBarAlpha.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (fillingScalingControls) return
                 val alpha = progress / 100f
                 binding.viewLayoutEditor.setSelectedViewAlpha(alpha)
             }
@@ -345,8 +347,10 @@ class LayoutEditorManagerView(
         binding.spinnerAspectRatio.adapter = aspectAdapter
         binding.spinnerAspectRatio.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
-                if (!selectedViewIsScreen || updatingAspectSpinner) return
-                selectedAspectRatio = ScreenAspectRatio.entries[position]
+                // The spinner reports selections made from code later on (posted), so also ignore selections that don't change anything
+                val newAspectRatio = ScreenAspectRatio.entries[position]
+                if (!selectedViewIsScreen || fillingScalingControls || newAspectRatio == selectedAspectRatio) return
+                selectedAspectRatio = newAspectRatio
                 when (selectedScreenComponent) {
                     LayoutComponent.TOP_SCREEN -> topAspectRatio = selectedAspectRatio
                     LayoutComponent.BOTTOM_SCREEN -> bottomAspectRatio = selectedAspectRatio
@@ -359,10 +363,14 @@ class LayoutEditorManagerView(
         }
 
         binding.checkboxAboveScreen.setOnCheckedChangeListener { _, isChecked ->
+            if (fillingScalingControls) return@setOnCheckedChangeListener
             binding.viewLayoutEditor.setSelectedScreenOnTop(isChecked)
         }
 
-        binding.buttonHideControls.setOnClickListener {
+        // Tinted in code because app:tint isn't applied when inflated in the external display presentation (no AppCompat inflater there)
+        binding.buttonDone.compoundDrawableTintList = ContextCompat.getColorStateList(context, R.color.textLayoutEditor)
+        binding.buttonDone.setOnClickListener {
+            binding.viewLayoutEditor.deselectSelectedView()
             hideScalingControls()
         }
 
@@ -379,6 +387,8 @@ class LayoutEditorManagerView(
 
     fun handleBackNavigation() {
         if (areScalingControlsShown) {
+            // Same as the Done button. Deselecting also hides the scaling controls
+            binding.viewLayoutEditor.deselectSelectedView()
             hideScalingControls(true)
         } else {
             openMenu()
@@ -407,7 +417,6 @@ class LayoutEditorManagerView(
     }
 
     private fun openButtonsMenu() {
-        hideBottomControls()
         val instantiatedComponents = binding.viewLayoutEditor.getInstantiatedComponents()
         val componentsToShow = LayoutComponent.entries.filterNot { instantiatedComponents.contains(it) }
 
@@ -429,6 +438,125 @@ class LayoutEditorManagerView(
         dialogBuilder.showInCurrentWindow()
     }
 
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupFloatingMenuButton() {
+        val button = binding.buttonFloatingMenu
+        var downRawX = 0f
+        var downRawY = 0f
+        var downX = 0f
+        var downY = 0f
+        var isTouchActive = false
+
+        // Set in code because app:tint isn't applied when inflated in the external display presentation (no AppCompat inflater there)
+        button.imageTintList = ContextCompat.getColorStateList(context, R.color.textLayoutEditor)
+        button.setOnClickListener {
+            openMenu()
+        }
+        button.setOnLongClickListener {
+            // Only start dragging from a touch long press. Long presses from a gamepad or accessibility services are left to the default handling
+            if (!isTouchActive) {
+                return@setOnLongClickListener false
+            }
+            isDraggingFloatingMenuButton = true
+            button.alpha = 1f
+            button.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            true
+        }
+        // Only handles dragging after a long press. Everything else goes through to the button so that clicks and long presses keep working
+        button.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    isTouchActive = true
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    downX = button.x
+                    downY = button.y
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (isDraggingFloatingMenuButton) {
+                        moveFloatingMenuButton(downX + event.rawX - downRawX, downY + event.rawY - downRawY)
+                        true
+                    } else {
+                        false
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (isDraggingFloatingMenuButton) {
+                        if (event.actionMasked == MotionEvent.ACTION_UP) {
+                            saveFloatingMenuButtonPosition()
+                        } else {
+                            // The gesture was taken away. Put the button back where it was
+                            moveFloatingMenuButton(downX, downY)
+                        }
+                        button.alpha = FLOATING_MENU_BUTTON_IDLE_ALPHA
+                    }
+                    isTouchActive = false
+                    isDraggingFloatingMenuButton = false
+                    false
+                }
+                else -> false
+            }
+        }
+
+        binding.root.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                positionFloatingMenuButton()
+            }
+        }
+    }
+
+    /**
+     * Places the floating menu button at its saved position for the current orientation, or at the top center if it was never moved.
+     */
+    private fun positionFloatingMenuButton() {
+        val button = binding.buttonFloatingMenu
+        val parentWidth = binding.root.width
+        val parentHeight = binding.root.height
+        if (parentWidth == 0 || parentHeight == 0 || isDraggingFloatingMenuButton) {
+            return
+        }
+
+        val keyPrefix = getFloatingMenuButtonKeyPrefix()
+        val savedCenterX = preferences.getFloat("${keyPrefix}_x", -1f)
+        val savedCenterY = preferences.getFloat("${keyPrefix}_y", -1f)
+
+        val centerX = if (savedCenterX >= 0f) savedCenterX * parentWidth else parentWidth / 2f
+        val centerY = if (savedCenterY >= 0f) {
+            savedCenterY * parentHeight
+        } else {
+            topCutoutInset + context.dpToPixels(8f) + button.height / 2f
+        }
+        moveFloatingMenuButton(centerX - button.width / 2f, centerY - button.height / 2f)
+    }
+
+    private fun moveFloatingMenuButton(x: Float, y: Float) {
+        val button = binding.buttonFloatingMenu
+        button.x = x.coerceIn(0f, max(0, binding.root.width - button.width).toFloat())
+        button.y = y.coerceIn(0f, max(0, binding.root.height - button.height).toFloat())
+    }
+
+    private fun saveFloatingMenuButtonPosition() {
+        val button = binding.buttonFloatingMenu
+        val parentWidth = binding.root.width
+        val parentHeight = binding.root.height
+        if (parentWidth == 0 || parentHeight == 0) {
+            return
+        }
+
+        val keyPrefix = getFloatingMenuButtonKeyPrefix()
+        preferences.edit {
+            putFloat("${keyPrefix}_x", (button.x + button.width / 2f) / parentWidth)
+            putFloat("${keyPrefix}_y", (button.y + button.height / 2f) / parentHeight)
+        }
+    }
+
+    private fun getFloatingMenuButtonKeyPrefix(): String {
+        val orientation = if (binding.root.width > binding.root.height) "landscape" else "portrait"
+        val target = if (layoutTarget == LayoutTarget.SECONDARY_SCREEN) "_external" else ""
+        return "${FLOATING_MENU_BUTTON_KEY_PREFIX}${target}_$orientation"
+    }
+
     private fun openMenu() {
         listener?.onStoreLayoutChanges()
         val values = MenuOption.entries
@@ -443,18 +571,45 @@ class LayoutEditorManagerView(
 
     private fun onMenuOptionSelected(option: MenuOption) {
         when (option) {
+            MenuOption.ADD_COMPONENT -> openButtonsMenu()
             MenuOption.PROPERTIES -> openPropertiesDialog()
             MenuOption.BACKGROUNDS -> openBackgroundsConfigDialog()
             MenuOption.REVERT -> viewModel.revertLayoutChanges()
             MenuOption.RESET -> viewModel.resetLayout()
+            MenuOption.SAVE -> {
+                if (viewModel.currentLayoutHasName()) {
+                    saveLayout()
+                } else {
+                    showLayoutNameInputDialog { saveLayout() }
+                }
+            }
             MenuOption.SAVE_AND_EXIT -> {
                 if (viewModel.currentLayoutHasName()) {
                     listener?.onSaveLayoutAndExit()
                 } else {
-                    showLayoutNameInputDialog()
+                    showLayoutNameInputDialog { listener?.onSaveLayoutAndExit() }
                 }
             }
-            MenuOption.EXIT_WITHOUT_SAVING -> listener?.onExit()
+            MenuOption.EXIT_WITHOUT_SAVING -> exitWithoutSaving()
+        }
+    }
+
+    private fun saveLayout() {
+        listener?.onSaveLayout()
+        Toast.makeText(context, R.string.layout_saved, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun exitWithoutSaving() {
+        listener?.onStoreLayoutChanges()
+        if (viewModel.hasUnsavedChanges()) {
+            MaterialAlertDialogBuilder(context)
+                .setTitle(R.string.layout_editor_discard_changes_title)
+                .setMessage(R.string.layout_editor_discard_changes_message)
+                .setPositiveButton(R.string.discard) { _, _ -> listener?.onExit() }
+                .setNegativeButton(R.string.cancel, null)
+                .showInCurrentWindow()
+        } else {
+            listener?.onExit()
         }
     }
 
@@ -468,58 +623,15 @@ class LayoutEditorManagerView(
         showBackgroundPropertiesDialog = true
     }
 
-    private fun showLayoutNameInputDialog() {
+    private fun showLayoutNameInputDialog(onNameSet: () -> Unit) {
         nameInputDialogState.show(
             initialText = resources.getString(R.string.custom_layout_default_name),
             onConfirm = {
                 viewModel.setCurrentLayoutName(it)
-                listener?.onSaveLayoutAndExit()
+                onNameSet()
             },
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
         )
-    }
-
-    private fun showBottomControls(animate: Boolean = true) {
-        if (areBottomControlsShown) {
-            return
-        }
-
-        binding.layoutControls.clearAnimation()
-        if (animate) {
-            binding.layoutControls
-                .animate()
-                .y(binding.layoutControls.bottom.toFloat() - binding.layoutControls.height.toFloat())
-                .setDuration(CONTROLS_SLIDE_ANIMATION_DURATION_MS)
-                .withStartAction {
-                    binding.layoutControls.isVisible = true
-                }
-                .start()
-        } else {
-            binding.layoutControls.isVisible = true
-        }
-
-        areBottomControlsShown = true
-    }
-
-    private fun hideBottomControls(animate: Boolean = true) {
-        if (!areBottomControlsShown) {
-            return
-        }
-
-        if (animate) {
-            binding.layoutControls.clearAnimation()
-            binding.layoutControls.animate()
-                .y(binding.layoutControls.bottom.toFloat())
-                .setDuration(CONTROLS_SLIDE_ANIMATION_DURATION_MS)
-                .withEndAction {
-                    binding.layoutControls.isGone = true
-                }
-                .start()
-        } else {
-            binding.layoutControls.isGone = true
-        }
-
-        areBottomControlsShown = false
     }
 
     private fun showScalingControls(
@@ -535,6 +647,8 @@ class LayoutEditorManagerView(
     ) {
         binding.layoutScalingContainer.animate().cancel()
 
+        // Filling in the controls fires their listeners. Ignore those so that just selecting a view doesn't change (or mark as modified) the layout
+        fillingScalingControls = true
         if (isScreen) {
             binding.seekBarWidth.apply {
                 max = maxWidth - minSize
@@ -557,9 +671,8 @@ class LayoutEditorManagerView(
 
         binding.seekBarAlpha.progress = (alpha * 100).toInt()
         binding.checkboxAboveScreen.isChecked = onTop
-        updatingAspectSpinner = true
         binding.spinnerAspectRatio.setSelection(selectedAspectRatio.ordinal, false)
-        updatingAspectSpinner = false
+        fillingScalingControls = false
 
         binding.layoutSizeLabels.isVisible = !isScreen
         binding.seekBarSize.isVisible = !isScreen

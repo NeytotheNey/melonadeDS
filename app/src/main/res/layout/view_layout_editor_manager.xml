@@ -43,17 +43,18 @@
                 android:text="@string/delete"
                 style="@style/Button.Editor" />
 
-            <ImageButton
-                android:id="@+id/button_hide_controls"
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/button_done"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:minWidth="48dp"
                 app:layout_constraintTop_toTopOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
-                style="?android:attr/buttonStyleSmall"
-                android:background="@null"
-                android:src="@drawable/m3_split_button_chevron_avd"
-                app:tint="@color/textLayoutEditor"
-                android:contentDescription="@string/close" />
+                android:drawableStart="@drawable/ic_close_small"
+                android:drawablePadding="8dp"
+                android:text="@string/done"
+                style="@style/Button.Editor" />
 
             <LinearLayout
                 android:id="@+id/layout_size_labels"
@@ -268,35 +269,14 @@
         </androidx.constraintlayout.widget.ConstraintLayout>
     </ScrollView>
 
-    <LinearLayout
-        android:id="@+id/layout_controls"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
-        android:orientation="horizontal"
-        android:background="@color/layoutEditorPanelBackground"
-        android:clickable="true"
-        android:focusable="false"
-        android:gravity="center_vertical"
-        tools:visibility="invisible">
-
-        <androidx.appcompat.widget.AppCompatButton
-            android:id="@+id/button_add_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/add_component"
-            style="@style/Button.Editor" />
-
-        <Space
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1" />
-
-        <androidx.appcompat.widget.AppCompatButton
-            android:id="@+id/button_menu"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/menu"
-            style="@style/Button.Editor" />
-    </LinearLayout>
+    <!-- Always visible menu button. Kept as the last child so it draws above everything else. Its position is set in code -->
+    <ImageButton
+        android:id="@+id/button_floating_menu"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="@drawable/bg_layout_editor_floating_button"
+        android:src="@drawable/ic_menu"
+        android:scaleType="center"
+        android:alpha="0.6"
+        android:contentDescription="@string/layout_editor_open_menu" />
 </RelativeLayout>

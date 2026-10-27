@@ -467,6 +467,12 @@
     <string name="reset_default">Reset to default</string>
     <string name="exit_without_saving">Exit without saving</string>
     <string name="save_and_exit">Save and exit</string>
+    <string name="layout_saved">Layout saved</string>
+    <string name="done">Done</string>
+    <string name="layout_editor_open_menu">Open layout editor menu</string>
+    <string name="layout_editor_discard_changes_title">Discard changes?</string>
+    <string name="layout_editor_discard_changes_message">This layout has unsaved changes. They will be lost if you exit now.</string>
+    <string name="discard">Discard</string>
     <string name="layout_name">Layout name</string>
     <string name="layout_orientation">Layout orientation</string>
     <string name="layout_use_default_opacity">Use default opacity</string>
