@@ -1,5 +1,5 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <string name="app_name">melonDS</string>
+    <string name="app_name">melonadeDS</string>
 
     <string name="ok">OK</string>
     <string name="yes">Yes</string>
@@ -220,9 +220,9 @@
     <string name="threaded_rendering_software_only">Only used by the Software renderer. Change the renderer in Display.</string>
     <string name="backup_settings_summary">Save settings, controls, layouts and game settings to a folder</string>
     <string name="restore_settings_summary">Load them back from a backup folder</string>
-    <string name="settings_restore_confirmation">Your settings, controls, custom layouts and game settings will be replaced with the ones in the backup folder you pick. Your RetroAchievements login, ROM and save folders and BIOS folders stay as they are.\n\nmelonDS restarts when it\'s done, which closes any game that\'s running.</string>
+    <string name="settings_restore_confirmation">Your settings, controls, custom layouts and game settings will be replaced with the ones in the backup folder you pick. Your RetroAchievements login, ROM and save folders and BIOS folders stay as they are.\n\nmelonadeDS restarts when it\'s done, which closes any game that\'s running.</string>
     <string name="choose_folder">Choose folder</string>
-    <string name="settings_restore_newer_version">This backup was made with a newer version of melonDS. Update the app, then try again.</string>
+    <string name="settings_restore_newer_version">This backup was made with a newer version of melonadeDS. Update the app, then try again.</string>
     <string name="settings_restore_failed_kept">Restore failed, so your previous settings were kept.</string>
     <string name="theme">Theme</string>
     <string name="dynamic_colors">Dynamic colors</string>
