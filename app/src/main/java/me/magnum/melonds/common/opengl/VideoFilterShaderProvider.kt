@@ -12,6 +12,8 @@ object VideoFilterShaderProvider {
         VideoFiltering.QUILEZ to ShaderProgramSource.QuilezShader,
         VideoFiltering.LCD to ShaderProgramSource.LcdShader,
         VideoFiltering.SCANLINES to ShaderProgramSource.ScanlinesShader,
+        VideoFiltering.SCALE2X to ShaderProgramSource.Scale2xShader,
+        VideoFiltering.FXAA to ShaderProgramSource.FxaaShader,
     )
 
     fun getShaderSource(filtering: VideoFiltering): ShaderProgramSource =

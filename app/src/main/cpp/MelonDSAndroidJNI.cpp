@@ -290,7 +290,7 @@ JNIEXPORT void JNICALL
 Java_me_magnum_melonds_MelonEmulator_presentFrame(JNIEnv* env, jobject thiz, jlong deadlineNs, jlong vsyncTimeNs, jobject renderFrameCallback)
 {
     jclass presentFrameWrapperClass = env->GetObjectClass(renderFrameCallback);
-    jmethodID renderFrameMethodId = env->GetMethodID(presentFrameWrapperClass, "renderFrame", "(ZIJ)V");
+    jmethodID renderFrameMethodId = env->GetMethodID(presentFrameWrapperClass, "renderFrame", "(ZIIIJ)V");
 
     std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadlineTime;
     if (deadlineNs > 0)
@@ -318,13 +318,13 @@ Java_me_magnum_melonds_MelonEmulator_presentFrame(JNIEnv* env, jobject thiz, jlo
     if (presentationFrame != nullptr)
     {
         eglWaitSyncKHR(currentDisplay, presentationFrame->renderFence, 0);
-        env->CallVoidMethod(renderFrameCallback, renderFrameMethodId, true, (jint) presentationFrame->frameTexture, (jlong) presentationFrame->sequence);
+        env->CallVoidMethod(renderFrameCallback, renderFrameMethodId, true, (jint) presentationFrame->frameTexture, (jint) presentationFrame->width, (jint) presentationFrame->height, (jlong) presentationFrame->sequence);
         EGLSyncKHR presentFence = eglCreateSyncKHR(currentDisplay, EGL_SYNC_FENCE_KHR, nullptr);
         presentationFrame->presentFence = presentFence;
     }
     else
     {
-        env->CallVoidMethod(renderFrameCallback, renderFrameMethodId, false, 0, (jlong) 0);
+        env->CallVoidMethod(renderFrameCallback, renderFrameMethodId, false, 0, 0, 0, (jlong) 0);
     }
 }
 

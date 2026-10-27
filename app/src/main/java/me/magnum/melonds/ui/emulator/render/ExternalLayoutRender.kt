@@ -217,12 +217,15 @@ class ExternalLayoutRender(
         }
 
         shader.use()
+        shader.setTextureSize(presentFrameWrapper.textureWidth, presentFrameWrapper.textureHeight)
         GLES30.glDisableVertexAttribArray(shader.attribAlpha)
 
         posTop?.let { buf ->
             buf.position(0)
             uvTop.position(0)
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, shader.textureFiltering)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, shader.textureFiltering)
             GLES30.glVertexAttribPointer(shader.attribPos, 2, GLES30.GL_FLOAT, false, 0, buf)
             GLES30.glVertexAttribPointer(shader.attribUv, 2, GLES30.GL_FLOAT, false, 0, uvTop)
             GLES30.glUniform1i(shader.uniformTex, 0)
@@ -236,6 +239,8 @@ class ExternalLayoutRender(
             buf.position(0)
             uvBottom.position(0)
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, shader.textureFiltering)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, shader.textureFiltering)
             GLES30.glVertexAttribPointer(shader.attribPos, 2, GLES30.GL_FLOAT, false, 0, buf)
             GLES30.glVertexAttribPointer(shader.attribUv, 2, GLES30.GL_FLOAT, false, 0, uvBottom)
             GLES30.glUniform1i(shader.uniformTex, 0)

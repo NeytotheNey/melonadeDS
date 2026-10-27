@@ -76,6 +76,18 @@ Ported from the DraStic mod (`C:\Dev\drastic\tools\smali-src\EditorGrid.java`, a
 - `label_alpha`, `label_aspect_ratio` and the `aspect_ratio_*` strings are now unused. They were left in because they have translations.
 - Not checked: the editor on an external display, and light theme.
 
+## Video filters
+
+Compared against DraStic's shaders in `C:\Dev\drastic\decoded\assets\shaders` (`.dfx` = pass chain, `.dsd` = one pass).
+
+- Filters used to hardcode the frame texture as 256x386, which is wrong when the OpenGL/Compute renderer is upscaled (texture is 256N x 386N). The real size now comes from native (`presentFrame` in `MelonDSAndroidJNI.cpp` → `FrameRenderCallback` → `PresentFrameWrapper.textureWidth/Height`) into a `texSize` uniform (`Shader.setTextureSize`), set by all three renderers.
+- Which grid each filter uses (comment at the top of `ShaderProgramSource.kt`): HQ2x, HQ4x, Quilez and FXAA use the real size. LCD, Scanlines, xBR2 and Scale2x stay on the 256x386 DS grid, because 2D layers are upscaled nearest-neighbour and the exact-equality scalers would see identical neighbours inside each block.
+- Texture layout at any scale: top screen v in [0, 192/386], 2-row gap (never written, contents undefined), bottom screen [194/386, 1]. `SCREEN_BAND_FUNCTIONS` clamps samples to the fragment's own screen.
+- New: Scale2x (works) and FXAA. The first FXAA ran in one pass per phone pixel and drew X-shaped streaks inside text; it's being rebuilt as two passes (FXAA per frame-texture texel into a buffer, then Quilez upscale), like DraStic.
+- The external renderers now set the shader's NEAREST/LINEAR filtering on the frame texture (they used to inherit whatever `DSRenderer` last set).
+- Phone check, 2D menu at 1x: everything except single-pass FXAA looks right. Screenshots in `perf_logs/filter-shots/`. Not yet checked: OpenGL at 2x+ in a 3D game, which is what the size fix is for.
+- Notes: Scanlines exists but isn't in the settings list (was already so upstream). 2xBR is Hyllian's 2011 version and barely changes anything; xBR-lv2 would be an upgrade. LCD darkens the whole picture. Later candidates from DraStic: SMAA, Lottes CRT (DraStic sets its `res` to the target size, which breaks the scanlines; use the DS size).
+
 ## Performance work (done, parked)
 
 ### Performance logger

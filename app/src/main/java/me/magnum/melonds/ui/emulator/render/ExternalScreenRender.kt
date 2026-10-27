@@ -188,12 +188,15 @@ class ExternalScreenRender(
         shader?.let {
             it.use()
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, it.textureFiltering)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, it.textureFiltering)
             GLES30.glBindVertexArray(screensVao)
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, screensVbo)
             GLES30.glVertexAttribPointer(it.attribPos, 2, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 0)
             GLES30.glVertexAttribPointer(it.attribUv, 2, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
             GLES30.glVertexAttribPointer(it.attribAlpha, 1, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, (2 + 2) * Float.SIZE_BYTES)
             GLES30.glUniform1i(it.uniformTex, 0)
+            it.setTextureSize(presentFrameWrapper.textureWidth, presentFrameWrapper.textureHeight)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
         }
     }

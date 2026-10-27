@@ -278,6 +278,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             GLES30.glVertexAttribPointer(shader.attribUv, 2, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
             GLES30.glVertexAttribPointer(shader.attribAlpha, 1, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 4 * Float.SIZE_BYTES)
             GLES30.glUniform1i(shader.uniformTex, 0)
+            shader.setTextureSize(presentFrameWrapper.textureWidth, presentFrameWrapper.textureHeight)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, screenIndices)
 
             GLES30.glBindVertexArray(0)
