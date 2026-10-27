@@ -7,7 +7,8 @@ import java.util.concurrent.atomic.AtomicLong
  * drained by the logger (single consumer) through a preallocated lock-free ring, so recording never allocates or blocks.
  *
  * Each sample takes [FIELDS] entries: presentation timestamp (ns, [System.nanoTime]), render CPU duration (ns), flags ([FLAG_VALID],
- * [FLAG_NEW_FRAME], [FLAG_EMULATION_PAUSED], [FLAG_DS_SLEEP]) and the number of emulator frames that were skipped (produced but never presented) before this one.
+ * [FLAG_NEW_FRAME], [FLAG_EMULATION_PAUSED], [FLAG_DS_SLEEP], [FLAG_FAST_FORWARD]) and the number of emulator frames that were skipped (produced
+ * but never presented) before this one.
  */
 object DisplayPerformanceCapture {
     const val FIELDS = 4
@@ -15,6 +16,7 @@ object DisplayPerformanceCapture {
     const val FLAG_NEW_FRAME = 2L
     const val FLAG_EMULATION_PAUSED = 4L
     const val FLAG_DS_SLEEP = 8L
+    const val FLAG_FAST_FORWARD = 16L
 
     // Enough for several seconds of samples even at 144Hz
     private const val CAPACITY = 1024
@@ -48,7 +50,7 @@ object DisplayPerformanceCapture {
     /**
      * Must be called from the render thread.
      */
-    fun record(timestampNs: Long, renderDurationNs: Long, isValidFrame: Boolean, frameSequence: Long, isEmulationPaused: Boolean, isDsSleeping: Boolean) {
+    fun record(timestampNs: Long, renderDurationNs: Long, isValidFrame: Boolean, frameSequence: Long, isEmulationPaused: Boolean, isDsSleeping: Boolean, isFastForward: Boolean) {
         if (resetFrameSequence) {
             resetFrameSequence = false
             lastFrameSequence = 0L
@@ -77,7 +79,8 @@ object DisplayPerformanceCapture {
         data[offset + 2] = (if (isValidFrame) FLAG_VALID else 0L) or
                 (if (isNewFrame) FLAG_NEW_FRAME else 0L) or
                 (if (isEmulationPaused) FLAG_EMULATION_PAUSED else 0L) or
-                (if (isDsSleeping) FLAG_DS_SLEEP else 0L)
+                (if (isDsSleeping) FLAG_DS_SLEEP else 0L) or
+                (if (isFastForward) FLAG_FAST_FORWARD else 0L)
         data[offset + 3] = skippedFrames
         // Publishes the sample to the consumer
         writeIndex.lazySet(write + 1)

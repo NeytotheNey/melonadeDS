@@ -110,6 +110,7 @@ class FrameRenderCoordinator {
                         frameSequence = frameSequence,
                         isEmulationPaused = (stateFlags and MelonEmulator.PERF_STATE_FLAG_PAUSED) != 0,
                         isDsSleeping = (stateFlags and MelonEmulator.PERF_STATE_FLAG_DS_SLEEP) != 0,
+                        isFastForward = (stateFlags and MelonEmulator.PERF_STATE_FLAG_FAST_FORWARD) != 0,
                     )
                 }
             }

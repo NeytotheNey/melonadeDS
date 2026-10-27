@@ -19,6 +19,7 @@ object MelonEmulator {
     const val PERF_FRAME_FLAG_AFTER_PAUSE = 2L
     const val PERF_STATE_FLAG_PAUSED = 1
     const val PERF_STATE_FLAG_DS_SLEEP = 2
+    const val PERF_STATE_FLAG_FAST_FORWARD = 4
 
     enum class LoadResult(val isTerminal: Boolean) {
         SUCCESS(false),
@@ -114,8 +115,9 @@ object MelonEmulator {
     external fun getDroppedPerformanceFrameSampleCount(): Long
 
     /**
-     * Current emulation state as [PERF_STATE_FLAG_PAUSED] and [PERF_STATE_FLAG_DS_SLEEP] flags. Used by the performance logger to tell periods
-     * where no new frames are expected (emulator paused, DS lid closed) apart from real stalls.
+     * Current emulation state as [PERF_STATE_FLAG_PAUSED], [PERF_STATE_FLAG_DS_SLEEP] and [PERF_STATE_FLAG_FAST_FORWARD] flags. Used by the
+     * performance logger to tell periods where no new frames are expected (emulator paused, DS lid closed) apart from real stalls, and to leave
+     * fast-forward out of the frame pacing stats.
      */
     external fun getPerformanceEmulationStateFlags(): Int
 

@@ -347,6 +347,8 @@ Java_me_magnum_melonds_MelonEmulator_getPerformanceEmulationStateFlags(JNIEnv* e
         flags |= 1;
     if (MelonDSAndroid::isSleeping())
         flags |= 2;
+    if (isFastForwardEnabled)
+        flags |= 4;
     return flags;
 }
 

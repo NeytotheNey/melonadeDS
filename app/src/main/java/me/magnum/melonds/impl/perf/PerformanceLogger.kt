@@ -35,6 +35,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.roundToLong
 import kotlin.math.sqrt
 
@@ -60,6 +61,13 @@ class PerformanceLogger(
         private const val TARGET_FPS = 60.0
         private const val TARGET_FRAME_INTERVAL_NS = 16_666_667L
         private const val MISSED_FRAME_THRESHOLD_NS = TARGET_FRAME_INTERVAL_NS * 3 / 2
+        // Holds from 1 to 31 refreshes get their own bucket. The last bucket counts 32 and above
+        private const val HOLD_HISTOGRAM_SIZE = 33
+        // If refresh_hz / 60 is within this of a whole number, every frame is expected to be held exactly that many refreshes
+        private const val HOLD_WHOLE_NUMBER_TOLERANCE = 0.05
+        private const val JUDDER_WINDOW_SECONDS = 10
+        // A window is only evaluated once it holds at least 80% of the holds a full window should have at 60 FPS (480)
+        private const val JUDDER_WINDOW_MIN_FRAMES = JUDDER_WINDOW_SECONDS * 60 * 4 / 5
         private const val MAX_SESSION_NAME_LENGTH = 48
         private const val LOG_FILE_MIME_TYPE = "application/octet-stream"
 
@@ -167,6 +175,7 @@ class PerformanceLogger(
             try {
                 settingsSnapshot = buildSettingsSnapshot()
                 displayRefreshRate = getDisplayRefreshRate()
+                stats.configureDisplayCadence(displayRefreshRate)
 
                 val logDestination = resolveDestination()
                 destination = logDestination
@@ -174,7 +183,7 @@ class PerformanceLogger(
                     write("frame,t_ms,work_ms,sleep_ms,interval_ms,lines,fast_forward,after_pause\n")
                 }
                 displayWriter = logDestination.openWriter("${filePrefix}_display.csv").apply {
-                    write("t_ms,render_ms,valid,new_frame,skipped_frames,paused,ds_sleep\n")
+                    write("t_ms,render_ms,valid,new_frame,skipped_frames,paused,ds_sleep,fast_forward,prev_hold_refreshes\n")
                 }
                 memoryWriter = logDestination.openWriter("${filePrefix}_memory.csv").apply {
                     write("t_s,rss_kb,native_heap_alloc_kb,java_heap_used_kb,thermal_status\n")
@@ -267,6 +276,9 @@ class PerformanceLogger(
                     val isNewFrame = (flags and DisplayPerformanceCapture.FLAG_NEW_FRAME) != 0L
                     val isPaused = (flags and DisplayPerformanceCapture.FLAG_EMULATION_PAUSED) != 0L
                     val isDsSleeping = (flags and DisplayPerformanceCapture.FLAG_DS_SLEEP) != 0L
+                    val isFastForward = (flags and DisplayPerformanceCapture.FLAG_FAST_FORWARD) != 0L
+
+                    val previousHold = stats.trackDisplayFrame(timestamp, renderDuration, isValid, isNewFrame, skippedFrames, isPaused, isDsSleeping, isFastForward)
 
                     lineBuilder.appendMillis(timestamp - startNs).append(',')
                         .appendMillis(renderDuration).append(',')
@@ -274,9 +286,13 @@ class PerformanceLogger(
                         .append(if (isNewFrame) '1' else '0').append(',')
                         .append(skippedFrames).append(',')
                         .append(if (isPaused) '1' else '0').append(',')
-                        .append(if (isDsSleeping) '1' else '0').append('\n')
-
-                    stats.trackDisplayFrame(renderDuration, isValid, isNewFrame, skippedFrames, isPaused, isDsSleeping)
+                        .append(if (isDsSleeping) '1' else '0').append(',')
+                        .append(if (isFastForward) '1' else '0').append(',')
+                    // Only set on new frames whose previous frame's hold was measured
+                    if (previousHold > 0) {
+                        lineBuilder.append(previousHold)
+                    }
+                    lineBuilder.append('\n')
                 }
                 writer.append(lineBuilder)
             } while (count == DISPLAY_DRAIN_BATCH_SIZE)
@@ -490,7 +506,7 @@ class PerformanceLogger(
             line("work_p95_ms", millis(if (hasFrames) workDurations.percentile(0.95) else null))
             line("work_max_ms", millis(if (hasFrames) workDurations.max else null))
 
-            summary.append("\n# Display (repeat stats exclude samples while paused or while the DS is asleep)\n")
+            summary.append("\n# Display (repeat stats exclude samples while paused or while the DS is asleep. Hold stats also exclude fast-forward)\n")
             val refreshRate = displayRefreshRate?.toDouble()?.takeIf { it > 0 }
             // A display faster than 60Hz has to show some frames twice even with perfect pacing
             val expectedRepeatRatio = refreshRate?.let { maxOf(0.0, 1.0 - TARGET_FPS / it) }
@@ -510,6 +526,24 @@ class PerformanceLogger(
             line("display_longest_repeat_run", stats.displayLongestRepeatRun)
             line("display_longest_repeat_run_expected", expectedLongestRepeatRun)
             line("display_skipped_emulator_frames", stats.displaySkippedFrames)
+            line("display_samples_while_fast_forward", stats.displayFastForwardSamples)
+            // Hold = number of refreshes a frame stayed on screen. Judder shows up as frames held more or fewer refreshes than expected, even when
+            // the average matches (for example 1 + 3 instead of 2 + 2 at 120Hz)
+            val hasHolds = stats.displayHoldFrames > 0
+            val tracksCadence = stats.expectedHoldRefreshes != null
+            line("display_expected_hold_refreshes", decimal(stats.expectedHoldRefreshes))
+            line("display_on_cadence_holds", when {
+                !tracksCadence -> null
+                stats.onCadenceMinHold == stats.onCadenceMaxHold -> "${stats.onCadenceMinHold}"
+                // For example 90Hz: frames alternate between 1 and 2 refreshes, so both count as on-cadence
+                else -> "${stats.onCadenceMinHold} or ${stats.onCadenceMaxHold} (expected hold is not a whole number, so the cadence alternates)"
+            })
+            line("display_hold_frames", stats.displayHoldFrames.takeIf { tracksCadence })
+            line("display_hold_histogram", if (hasHolds) stats.formatHoldHistogram() else null)
+            line("display_off_cadence_frames", stats.displayOffCadenceFrames.takeIf { tracksCadence })
+            line("display_off_cadence_pct", decimal(if (tracksCadence && hasHolds) stats.displayOffCadenceFrames * 100.0 / stats.displayHoldFrames else null))
+            line("display_judder_window_min_frames", JUDDER_WINDOW_MIN_FRAMES)
+            line("display_judder_worst_10s_pct", decimal(stats.worstJudderWindowPct()))
             line("render_avg_ms", decimal(stats.averageRenderDurationNs()?.div(1e6), 3))
             line("render_max_ms", millis(stats.displayMaxRenderDuration.takeIf { stats.displaySamples > 0 }))
 
@@ -633,6 +667,35 @@ class PerformanceLogger(
         private var displayRenderDurationSum = 0L
         private var currentRepeatRun = 0L
 
+        // Frame hold cadence. A hold is the time from one new frame to the next, in refresh periods, measured when the next one arrives. Time is used
+        // instead of counting samples because render callbacks can be merged or dropped, so there isn't always one sample per refresh
+        var displayFastForwardSamples = 0L
+            private set
+        var displayHoldFrames = 0L
+            private set
+        var displayOffCadenceFrames = 0L
+            private set
+        var expectedHoldRefreshes: Double? = null
+            private set
+        // 0 when the refresh rate is unknown, in which case off-cadence frames aren't tracked
+        var onCadenceMinHold = 0L
+            private set
+        var onCadenceMaxHold = 0L
+            private set
+        private val displayHoldHistogram = LongArray(HOLD_HISTOGRAM_SIZE)
+        // 0 when the refresh rate is unknown, in which case holds aren't measured
+        private var refreshPeriodNs = 0.0
+        // Timestamp of the current frame's first sample. Only valid when its start was seen (not after a pause, fast-forward or an invalid frame)
+        private var currentFrameStartNs = 0L
+        private var hasCurrentFrameStart = false
+
+        // Sliding judder window in 1 second steps. Each slot holds the counts of one second
+        private val judderWindowFrames = LongArray(JUDDER_WINDOW_SECONDS)
+        private val judderWindowOffCadence = LongArray(JUDDER_WINDOW_SECONDS)
+        private var judderWindowSecond = 0L
+        private var hasJudderWindow = false
+        private var worstJudderPct = Double.NaN
+
         var memorySamples = 0L
             private set
         var peakRss = 0L
@@ -662,7 +725,34 @@ class PerformanceLogger(
             }
         }
 
-        fun trackDisplayFrame(renderDuration: Long, isValid: Boolean, isNewFrame: Boolean, skippedFrames: Long, isPaused: Boolean, isDsSleeping: Boolean) {
+        fun configureDisplayCadence(refreshRate: Float?) {
+            val rate = refreshRate?.toDouble()?.takeIf { it > 0 } ?: return
+            val expected = rate / TARGET_FPS
+            refreshPeriodNs = 1e9 / rate
+            expectedHoldRefreshes = expected
+            val nearest = expected.roundToLong()
+            if (abs(expected - nearest) <= HOLD_WHOLE_NUMBER_TOLERANCE) {
+                onCadenceMinHold = maxOf(1L, nearest)
+                onCadenceMaxHold = onCadenceMinHold
+            } else {
+                onCadenceMinHold = maxOf(1L, floor(expected).toLong())
+                onCadenceMaxHold = maxOf(1L, ceil(expected).toLong())
+            }
+        }
+
+        /**
+         * Returns how many refreshes the previous frame was held if this sample is a new frame and that hold could be measured, or 0 otherwise.
+         */
+        fun trackDisplayFrame(
+            timestamp: Long,
+            renderDuration: Long,
+            isValid: Boolean,
+            isNewFrame: Boolean,
+            skippedFrames: Long,
+            isPaused: Boolean,
+            isDsSleeping: Boolean,
+            isFastForward: Boolean,
+        ): Long {
             displaySamples++
             displayRenderDurationSum += renderDuration
             if (renderDuration > displayMaxRenderDuration) {
@@ -677,15 +767,30 @@ class PerformanceLogger(
                     displaySleepSamples++
                 }
                 currentRepeatRun = 0
-                return
+                hasCurrentFrameStart = false
+                return 0
             }
 
+            if (isFastForward) {
+                displayFastForwardSamples++
+            }
+
+            var previousHold = 0L
             when {
-                !isValid -> displayInvalidFrames++
+                !isValid -> {
+                    displayInvalidFrames++
+                    hasCurrentFrameStart = false
+                }
                 isNewFrame -> {
                     displayNewFrames++
                     displaySkippedFrames += skippedFrames
                     currentRepeatRun = 0
+                    if (hasCurrentFrameStart && !isFastForward && refreshPeriodNs > 0) {
+                        previousHold = maxOf(1L, Math.round((timestamp - currentFrameStartNs) / refreshPeriodNs))
+                        trackHold(previousHold, timestamp)
+                    }
+                    currentFrameStartNs = timestamp
+                    hasCurrentFrameStart = true
                 }
                 else -> {
                     displayRepeatedFrames++
@@ -695,6 +800,101 @@ class PerformanceLogger(
                     }
                 }
             }
+
+            // Frames shown during fast-forward don't follow the normal cadence, so holds that touch it aren't counted
+            if (isFastForward) {
+                hasCurrentFrameStart = false
+            }
+            return previousHold
+        }
+
+        private fun trackHold(hold: Long, timestamp: Long) {
+            displayHoldFrames++
+            displayHoldHistogram[minOf(hold, HOLD_HISTOGRAM_SIZE - 1L).toInt()]++
+
+            if (onCadenceMinHold == 0L) {
+                return
+            }
+
+            val isOffCadence = hold < onCadenceMinHold || hold > onCadenceMaxHold
+            if (isOffCadence) {
+                displayOffCadenceFrames++
+            }
+
+            advanceJudderWindow(Math.floorDiv(timestamp, 1_000_000_000L))
+            val slot = Math.floorMod(judderWindowSecond, JUDDER_WINDOW_SECONDS.toLong()).toInt()
+            judderWindowFrames[slot]++
+            if (isOffCadence) {
+                judderWindowOffCadence[slot]++
+            }
+        }
+
+        private fun advanceJudderWindow(second: Long) {
+            if (!hasJudderWindow) {
+                hasJudderWindow = true
+                judderWindowSecond = second
+                return
+            }
+
+            // Every window that ends at a completed second is checked before its oldest second is dropped. After a full window of steps every slot
+            // is empty, so longer gaps don't need more steps
+            var steps = 0
+            while (judderWindowSecond < second && steps < JUDDER_WINDOW_SECONDS) {
+                checkJudderWindow()
+                judderWindowSecond++
+                val slot = Math.floorMod(judderWindowSecond, JUDDER_WINDOW_SECONDS.toLong()).toInt()
+                judderWindowFrames[slot] = 0
+                judderWindowOffCadence[slot] = 0
+                steps++
+            }
+            judderWindowSecond = maxOf(judderWindowSecond, second)
+        }
+
+        private fun checkJudderWindow() {
+            val pct = currentJudderWindowPct() ?: return
+            if (worstJudderPct.isNaN() || pct > worstJudderPct) {
+                worstJudderPct = pct
+            }
+        }
+
+        private fun currentJudderWindowPct(): Double? {
+            val frames = judderWindowFrames.sum()
+            if (frames < JUDDER_WINDOW_MIN_FRAMES) {
+                return null
+            }
+            return judderWindowOffCadence.sum() * 100.0 / frames
+        }
+
+        /**
+         * Highest off-cadence percentage in any window of [JUDDER_WINDOW_SECONDS] seconds (sliding in 1 second steps) with at least
+         * [JUDDER_WINDOW_MIN_FRAMES] measured holds, including the window that is still in progress.
+         */
+        fun worstJudderWindowPct(): Double? {
+            val current = currentJudderWindowPct()
+            val worst = worstJudderPct.takeUnless { it.isNaN() }
+            return when {
+                current == null -> worst
+                worst == null -> current
+                else -> maxOf(worst, current)
+            }
+        }
+
+        /**
+         * Compact hold histogram, for example "1:2918 2:17640 3:2873 4:37 5+:6". Lists every hold up to 2 above the longest on-cadence one (at
+         * least up to 4) and groups the rest.
+         */
+        fun formatHoldHistogram(): String {
+            val lastListed = maxOf(4L, onCadenceMaxHold + 2).coerceAtMost(HOLD_HISTOGRAM_SIZE - 2L).toInt()
+            val builder = StringBuilder()
+            for (hold in 1..lastListed) {
+                builder.append(hold).append(':').append(displayHoldHistogram[hold]).append(' ')
+            }
+            var rest = 0L
+            for (hold in lastListed + 1 until HOLD_HISTOGRAM_SIZE) {
+                rest += displayHoldHistogram[hold]
+            }
+            builder.append(lastListed + 1).append("+:").append(rest)
+            return builder.toString()
         }
 
         fun trackMemory(rss: Long, nativeHeapAllocated: Long, thermalStatus: Int) {
