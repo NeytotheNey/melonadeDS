@@ -1,6 +1,7 @@
 package me.magnum.melonds.common.network
 
 import android.content.Context
+import me.magnum.melonds.BuildConfig
 import okhttp3.Interceptor
 import okhttp3.Response
 
@@ -12,7 +13,9 @@ class MelonOkHttpInterceptor(private val context: Context) : Interceptor {
 
     private val userAgentVersion by lazy {
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-        val appVersion = packageInfo.versionName!!
+        // Report the upstream melonDS-android version instead of our own. Only the leading version number is swapped, so the flavor
+        // suffixes (GH, PS, NIGHTLY) stay the same
+        val appVersion = packageInfo.versionName!!.replaceFirst(Regex("^\\S+"), BuildConfig.UPSTREAM_VERSION_NAME)
         val userAgentSuffix = appVersion.lowercase().replace(' ', '-').replace("(", "").replace(")", "")
         "$MELON_USER_AGENT_PREFIX/$userAgentSuffix"
     }

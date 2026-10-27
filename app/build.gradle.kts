@@ -34,6 +34,7 @@ android {
         targetSdk = AppConfig.targetSdkVersion
         versionCode = AppConfig.versionCode
         versionName = AppConfig.versionName
+        buildConfigField("String", "UPSTREAM_VERSION_NAME", "\"${AppConfig.upstreamVersionName}\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
@@ -47,6 +48,7 @@ android {
     buildFeatures {
         viewBinding = true
         compose = true
+        buildConfig = true
     }
     buildTypes {
         getByName("release") {
