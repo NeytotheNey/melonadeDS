@@ -4,9 +4,18 @@ import android.opengl.GLES30
 import android.util.Log
 
 object ShaderFactory {
-    fun createShaderProgram(source: ShaderProgramSource): Shader {
+    /**
+     * Compiles and links the given shaders. With [colorCorrection], COLOR_CORRECTION is defined in the fragment shader, which turns on the DS
+     * screen colours in the screen shaders' finishColor(). Shaders that don't use it are unaffected.
+     */
+    fun createShaderProgram(source: ShaderProgramSource, colorCorrection: Boolean = false): Shader {
         val vertexShader = createShader(GLES30.GL_VERTEX_SHADER, source.vertexShaderSource)
-        val fragmentShader = createShader(GLES30.GL_FRAGMENT_SHADER, source.fragmentShaderSource)
+        val fragmentShaderSource = if (colorCorrection) {
+            addDefine(source.fragmentShaderSource, "COLOR_CORRECTION")
+        } else {
+            source.fragmentShaderSource
+        }
+        val fragmentShader = createShader(GLES30.GL_FRAGMENT_SHADER, fragmentShaderSource)
         val shaderProgram = createShaderProgram(vertexShader, fragmentShader)
         val textureFilter = when (source.textureFiltering) {
             ShaderProgramSource.TextureFiltering.NEAREST -> GLES30.GL_NEAREST
@@ -14,6 +23,17 @@ object ShaderFactory {
         }
 
         return Shader(vertexShader, fragmentShader, shaderProgram, textureFilter)
+    }
+
+    private fun addDefine(code: String, name: String): String {
+        // Nothing but comments and whitespace can come before #version, so the define goes on the line after it
+        if (code.startsWith("#version")) {
+            val versionLineEnd = code.indexOf('\n')
+            if (versionLineEnd >= 0) {
+                return code.substring(0, versionLineEnd + 1) + "#define $name\n" + code.substring(versionLineEnd + 1)
+            }
+        }
+        return "#define $name\n$code"
     }
 
     private fun createShaderProgram(vertexShader: Int, fragmentShader: Int): Int {

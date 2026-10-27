@@ -227,7 +227,8 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         screenFilter?.delete()
 
         val filtering = rendererConfiguration?.videoFiltering ?: VideoFiltering.NONE
-        screenFilter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(filtering))
+        val dsScreenColors = rendererConfiguration?.dsScreenColors ?: false
+        screenFilter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(filtering), dsScreenColors)
     }
 
     override fun onSurfaceChanged(width: Int, height: Int) {

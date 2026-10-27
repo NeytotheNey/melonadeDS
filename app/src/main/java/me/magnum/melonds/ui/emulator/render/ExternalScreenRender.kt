@@ -23,6 +23,7 @@ class ExternalScreenRender(
     private var screensVao = 0
 
     private var videoFiltering: VideoFiltering = VideoFiltering.NONE
+    private var dsScreenColors = false
 
     private var surfaceWidth = 0
     private var surfaceHeight = 0
@@ -33,6 +34,7 @@ class ExternalScreenRender(
     override fun updateRendererConfiguration(newRendererConfiguration: RuntimeRendererConfiguration?) {
         synchronized(viewportLock) {
             videoFiltering = newRendererConfiguration?.videoFiltering ?: VideoFiltering.NONE
+            dsScreenColors = newRendererConfiguration?.dsScreenColors ?: false
             areRenderSettingsDirty = true
         }
     }
@@ -47,7 +49,7 @@ class ExternalScreenRender(
     override fun onSurfaceCreated() {
         // All the surfaces render with the same GL context, so the previous filter's objects are still valid here
         filter?.delete()
-        filter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(videoFiltering))
+        filter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(videoFiltering), dsScreenColors)
 
         val buffers = IntArray(2)
         GLES30.glGenBuffers(1, buffers, 0)
@@ -154,7 +156,7 @@ class ExternalScreenRender(
         // Delete previous shader
         filter?.delete()
 
-        filter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(videoFiltering))
+        filter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(videoFiltering), dsScreenColors)
     }
 
     override fun onSurfaceChanged(width: Int, height: Int) {

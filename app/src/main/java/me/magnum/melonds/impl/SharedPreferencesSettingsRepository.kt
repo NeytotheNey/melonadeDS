@@ -96,14 +96,18 @@ class SharedPreferencesSettingsRepository(
         setDefaultThemeIfRequired()
         setDefaultMacAddressIfRequired()
 
+        // combine() only takes up to 5 flows with their own types, so the 2 filter settings are paired up first
+        val filterSettingsFlow = combine(getVideoFiltering(), isDsScreenColorsEnabled()) { filtering, dsScreenColors ->
+            filtering to dsScreenColors
+        }
         renderConfigurationFlow = combine(
             getVideoRenderer(),
-            getVideoFiltering(),
+            filterSettingsFlow,
             isThreadedRenderingEnabled(),
             getRenderStrategy(),
             getVideoInternalResolutionScaling(),
-        ) { renderer, filtering, threadedRenderingEnabled, renderStrategy, resolutionScaling ->
-            RendererConfiguration(renderer, filtering, threadedRenderingEnabled, renderStrategy, resolutionScaling)
+        ) { renderer, (filtering, dsScreenColors), threadedRenderingEnabled, renderStrategy, resolutionScaling ->
+            RendererConfiguration(renderer, filtering, dsScreenColors, threadedRenderingEnabled, renderStrategy, resolutionScaling)
         }.conflate().shareIn(preferencesCoroutineScope, SharingStarted.Lazily, replay = 1)
     }
 
@@ -333,6 +337,12 @@ class SharedPreferencesSettingsRepository(
         return getOrCreatePreferenceSharedFlow("video_filtering") {
             val filteringPreference = preferences.getString("video_filtering", "none")!!
             VideoFiltering.valueOf(filteringPreference.uppercase())
+        }
+    }
+
+    override fun isDsScreenColorsEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow("video_ds_screen_colors") {
+            preferences.getBoolean("video_ds_screen_colors", false)
         }
     }
 

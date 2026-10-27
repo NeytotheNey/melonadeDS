@@ -69,6 +69,7 @@ class ExternalLayoutRender(
     private lateinit var uvBottom: FloatBuffer
 
     private var videoFiltering: VideoFiltering = VideoFiltering.NONE
+    private var dsScreenColors = false
 
     private var viewWidth = 0
     private var viewHeight = 0
@@ -157,7 +158,7 @@ class ExternalLayoutRender(
         if (this::filter.isInitialized) {
             filter.delete()
         }
-        filter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(videoFiltering))
+        filter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(videoFiltering), dsScreenColors)
 
         val textures = IntArray(1)
         GLES30.glGenTextures(1, textures, 0)
@@ -266,12 +267,14 @@ class ExternalLayoutRender(
      * shader will be created with the updated filtering.
      *
      * @param videoFiltering The new [VideoFiltering] setting to apply.
+     * @param dsScreenColors Whether to mimic the colours of the original DS's LCD.
      */
-    fun updateVideoFiltering(videoFiltering: VideoFiltering) {
+    fun updateVideoFiltering(videoFiltering: VideoFiltering, dsScreenColors: Boolean) {
         this.videoFiltering = videoFiltering
+        this.dsScreenColors = dsScreenColors
         if (this::filter.isInitialized) {
             filter.delete()
-            filter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(videoFiltering))
+            filter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(videoFiltering), dsScreenColors)
         }
     }
 

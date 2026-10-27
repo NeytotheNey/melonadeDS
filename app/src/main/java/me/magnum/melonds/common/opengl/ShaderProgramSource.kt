@@ -40,14 +40,32 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    uv = vUV;\n" +
                 "}"
 
+        // Every screen shader passes its final RGB colour through finishColor(). The pre-passes don't, since they work on the raw colours.
+        // It does nothing unless ShaderFactory defines COLOR_CORRECTION, for the "DS screen colours" setting. Then it applies Pokefan531's
+        // nds-color profile (hunterk's Color Mangler, public domain), which mimics the paler, cooler colours of the original DS's LCD: to linear
+        // with a gamma of 1.91, dimmed to 89%, mixed through the colour matrix, then back with the same gamma. pow() is undefined for negative
+        // values, which some filters can output and the matrix can make (its red row has a negative blue term), so both pow() inputs are
+        // clamped. Works in GLSL ES 1.00 and 3.00
+        private const val COLOR_FUNCTIONS = "vec3 finishColor(vec3 rgb) {\n" +
+                "#ifdef COLOR_CORRECTION\n" +
+                "    vec3 c = pow(clamp(rgb, 0.0, 1.0), vec3(1.91)) * 0.89;\n" +
+                "    // One column per input channel: new R = 0.87 R + 0.255 G - 0.125 B, new G = 0.1 R + 0.645 G + 0.255 B, new B = 0.1 R + 0.17 G + 0.73 B\n" +
+                "    c = mat3(0.87, 0.1, 0.1, 0.255, 0.645, 0.17, -0.125, 0.255, 0.73) * c;\n" +
+                "    return pow(clamp(c, 0.0, 1.0), vec3(1.0 / 1.91));\n" +
+                "#else\n" +
+                "    return rgb;\n" +
+                "#endif\n" +
+                "}\n"
+
         private const val DEFAULT_FRAG_SHADER = "precision mediump float;\n" +
                 "uniform sampler2D tex;\n" +
                 "varying vec2 uv;\n" +
                 "varying float alpha;\n" +
+                COLOR_FUNCTIONS +
                 "void main()\n" +
                 "{\n" +
                 "    vec4 color = texture2D(tex, uv);\n" +
-                "    gl_FragColor = vec4(color.bgr, alpha);\n" +
+                "    gl_FragColor = vec4(finishColor(color.bgr), alpha);\n" +
                 "}"
 
         // Helpers for filters that sample far enough to reach past the gap between the screens. sampleScreen() keeps samples inside the screen
@@ -139,6 +157,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "const float brighten_lcd = 4.0;\n" +
                     "" +
                     "const vec3 offsets = 3.141592654 * vec3(1.0/2.0,1.0/2.0 - 2.0/3.0,1.0/2.0-4.0/3.0);\n" +
+                    COLOR_FUNCTIONS +
                     "" +
                     "void main() {\n" +
                     "    vec2 angle = uv * omega;\n" +
@@ -146,7 +165,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    float yfactor = (brighten_scanlines + sin(angle.y)) / (brighten_scanlines + 1.0);\n" +
                     "    vec3 xfactors = (brighten_lcd + sin(angle.x + offsets)) / (brighten_lcd + 1.0);\n" +
                     "" +
-                    "    gl_FragColor.rgb = yfactor * xfactors * texture2D(tex, uv).bgr;\n" +
+                    "    gl_FragColor.rgb = finishColor(yfactor * xfactors * texture2D(tex, uv).bgr);\n" +
                     "    gl_FragColor.a = alpha;\n" +
                     "}"
         )
@@ -186,13 +205,14 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "" +
                     "const float base_brightness = 0.95;\n" +
                     "const vec2 sine_comp = vec2(0.05, 0.15);\n" +
+                    COLOR_FUNCTIONS +
                     "" +
                     "void main ()\n" +
                     "{\n" +
                     "    vec4 color = vec4(texture2D(tex, uv).bgr, alpha);\n" +
                     "" +
-                    "    vec4 scanline = color * (base_brightness + dot(sine_comp * sin(uv * omega), vec2(1.0)));\n" +
-                    "    gl_FragColor = clamp(scanline, 0.0, 1.0);\n" +
+                    "    vec4 scanline = clamp(color * (base_brightness + dot(sine_comp * sin(uv * omega), vec2(1.0))), 0.0, 1.0);\n" +
+                    "    gl_FragColor = vec4(finishColor(scanline.rgb), scanline.a);\n" +
                     "}"
         )
 
@@ -231,6 +251,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "float reduce(vec3 color) {\n" +
                     "    return dot(color, dtt);\n" +
                     "}\n" +
+                    COLOR_FUNCTIONS +
                     "" +
                     "void main() {\n" +
                     "    vec2 ps = 1.0 / texSize;\n" +
@@ -261,13 +282,13 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    float h = reduce(H);\n" +
                     "    float i = reduce(I);\n" +
                     "" +
-                    "    gl_FragColor.rgb = E;\n" +
+                    "    vec3 color = E;\n" +
                     "" +
                     "    if (h==f && h!=e && ( e==g && (h==i || e==d) || e==c && (h==i || e==b) ))\n" +
                     "    {\n" +
-                    "        gl_FragColor.rgb = mix(E, F, 0.5);\n" +
+                    "        color = mix(E, F, 0.5);\n" +
                     "    }\n" +
-                    "    gl_FragColor.a = alpha;\n" +
+                    "    gl_FragColor = vec4(finishColor(color), alpha);\n" +
                     "}"
         )
 
@@ -313,6 +334,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    const float max_w = 0.25;    // max filter weigth\n" +
                     "    const float min_w =-0.05;    // min filter weigth\n" +
                     "    const float lum_add = 0.25;  // effects smoothing\n" +
+                    COLOR_FUNCTIONS +
                     "" +
                     "void main() {\n" +
                     "    vec3 c00 = texture2D(tex, uv[1].xy).xyz; \n" +
@@ -348,8 +370,9 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    w3 = clamp(lc1 * dot(abs(c11 - c12), dt) + mx, min_w, max_w);\n" +
                     "    w4 = clamp(lc2 * dot(abs(c11 - c01), dt) + mx, min_w, max_w);\n" +
                     "" +
-                    "    gl_FragColor.bgr = w1 * c10 + w2 * c21 + w3 * c12 + w4 * c01 + (1.0 - w1 - w2 - w3 - w4) * c11;\n" +
-                    "    gl_FragColor.a = alpha;\n" +
+                    "    // Worked out in the BGR order of the texture\n" +
+                    "    vec3 color = w1 * c10 + w2 * c21 + w3 * c12 + w4 * c01 + (1.0 - w1 - w2 - w3 - w4) * c11;\n" +
+                    "    gl_FragColor = vec4(finishColor(color.bgr), alpha);\n" +
                     "}"
         )
 
@@ -418,6 +441,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "const float max_w = 0.75;   // max filter weigth\n" +
                     "const float min_w = 0.03;   // min filter weigth\n" +
                     "const float lum_add = 0.33; // effects smoothing\n" +
+                    COLOR_FUNCTIONS +
                     "" +
                     "void main()\n" +
                     "{\n" +
@@ -461,8 +485,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    w3 = clamp(w3+mx,min_w,max_w); \n" +
                     "    w4 = clamp(w4+mx,min_w,max_w);\n" +
                     "" +
-                    "    gl_FragColor.rgb = (w1*(i1+i3)+w2*(i2+i4)+w3*(s1+s3)+w4*(s2+s4)+c)/(2.0*(w1+w2+w3+w4)+1.0);\n" +
-                    "    gl_FragColor.a = alpha;\n" +
+                    "    gl_FragColor = vec4(finishColor((w1*(i1+i3)+w2*(i2+i4)+w3*(s1+s3)+w4*(s2+s4)+c)/(2.0*(w1+w2+w3+w4)+1.0)), alpha);\n" +
                     "}"
         )
 
@@ -492,9 +515,10 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    p = (p - vec2(0.5)) / texSize;\n" +
                     "    return texture2D(tex, p);\n" +
                     "}\n" +
+                    COLOR_FUNCTIONS +
                     "" +
                     "void main() {\n" +
-                    "    gl_FragColor = vec4(getTexel(uv).bgr, alpha);\n" +
+                    "    gl_FragColor = vec4(finishColor(getTexel(uv).bgr), alpha);\n" +
                     "}"
         )
 
@@ -515,6 +539,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "varying vec2 uv;\n" +
                     "varying float alpha;\n" +
                     SCREEN_BAND_FUNCTIONS +
+                    COLOR_FUNCTIONS +
                     "" +
                     "void main() {\n" +
                     "    vec2 ps = 1.0 / texSize;\n" +
@@ -542,7 +567,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    if (h == v && h != vOpposite && v != hOpposite) {\n" +
                     "        color = v;\n" +
                     "    }\n" +
-                    "    gl_FragColor = vec4(color, alpha);\n" +
+                    "    gl_FragColor = vec4(finishColor(color), alpha);\n" +
                     "}"
         )
 
@@ -653,6 +678,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "in float alpha;\n" +
                     "out vec4 fragColor;\n" +
                     SCREEN_BAND_FUNCTIONS_300 +
+                    COLOR_FUNCTIONS +
                     "" +
                     "void main() {\n" +
                     "    // Position of the pixel centre in texels, and the pixel size in texels per axis. fwidth() has to be taken on t itself,\n" +
@@ -669,7 +695,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    vec2 w = min((farEdge - farTexel) / d, 1.0);\n" +
                     "    vec2 p = (farTexel - 0.5 + w) / texSize;\n" +
                     "" +
-                    "    fragColor = vec4(sampleScreen(p, screenBand(uv)), alpha);\n" +
+                    "    fragColor = vec4(finishColor(sampleScreen(p, screenBand(uv))), alpha);\n" +
                     "}"
         )
 

@@ -30,8 +30,9 @@ class FilterOutput {
 /**
  * The GL objects of a [VideoFilter]: the compiled screen shader and, if the filter has pre-passes, their shaders and offscreen textures. Must be
  * created, used and deleted on the thread that owns the GL context. Filters without pre-passes create nothing else and cost nothing extra.
+ * [colorCorrection] turns on the DS screen colours in the screen shader. The pre-passes always work on the raw colours.
  */
-class VideoFilterPipeline(filter: VideoFilter) {
+class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false) {
 
     private companion object {
         const val TAG = "VideoFilterPipeline"
@@ -41,7 +42,7 @@ class VideoFilterPipeline(filter: VideoFilter) {
         const val NATIVE_TEXTURE_HEIGHT = SCREEN_HEIGHT * 2 + 2
     }
 
-    val screenShader: Shader = ShaderFactory.createShaderProgram(filter.screenShader)
+    val screenShader: Shader = ShaderFactory.createShaderProgram(filter.screenShader, colorCorrection)
     private val prePasses = filter.prePasses.map { PrePass(ShaderFactory.createShaderProgram(it.source), it.scale, it.nativeResolutionOnly) }
 
     // Returned by renderPrePasses(). Reused so that no garbage is created on every frame

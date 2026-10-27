@@ -36,6 +36,12 @@
                 android:entries="@array/video_filtering_options"
                 android:entryValues="@array/video_filtering_values"
                 android:defaultValue="none"/>
+
+        <SwitchPreference
+                android:key="video_ds_screen_colors"
+                android:title="@string/ds_screen_colors"
+                app:iconSpaceReserved="false"
+                android:defaultValue="false" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/settings_section_frame_pacing">

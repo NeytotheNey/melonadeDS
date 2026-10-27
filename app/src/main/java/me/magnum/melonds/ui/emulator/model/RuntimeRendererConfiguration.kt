@@ -5,6 +5,7 @@ import me.magnum.melonds.domain.model.render.RenderStrategy
 
 data class RuntimeRendererConfiguration(
     val videoFiltering: VideoFiltering,
+    val dsScreenColors: Boolean,
     val resolutionScaling: Int,
     val renderStrategy: RenderStrategy,
 )
