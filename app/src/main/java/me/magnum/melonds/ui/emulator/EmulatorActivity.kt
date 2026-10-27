@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.hardware.display.DisplayManager
 import android.hardware.input.InputManager
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -77,6 +78,7 @@ import me.magnum.melonds.parcelables.RomInfoParcelable
 import me.magnum.melonds.parcelables.RomParcelable
 import me.magnum.melonds.ui.cheats.CheatsActivity
 import me.magnum.melonds.ui.common.rom.EmulatorLaunchValidatorDelegate
+import me.magnum.melonds.ui.emulator.component.EmulatorAudioFocusManager
 import me.magnum.melonds.ui.emulator.component.EmulatorOverlayTracker
 import me.magnum.melonds.ui.emulator.input.ConnectedControllerManager
 import me.magnum.melonds.ui.emulator.input.EmulatorMotionManager
@@ -194,6 +196,7 @@ class EmulatorActivity : AppCompatActivity() {
     private lateinit var emulatorLaunchValidatorDelegate: EmulatorLaunchValidatorDelegate
     private lateinit var emulatorRumbleManager: EmulatorRumbleManager
     private lateinit var emulatorMotionManager: EmulatorMotionManager
+    private lateinit var audioFocusManager: EmulatorAudioFocusManager
     private lateinit var frameRenderCoordinator: FrameRenderCoordinator
     private lateinit var choreographerFrameRenderer: ChoreographerFrameRenderer
     private lateinit var mainScreenRenderer: DSRenderer
@@ -304,11 +307,16 @@ class EmulatorActivity : AppCompatActivity() {
         setupSustainedPerformanceMode()
         setupFramePacing()
         setupFpsCounter()
-        viewModel.resumeEmulator()
+        // The pause menu might have been shown while away (e.g. audio focus lost to a phone call). Leave the game paused behind it in that case
+        if (!activeOverlays.hasActiveOverlays()) {
+            viewModel.resumeEmulator()
+        }
     }
     private val cheatsLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         viewModel.onCheatsChanged()
-        viewModel.resumeEmulator()
+        if (!activeOverlays.hasActiveOverlays()) {
+            viewModel.resumeEmulator()
+        }
     }
     private val permissionRequestLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         lifecycleScope.launch {
@@ -331,6 +339,11 @@ class EmulatorActivity : AppCompatActivity() {
         onOverlaysCleared = {
             disableScreenTimeOut()
             presentation?.setPauseOverlayVisibility(false)
+            // Closing the last overlay is what resumes the game (pause menu, dialogs, rewind window). Ask for focus again in case it was lost
+            // permanently while paused (e.g. another media app started), or the next phone call would go unnoticed
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && !isFinishing) {
+                audioFocusManager.requestFocus()
+            }
         },
         onOverlaysPresent = {
             // Key events aren't forwarded to the input handler while overlays are shown, so the hold's release would be lost
@@ -343,6 +356,16 @@ class EmulatorActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handler = Handler(mainLooper)
+        // Make the volume keys control the game's volume, even when no sound is playing at that moment
+        volumeControlStream = AudioManager.STREAM_MUSIC
+        audioFocusManager = EmulatorAudioFocusManager(this, handler) {
+            // Something else needs the audio (e.g. a phone call). Pause and show the pause menu so that the game doesn't play over it. The game is
+            // not resumed when focus comes back, the user does that from the pause menu. The menu also counts as an overlay, so onResume() won't
+            // resume the game either
+            if (viewModel.emulatorState.value.isRunning() && !activeOverlays.hasActiveOverlays() && !isFinishing) {
+                viewModel.pauseEmulator(true)
+            }
+        }
         lifecycleOwnerProvider.setCurrentLifecycleOwner(this)
         binding = ActivityEmulatorBinding.inflate(layoutInflater)
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -630,6 +653,11 @@ class EmulatorActivity : AppCompatActivity() {
                             if (it is EmulatorState.RunningRom) {
                                 startMotionManagerIfNeeded(it.rom)
                             }
+                            // Focus losses while loading are ignored since nothing is running yet. If focus is gone by now (e.g. a phone call
+                            // came in, or the game was launched during one), start paused instead of playing over it
+                            if (audioFocusManager.isFocusLost && !activeOverlays.hasActiveOverlays()) {
+                                viewModel.pauseEmulator(true)
+                            }
                         }
                         is EmulatorState.RomLoadError -> {
                             binding.viewLayoutControls.isInvisible = true
@@ -788,6 +816,7 @@ class EmulatorActivity : AppCompatActivity() {
 
         if (!activeOverlays.hasActiveOverlays()) {
             disableScreenTimeOut()
+            audioFocusManager.requestFocus()
             viewModel.resumeEmulator()
         }
     }
@@ -1137,6 +1166,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        audioFocusManager.abandonFocus()
         emulatorMotionManager.stop()
         frameRenderCoordinator.stop()
         presentation?.dismiss()
