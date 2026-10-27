@@ -18,9 +18,15 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <algorithm>
 
 #include "SaveManager.h"
 #include "Platform.h"
+
+// Retry backoff after a failed flush, in worker ticks (100ms each): 1, 2, 4, ... up to the cap.
+static const u32 MaxRetryDelayTicks = 32;
+// A flush that keeps failing is logged on the first attempt and then every this many attempts.
+static const u32 FlushFailureLogInterval = 10;
 
 SaveManager::SaveManager(std::string path)
 {
@@ -58,7 +64,8 @@ SaveManager::~SaveManager()
     {
         Running = false;
         Platform::Thread_Wait(Thread);
-        FlushSecondaryBuffer();
+        if (!FlushSecondaryBuffer())
+            Log(LogLevel::Error, "SaveManager: Final flush to %s failed, save data was not written\n", Path.c_str());
     }
 
     SecondaryBuffer = nullptr;
@@ -153,11 +160,22 @@ void SaveManager::CheckFlush()
 
 void SaveManager::run()
 {
+    u32 failedAttempts = 0;
+    u32 retryDelayTicks = 0;
+    u32 ticksUntilRetry = 0;
+
     for (;;)
     {
         Platform::Sleep(100000);
 
         if (!Running) return;
+
+        // Skip ticks instead of sleeping longer, so that shutdown isn't delayed by the backoff.
+        if (ticksUntilRetry > 0)
+        {
+            ticksUntilRetry--;
+            continue;
+        }
 
         // We debounce for two seconds after last flush request to ensure that writing has finished.
         if (TimeAtLastFlushRequest == 0 || difftime(time(nullptr), TimeAtLastFlushRequest) < 2)
@@ -165,18 +183,37 @@ void SaveManager::run()
             continue;
         }
 
-        FlushSecondaryBuffer();
+        if (FlushSecondaryBuffer())
+        {
+            if (failedAttempts > 0)
+                Log(LogLevel::Info, "SaveManager: Flush to %s succeeded after %u failed attempts\n", Path.c_str(), failedAttempts);
+
+            failedAttempts = 0;
+            retryDelayTicks = 0;
+        }
+        else
+        {
+            // The data is still pending, so it gets retried once the backoff runs out.
+            failedAttempts++;
+            retryDelayTicks = retryDelayTicks ? std::min(retryDelayTicks * 2, MaxRetryDelayTicks) : 1;
+            ticksUntilRetry = retryDelayTicks;
+
+            if (failedAttempts == 1 || (failedAttempts % FlushFailureLogInterval) == 0)
+                Log(LogLevel::Error, "SaveManager: Failed to write save to %s (%u attempts), will retry\n", Path.c_str(), failedAttempts);
+        }
     }
 }
 
-void SaveManager::FlushSecondaryBuffer(u8* dst, u32 dstLength)
+bool SaveManager::FlushSecondaryBuffer(u8* dst, u32 dstLength)
 {
-    if (!SecondaryBuffer) return;
+    if (!SecondaryBuffer) return dst == nullptr;
 
     // When flushing to a file, there's no point in re-writing the exact same data.
-    if (!dst && !NeedsFlush()) return;
+    if (!dst && !NeedsFlush()) return true;
     // When flushing to memory, we don't know if dst already has any data so we only check that we CAN flush.
-    if (dst && dstLength < SecondaryBufferLength) return;
+    if (dst && dstLength < SecondaryBufferLength) return false;
+
+    bool flushed = true;
 
     Platform::Mutex_Lock(FlushLock);
     if (dst)
@@ -205,20 +242,32 @@ void SaveManager::FlushSecondaryBuffer(u8* dst, u32 dstLength)
         FileHandle* f = Platform::OpenFile(Path, FileMode::Write);
         if (f)
         {
-            FileWrite(WriteBuffer.get(), WriteBufferLength, 1, f);
-            Log(LogLevel::Info, "SaveManager: Wrote %u bytes to %s\n", WriteBufferLength, Path.c_str());
-            CloseFile(f);
+            bool written = FileWrite(WriteBuffer.get(), WriteBufferLength, 1, f) == 1;
+            // Always close the file, even after a short write. A failed close can also mean lost data.
+            bool closed = CloseFile(f);
+            flushed = written && closed;
+            if (flushed)
+                Log(LogLevel::Info, "SaveManager: Wrote %u bytes to %s\n", WriteBufferLength, Path.c_str());
+        }
+        else
+        {
+            flushed = false;
         }
 
         // Only mark the version we wrote as flushed. If a flush was requested during the write,
-        // leave its timestamp alone so that it still gets its own debounced write.
-        Platform::Mutex_Lock(SecondaryBufferLock);
-        PreviousFlushVersion = version;
-        if (FlushVersion == version)
-            TimeAtLastFlushRequest = 0;
-        Platform::Mutex_Unlock(SecondaryBufferLock);
+        // leave its timestamp alone so that it still gets its own debounced write. If the write
+        // failed, leave everything as is so that the data stays pending and gets retried.
+        if (flushed)
+        {
+            Platform::Mutex_Lock(SecondaryBufferLock);
+            PreviousFlushVersion = version;
+            if (FlushVersion == version)
+                TimeAtLastFlushRequest = 0;
+            Platform::Mutex_Unlock(SecondaryBufferLock);
+        }
     }
     Platform::Mutex_Unlock(FlushLock);
+    return flushed;
 }
 
 bool SaveManager::NeedsFlush()
