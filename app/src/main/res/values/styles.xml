@@ -137,8 +137,51 @@
         <item name="android:scaleType">fitCenter</item>
     </style>
 
-    <style name="Button.Editor" parent="Widget.AppCompat.Button.Borderless">
+    <!-- Icon buttons in the layout editor's item controls. Their icons are tinted in code -->
+    <style name="Button.EditorIcon" parent="android:Widget.ImageButton">
+        <item name="android:layout_width">40dp</item>
+        <item name="android:layout_height">40dp</item>
+        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
+        <item name="android:scaleType">center</item>
+    </style>
+
+    <style name="Button.EditorChoice" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:minWidth">0dp</item>
+        <item name="android:minHeight">40dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+    </style>
+
+    <style name="LayoutEditorPanelRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:orientation">horizontal</item>
+    </style>
+
+    <!-- Label and value of a slider. Tapping them opens a dialog to type the value, when that's supported -->
+    <style name="LayoutEditorPanelValueLabels">
+        <item name="android:layout_width">72dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:background">?attr/selectableItemBackground</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:paddingHorizontal">8dp</item>
+        <item name="android:paddingVertical">2dp</item>
+    </style>
+
+    <style name="LayoutEditorPanelText">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
         <item name="android:textColor">@color/textLayoutEditor</item>
+    </style>
+
+    <style name="LayoutEditorPanelSeekBar">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:paddingVertical">12dp</item>
     </style>
 
     <style name="Button.Birthday" parent="Widget.Material3.Button.TonalButton">
