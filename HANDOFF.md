@@ -1,6 +1,6 @@
 # Handoff: melonadeDS
 
-Branch `material3`, 30 commits on top of `8480c8fc` (Material 3 UI). The last 6 (the video filter work, `17a5b1f6` onwards) aren't pushed yet; the rest are on the private repo `origin` = github.com/NeytotheNey/melonadeDS (project name: melonadeDS). `upstream` = rafaelvcaetano/melonDS-android, fetch only (push URL set to `no_push`). Kept out of git with the local exclude: `build-*.log` and `perf_logs/`.
+Branch `material3`, 30 commits on top of `8480c8fc` (Material 3 UI). Pushed to the private repo `origin` = github.com/NeytotheNey/melonadeDS (project name: melonadeDS). `upstream` = rafaelvcaetano/melonDS-android, fetch only (push URL set to `no_push`). Kept out of git with the local exclude: `build-*.log` and `perf_logs/`.
 
 | Commit | What |
 |---|---|
