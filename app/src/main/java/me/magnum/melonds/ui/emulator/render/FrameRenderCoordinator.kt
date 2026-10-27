@@ -137,6 +137,7 @@ class FrameRenderCoordinator {
                     this.textureId = frameTextureId
                     this.textureWidth = frameTextureWidth
                     this.textureHeight = frameTextureHeight
+                    this.frameSequence = frameSequence
                 }
 
                 managedSurfaces.forEach {

@@ -8,6 +8,7 @@ import android.opengl.GLUtils
 import me.magnum.melonds.common.opengl.Shader
 import me.magnum.melonds.common.opengl.ShaderFactory
 import me.magnum.melonds.common.opengl.ShaderProgramSource
+import me.magnum.melonds.common.opengl.VideoFilterPipeline
 import me.magnum.melonds.common.opengl.VideoFilterShaderProvider
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.RuntimeBackground
@@ -59,7 +60,7 @@ class ExternalLayoutRender(
         private const val TOTAL_SCREEN_HEIGHT = 384
     }
 
-    private lateinit var shader: Shader
+    private lateinit var filter: VideoFilterPipeline
 
     private var posTop: FloatBuffer? = null
     private var posBottom: FloatBuffer? = null
@@ -152,9 +153,11 @@ class ExternalLayoutRender(
     }
 
     override fun onSurfaceCreated() {
-        shader = ShaderFactory.createShaderProgram(
-            VideoFilterShaderProvider.getShaderSource(videoFiltering)
-        )
+        // All the surfaces render with the same GL context, so the previous filter's objects are still valid here
+        if (this::filter.isInitialized) {
+            filter.delete()
+        }
+        filter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(videoFiltering))
 
         val textures = IntArray(1)
         GLES30.glGenTextures(1, textures, 0)
@@ -203,11 +206,13 @@ class ExternalLayoutRender(
     }
 
     override fun drawFrame(presentFrameWrapper: PresentFrameWrapper) {
+        // Runs before anything is drawn to the surface. Returns the frame texture itself for filters without pre-passes. Also called for
+        // invalid frames, which clear its cache
+        val textureId = filter.renderPrePasses(presentFrameWrapper)
         if (!presentFrameWrapper.isValidFrame) {
             return
         }
-
-        val textureId = presentFrameWrapper.textureId
+        val shader = filter.screenShader
 
         GLES30.glViewport(0, 0, viewWidth, viewHeight)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
@@ -262,11 +267,9 @@ class ExternalLayoutRender(
      */
     fun updateVideoFiltering(videoFiltering: VideoFiltering) {
         this.videoFiltering = videoFiltering
-        if (this::shader.isInitialized) {
-            shader.delete()
-            shader = ShaderFactory.createShaderProgram(
-                VideoFilterShaderProvider.getShaderSource(videoFiltering)
-            )
+        if (this::filter.isInitialized) {
+            filter.delete()
+            filter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(videoFiltering))
         }
     }
 

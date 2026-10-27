@@ -8,10 +8,10 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
 
     companion object {
         // The frame texture holds both screens stacked vertically, top screen first (from v = 0), with 2 empty lines between them. These sizes
-        // are in DS pixels. When the OpenGL or Compute renderer is upscaled the texture is that many times bigger, so the filters that blend
-        // texels (HQ2x, HQ4x, Quilez, FXAA) read the real size from the texSize uniform instead. LCD and scanlines keep using these, since they
-        // draw one line/subpixel group per DS pixel. So do xBR and Scale2x: they compare neighbours for exact equality, and the 2D layers are
-        // upscaled nearest-neighbour, so on the real grid every neighbour inside a DS pixel would match
+        // are in DS pixels. When the OpenGL or Compute renderer is upscaled the texture is that many times bigger, so the filters that work on
+        // texels (HQ2x, HQ4x, Quilez, xBR, Scale2x, FXAA) read the real size from the texSize uniform instead. Only LCD and scanlines keep using
+        // these, since they draw one line/subpixel group per DS pixel. The scalers can't stay on the DS grid: upscaled 3D isn't aligned to it
+        // (some games draw everything in 3D, sprites included), so DS-grid neighbours would make them copy pixels into the wrong places
         private const val SCREEN_HEIGHT = 192
         private const val SCREEN_GAP = 2
         private const val LOGICAL_TEXTURE_WIDTH = 256
@@ -27,6 +27,16 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
                 "    uv = vUV;\n" +
                 "    alpha = vAlpha;\n" +
+                "}"
+
+        // For pre-passes (see VideoFilter), which draw a full-target quad into a texture. No alpha, since nothing is blended
+        private const val PRE_PASS_VERT_SHADER = "attribute vec2 vPos;\n" +
+                "attribute vec2 vUV;\n" +
+                "varying vec2 uv;\n" +
+                "void main()\n" +
+                "{\n" +
+                "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
+                "    uv = vUV;\n" +
                 "}"
 
         private const val DEFAULT_FRAG_SHADER = "precision mediump float;\n" +
@@ -195,28 +205,15 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
         val XbrShader = ShaderProgramSource(
             TextureFiltering.NEAREST,
-                "attribute vec2 vPos;\n" +
-                    "attribute vec2 vUV;\n" +
-                    "attribute float vAlpha;\n" +
-                    "varying vec2 uv[3];\n" +
-                    "varying float alpha;\n" +
-                    "" +
-                    "void main() {\n" +
-                    "    vec2 ps = 1.0 / vec2($LOGICAL_TEXTURE_WIDTH, $LOGICAL_TEXTURE_HEIGHT);\n" +
-                    "    uv[0] = vUV;\n" +
-                    "    uv[1] = vec2(0.0, -ps.y);\n" +
-                    "    uv[2] = vec2(-ps.x, 0.0);\n" +
-                    "    alpha = vAlpha;\n" +
-                    "" +
-                    "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
-                    "}",
+            DEFAULT_VERT_SHADER,
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
                     "precision highp float;\n" +
                     "#else\n" +
                     "precision mediump float;\n" +
                     "#endif\n" +
                     "uniform sampler2D tex;\n" +
-                    "varying vec2 uv[3];\n" +
+                    "uniform vec2 texSize;\n" +
+                    "varying vec2 uv;\n" +
                     "varying float alpha;\n" +
                     "" +
                     "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
@@ -226,21 +223,24 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "}\n" +
                     "" +
                     "void main() {\n" +
-                    "    vec2 fp = fract(uv[0] * vec2($LOGICAL_TEXTURE_WIDTH, $LOGICAL_TEXTURE_HEIGHT));\n" +
+                    "    vec2 ps = 1.0 / texSize;\n" +
+                    "    vec2 up = vec2(0.0, -ps.y);\n" +
+                    "    vec2 left = vec2(-ps.x, 0.0);\n" +
+                    "    vec2 fp = fract(uv * texSize);\n" +
                     "" +
-                    "    vec2 g1 = uv[1] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
-                    "            uv[2] * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
-                    "    vec2 g2 = uv[1] * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
-                    "            uv[2] * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
+                    "    vec2 g1 = up * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
+                    "            left * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
+                    "    vec2 g2 = up * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
+                    "            left * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
                     "" +
-                    "    vec3 B = texture2D(tex, uv[0] + g1     ).bgr;\n" +
-                    "    vec3 C = texture2D(tex, uv[0] + g1 - g2).bgr;\n" +
-                    "    vec3 D = texture2D(tex, uv[0]      + g2).bgr;\n" +
-                    "    vec3 E = texture2D(tex, uv[0]          ).bgr;\n" +
-                    "    vec3 F = texture2D(tex, uv[0]      - g2).bgr;\n" +
-                    "    vec3 G = texture2D(tex, uv[0] - g1 + g2).bgr;\n" +
-                    "    vec3 H = texture2D(tex, uv[0] - g1     ).bgr;\n" +
-                    "    vec3 I = texture2D(tex, uv[0] - g1 - g2).bgr;\n" +
+                    "    vec3 B = texture2D(tex, uv + g1     ).bgr;\n" +
+                    "    vec3 C = texture2D(tex, uv + g1 - g2).bgr;\n" +
+                    "    vec3 D = texture2D(tex, uv      + g2).bgr;\n" +
+                    "    vec3 E = texture2D(tex, uv          ).bgr;\n" +
+                    "    vec3 F = texture2D(tex, uv      - g2).bgr;\n" +
+                    "    vec3 G = texture2D(tex, uv - g1 + g2).bgr;\n" +
+                    "    vec3 H = texture2D(tex, uv - g1     ).bgr;\n" +
+                    "    vec3 I = texture2D(tex, uv - g1 - g2).bgr;\n" +
                     "" +
                     "    float b = reduce(B);\n" +
                     "    float c = reduce(C);\n" +
@@ -490,9 +490,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
 
         // Scale2x (also known as EPX) by Andrea Mazzoleni
         // Algorithm description: https://www.scale2x.it/algorithm
-        // Each DS pixel is drawn as 4 quadrants. A quadrant takes the colour of the 2 neighbours next to it if they match each other and the
-        // other 2 neighbours don't, which rounds off diagonal edges without blurring anything. Works on the DS pixel grid (see above), but the
-        // centre is sampled at the fragment's own position, so upscaled 3D keeps its detail
+        // Each texel is drawn as 4 quadrants. A quadrant takes the colour of the 2 neighbours next to it if they match each other and the other
+        // 2 neighbours don't, which rounds off diagonal edges without blurring anything. Works on the real texture grid (see above)
         val Scale2xShader = ShaderProgramSource(
             TextureFiltering.NEAREST,
             DEFAULT_VERT_SHADER,
@@ -507,10 +506,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "varying float alpha;\n" +
                     SCREEN_BAND_FUNCTIONS +
                     "" +
-                    "const vec2 dsSize = vec2($LOGICAL_TEXTURE_WIDTH.0, $LOGICAL_TEXTURE_HEIGHT.0);\n" +
-                    "" +
                     "void main() {\n" +
-                    "    vec2 ps = 1.0 / dsSize;\n" +
+                    "    vec2 ps = 1.0 / texSize;\n" +
                     "    vec2 band = screenBand(uv);\n" +
                     "" +
                     "    //   A\n" +
@@ -523,7 +520,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    vec3 D = sampleScreen(uv + vec2(0.0, ps.y), band);\n" +
                     "" +
                     "    // Neighbours next to the quadrant this fragment is in, and the ones on the opposite sides\n" +
-                    "    vec2 fp = fract(uv * dsSize);\n" +
+                    "    vec2 fp = fract(uv * texSize);\n" +
                     "    bool isLeft = fp.x < 0.5;\n" +
                     "    bool isUp = fp.y < 0.5;\n" +
                     "    vec3 h = isLeft ? C : B;\n" +
@@ -540,11 +537,15 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         )
 
         // FXAA by Timothy Lottes (NVIDIA), the original simple version
-        // Finds the direction of an edge from the luma of the 4 diagonal neighbours and blurs along it. The blur can reach up to 4 texels away,
-        // more than the gap between the screens, so every sample is kept inside the screen being drawn
-        val FxaaShader = ShaderProgramSource(
+        // Finds the direction of an edge from the luma of the 4 diagonal neighbours and blurs along it. Like the original, the corners are
+        // sampled half a texel away, so with linear filtering each one is the average of 2x2 texels and 1 pixel wide detail (like text) doesn't
+        // count as an edge on its own. Texels whose neighbourhood has too little contrast are left untouched. The blur can reach up to 4 texels
+        // away, more than the gap between the screens, so every sample is kept inside the screen being drawn. This is a pre-pass (see
+        // VideoFilter): it has to run once per frame texel, because neighbouring screen pixels inside one texel would pick different edge
+        // directions
+        val FxaaPrePassShader = ShaderProgramSource(
             TextureFiltering.LINEAR,
-            DEFAULT_VERT_SHADER,
+            PRE_PASS_VERT_SHADER,
             "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
                     "precision highp float;\n" +
                     "#else\n" +
@@ -553,22 +554,24 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "uniform sampler2D tex;\n" +
                     "uniform vec2 texSize;\n" +
                     "varying vec2 uv;\n" +
-                    "varying float alpha;\n" +
                     SCREEN_BAND_FUNCTIONS +
                     "" +
                     "const float FXAA_SPAN_MAX = 8.0;\n" +
                     "const float FXAA_REDUCE_MUL = 1.0 / 8.0;\n" +
                     "const float FXAA_REDUCE_MIN = 1.0 / 128.0;\n" +
+                    "// Minimum local contrast to count as an edge, relative to the brightest sample and absolute (for dark areas). High quality values\n" +
+                    "const float FXAA_EDGE_THRESHOLD = 1.0 / 8.0;\n" +
+                    "const float FXAA_EDGE_THRESHOLD_MIN = 1.0 / 16.0;\n" +
                     "const vec3 luma = vec3(0.299, 0.587, 0.114);\n" +
                     "" +
                     "void main() {\n" +
                     "    vec2 rcpFrame = 1.0 / texSize;\n" +
                     "    vec2 band = screenBand(uv);\n" +
                     "" +
-                    "    vec3 rgbNW = sampleScreen(uv + vec2(-1.0, -1.0) * rcpFrame, band);\n" +
-                    "    vec3 rgbNE = sampleScreen(uv + vec2(1.0, -1.0) * rcpFrame, band);\n" +
-                    "    vec3 rgbSW = sampleScreen(uv + vec2(-1.0, 1.0) * rcpFrame, band);\n" +
-                    "    vec3 rgbSE = sampleScreen(uv + vec2(1.0, 1.0) * rcpFrame, band);\n" +
+                    "    vec3 rgbNW = sampleScreen(uv + vec2(-0.5, -0.5) * rcpFrame, band);\n" +
+                    "    vec3 rgbNE = sampleScreen(uv + vec2(0.5, -0.5) * rcpFrame, band);\n" +
+                    "    vec3 rgbSW = sampleScreen(uv + vec2(-0.5, 0.5) * rcpFrame, band);\n" +
+                    "    vec3 rgbSE = sampleScreen(uv + vec2(0.5, 0.5) * rcpFrame, band);\n" +
                     "    vec3 rgbM = sampleScreen(uv, band);\n" +
                     "" +
                     "    float lumaNW = dot(rgbNW, luma);\n" +
@@ -578,6 +581,10 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    float lumaM = dot(rgbM, luma);\n" +
                     "    float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));\n" +
                     "    float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));\n" +
+                    "    if (lumaMax - lumaMin < max(FXAA_EDGE_THRESHOLD_MIN, lumaMax * FXAA_EDGE_THRESHOLD)) {\n" +
+                    "        gl_FragColor = vec4(rgbM.bgr, 1.0);\n" +
+                    "        return;\n" +
+                    "    }\n" +
                     "" +
                     "    vec2 dir;\n" +
                     "    dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));\n" +
@@ -599,7 +606,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    if (lumaB < lumaMin || lumaB > lumaMax) {\n" +
                     "        color = rgbA;\n" +
                     "    }\n" +
-                    "    gl_FragColor = vec4(color, alpha);\n" +
+                    "    // sampleScreen() reads the BGR texels as RGB. Swap back so the output keeps the channel order of the frame texture\n" +
+                    "    gl_FragColor = vec4(color.bgr, 1.0);\n" +
                     "}"
         )
     }

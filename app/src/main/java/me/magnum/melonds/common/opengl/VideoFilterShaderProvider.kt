@@ -3,19 +3,21 @@ package me.magnum.melonds.common.opengl
 import me.magnum.melonds.domain.model.VideoFiltering
 
 object VideoFilterShaderProvider {
-    private val FILTERING_SHADER_MAP = mapOf(
-        VideoFiltering.NONE to ShaderProgramSource.NoFilterShader,
-        VideoFiltering.LINEAR to ShaderProgramSource.LinearShader,
-        VideoFiltering.XBR2 to ShaderProgramSource.XbrShader,
-        VideoFiltering.HQ2X to ShaderProgramSource.Hq2xShader,
-        VideoFiltering.HQ4X to ShaderProgramSource.Hq4xShader,
-        VideoFiltering.QUILEZ to ShaderProgramSource.QuilezShader,
-        VideoFiltering.LCD to ShaderProgramSource.LcdShader,
-        VideoFiltering.SCANLINES to ShaderProgramSource.ScanlinesShader,
-        VideoFiltering.SCALE2X to ShaderProgramSource.Scale2xShader,
-        VideoFiltering.FXAA to ShaderProgramSource.FxaaShader,
+    private val NO_FILTER = VideoFilter(ShaderProgramSource.NoFilterShader)
+
+    private val FILTER_MAP = mapOf(
+        VideoFiltering.NONE to NO_FILTER,
+        VideoFiltering.LINEAR to VideoFilter(ShaderProgramSource.LinearShader),
+        VideoFiltering.XBR2 to VideoFilter(ShaderProgramSource.XbrShader),
+        VideoFiltering.HQ2X to VideoFilter(ShaderProgramSource.Hq2xShader),
+        VideoFiltering.HQ4X to VideoFilter(ShaderProgramSource.Hq4xShader),
+        VideoFiltering.QUILEZ to VideoFilter(ShaderProgramSource.QuilezShader),
+        VideoFiltering.LCD to VideoFilter(ShaderProgramSource.LcdShader),
+        VideoFiltering.SCANLINES to VideoFilter(ShaderProgramSource.ScanlinesShader),
+        VideoFiltering.SCALE2X to VideoFilter(ShaderProgramSource.Scale2xShader),
+        // FXAA has to run once per frame texel, so it's a pre-pass. Quilez then scales the result up smoothly, like DraStic does
+        VideoFiltering.FXAA to VideoFilter(ShaderProgramSource.QuilezShader, listOf(ShaderProgramSource.FxaaPrePassShader)),
     )
 
-    fun getShaderSource(filtering: VideoFiltering): ShaderProgramSource =
-        FILTERING_SHADER_MAP[filtering] ?: ShaderProgramSource.NoFilterShader
+    fun getFilter(filtering: VideoFiltering): VideoFilter = FILTER_MAP[filtering] ?: NO_FILTER
 }

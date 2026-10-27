@@ -1,0 +1,269 @@
+package me.magnum.melonds.common.opengl
+
+import android.opengl.GLES30
+import android.util.Log
+import me.magnum.melonds.domain.model.render.PresentFrameWrapper
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+
+/**
+ * The GL objects of a [VideoFilter]: the compiled screen shader and, if the filter has pre-passes, their shaders and offscreen textures. Must be
+ * created, used and deleted on the thread that owns the GL context. Filters without pre-passes create nothing else and cost nothing extra.
+ */
+class VideoFilterPipeline(filter: VideoFilter) {
+
+    private companion object {
+        const val TAG = "VideoFilterPipeline"
+        val COLOR_ATTACHMENTS = intArrayOf(GLES30.GL_COLOR_ATTACHMENT0)
+    }
+
+    val screenShader: Shader = ShaderFactory.createShaderProgram(filter.screenShader)
+    private val prePasses = filter.prePasses.map { PrePass(ShaderFactory.createShaderProgram(it)) }
+
+    // Full-target quad shared by all the pre-passes. Created on first use
+    private var quadVao = 0
+    private var quadVbo = 0
+
+    // Frame that the pre-pass textures currently hold. With frame pacing the same frame is often presented more than once
+    private var lastFrameTextureId = 0
+    private var lastFrameSequence = 0L
+    private var lastFrameWidth = 0
+    private var lastFrameHeight = 0
+
+    // GL state saved around the pre-passes. Allocated once to avoid garbage on every frame
+    private val savedViewport = IntArray(4)
+    private val savedInt = IntArray(1)
+    private var savedDrawFramebuffer = 0
+    private var savedReadFramebuffer = 0
+    private var savedProgram = 0
+    private var savedActiveTexture = 0
+    private var savedTexture = 0
+    private var savedVao = 0
+    private var savedArrayBuffer = 0
+    private var savedBlendEnabled = false
+
+    /**
+     * Runs the pre-passes over the frame and returns the texture that [screenShader] should draw. That is the frame texture itself when the
+     * filter has no pre-passes. The returned texture has the same size and layout as the frame texture, so the screen UVs and texSize don't
+     * change. Call it before drawing anything to the surface: on tiled GPUs, switching framebuffers in the middle of a frame makes the driver
+     * store the surface and load it back. All the GL state it touches is restored. Call it for invalid frames too, so the cache is cleared.
+     */
+    fun renderPrePasses(frame: PresentFrameWrapper): Int {
+        if (!frame.isValidFrame) {
+            // There's always an invalid frame between emulator sessions. The new session restarts the frame sequence and can reuse the old
+            // texture names, so a cached result could otherwise match the first frames of the new game
+            lastFrameSequence = 0L
+            return frame.textureId
+        }
+
+        if (prePasses.isEmpty()) {
+            return frame.textureId
+        }
+
+        val width = frame.textureWidth
+        val height = frame.textureHeight
+        if (width <= 0 || height <= 0) {
+            return frame.textureId
+        }
+
+        val isSameFrame = frame.frameSequence != 0L && frame.frameSequence == lastFrameSequence && frame.textureId == lastFrameTextureId &&
+                width == lastFrameWidth && height == lastFrameHeight
+        if (isSameFrame) {
+            return prePasses.last().texture
+        }
+
+        saveState()
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glViewport(0, 0, width, height)
+        if (quadVao == 0) {
+            createQuad()
+        }
+        GLES30.glBindVertexArray(quadVao)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
+
+        var inputTexture = frame.textureId
+        var isComplete = true
+        for (pass in prePasses) {
+            if (!pass.prepareTarget(width, height)) {
+                isComplete = false
+                break
+            }
+            pass.render(inputTexture, width, height)
+            inputTexture = pass.texture
+        }
+
+        restoreState()
+
+        if (!isComplete) {
+            // Draw the frame without the pre-passes rather than nothing
+            lastFrameSequence = 0L
+            return frame.textureId
+        }
+
+        lastFrameTextureId = frame.textureId
+        lastFrameSequence = frame.frameSequence
+        lastFrameWidth = width
+        lastFrameHeight = height
+        return inputTexture
+    }
+
+    fun delete() {
+        screenShader.delete()
+        prePasses.forEach { it.delete() }
+        if (quadVao != 0) {
+            GLES30.glDeleteVertexArrays(1, intArrayOf(quadVao), 0)
+            GLES30.glDeleteBuffers(1, intArrayOf(quadVbo), 0)
+            quadVao = 0
+            quadVbo = 0
+        }
+    }
+
+    private fun createQuad() {
+        // Covers the whole target. UV (0, 0) is at NDC (-1, -1), which maps to texel (0, 0) of the target texture, so the fragment that writes
+        // target texel (x, y) gets the UV of the centre of source texel (x, y). The output keeps the source's orientation and layout
+        val vertexData = floatArrayOf(
+            // Position  UVs
+            -1f, -1f,    0f, 0f,
+            1f, -1f,     1f, 0f,
+            -1f, 1f,     0f, 1f,
+            1f, 1f,      1f, 1f,
+        )
+
+        val vertexBufferSize = vertexData.size * Float.SIZE_BYTES
+        val vertexBuffer = ByteBuffer.allocateDirect(vertexBufferSize)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+            .put(vertexData)
+            .position(0)
+
+        val ids = IntArray(1)
+        GLES30.glGenVertexArrays(1, ids, 0)
+        quadVao = ids[0]
+        GLES30.glGenBuffers(1, ids, 0)
+        quadVbo = ids[0]
+
+        GLES30.glBindVertexArray(quadVao)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GLES30.GL_STATIC_DRAW)
+    }
+
+    private fun saveState() {
+        GLES30.glGetIntegerv(GLES30.GL_DRAW_FRAMEBUFFER_BINDING, savedInt, 0)
+        savedDrawFramebuffer = savedInt[0]
+        GLES30.glGetIntegerv(GLES30.GL_READ_FRAMEBUFFER_BINDING, savedInt, 0)
+        savedReadFramebuffer = savedInt[0]
+        GLES30.glGetIntegerv(GLES30.GL_VIEWPORT, savedViewport, 0)
+        GLES30.glGetIntegerv(GLES30.GL_CURRENT_PROGRAM, savedInt, 0)
+        savedProgram = savedInt[0]
+        GLES30.glGetIntegerv(GLES30.GL_ACTIVE_TEXTURE, savedInt, 0)
+        savedActiveTexture = savedInt[0]
+        // Only texture unit 0 is used, by the pre-passes and by the renderers
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glGetIntegerv(GLES30.GL_TEXTURE_BINDING_2D, savedInt, 0)
+        savedTexture = savedInt[0]
+        GLES30.glGetIntegerv(GLES30.GL_VERTEX_ARRAY_BINDING, savedInt, 0)
+        savedVao = savedInt[0]
+        GLES30.glGetIntegerv(GLES30.GL_ARRAY_BUFFER_BINDING, savedInt, 0)
+        savedArrayBuffer = savedInt[0]
+        savedBlendEnabled = GLES30.glIsEnabled(GLES30.GL_BLEND)
+    }
+
+    private fun restoreState() {
+        GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, savedDrawFramebuffer)
+        GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, savedReadFramebuffer)
+        GLES30.glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3])
+        GLES30.glUseProgram(savedProgram)
+        // The vertex attribute setup is stored in the VAO, so the pre-passes never touched the renderer's own. That includes VAO 0, which the
+        // renderers that use client-side buffers draw with
+        GLES30.glBindVertexArray(savedVao)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, savedArrayBuffer)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, savedTexture)
+        GLES30.glActiveTexture(savedActiveTexture)
+        if (savedBlendEnabled) {
+            GLES30.glEnable(GLES30.GL_BLEND)
+        }
+    }
+
+    private class PrePass(private val shader: Shader) {
+        private var framebuffer = 0
+        var texture = 0
+            private set
+        private var width = 0
+        private var height = 0
+        private var isFramebufferComplete = false
+
+        /**
+         * Makes sure that the target texture has the given size, (re)creating it if needed. Returns whether the framebuffer can be drawn to.
+         */
+        fun prepareTarget(width: Int, height: Int): Boolean {
+            if (texture != 0 && width == this.width && height == this.height) {
+                return isFramebufferComplete
+            }
+
+            deleteTarget()
+            this.width = width
+            this.height = height
+
+            val ids = IntArray(1)
+            GLES30.glGenTextures(1, ids, 0)
+            texture = ids[0]
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
+            GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA8, width, height, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+
+            GLES30.glGenFramebuffers(1, ids, 0)
+            framebuffer = ids[0]
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
+            GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, texture, 0)
+
+            val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
+            isFramebufferComplete = status == GLES30.GL_FRAMEBUFFER_COMPLETE
+            if (!isFramebufferComplete) {
+                Log.e(TAG, "Pre-pass framebuffer incomplete (${width}x$height): status=0x${status.toString(16)}")
+            }
+
+            return isFramebufferComplete
+        }
+
+        /**
+         * Draws the input texture through this pass's shader into the target. The caller binds the quad and sets the viewport and blending.
+         */
+        fun render(inputTexture: Int, width: Int, height: Int) {
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
+            // The quad covers every texel, so the old contents never have to be loaded
+            GLES30.glInvalidateFramebuffer(GLES30.GL_FRAMEBUFFER, 1, COLOR_ATTACHMENTS, 0)
+
+            shader.use()
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, inputTexture)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, shader.textureFiltering)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, shader.textureFiltering)
+            GLES30.glVertexAttribPointer(shader.attribPos, 2, GLES30.GL_FLOAT, false, 4 * Float.SIZE_BYTES, 0)
+            GLES30.glVertexAttribPointer(shader.attribUv, 2, GLES30.GL_FLOAT, false, 4 * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
+            GLES30.glUniform1i(shader.uniformTex, 0)
+            shader.setTextureSize(width, height)
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
+        }
+
+        fun delete() {
+            shader.delete()
+            deleteTarget()
+        }
+
+        private fun deleteTarget() {
+            if (framebuffer != 0) {
+                GLES30.glDeleteFramebuffers(1, intArrayOf(framebuffer), 0)
+                framebuffer = 0
+            }
+            if (texture != 0) {
+                GLES30.glDeleteTextures(1, intArrayOf(texture), 0)
+                texture = 0
+            }
+            isFramebufferComplete = false
+        }
+    }
+}

@@ -7,6 +7,7 @@ import android.opengl.GLUtils
 import me.magnum.melonds.common.opengl.Shader
 import me.magnum.melonds.common.opengl.ShaderFactory
 import me.magnum.melonds.common.opengl.ShaderProgramSource
+import me.magnum.melonds.common.opengl.VideoFilterPipeline
 import me.magnum.melonds.common.opengl.VideoFilterShaderProvider
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.RuntimeBackground
@@ -31,7 +32,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
     private var backgroundTexture = 0
 
-    private var screenShader: Shader? = null
+    private var screenFilter: VideoFilterPipeline? = null
     private lateinit var backgroundShader: Shader
 
     private var screensVbo = 0
@@ -223,11 +224,10 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
     private fun updateShader() {
         // Delete previous shader
-        screenShader?.delete()
+        screenFilter?.delete()
 
         val filtering = rendererConfiguration?.videoFiltering ?: VideoFiltering.NONE
-        val shaderSource = VideoFilterShaderProvider.getShaderSource(filtering)
-        screenShader = ShaderFactory.createShaderProgram(shaderSource)
+        screenFilter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(filtering))
     }
 
     override fun onSurfaceChanged(width: Int, height: Int) {
@@ -250,6 +250,10 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             }
         }
 
+        // Runs before anything is drawn to the surface. Returns the frame texture itself for filters without pre-passes. Also called for
+        // invalid frames, which clear its cache
+        val screenTexture = screenFilter?.renderPrePasses(presentFrameWrapper) ?: presentFrameWrapper.textureId
+
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         if (!presentFrameWrapper.isValidFrame) {
             return
@@ -259,7 +263,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             renderBackground()
         }
 
-        screenShader?.let { shader ->
+        screenFilter?.screenShader?.let { shader ->
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
             GLES30.glEnable(GLES30.GL_BLEND)
             GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
@@ -270,7 +274,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             shader.use()
 
             GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, presentFrameWrapper.textureId)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, screenTexture)
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, shader.textureFiltering)
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, shader.textureFiltering)
 

@@ -1,8 +1,7 @@
 package me.magnum.melonds.ui.emulator.render
 
 import android.opengl.GLES30
-import me.magnum.melonds.common.opengl.Shader
-import me.magnum.melonds.common.opengl.ShaderFactory
+import me.magnum.melonds.common.opengl.VideoFilterPipeline
 import me.magnum.melonds.common.opengl.VideoFilterShaderProvider
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
@@ -19,7 +18,7 @@ class ExternalScreenRender(
     private var keepAspectRatio: Boolean,
 ) : EmulatorRenderer {
 
-    private var shader: Shader? = null
+    private var filter: VideoFilterPipeline? = null
     private var screensVbo = 0
     private var screensVao = 0
 
@@ -46,9 +45,9 @@ class ExternalScreenRender(
     }
 
     override fun onSurfaceCreated() {
-        shader = ShaderFactory.createShaderProgram(
-            VideoFilterShaderProvider.getShaderSource(videoFiltering)
-        )
+        // All the surfaces render with the same GL context, so the previous filter's objects are still valid here
+        filter?.delete()
+        filter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(videoFiltering))
 
         val buffers = IntArray(2)
         GLES30.glGenBuffers(1, buffers, 0)
@@ -153,10 +152,9 @@ class ExternalScreenRender(
 
     private fun updateShader() {
         // Delete previous shader
-        shader?.delete()
+        filter?.delete()
 
-        val shaderSource = VideoFilterShaderProvider.getShaderSource(videoFiltering)
-        shader = ShaderFactory.createShaderProgram(shaderSource)
+        filter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(videoFiltering))
     }
 
     override fun onSurfaceChanged(width: Int, height: Int) {
@@ -178,14 +176,15 @@ class ExternalScreenRender(
             }
         }
 
+        // Runs before anything is drawn to the surface. Returns the frame texture itself for filters without pre-passes. Also called for
+        // invalid frames, which clear its cache
+        val textureId = filter?.renderPrePasses(presentFrameWrapper) ?: presentFrameWrapper.textureId
         if (!presentFrameWrapper.isValidFrame) {
             return
         }
 
-        val textureId = presentFrameWrapper.textureId
-
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
-        shader?.let {
+        filter?.screenShader?.let {
             it.use()
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, it.textureFiltering)
