@@ -48,6 +48,13 @@
                 android:defaultValue="true" />
 
         <SwitchPreference
+                android:key="frame_pacing_lock_60hz"
+                android:title="@string/frame_pacing_lock_60hz"
+                android:summary="@string/frame_pacing_lock_60hz_summary"
+                app:iconSpaceReserved="false"
+                android:defaultValue="true" />
+
+        <SwitchPreference
                 android:key="frame_pacing_buffer"
                 android:title="@string/frame_pacing_buffer"
                 android:summary="@string/frame_pacing_buffer_summary"

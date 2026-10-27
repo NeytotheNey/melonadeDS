@@ -236,6 +236,8 @@
     <string name="rewind_window_position">Rewind window position</string>
     <string name="frame_pacing_vsync">Sync to display refresh</string>
     <string name="frame_pacing_vsync_summary">Times frames to the screen\'s refresh for smoother motion. Falls back to the normal timer on displays that don\'t run at a multiple of 60 Hz.</string>
+    <string name="frame_pacing_lock_60hz">Lock display to 60 Hz</string>
+    <string name="frame_pacing_lock_60hz_summary">Keeps the screen at 60 Hz while playing so it doesn\'t switch rates mid-game, which causes stutter. Only on displays that have a 60 Hz mode.</string>
     <string name="frame_pacing_buffer">Extra frame buffer</string>
     <string name="frame_pacing_buffer_summary">Smoother when the game is close to its frame budget, but adds about 17 ms of input lag.</string>
     <string name="sustained_performance_mode">Sustained performance mode</string>

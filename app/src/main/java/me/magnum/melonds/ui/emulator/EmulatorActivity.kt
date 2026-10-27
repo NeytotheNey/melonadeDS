@@ -66,6 +66,7 @@ import me.magnum.melonds.domain.model.rewind.RewindWindowPosition
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.model.rom.config.RomGbaSlotConfig
 import me.magnum.melonds.domain.model.ui.Orientation
+import me.magnum.melonds.extensions.find60HzMode
 import me.magnum.melonds.extensions.insetsControllerCompat
 import me.magnum.melonds.extensions.setLayoutOrientation
 import me.magnum.melonds.impl.emulator.LifecycleOwnerProvider
@@ -167,6 +168,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     private var presentation: ExternalPresentation? = null
     private var pauseMenuDialog: AlertDialog? = null
+    private var displayLock60HzEnabled = false
 
     private lateinit var handler: Handler
     private val displayListener = object : DisplayManager.DisplayListener {
@@ -229,6 +231,7 @@ class EmulatorActivity : AppCompatActivity() {
             presentation?.layoutView?.setLayoutComponentToggleState(LayoutComponent.BUTTON_FAST_FORWARD_TOGGLE, fastForwardEnabled)
             MelonEmulator.setFastForwardEnabled(fastForwardEnabled)
             frameRenderCoordinator.setFastForwardActive(fastForwardEnabled)
+            updateDisplayModeLock(ContextCompat.getDisplayOrDefault(this@EmulatorActivity))
         }
 
         override fun onMicrophonePressed() {
@@ -650,6 +653,8 @@ class EmulatorActivity : AppCompatActivity() {
     private fun updateDisplays() {
         val currentDisplay = ContextCompat.getDisplayOrDefault(this)
         val secondaryDisplay = secondaryDisplaySelector.getSecondaryDisplay(this)
+        // Mode IDs are per display (e.g. a foldable's inner and cover screens), so the 60 Hz mode has to be picked again whenever the displays change
+        updateDisplayModeLock(currentDisplay)
 
         val displays = deviceLayoutDisplayMapper.mapDisplaysToLayoutDisplays(currentDisplay, secondaryDisplay)
         viewModel.setConnectedDisplays(displays)
@@ -773,6 +778,25 @@ class EmulatorActivity : AppCompatActivity() {
     private fun setupFramePacing() {
         // The emulator itself picks up the setting through the emulator configuration. This only sets the surfaces' frame rate
         frameRenderCoordinator.setFramePacingEnabled(viewModel.isFramePacingEnabled())
+        displayLock60HzEnabled = viewModel.isDisplayLock60HzEnabled()
+        updateDisplayModeLock(ContextCompat.getDisplayOrDefault(this))
+    }
+
+    /**
+     * Asks for the display's 60 Hz mode through the window, on top of the surface frame rate hint, which some devices ignore (e.g. Samsung's touch
+     * boost still switches the panel between 60 and 120 Hz, and every switch shows up as judder). The window request is expected to hold better, but
+     * that hasn't been verified on every device. Like the surface vote, the lock is dropped during fast-forward to let the display run at its full
+     * refresh rate.
+     */
+    private fun updateDisplayModeLock(display: Display) {
+        val lockActive = displayLock60HzEnabled && !frontendInputHandler.fastForwardEnabled
+        val preferredModeId = if (lockActive) (display.find60HzMode()?.modeId ?: 0) else 0
+        val attributes = window.attributes
+        // Changing the mode triggers onDisplayChanged(), which ends up here again. Only update the window when the mode actually changes
+        if (attributes.preferredDisplayModeId != preferredModeId) {
+            attributes.preferredDisplayModeId = preferredModeId
+            window.attributes = attributes
+        }
     }
 
     private fun setupFpsCounter() {

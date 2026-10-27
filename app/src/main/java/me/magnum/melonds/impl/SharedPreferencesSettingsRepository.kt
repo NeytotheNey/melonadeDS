@@ -206,6 +206,10 @@ class SharedPreferencesSettingsRepository(
         return preferences.getBoolean("frame_pacing_vsync", true)
     }
 
+    override fun isFramePacingLock60HzEnabled(): Boolean {
+        return preferences.getBoolean("frame_pacing_lock_60hz", true)
+    }
+
     override fun isFramePacingBufferEnabled(): Boolean {
         return preferences.getBoolean("frame_pacing_buffer", true)
     }

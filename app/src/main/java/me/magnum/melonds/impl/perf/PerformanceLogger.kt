@@ -24,6 +24,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.domain.repositories.SettingsRepository
+import me.magnum.melonds.extensions.find60HzMode
+import me.magnum.melonds.extensions.getModesAtCurrentResolution
 import me.magnum.melonds.utils.PackageManagerCompat
 import java.io.BufferedWriter
 import java.io.File
@@ -147,6 +149,9 @@ class PerformanceLogger(
         private val stats = SessionStatistics()
         private var settingsSnapshot = emptyList<Pair<String, String>>()
         private var displayRefreshRate: Float? = null
+        // Re-read at session start and before every periodic summary, to show whether the refresh rate changed after start (e.g. the 60Hz lock
+        // landing). Not re-read for the final summary, since by then the emulator screen may be gone and the display back at its normal rate
+        private var lastDisplayState: DisplayStateSnapshot? = null
         private var startMemorySnapshot: PssSnapshot? = null
         private var endMemorySnapshot: PssSnapshot? = null
 
@@ -176,6 +181,7 @@ class PerformanceLogger(
                 settingsSnapshot = buildSettingsSnapshot()
                 displayRefreshRate = getDisplayRefreshRate()
                 stats.configureDisplayCadence(displayRefreshRate)
+                sampleDisplayState()
 
                 val logDestination = resolveDestination()
                 destination = logDestination
@@ -206,6 +212,7 @@ class PerformanceLogger(
 
                     drainCount++
                     if (!stopRequested && drainCount % SUMMARY_INTERVAL_DRAINS == 0) {
+                        sampleDisplayState()
                         writeSummary(isComplete = false)
                     }
                 }
@@ -425,6 +432,7 @@ class PerformanceLogger(
                     "jit_enabled" to settingsRepository.isJitEnabled().toString(),
                     "sustained_performance_mode" to settingsRepository.isSustainedPerformanceModeEnabled().toString(),
                     "frame_pacing_vsync" to settingsRepository.isFramePacingVsyncEnabled().toString(),
+                    "frame_pacing_lock_60hz" to settingsRepository.isFramePacingLock60HzEnabled().toString(),
                     "frame_pacing_buffer" to settingsRepository.isFramePacingBufferEnabled().toString(),
                     "fast_forward_multiplier" to settingsRepository.getFastForwardSpeedMultiplier().toString(),
                     "default_console_type" to settingsRepository.getDefaultConsoleType().name,
@@ -476,6 +484,17 @@ class PerformanceLogger(
             line("android_version", Build.VERSION.RELEASE)
             line("android_sdk", Build.VERSION.SDK_INT)
             line("display_refresh_rate_hz", decimal(displayRefreshRate?.toDouble()))
+            line("display_refresh_rate_last_hz", decimal(lastDisplayState?.refreshRate?.toDouble()))
+            // Refresh rates the display supports at its current resolution
+            line("display_modes_hz", lastDisplayState?.refreshRatesAtCurrentResolution?.joinToString(",") { decimal(it.toDouble()) })
+            // The mode the 60Hz lock asks for (dropped while fast-forwarding). off: setting disabled. none: no 60Hz mode at the current resolution
+            line("display_lock_60hz_mode", lastDisplayState?.let { state ->
+                when {
+                    !state.isLock60HzEnabled -> "off"
+                    state.lock60HzMode == null -> "none"
+                    else -> "${state.lock60HzMode.modeId} (${decimal(state.lock60HzMode.refreshRate.toDouble())} Hz)"
+                }
+            })
 
             summary.append("\n# Session\n")
             line("rom", sessionName)
@@ -574,12 +593,33 @@ class PerformanceLogger(
             return summary.toString()
         }
 
+        private fun sampleDisplayState() {
+            val display = getDefaultDisplay() ?: return
+            lastDisplayState = DisplayStateSnapshot(
+                refreshRate = display.refreshRate,
+                refreshRatesAtCurrentResolution = display.getModesAtCurrentResolution().map { it.refreshRate }.distinct().sorted(),
+                isLock60HzEnabled = settingsRepository.isFramePacingLock60HzEnabled(),
+                lock60HzMode = display.find60HzMode(),
+            )
+        }
+
         private fun getDisplayRefreshRate(): Float? {
-            return context.getSystemService<DisplayManager>()?.getDisplay(Display.DEFAULT_DISPLAY)?.refreshRate
+            return getDefaultDisplay()?.refreshRate
+        }
+
+        private fun getDefaultDisplay(): Display? {
+            return context.getSystemService<DisplayManager>()?.getDisplay(Display.DEFAULT_DISPLAY)
         }
     }
 
     private class PssSnapshot(val total: Long, val java: Long, val native: Long, val graphics: Long)
+
+    private class DisplayStateSnapshot(
+        val refreshRate: Float,
+        val refreshRatesAtCurrentResolution: List<Float>,
+        val isLock60HzEnabled: Boolean,
+        val lock60HzMode: Display.Mode?,
+    )
 
     private interface LogDestination {
         val description: String
