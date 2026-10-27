@@ -57,6 +57,12 @@ android {
         }
         getByName("debug") {
             applicationIdSuffix = ".dev"
+            // Debug builds are used for on-device perf testing, so optimize native code but keep symbols
+            externalNativeBuild {
+                cmake {
+                    arguments("-DCMAKE_BUILD_TYPE=RelWithDebInfo")
+                }
+            }
         }
     }
 
