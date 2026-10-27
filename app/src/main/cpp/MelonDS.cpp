@@ -204,18 +204,18 @@ namespace MelonDSAndroid
         instance->start();
     }
 
-    u32 loop()
+    u32 loop(int64_t presentDueTimeNs)
     {
         MPInterface::Get().Process();
-        return instance->runFrame();
+        return instance->runFrame(presentDueTimeNs);
     }
 
-    Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline)
+    Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs)
     {
         if (!instance)
             return nullptr;
 
-        return instance->getPresentationFrame(deadline);
+        return instance->getPresentationFrame(deadline, vsyncTimeNs, dueToleranceNs, upcomingFrameDueNs);
     }
 
     bool isSleeping()

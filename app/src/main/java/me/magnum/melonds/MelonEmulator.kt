@@ -17,6 +17,10 @@ object MelonEmulator {
     const val PERF_FRAME_SAMPLE_FIELDS = 6
     const val PERF_FRAME_FLAG_FAST_FORWARD = 1L
     const val PERF_FRAME_FLAG_AFTER_PAUSE = 2L
+    const val PERF_FRAME_FLAG_PACING_LOCKED = 4L
+    // Locked frames also store their refresh divisor (how many display refreshes each frame lasts) in these bits of the flags
+    const val PERF_FRAME_PACING_DIVISOR_SHIFT = 8
+    const val PERF_FRAME_PACING_DIVISOR_MASK = 0xFFL
     const val PERF_STATE_FLAG_PAUSED = 1
     const val PERF_STATE_FLAG_DS_SLEEP = 2
     const val PERF_STATE_FLAG_FAST_FORWARD = 4
@@ -92,7 +96,17 @@ object MelonEmulator {
 
 	external fun startEmulation()
 
-    external fun presentFrame(deadlineNs: Long, frameRenderCallback: FrameRenderCallback)
+    /**
+     * Presents the frame for the vsync at [vsyncTimeNs] (CLOCK_MONOTONIC). When frame pacing is locked, frames are kept until the vsync they are
+     * due on. If [deadlineNs] is above 0, waits until then for a due frame before repeating the previous one.
+     */
+    external fun presentFrame(deadlineNs: Long, vsyncTimeNs: Long, frameRenderCallback: FrameRenderCallback)
+
+    /**
+     * Publishes a display vsync timestamp (CLOCK_MONOTONIC, such as Choreographer's frame time) to the emulator, which uses it to lock frame
+     * pacing to the display. Must be called from the vsync callback, always on the same thread.
+     */
+    external fun onDisplayVsync(vsyncTimeNs: Long)
 
 	external fun getFPS(): Float
 
@@ -105,7 +119,8 @@ object MelonEmulator {
     /**
      * Copies pending frame samples into [buffer] and returns the number of samples copied. Each sample takes [PERF_FRAME_SAMPLE_FIELDS] entries:
      * frame end timestamp (ns, CLOCK_MONOTONIC), work duration (ns), sleep duration (ns), interval since the previous frame end (ns), emulated line
-     * count and flags ([PERF_FRAME_FLAG_FAST_FORWARD], [PERF_FRAME_FLAG_AFTER_PAUSE]).
+     * count and flags ([PERF_FRAME_FLAG_FAST_FORWARD], [PERF_FRAME_FLAG_AFTER_PAUSE], [PERF_FRAME_FLAG_PACING_LOCKED] and the refresh divisor
+     * at [PERF_FRAME_PACING_DIVISOR_SHIFT]).
      */
     external fun drainPerformanceFrameSamples(buffer: LongArray): Int
 

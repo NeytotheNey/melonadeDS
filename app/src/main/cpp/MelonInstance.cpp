@@ -289,7 +289,7 @@ void MelonInstance::reset()
     nds->Start();
 }
 
-u32 MelonInstance::runFrame()
+u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 {
     if (isRenderConfigurationDirty)
     {
@@ -381,7 +381,7 @@ u32 MelonInstance::runFrame()
     {
         renderFrame->renderFence = eglCreateSyncKHR(currentDisplay, EGL_SYNC_FENCE_KHR, nullptr);
         glFlush();
-        frameQueue.pushRenderedFrame(renderFrame);
+        frameQueue.pushRenderedFrame(renderFrame, presentDueTimeNs);
     }
     else
     {
@@ -516,9 +516,9 @@ int MelonInstance::receiveNetPacket(u8* data)
     return net->RecvPacket(data, instanceId);
 }
 
-Frame* MelonInstance::getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline)
+Frame* MelonInstance::getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs)
 {
-    return frameQueue.getPresentFrame(deadline);
+    return frameQueue.getPresentFrame(deadline, vsyncTimeNs, dueToleranceNs, upcomingFrameDueNs);
 }
 
 void MelonInstance::updateConfiguration(std::shared_ptr<EmulatorConfiguration> newConfiguration)

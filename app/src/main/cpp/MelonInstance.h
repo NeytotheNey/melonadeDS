@@ -38,7 +38,8 @@ public:
     bool bootFirmware();
     void start();
     void reset();
-    melonDS::u32 runFrame();
+    // [presentDueTimeNs] is the vsync the frame is meant to be presented on, or 0 to present it as soon as possible
+    melonDS::u32 runFrame(int64_t presentDueTimeNs);
     void stop();
 
     void updateMotionData(float ax, float ay, float az, float rx, float ry, float rz);
@@ -54,7 +55,7 @@ public:
     int sendNetPacket(u8* data, int length);
     int receiveNetPacket(u8* data);
 
-    Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline);
+    Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs);
     // Whether the emulated console was asleep (lid closed) during the last frame, in which case no frames are presented
     bool isSleeping() { return sleeping.load(std::memory_order_relaxed); }
 

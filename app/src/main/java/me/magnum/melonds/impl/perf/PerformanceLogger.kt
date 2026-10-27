@@ -180,7 +180,7 @@ class PerformanceLogger(
                 val logDestination = resolveDestination()
                 destination = logDestination
                 framesWriter = logDestination.openWriter("${filePrefix}_frames.csv").apply {
-                    write("frame,t_ms,work_ms,sleep_ms,interval_ms,lines,fast_forward,after_pause\n")
+                    write("frame,t_ms,work_ms,sleep_ms,interval_ms,lines,fast_forward,after_pause,paced\n")
                 }
                 displayWriter = logDestination.openWriter("${filePrefix}_display.csv").apply {
                     write("t_ms,render_ms,valid,new_frame,skipped_frames,paused,ds_sleep,fast_forward,prev_hold_refreshes\n")
@@ -243,6 +243,8 @@ class PerformanceLogger(
                     val flags = frameBuffer[offset + 5]
                     val isFastForward = (flags and MelonEmulator.PERF_FRAME_FLAG_FAST_FORWARD) != 0L
                     val isAfterPause = (flags and MelonEmulator.PERF_FRAME_FLAG_AFTER_PAUSE) != 0L
+                    val isPacingLocked = (flags and MelonEmulator.PERF_FRAME_FLAG_PACING_LOCKED) != 0L
+                    val pacingDivisor = ((flags shr MelonEmulator.PERF_FRAME_PACING_DIVISOR_SHIFT) and MelonEmulator.PERF_FRAME_PACING_DIVISOR_MASK).toInt()
 
                     lineBuilder.append(stats.totalFrames).append(',')
                         .appendMillis(timestamp - startNs).append(',')
@@ -251,9 +253,10 @@ class PerformanceLogger(
                         .appendMillis(interval).append(',')
                         .append(lines).append(',')
                         .append(if (isFastForward) '1' else '0').append(',')
-                        .append(if (isAfterPause) '1' else '0').append('\n')
+                        .append(if (isAfterPause) '1' else '0').append(',')
+                        .append(if (isPacingLocked) '1' else '0').append('\n')
 
-                    stats.trackFrame(workDuration, interval, isFastForward, isAfterPause)
+                    stats.trackFrame(workDuration, interval, isFastForward, isAfterPause, isPacingLocked, pacingDivisor)
                 }
                 writer.append(lineBuilder)
             } while (count == FRAME_DRAIN_BATCH_SIZE)
@@ -421,6 +424,8 @@ class PerformanceLogger(
                     "render_strategy" to rendererConfiguration.renderStrategy.name,
                     "jit_enabled" to settingsRepository.isJitEnabled().toString(),
                     "sustained_performance_mode" to settingsRepository.isSustainedPerformanceModeEnabled().toString(),
+                    "frame_pacing_vsync" to settingsRepository.isFramePacingVsyncEnabled().toString(),
+                    "frame_pacing_buffer" to settingsRepository.isFramePacingBufferEnabled().toString(),
                     "fast_forward_multiplier" to settingsRepository.getFastForwardSpeedMultiplier().toString(),
                     "default_console_type" to settingsRepository.getDefaultConsoleType().name,
                     "sound_enabled" to settingsRepository.isSoundEnabled().toString(),
@@ -505,6 +510,9 @@ class PerformanceLogger(
             line("work_avg_ms", decimal(if (hasFrames) workDurations.mean() / 1e6 else null, 3))
             line("work_p95_ms", millis(if (hasFrames) workDurations.percentile(0.95) else null))
             line("work_max_ms", millis(if (hasFrames) workDurations.max else null))
+            // Share of the analyzed frames whose start was locked to the display's vsync grid, and the refreshes per frame (N) of the last one
+            line("pacing_locked_frames_pct", decimal(if (hasFrames) stats.pacingLockedFrames * 100.0 / intervals.count else null))
+            line("pacing_divisor_last", stats.lastPacingDivisor.takeIf { it > 0 })
 
             summary.append("\n# Display (repeat stats exclude samples while paused or while the DS is asleep. Hold stats also exclude fast-forward)\n")
             val refreshRate = displayRefreshRate?.toDouble()?.takeIf { it > 0 }
@@ -642,6 +650,12 @@ class PerformanceLogger(
             private set
         var missedFrames = 0L
             private set
+        // Analyzed frames (same filter as frameIntervals) whose start was locked to the display's vsync grid
+        var pacingLockedFrames = 0L
+            private set
+        // Refresh divisor of the last locked frame (of any kind), or 0 if no frame was locked
+        var lastPacingDivisor = 0
+            private set
         // Only frames that represent normal emulation pacing (not fast-forwarded and not right after a pause)
         val frameIntervals = DurationHistogram()
         val frameWorkDurations = DurationHistogram()
@@ -708,8 +722,14 @@ class PerformanceLogger(
             private set
         private var rssSum = 0L
 
-        fun trackFrame(workDuration: Long, interval: Long, isFastForward: Boolean, isAfterPause: Boolean) {
+        fun trackFrame(workDuration: Long, interval: Long, isFastForward: Boolean, isAfterPause: Boolean, isPacingLocked: Boolean, pacingDivisor: Int) {
             totalFrames++
+            if (isPacingLocked) {
+                lastPacingDivisor = pacingDivisor
+                if (!isFastForward && !isAfterPause) {
+                    pacingLockedFrames++
+                }
+            }
             if (isFastForward) {
                 fastForwardFrames++
             }

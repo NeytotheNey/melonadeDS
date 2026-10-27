@@ -21,6 +21,8 @@ interface SettingsRepository {
     fun isRewindEnabled(): Boolean
     fun getRewindWindowPosition(): RewindWindowPosition
     fun isSustainedPerformanceModeEnabled(): Boolean
+    fun isFramePacingVsyncEnabled(): Boolean
+    fun isFramePacingBufferEnabled(): Boolean
     fun isPerformanceLoggingEnabled(): Boolean
     fun getPerformanceLogDirectory(): Uri?
 

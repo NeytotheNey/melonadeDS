@@ -60,8 +60,12 @@ namespace MelonDSAndroid {
     extern void releaseKey(u32 key);
     extern void updateMotionData(float ax, float ay, float az, float rx, float ry, float rz);
     extern void start();
-    extern u32 loop();
-    extern Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline);
+    /**
+     * Runs one frame. [presentDueTimeNs] is the vsync (CLOCK_MONOTONIC, ns) the frame is meant to be presented on, or 0 to present it as soon as
+     * possible
+     */
+    extern u32 loop(int64_t presentDueTimeNs);
+    extern Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs);
     extern bool isSleeping();
     extern void pause();
     extern void resume();

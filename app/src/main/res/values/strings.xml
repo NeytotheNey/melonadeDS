@@ -191,6 +191,7 @@
     <string name="settings_section_3d_rendering">3D rendering</string>
     <string name="settings_section_image">Image</string>
     <string name="settings_section_on_screen_info">On-screen info</string>
+    <string name="settings_section_frame_pacing">Frame pacing</string>
     <string name="settings_section_controller">Controller</string>
     <string name="settings_section_on_screen_controls">On-screen controls</string>
     <string name="settings_section_vibration">Vibration</string>
@@ -233,6 +234,10 @@
     <string name="rewind_max_memory_usage">Max. memory usage: %1$s</string>
     <string name="rewind_memory_usage_above_recommended_limit">Memory usage above recommended limit</string>
     <string name="rewind_window_position">Rewind window position</string>
+    <string name="frame_pacing_vsync">Sync to display refresh</string>
+    <string name="frame_pacing_vsync_summary">Times frames to the screen\'s refresh for smoother motion. Falls back to the normal timer on displays that don\'t run at a multiple of 60 Hz.</string>
+    <string name="frame_pacing_buffer">Extra frame buffer</string>
+    <string name="frame_pacing_buffer_summary">Smoother when the game is close to its frame budget, but adds about 17 ms of input lag.</string>
     <string name="sustained_performance_mode">Sustained performance mode</string>
     <string name="sustained_performance_mode_summary">When enabled, peak performance will be lower but thermal throttling will be less pronounced.</string>
     <string name="performance_logging">Performance logging</string>

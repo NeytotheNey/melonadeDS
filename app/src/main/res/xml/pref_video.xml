@@ -38,6 +38,24 @@
                 android:defaultValue="none"/>
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/settings_section_frame_pacing">
+
+        <SwitchPreference
+                android:key="frame_pacing_vsync"
+                android:title="@string/frame_pacing_vsync"
+                android:summary="@string/frame_pacing_vsync_summary"
+                app:iconSpaceReserved="false"
+                android:defaultValue="true" />
+
+        <SwitchPreference
+                android:key="frame_pacing_buffer"
+                android:title="@string/frame_pacing_buffer"
+                android:summary="@string/frame_pacing_buffer_summary"
+                android:dependency="frame_pacing_vsync"
+                app:iconSpaceReserved="false"
+                android:defaultValue="true" />
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="@string/settings_section_on_screen_info">
 
         <ListPreference

@@ -157,6 +157,8 @@ class SharedPreferencesSettingsRepository(
             dsiNandUri = dsiDirDocument?.findFile("nand.bin")?.uri,
             internalDirectory = context.filesDir.absolutePath,
             fastForwardSpeedMultiplier = getFastForwardSpeedMultiplier(),
+            framePacingVsyncEnabled = isFramePacingVsyncEnabled(),
+            framePacingBufferEnabled = isFramePacingBufferEnabled(),
             rewindEnabled = isRewindEnabled(),
             rewindPeriodSeconds = getRewindPeriod(),
             rewindWindowSeconds = getRewindWindow(),
@@ -198,6 +200,14 @@ class SharedPreferencesSettingsRepository(
 
     override fun isSustainedPerformanceModeEnabled(): Boolean {
         return preferences.getBoolean("enable_sustained_performance", false)
+    }
+
+    override fun isFramePacingVsyncEnabled(): Boolean {
+        return preferences.getBoolean("frame_pacing_vsync", true)
+    }
+
+    override fun isFramePacingBufferEnabled(): Boolean {
+        return preferences.getBoolean("frame_pacing_buffer", true)
     }
 
     override fun isPerformanceLoggingEnabled(): Boolean {

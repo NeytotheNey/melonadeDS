@@ -1,7 +1,9 @@
 package me.magnum.melonds.ui.emulator
 
 import android.content.Context
+import android.os.Build
 import android.util.AttributeSet
+import android.util.Log
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -13,12 +15,19 @@ import me.magnum.melonds.ui.emulator.render.SurfaceRenderer
 
 class EmulatorSurfaceView(context: Context, attrs: AttributeSet? = null) : SurfaceView(context, attrs), SurfaceHolder.Callback {
 
+    private companion object {
+        const val TAG = "EmulatorSurfaceView"
+        const val PACED_FRAME_RATE = 60f
+    }
+
     private val surfaceLock = Any()
     private var surfaceWidth = 0
     private var surfaceHeight = 0
     private var surface: Surface? = null
     private var renderer: EmulatorRenderer? = null
     private var surfaceRenderer: SurfaceRenderer? = null
+    // Only accessed from the main thread, like the surface callbacks
+    private var isPacedFrameRateEnabled = false
 
     init {
         holder.addCallback(this)
@@ -39,9 +48,28 @@ class EmulatorSurfaceView(context: Context, attrs: AttributeSet? = null) : Surfa
         }
     }
 
+    /**
+     * While enabled (frame pacing on and not fast-forwarding), the surface asks for a refresh rate compatible with 60 FPS, so that every emulator
+     * frame can stay on screen for the same number of refreshes. Must be called from the main thread.
+     */
+    fun setPacedFrameRateEnabled(enabled: Boolean) {
+        if (enabled == isPacedFrameRateEnabled) {
+            return
+        }
+
+        isPacedFrameRateEnabled = enabled
+        holder.surface?.takeIf { it.isValid }?.let {
+            applyFrameRate(it)
+        }
+    }
+
     override fun surfaceCreated(holder: SurfaceHolder) {
         synchronized(surfaceLock) {
             surface = holder.surface
+        }
+        // A new surface has no frame rate set
+        if (isPacedFrameRateEnabled) {
+            applyFrameRate(holder.surface)
         }
     }
 
@@ -55,6 +83,21 @@ class EmulatorSurfaceView(context: Context, attrs: AttributeSet? = null) : Surfa
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         synchronized(surfaceLock) {
             surface = null
+        }
+    }
+
+    private fun applyFrameRate(surface: Surface) {
+        // 0 clears the frame rate
+        val frameRate = if (isPacedFrameRateEnabled) PACED_FRAME_RATE else 0f
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                surface.setFrameRate(frameRate, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                surface.setFrameRate(frameRate, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
+            }
+        } catch (e: Exception) {
+            // Thrown if the surface was released in the meantime. The frame rate is applied again when the next surface is created
+            Log.w(TAG, "Failed to set the surface frame rate", e)
         }
     }
 

@@ -72,6 +72,8 @@ typedef struct
     char* dsiNandPath;
     char* internalFilesDir;
     float fastForwardSpeedMultiplier;
+    bool framePacingVsync;
+    bool framePacingBuffer;
     bool showBootScreen;
     bool useJit;
     int consoleType;

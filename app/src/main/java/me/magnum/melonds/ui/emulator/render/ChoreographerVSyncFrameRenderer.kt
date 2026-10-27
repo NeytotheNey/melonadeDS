@@ -25,7 +25,7 @@ class ChoreographerVSyncFrameRenderer(
             null
         }
 
-        frameRenderCoordinator.renderFrame(frameDeadline)
+        frameRenderCoordinator.renderFrame(frameDeadline, data.frameTimeNanos)
         Choreographer.getInstance().postVsyncCallback(this)
     }
 }

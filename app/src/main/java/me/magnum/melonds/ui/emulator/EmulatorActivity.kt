@@ -213,10 +213,22 @@ class EmulatorActivity : AppCompatActivity() {
         }
 
         override fun onFastForwardPressed() {
-            fastForwardEnabled = !fastForwardEnabled
+            setFastForwardEnabled(!fastForwardEnabled)
+        }
+
+        /**
+         * Turns fast-forward off. Used when a new ROM or firmware starts, since the emulator starts without fast-forward.
+         */
+        fun resetFastForward() {
+            setFastForwardEnabled(false)
+        }
+
+        private fun setFastForwardEnabled(enabled: Boolean) {
+            fastForwardEnabled = enabled
             binding.viewLayoutControls.setLayoutComponentToggleState(LayoutComponent.BUTTON_FAST_FORWARD_TOGGLE, fastForwardEnabled)
             presentation?.layoutView?.setLayoutComponentToggleState(LayoutComponent.BUTTON_FAST_FORWARD_TOGGLE, fastForwardEnabled)
             MelonEmulator.setFastForwardEnabled(fastForwardEnabled)
+            frameRenderCoordinator.setFastForwardActive(fastForwardEnabled)
         }
 
         override fun onMicrophonePressed() {
@@ -249,6 +261,7 @@ class EmulatorActivity : AppCompatActivity() {
     private val settingsLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         viewModel.onSettingsChanged()
         setupSustainedPerformanceMode()
+        setupFramePacing()
         setupFpsCounter()
         viewModel.resumeEmulator()
     }
@@ -564,7 +577,9 @@ class EmulatorActivity : AppCompatActivity() {
                         EmulatorState.LoadingRom -> showLoadingState()
                         is EmulatorState.RunningRom,
                         is EmulatorState.RunningFirmware -> {
+                            frontendInputHandler.resetFastForward()
                             setupSustainedPerformanceMode()
+                            setupFramePacing()
                             setupFpsCounter()
                             binding.textLoading.isGone = true
                             binding.viewLayoutControls.isVisible = true
@@ -753,6 +768,11 @@ class EmulatorActivity : AppCompatActivity() {
 
     private fun setupSustainedPerformanceMode() {
         window.setSustainedPerformanceMode(viewModel.isSustainedPerformanceModeEnabled())
+    }
+
+    private fun setupFramePacing() {
+        // The emulator itself picks up the setting through the emulator configuration. This only sets the surfaces' frame rate
+        frameRenderCoordinator.setFramePacingEnabled(viewModel.isFramePacingEnabled())
     }
 
     private fun setupFpsCounter() {

@@ -23,6 +23,11 @@ class FrameRenderCoordinator {
     private val surfacesLock = Any()
     private val managedSurfaces = mutableListOf<EmulatorSurfaceView>()
     private val surfacesPendingRemoval = mutableListOf<EmulatorSurfaceView>()
+    // Only accessed from the main thread
+    private var framePacingEnabled = false
+    private var fastForwardActive = false
+    // Whether the surfaces currently ask for 60 FPS
+    private var surfaceFrameRateVote = false
 
     init {
         glContext = GlContext(MelonDSAndroidInterface.getEmulatorGlContext())
@@ -38,6 +43,7 @@ class FrameRenderCoordinator {
     }
 
     fun addSurface(surface: EmulatorSurfaceView) {
+        surface.setPacedFrameRateEnabled(surfaceFrameRateVote)
         synchronized(surfacesLock) {
             surface.setSurfaceRenderer(createRendererForStrategy(currentRenderStrategy), glContext)
             managedSurfaces.add(surface)
@@ -53,8 +59,45 @@ class FrameRenderCoordinator {
         }
     }
 
-    fun renderFrame(frameDeadlineNanos: Long?) {
-        frameRenderThread.requestFrameRender(frameDeadlineNanos)
+    /**
+     * Called from the Choreographer callback (main thread) on every vsync.
+     *
+     * @param vsyncTimeNanos The vsync's timestamp (Choreographer's frame time, CLOCK_MONOTONIC)
+     */
+    fun renderFrame(frameDeadlineNanos: Long?, vsyncTimeNanos: Long) {
+        MelonEmulator.onDisplayVsync(vsyncTimeNanos)
+        frameRenderThread.requestFrameRender(frameDeadlineNanos, vsyncTimeNanos)
+    }
+
+    /**
+     * Asks the system to run the emulator surfaces at a refresh rate compatible with 60 FPS while frame pacing is enabled. Must be called from the
+     * main thread.
+     */
+    fun setFramePacingEnabled(enabled: Boolean) {
+        framePacingEnabled = enabled
+        updateSurfaceFrameRateVote()
+    }
+
+    /**
+     * Fast-forward isn't paced, so the 60 FPS frame rate vote is dropped while it's active to let the display run at its full refresh rate. Must be
+     * called from the main thread.
+     */
+    fun setFastForwardActive(active: Boolean) {
+        fastForwardActive = active
+        updateSurfaceFrameRateVote()
+    }
+
+    private fun updateSurfaceFrameRateVote() {
+        val vote = framePacingEnabled && !fastForwardActive
+        if (vote == surfaceFrameRateVote) {
+            return
+        }
+
+        surfaceFrameRateVote = vote
+        val surfaces = synchronized(surfacesLock) { managedSurfaces.toList() }
+        surfaces.forEach {
+            it.setPacedFrameRateEnabled(vote)
+        }
     }
 
     fun stop() {
@@ -120,7 +163,10 @@ class FrameRenderCoordinator {
             handler = object : Handler(looper) {
                 override fun handleMessage(msg: Message) {
                     when (msg.what) {
-                        MSG_RENDER_FRAME -> renderFrame(msg.data.getLong(MSG_RENDER_FRAME_FRAME_DEADLINE_NS))
+                        MSG_RENDER_FRAME -> {
+                            val vsyncTimeNanos = (msg.arg1.toLong() shl 32) or (msg.arg2.toLong() and 0xFFFFFFFFL)
+                            renderFrame(msg.data.getLong(MSG_RENDER_FRAME_FRAME_DEADLINE_NS), vsyncTimeNanos)
+                        }
                         MSG_DESTROY_SURFACES -> destroySurfaces()
                         MSG_STOP -> stopThread()
                         MSG_RENDER_STRATEGY_SWITCH -> handleModeSwitch()
@@ -129,9 +175,12 @@ class FrameRenderCoordinator {
             }
         }
 
-        fun requestFrameRender(frameDeadlineNanos: Long?) {
+        fun requestFrameRender(frameDeadlineNanos: Long?, vsyncTimeNanos: Long) {
             handler?.removeMessages(MSG_RENDER_FRAME)
             handler?.obtainMessage(MSG_RENDER_FRAME)?.let {
+                // The vsync time is split into the message's int arguments so that no extra allocation is needed
+                it.arg1 = (vsyncTimeNanos ushr 32).toInt()
+                it.arg2 = vsyncTimeNanos.toInt()
                 it.data = Bundle().apply {
                     putLong(MSG_RENDER_FRAME_FRAME_DEADLINE_NS, frameDeadlineNanos ?: 0L)
                 }
@@ -154,7 +203,7 @@ class FrameRenderCoordinator {
             handler?.sendEmptyMessage(MSG_STOP)
         }
 
-        private fun renderFrame(frameDeadlineNanos: Long) {
+        private fun renderFrame(frameDeadlineNanos: Long, vsyncTimeNanos: Long) {
             if (!running)
                 return
 
@@ -166,7 +215,7 @@ class FrameRenderCoordinator {
                 } else {
                     0L
                 }
-                MelonEmulator.presentFrame(deadline, frameRenderCallback)
+                MelonEmulator.presentFrame(deadline, vsyncTimeNanos, frameRenderCallback)
             }
         }
 

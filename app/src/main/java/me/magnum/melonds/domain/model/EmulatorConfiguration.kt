@@ -14,6 +14,8 @@ data class EmulatorConfiguration(
         val dsiNandUri: Uri?,
         val internalDirectory: String,
         val fastForwardSpeedMultiplier: Float,
+        val framePacingVsyncEnabled: Boolean,
+        val framePacingBufferEnabled: Boolean,
         val rewindEnabled: Boolean,
         val rewindPeriodSeconds: Int,
         val rewindWindowSeconds: Int,

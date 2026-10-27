@@ -37,7 +37,7 @@ class ChoreographerOldFrameRenderer(private val frameRenderCoordinator: FrameRen
         lastFrameTimeNs = frameTimeNanos
 
         val frameDeadline = framePeriodNs.takeIf { it > ChoreographerFrameRenderer.DEADLINE_FRAME_TIME_THRESHOLD }?.plus(frameTimeNanos)
-        frameRenderCoordinator.renderFrame(frameDeadline)
+        frameRenderCoordinator.renderFrame(frameDeadline, frameTimeNanos)
         Choreographer.getInstance().postFrameCallback(this)
     }
 }

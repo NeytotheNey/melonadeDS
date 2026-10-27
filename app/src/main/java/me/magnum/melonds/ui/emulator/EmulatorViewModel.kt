@@ -814,6 +814,10 @@ class EmulatorViewModel @Inject constructor(
         return settingsRepository.isSustainedPerformanceModeEnabled()
     }
 
+    fun isFramePacingEnabled(): Boolean {
+        return settingsRepository.isFramePacingVsyncEnabled()
+    }
+
     fun getFpsCounterPosition(): FpsCounterPosition {
         return settingsRepository.getFpsCounterPosition()
     }
