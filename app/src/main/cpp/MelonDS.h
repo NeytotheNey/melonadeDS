@@ -69,6 +69,7 @@ namespace MelonDSAndroid {
     extern bool isSleeping();
     extern void pause();
     extern void resume();
+    extern void syncDateTimeToDevice();
     extern void reset();
     extern bool saveState(const char* path);
     extern bool loadState(const char* path);

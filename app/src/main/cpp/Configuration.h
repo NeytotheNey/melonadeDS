@@ -76,6 +76,7 @@ typedef struct
     bool framePacingBuffer;
     bool showBootScreen;
     bool useJit;
+    bool syncRtcToDevice;
     int consoleType;
     AudioSettings audioSettings;
     int rewindEnabled;

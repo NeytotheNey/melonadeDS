@@ -19,6 +19,13 @@
                 android:widgetLayout="@layout/preference_widget_chevron"
                 app:iconSpaceReserved="false"
                 android:fragment="me.magnum.melonds.ui.settings.fragments.CustomFirmwarePreferencesFragment" />
+
+        <SwitchPreference
+                android:key="sync_rtc_to_device"
+                android:title="@string/sync_rtc_to_device"
+                android:summary="@string/sync_rtc_to_device_summary"
+                app:iconSpaceReserved="false"
+                android:defaultValue="true" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/settings_section_dsi_camera">

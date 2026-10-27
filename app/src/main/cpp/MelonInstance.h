@@ -41,6 +41,8 @@ public:
     // [presentDueTimeNs] is the vsync the frame is meant to be presented on, or 0 to present it as soon as possible
     melonDS::u32 runFrame(int64_t presentDueTimeNs);
     void stop();
+    // Moves the RTC forward to the device's time if it has fallen behind. Must only be called while the emulator thread is parked
+    void syncDateTimeToDevice();
 
     void updateMotionData(float ax, float ay, float az, float rx, float ry, float rz);
     float getMotionData(MotionQueryType type);

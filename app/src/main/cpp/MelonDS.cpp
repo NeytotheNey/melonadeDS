@@ -231,6 +231,12 @@ namespace MelonDSAndroid
         pauseAudio();
     }
 
+    void syncDateTimeToDevice()
+    {
+        if (instance)
+            instance->syncDateTimeToDevice();
+    }
+
     void resume()
     {
         startAudio();

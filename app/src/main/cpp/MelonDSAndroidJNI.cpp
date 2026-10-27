@@ -402,6 +402,12 @@ Java_me_magnum_melonds_MelonEmulator_resumeEmulation(JNIEnv* env, jobject thiz)
     }
 
     if (!stop) {
+        // Update the RTC before the emulator thread is released. It's only safe while the thread is parked in its pause wait, which it can't
+        // leave while we hold the mutex. If it's still finishing its last frame, the pause was too short to matter
+        if (started && paused && isThreadReallyPaused) {
+            MelonDSAndroid::syncDateTimeToDevice();
+        }
+
         paused = false;
         if (started) {
             pthread_cond_broadcast(&emuThreadCond);

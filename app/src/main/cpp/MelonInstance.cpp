@@ -711,6 +711,40 @@ void MelonInstance::setDateTime()
     nds->RTC.SetDateTime(now->tm_year + 1900, now->tm_mon + 1, now->tm_mday, now->tm_hour, now->tm_min, now->tm_sec);
 }
 
+void MelonInstance::syncDateTimeToDevice()
+{
+    // The RTC is driven by the emulator's scheduler, so it stops while emulation is paused and falls behind the device's time. Only ever move
+    // it forward: some games (like Pokemon) treat the clock going backward as tampering
+    if (!nds || !currentConfiguration->syncRtcToDevice)
+        return;
+
+    int year, month, day, hour, minute, second;
+    nds->RTC.GetDateTime(year, month, day, hour, minute, second);
+
+    // Compare wall-clock readings (the local time setDateTime() writes) with timegm so that DST plays no part. Otherwise the clock could
+    // still go backward as the game sees it during the DST fall-back hour
+    std::tm dsTime = {};
+    dsTime.tm_year = year - 1900;
+    dsTime.tm_mon = month - 1;
+    dsTime.tm_mday = day;
+    dsTime.tm_hour = hour;
+    dsTime.tm_min = minute;
+    dsTime.tm_sec = second;
+    std::time_t dsWallClock = timegm(&dsTime);
+
+    std::time_t t = std::time(0);
+    std::tm deviceTime = *std::localtime(&t);
+    std::time_t deviceWallClock = timegm(&deviceTime);
+
+    if (dsWallClock == (std::time_t) -1 || deviceWallClock == (std::time_t) -1)
+        return;
+
+    // Ignore small differences so that a quick pause doesn't touch the clock
+    const std::time_t kMinDriftSeconds = 5;
+    if (deviceWallClock - dsWallClock >= kMinDriftSeconds)
+        setDateTime();
+}
+
 void MelonInstance::saveRewindState(RewindSaveState* rewindSaveState)
 {
     Savestate* savestate = new Savestate(rewindSaveState->buffer, rewindSaveState->bufferSize, true);
