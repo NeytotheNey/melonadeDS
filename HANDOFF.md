@@ -30,7 +30,7 @@ Branch `material3`, 19 commits on top of `8480c8fc` (Material 3 UI). Pushed to t
 - Debug app ID `me.magnum.melonds.dev` installs beside the official app.
 - minSdk is 37 (personal build, Android 17 only). NDK r28 tops out at API 35, so native code builds for 35 with a harmless AGP warning. `packaging.dex.useLegacyPackaging = true` keeps dex compressed (otherwise the APK doubles to ~98 MB); APK is ~43 MB.
 
-## Current work: layout editor
+## Layout editor
 
 The user plays on the folded cover screen in portrait, with gesture navigation and no nav bar. The goal is an editor that's easy to use there, borrowing tools from the DraStic mod in `C:\Dev\drastic`.
 
@@ -76,7 +76,7 @@ Ported from the DraStic mod (`C:\Dev\drastic\tools\smali-src\EditorGrid.java`, a
 - `label_alpha`, `label_aspect_ratio` and the `aspect_ratio_*` strings are now unused. They were left in because they have translations.
 - Not checked: the editor on an external display, and light theme.
 
-## Video filters
+## Current work: video filters
 
 Compared against DraStic's shaders in `C:\Dev\drastic\decoded\assets\shaders` (`.dfx` = pass chain, `.dsd` = one pass).
 
@@ -87,8 +87,46 @@ Compared against DraStic's shaders in `C:\Dev\drastic\decoded\assets\shaders` (`
 - FXAA at 1x is still soft on 2D text (inherent; DraStic's would be the same). If 2x is also too soft, try `FXAA_SPAN_MAX` 4 or 2. FXAA HQ (FXAA 3 Quality, as in DraStic's `FXAA HQ.dfx`) is an option.
 - Known, left alone: an external display's `DSRenderer` never frees its GL objects on disconnect (FXAA adds its FBO to that). `ExternalScreenRender`/`ExternalLayoutRender` aren't instantiated anywhere.
 - The external renderers now set the shader's NEAREST/LINEAR filtering on the frame texture (they used to inherit whatever `DSRenderer` last set).
-- Phone check (cover screen, BW2): all filters look right at 1x on the menu; Scale2x and 2xBR also checked at OpenGL 2x on the overworld. Screenshots in `perf_logs/filter-shots/`. Not yet checked: OpenGL at 2x+ in a 3D game, which is what the size fix is for.
+- Phone check (cover screen, BW2): all filters look right at 1x on the menu; Scale2x, 2xBR and FXAA also checked at OpenGL 2x on the menu and overworld. FXAA at 2x keeps text sharp and smooths 3D edges with no tearing. Screenshots in `perf_logs/filter-shots/`.
 - Notes: Scanlines exists but isn't in the settings list (was already so upstream). 2xBR is Hyllian's 2011 version and barely changes anything; xBR-lv2 would be an upgrade. LCD darkens the whole picture. Later candidates from DraStic: SMAA, Lottes CRT (DraStic sets its `res` to the target size, which breaks the scanlines; use the DS size).
+
+### In progress: Sharp, MMPX, DS screen colours
+
+Plan approved 2026-10-27 (full version: `C:\Users\neyto\.claude\plans\buzzing-purring-deer.md`). Sources, read with `gh api repos/libretro/<repo>/contents/<path> --jq .content | base64 -d`:
+- sharp-shimmerless: `slang-shaders` `pixel-art-scaling/shaders/sharp-shimmerless.slang`, zadpos, public domain
+- MMPX: `glsl-shaders` `scalenx/shaders/mmpx.glsl`, McGuire & Gagiu, MIT (keep the notice)
+- nds-color: `glsl-shaders` `handheld/shaders/color/nds-color.glsl`, hunterk/Pokefan531, public domain
+
+**1. Sharp (no shimmer): written, compiles. Uncommitted, not reviewed, not built or phone-tested.**
+- `SharpShader` in `ShaderProgramSource.kt`: a `#version 300 es` shader (for `fwidth`), LINEAR, `VideoFiltering.SHARP` / `sharp` / "Sharp (no shimmer)" added at the end of the enum, provider and all 8 settings arrays.
+- Per axis: `t = uv*texSize`, `d = clamp(fwidth(t), 1e-5, 1)`, sample at `floor(t+d/2) - 0.5 + w`, where `w` is the pixel's share past the texel boundary (capped at 1, so a pixel inside one texel samples its centre). Bilinear then blends by area.
+- At 8x (texels smaller than phone pixels) `d` caps at 1, which is plain linear filtering. On the cover screen it's sharp up to about 4x.
+- `SCREEN_BAND_FUNCTIONS` is now split: a shared range part plus `sampleScreen` for ES 1.00 (`texture2D`), and `SCREEN_BAND_FUNCTIONS_300` (`texture()`). The ES 1.00 text is unchanged.
+- The frame texture is CLAMP_TO_EDGE (`FrameQueue.cpp`), so the left/right edges behave like Linear.
+
+**2. Pipeline output scale + MMPX: not started.**
+- `VideoFilter.prePasses` entries become `PrePass(source, scale = 1, nativeResolutionOnly = false)`.
+- Viewport per pass (it's set once today), FBO at input × scale, `texSize` = the pass's input size.
+- `renderPrePasses` returns the final texture and its size. The renderers set the screen shader's `texSize` from that, not from the frame size. The cache keys on it.
+- `nativeResolutionOnly` skips the pass when the frame is bigger than 256x386.
+- MMPX = pre-pass (scale 2, native only, NEAREST) + Sharp as the screen shader. All taps go through `sampleScreen` (it reaches ±3). Luma on real RGB, write the frame's BGR order back like FXAA's pre-pass.
+- The source's orientation (B = `srcY-1`, `fract().y < 0.5` = top quadrants) matches our v, so it ports as-is. `MMPX` / `mmpx` / "MMPX" go at the end of the lists.
+
+**3. DS screen colours: not started.**
+- A SwitchPreference "DS screen colours" (Image category, default off), plumbed like `video_filtering`: `SharedPreferencesSettingsRepository` (`combine` goes 5 → 6), `SettingsRepository`, `RendererConfiguration`, `RuntimeRendererConfiguration`, `EmulatorViewModel` ~770, then the renderers rebuild their pipeline.
+- `ShaderFactory` inserts `#define COLOR_CORRECTION` (after `#version` if present). A shared `finishColor()` snippet goes in every screen shader, never in pre-passes:
+  `c = clamp(pow(c,1.91)*0.89,0,1)`, then `R'=.87R+.255G-.125B`, `G'=.10R+.645G+.255B`, `B'=.10R+.17G+.73B`, then clamp (R' can go negative), then `pow(c,1/1.91)`.
+- Screenshots stay uncorrected (native `ScreenshotRenderer.cpp` skips filters).
+
+**Then:**
+1. A fresh review agent goes over the whole diff.
+2. Build and install.
+3. Phone checks:
+   - Sharp at 1x: every DS pixel the same width, no shimmer when scrolling. Also check 2x and 8x.
+   - MMPX at 1x and 2x.
+   - DS colours on/off with None and with MMPX.
+   - Existing filters unchanged with colours off.
+4. One commit per feature.
 
 ## Performance work (done, parked)
 

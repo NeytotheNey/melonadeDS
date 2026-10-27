@@ -56,6 +56,7 @@
         <item>lcd</item>
         <item>scale2x</item>
         <item>fxaa</item>
+        <item>sharp</item>
     </string-array>
 
     <string-array name="dsi_camera_source_values">

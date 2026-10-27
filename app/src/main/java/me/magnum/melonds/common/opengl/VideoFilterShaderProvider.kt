@@ -17,6 +17,7 @@ object VideoFilterShaderProvider {
         VideoFiltering.SCALE2X to VideoFilter(ShaderProgramSource.Scale2xShader),
         // FXAA has to run once per frame texel, so it's a pre-pass. Quilez then scales the result up smoothly, like DraStic does
         VideoFiltering.FXAA to VideoFilter(ShaderProgramSource.QuilezShader, listOf(ShaderProgramSource.FxaaPrePassShader)),
+        VideoFiltering.SHARP to VideoFilter(ShaderProgramSource.SharpShader),
     )
 
     fun getFilter(filtering: VideoFiltering): VideoFilter = FILTER_MAP[filtering] ?: NO_FILTER

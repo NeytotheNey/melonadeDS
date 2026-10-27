@@ -9,9 +9,10 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
     companion object {
         // The frame texture holds both screens stacked vertically, top screen first (from v = 0), with 2 empty lines between them. These sizes
         // are in DS pixels. When the OpenGL or Compute renderer is upscaled the texture is that many times bigger, so the filters that work on
-        // texels (HQ2x, HQ4x, Quilez, xBR, Scale2x, FXAA) read the real size from the texSize uniform instead. Only LCD and scanlines keep using
-        // these, since they draw one line/subpixel group per DS pixel. The scalers can't stay on the DS grid: upscaled 3D isn't aligned to it
-        // (some games draw everything in 3D, sprites included), so DS-grid neighbours would make them copy pixels into the wrong places
+        // texels (HQ2x, HQ4x, Quilez, xBR, Scale2x, FXAA, Sharp) read the real size from the texSize uniform instead. Only LCD and scanlines
+        // keep using these, since they draw one line/subpixel group per DS pixel. The scalers can't stay on the DS grid: upscaled 3D isn't
+        // aligned to it (some games draw everything in 3D, sprites included), so DS-grid neighbours would make them copy pixels into the wrong
+        // places
         private const val SCREEN_HEIGHT = 192
         private const val SCREEN_GAP = 2
         private const val LOGICAL_TEXTURE_WIDTH = 256
@@ -50,8 +51,9 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "}"
 
         // Helpers for filters that sample far enough to reach past the gap between the screens. sampleScreen() keeps samples inside the screen
-        // that the fragment belongs to, so the other screen and the empty lines never bleed in. Needs tex and texSize to be declared before it
-        private const val SCREEN_BAND_FUNCTIONS = "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${LOGICAL_TEXTURE_HEIGHT}.0;\n" +
+        // that the fragment belongs to, so the other screen and the empty lines never bleed in. Needs tex and texSize to be declared before it.
+        // SCREEN_BAND_FUNCTIONS is for GLSL ES 1.00 shaders and SCREEN_BAND_FUNCTIONS_300 for #version 300 es ones, which have no texture2D()
+        private const val SCREEN_BAND_RANGE_FUNCTIONS = "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${LOGICAL_TEXTURE_HEIGHT}.0;\n" +
                 "const float bottomScreenStart = ${SCREEN_HEIGHT + SCREEN_GAP}.0 / ${LOGICAL_TEXTURE_HEIGHT}.0;\n" +
                 "" +
                 "// Range of v coordinates (texel centres) of the screen that contains p\n" +
@@ -59,10 +61,18 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    vec2 band = p.y < 0.5 ? vec2(0.0, topScreenEnd) : vec2(bottomScreenStart, 1.0);\n" +
                 "    float halfTexel = 0.5 / texSize.y;\n" +
                 "    return band + vec2(halfTexel, -halfTexel);\n" +
-                "}\n" +
+                "}\n"
+
+        private const val SCREEN_BAND_FUNCTIONS = SCREEN_BAND_RANGE_FUNCTIONS +
                 "" +
                 "vec3 sampleScreen(vec2 p, vec2 band) {\n" +
                 "    return texture2D(tex, vec2(p.x, clamp(p.y, band.x, band.y))).bgr;\n" +
+                "}\n"
+
+        private const val SCREEN_BAND_FUNCTIONS_300 = SCREEN_BAND_RANGE_FUNCTIONS +
+                "" +
+                "vec3 sampleScreen(vec2 p, vec2 band) {\n" +
+                "    return texture(tex, vec2(p.x, clamp(p.y, band.x, band.y))).bgr;\n" +
                 "}\n"
 
         val BackgroundShader = ShaderProgramSource(
@@ -608,6 +618,58 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    }\n" +
                     "    // sampleScreen() reads the BGR texels as RGB. Swap back so the output keeps the channel order of the frame texture\n" +
                     "    gl_FragColor = vec4(color.bgr, 1.0);\n" +
+                    "}"
+        )
+
+        // sharp-shimmerless
+        // Author: zadpos (Woohyun Kang)
+        // License: Public domain
+        // Treats texels as rectangles instead of points: every texel covers exactly its own area of the screen, so all DS pixels are drawn the
+        // same size (no mix of 4 and 5 pixel wide columns that shimmers when the image scrolls). Only a screen pixel that a texel boundary
+        // crosses gets a blend of the 2 texels, weighted by how much of the pixel each one covers. The original gets the scale factor from
+        // the output size, but here it comes from the derivatives of the texel coordinates, so it works for both screens at any size and
+        // rotation without the renderers passing anything in. That needs fwidth(), which is why this one is a #version 300 es shader.
+        // When texels are smaller than pixels (high internal resolutions on a small screen), the pixel is treated as 1 texel wide, which
+        // turns this into plain linear filtering
+        val SharpShader = ShaderProgramSource(
+            TextureFiltering.LINEAR,
+            "#version 300 es\n" +
+                    "in vec2 vUV;\n" +
+                    "in vec2 vPos;\n" +
+                    "in float vAlpha;\n" +
+                    "out vec2 uv;\n" +
+                    "out float alpha;\n" +
+                    "void main()\n" +
+                    "{\n" +
+                    "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
+                    "    uv = vUV;\n" +
+                    "    alpha = vAlpha;\n" +
+                    "}",
+            "#version 300 es\n" +
+                    "precision highp float;\n" +
+                    "uniform sampler2D tex;\n" +
+                    "uniform vec2 texSize;\n" +
+                    "in vec2 uv;\n" +
+                    "in float alpha;\n" +
+                    "out vec4 fragColor;\n" +
+                    SCREEN_BAND_FUNCTIONS_300 +
+                    "" +
+                    "void main() {\n" +
+                    "    // Position of the pixel centre in texels, and the pixel size in texels per axis. fwidth() has to be taken on t itself,\n" +
+                    "    // which is continuous across the quad, not on anything floored or clamped. Capped at 1 texel (see above)\n" +
+                    "    vec2 t = uv * texSize;\n" +
+                    "    vec2 d = clamp(fwidth(t), 0.00001, 1.0);\n" +
+                    "" +
+                    "    // The pixel covers t - d / 2 to t + d / 2. farTexel is the texel its far edge is in. If the near edge is in the same texel,\n" +
+                    "    // w is 1 or more and the sample lands on that texel centre. Otherwise the boundary at farTexel is inside the pixel, w is the\n" +
+                    "    // share of the pixel past it, and sampling w texels past the centre of the texel before it makes the bilinear filter blend\n" +
+                    "    // the 2 texels by area. With d = 1 this is always a sample at t, so linear filtering\n" +
+                    "    vec2 farEdge = t + 0.5 * d;\n" +
+                    "    vec2 farTexel = floor(farEdge);\n" +
+                    "    vec2 w = min((farEdge - farTexel) / d, 1.0);\n" +
+                    "    vec2 p = (farTexel - 0.5 + w) / texSize;\n" +
+                    "" +
+                    "    fragColor = vec4(sampleScreen(p, screenBand(uv)), alpha);\n" +
                     "}"
         )
     }

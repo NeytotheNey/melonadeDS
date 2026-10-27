@@ -11,4 +11,5 @@ enum class VideoFiltering {
     SCANLINES,
     SCALE2X,
     FXAA,
+    SHARP,
 }

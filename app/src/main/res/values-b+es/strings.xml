@@ -414,6 +414,7 @@
         <item>LCD</item>
         <item>Scale2x</item>
         <item>FXAA</item>
+        <item>Sharp (no shimmer)</item>
     </string-array>
 
     <string-array name="dsi_camera_source_options">
