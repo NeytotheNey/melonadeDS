@@ -5,10 +5,12 @@ A fork of the [melonDS Android port](https://github.com/rafaelvcaetano/melonDS-a
 |---|---|---|
 |![Settings](./.github/images/settings.png)|![Layout editor](./.github/images/layout_editor.png)|![Button styles](./.github/images/button_styles.png)|
 
+# Requirements
+Android 10 or newer.
+
 # Missing Features
 *  Local Multiplayer
 *  DSi SD card support
-*  More display filters
 
 # Performance
 Performance is solid on 64 bit devices with thread rendering and JIT enabled, and should run at full speed on flagship devices. Performance on older devices, specially
