@@ -22,22 +22,11 @@ class CheatsImportProgressDialog : DialogFragment() {
     private val viewModel by viewModels<CheatsPreferencesViewModel>()
     private lateinit var binding: DialogCheatsImportProgressBinding
 
-    override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
-        binding = DialogCheatsImportProgressBinding.inflate(layoutInflater)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
 
-        return MaterialAlertDialogBuilder(requireContext())
-            .setTitle(R.string.importing_cheats)
-            .setView(binding.root)
-            .setPositiveButton(R.string.move_to_background) { dialog, _ ->
-                dialog.dismiss()
-            }
-            .setCancelable(false)
-            .create()
-    }
-
-    override fun onStart() {
-        super.onStart()
-
+        // Started once here instead of in onStart(), which would add another collector on every restart. Only collects while started,
+        // which is after onCreateDialog() has created the binding
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.observeCheatsImportProgress().collect {
@@ -58,5 +47,18 @@ class CheatsImportProgressDialog : DialogFragment() {
                 }
             }
         }
+    }
+
+    override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
+        binding = DialogCheatsImportProgressBinding.inflate(layoutInflater)
+
+        return MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.importing_cheats)
+            .setView(binding.root)
+            .setPositiveButton(R.string.move_to_background) { dialog, _ ->
+                dialog.dismiss()
+            }
+            .setCancelable(false)
+            .create()
     }
 }

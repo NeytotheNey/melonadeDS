@@ -190,13 +190,14 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     }
 
     fun handleKeyDown(event: KeyEvent): Boolean {
-        val currentlySelectedView = selectedView ?: return false
+        if (selectedView == null) return false
 
+        // moveSelectedView also updates the anchor once the view has moved
         when (event.keyCode) {
-            KeyEvent.KEYCODE_DPAD_UP -> moveView(currentlySelectedView, 0f, -1f)
-            KeyEvent.KEYCODE_DPAD_DOWN -> moveView(currentlySelectedView, 0f, 1f)
-            KeyEvent.KEYCODE_DPAD_LEFT -> moveView(currentlySelectedView, -1f, 0f)
-            KeyEvent.KEYCODE_DPAD_RIGHT -> moveView(currentlySelectedView, 1f, 0f)
+            KeyEvent.KEYCODE_DPAD_UP -> moveSelectedView(0, -1)
+            KeyEvent.KEYCODE_DPAD_DOWN -> moveSelectedView(0, 1)
+            KeyEvent.KEYCODE_DPAD_LEFT -> moveSelectedView(-1, 0)
+            KeyEvent.KEYCODE_DPAD_RIGHT -> moveSelectedView(1, 0)
             else -> return false
         }
 
@@ -743,6 +744,15 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     fun setSelectedScreenOnTop(onTop: Boolean) {
         selectedView?.let {
             it.onTop = onTop
+            // Only one screen can be above the other
+            if (onTop) {
+                val otherScreen = when (it.component) {
+                    LayoutComponent.TOP_SCREEN -> views[LayoutComponent.BOTTOM_SCREEN]
+                    LayoutComponent.BOTTOM_SCREEN -> views[LayoutComponent.TOP_SCREEN]
+                    else -> null
+                }
+                otherScreen?.onTop = false
+            }
             rearrangeScreens()
             modifiedByUser = true
         }
@@ -754,15 +764,14 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         if (topScreen != null && bottomScreen != null) {
             removeView(topScreen.view)
             removeView(bottomScreen.view)
-            if (topScreen.onTop) {
+            // Each screen goes in at index 0, so the one added last is drawn underneath. Same stacking as DSRenderer: the bottom screen is only drawn
+            // over the top one when it's marked as on top
+            if (bottomScreen.onTop) {
                 addView(bottomScreen.view, 0)
                 addView(topScreen.view, 0)
-            } else if (bottomScreen.onTop) {
-                addView(topScreen.view, 0)
-                addView(bottomScreen.view, 0)
             } else {
-                addView(bottomScreen.view, 0)
                 addView(topScreen.view, 0)
+                addView(bottomScreen.view, 0)
             }
         }
     }

@@ -57,7 +57,7 @@ class RomsPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTitl
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.romCacheSize.collect {
                     val cacheSizeRepresentation = SizeUtils.getBestSizeStringRepresentation(requireContext(), it)

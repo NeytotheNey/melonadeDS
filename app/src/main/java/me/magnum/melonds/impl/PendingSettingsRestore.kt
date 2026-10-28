@@ -59,6 +59,7 @@ class PendingSettingsRestore(
             "bios_dir",
             "dsi_bios_dir",
             "dsi_camera_static_image",
+            "perf_log_dir",
             // Tracks the RetroAchievements hash database, which isn't part of the backup
             "ra_hash_library_last_updated",
             // State of the update checker
@@ -68,6 +69,39 @@ class PendingSettingsRestore(
             "github_updates_nightly_last_release_date",
         )
         private val LONG_PREF_KEYS = setOf(LAST_VERSION_KEY)
+
+        /**
+         * Keeps the type of every value, since JSON alone can't tell an Int from a Long or a Float. Each value is written as an object with
+         * its type and its value. Used for backups and for the rollback snapshot.
+         */
+        internal fun preferencesToJson(values: Map<String, *>): JSONObject {
+            val json = JSONObject()
+            values.forEach { (key, value) ->
+                val entry = when (value) {
+                    is Boolean -> JSONObject().put("type", "boolean").put("value", value)
+                    is Int -> JSONObject().put("type", "int").put("value", value)
+                    is Long -> JSONObject().put("type", "long").put("value", value)
+                    is Float -> JSONObject().put("type", "float").put("value", value.toDouble())
+                    is String -> JSONObject().put("type", "string").put("value", value)
+                    is Set<*> -> JSONObject().put("type", "set").put("value", JSONArray(value.filterIsInstance<String>()))
+                    else -> null
+                }
+                if (entry != null) {
+                    json.put(key, entry)
+                }
+            }
+            return json
+        }
+
+        /**
+         * Reads a long from a backup's settings. Backups made before the values had types store the plain number.
+         */
+        internal fun getBackupLong(settingsJson: JSONObject, key: String): Long {
+            return when (val value = settingsJson.get(key)) {
+                is JSONObject -> value.getLong("value")
+                else -> settingsJson.getLong(key)
+            }
+        }
 
         /**
          * Returns true if a restore was applied since the last call, false if one failed and the previous settings were kept, or null if
@@ -191,7 +225,9 @@ class PendingSettingsRestore(
 
         for (key in settingsJson.keys()) {
             if (key in KEPT_PREF_KEYS) continue
+            // Backups are written with preferencesToJson(). Older ones have plain values without their types
             when (val value = settingsJson.get(key)) {
+                is JSONObject -> putTypedPreference(editor, key, value)
                 is Boolean -> editor.putBoolean(key, value)
                 is Int -> {
                     if (key in LONG_PREF_KEYS) {
@@ -325,41 +361,25 @@ class PendingSettingsRestore(
         }
     }
 
-    /**
-     * Keeps the type of every value, since JSON alone can't tell an Int from a Long or a Float.
-     */
-    private fun preferencesToJson(values: Map<String, *>): JSONObject {
-        val json = JSONObject()
-        values.forEach { (key, value) ->
-            val entry = when (value) {
-                is Boolean -> JSONObject().put("type", "boolean").put("value", value)
-                is Int -> JSONObject().put("type", "int").put("value", value)
-                is Long -> JSONObject().put("type", "long").put("value", value)
-                is Float -> JSONObject().put("type", "float").put("value", value.toDouble())
-                is String -> JSONObject().put("type", "string").put("value", value)
-                is Set<*> -> JSONObject().put("type", "set").put("value", JSONArray(value.filterIsInstance<String>()))
-                else -> null
-            }
-            if (entry != null) {
-                json.put(key, entry)
-            }
-        }
-        return json
-    }
-
     private fun putPreferencesFromJson(editor: SharedPreferences.Editor, json: JSONObject) {
         for (key in json.keys()) {
-            val entry = json.getJSONObject(key)
-            when (entry.getString("type")) {
-                "boolean" -> editor.putBoolean(key, entry.getBoolean("value"))
-                "int" -> editor.putInt(key, entry.getInt("value"))
-                "long" -> editor.putLong(key, entry.getLong("value"))
-                "float" -> editor.putFloat(key, entry.getDouble("value").toFloat())
-                "string" -> editor.putString(key, entry.getString("value"))
-                "set" -> {
-                    val array = entry.getJSONArray("value")
-                    editor.putStringSet(key, (0 until array.length()).map { array.getString(it) }.toSet())
-                }
+            putTypedPreference(editor, key, json.getJSONObject(key))
+        }
+    }
+
+    /**
+     * Puts a value written by [preferencesToJson].
+     */
+    private fun putTypedPreference(editor: SharedPreferences.Editor, key: String, entry: JSONObject) {
+        when (entry.getString("type")) {
+            "boolean" -> editor.putBoolean(key, entry.getBoolean("value"))
+            "int" -> editor.putInt(key, entry.getInt("value"))
+            "long" -> editor.putLong(key, entry.getLong("value"))
+            "float" -> editor.putFloat(key, entry.getDouble("value").toFloat())
+            "string" -> editor.putString(key, entry.getString("value"))
+            "set" -> {
+                val array = entry.getJSONArray("value")
+                editor.putStringSet(key, (0 until array.length()).map { array.getString(it) }.toSet())
             }
         }
     }

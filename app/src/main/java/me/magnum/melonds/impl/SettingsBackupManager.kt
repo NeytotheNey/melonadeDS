@@ -19,11 +19,12 @@ import me.magnum.melonds.impl.PendingSettingsRestore.Companion.READY_MARKER
 import me.magnum.melonds.impl.PendingSettingsRestore.Companion.ROM_DATA_FILE
 import me.magnum.melonds.impl.PendingSettingsRestore.Companion.SETTINGS_FILE
 import me.magnum.melonds.impl.PendingSettingsRestore.Companion.STAGING_DIR
+import me.magnum.melonds.impl.PendingSettingsRestore.Companion.getBackupLong
+import me.magnum.melonds.impl.PendingSettingsRestore.Companion.preferencesToJson
 import me.magnum.melonds.impl.dtos.input.ControllerConfigurationDto
 import me.magnum.melonds.impl.dtos.layout.LayoutConfigurationDto
 import me.magnum.melonds.impl.dtos.rom.RomDto
 import me.magnum.melonds.utils.PackageManagerCompat
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileNotFoundException
@@ -54,18 +55,8 @@ class SettingsBackupManager @Inject constructor(
     fun backup(treeUri: Uri) {
         val root = DocumentFile.fromTreeUri(context, treeUri) ?: throw IOException("Could not open the backup folder")
 
-        val settingsJson = JSONObject()
-        for ((key, value) in preferences.all) {
-            if (key in KEPT_PREF_KEYS) continue
-            when (value) {
-                is Boolean, is Int, is Long, is Float, is String -> settingsJson.put(key, value)
-                is Set<*> -> {
-                    val array = JSONArray()
-                    value.forEach { array.put(it) }
-                    settingsJson.put(key, array)
-                }
-            }
-        }
+        // Typed, so a float that happens to be a whole number doesn't come back as an int
+        val settingsJson = preferencesToJson(preferences.all.filterKeys { it !in KEPT_PREF_KEYS })
 
         // A restore needs settings.json, so it's removed first and written last. An interrupted backup then leaves a folder that can't be
         // restored, instead of one with files from two different backups
@@ -95,7 +86,7 @@ class SettingsBackupManager @Inject constructor(
 
         val currentVersion = getCurrentVersion()
         // A backup without a version is treated as being in the current format
-        val backupVersion = if (settingsJson.has(LAST_VERSION_KEY)) settingsJson.getLong(LAST_VERSION_KEY) else currentVersion
+        val backupVersion = if (settingsJson.has(LAST_VERSION_KEY)) getBackupLong(settingsJson, LAST_VERSION_KEY) else currentVersion
         if (backupVersion > currentVersion) {
             throw BackupFromNewerVersionException()
         }

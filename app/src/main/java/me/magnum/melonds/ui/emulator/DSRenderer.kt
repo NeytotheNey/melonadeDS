@@ -121,6 +121,9 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         GLES30.glDisable(GLES30.GL_CULL_FACE)
 
+        // Called again when the render mode or the surface size changes, in the same GL context. Free what the previous call created
+        deleteGlObjects()
+
         // Setup textures
         val textures = IntArray(1)
         GLES30.glGenTextures(1, textures, 0)
@@ -152,6 +155,36 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
         synchronized(configurationLock) {
             mustUpdateConfiguration = true
+        }
+
+        // The new texture and buffer are empty, so the background has to be loaded into them again
+        synchronized(backgroundLock) {
+            isBackgroundLoaded = false
+            isBackgroundPositionDirty = true
+            mustLoadBackground = background != null
+        }
+    }
+
+    private fun deleteGlObjects() {
+        if (backgroundTexture != 0) {
+            GLES30.glDeleteTextures(1, intArrayOf(backgroundTexture), 0)
+            backgroundTexture = 0
+        }
+        if (screensVbo != 0) {
+            GLES30.glDeleteBuffers(3, intArrayOf(screensVbo, backgroundVbo, shadowsVbo), 0)
+            GLES30.glDeleteVertexArrays(3, intArrayOf(screensVao, backgroundVao, shadowsVao), 0)
+            screensVbo = 0
+            screensVao = 0
+            backgroundVbo = 0
+            backgroundVao = 0
+            shadowsVbo = 0
+            shadowsVao = 0
+        }
+        if (::backgroundShader.isInitialized) {
+            backgroundShader.delete()
+        }
+        if (::shadowShader.isInitialized) {
+            shadowShader.delete()
         }
     }
 

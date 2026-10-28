@@ -364,8 +364,9 @@ class DefaultLayoutProvider(
 
         val row = buildCenteredButtonRow(rowComponents - LayoutComponent.BUTTON_PAUSE, centerX, rowTop, buttonSize, spacing)
         val menuButtonRect = findFreeSpotAboveOrBelowRow(safeArea, centerX - buttonSize / 2, rowTop, buttonSize, spacing, otherComponents + row) ?: run {
-            // There's no free space around the row. Place the button over the top-right corner of the top screen instead, since that screen doesn't take any input
-            val screenRect = (otherComponents.firstOrNull { it.component == LayoutComponent.TOP_SCREEN } ?: otherComponents.first { it.isScreen() }).rect
+            // There's no free space around the row. Place the button over the top-right corner of the top screen instead, since that screen doesn't take any input.
+            // Without any screen, use the top-right corner of the safe area
+            val screenRect = (otherComponents.firstOrNull { it.component == LayoutComponent.TOP_SCREEN } ?: otherComponents.firstOrNull { it.isScreen() })?.rect ?: safeArea
             Rect(screenRect.right - spacing - buttonSize, screenRect.y + spacing, buttonSize, buttonSize)
         }
 
