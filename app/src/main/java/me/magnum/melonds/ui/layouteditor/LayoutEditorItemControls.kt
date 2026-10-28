@@ -17,6 +17,7 @@ import me.magnum.melonds.R
 import me.magnum.melonds.databinding.ViewLayoutEditorManagerBinding
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.consoleAspectRatio
+import me.magnum.melonds.domain.model.layout.LayoutComponent
 import me.magnum.melonds.impl.dpToPixels
 import me.magnum.melonds.ui.common.LayoutComponentView
 import me.magnum.melonds.ui.layouteditor.model.LayoutComponentEditableProperty
@@ -215,6 +216,10 @@ class LayoutEditorItemControls(
             binding.textOpacity.text = context.getString(R.string.layout_editor_opacity_value, progress)
             editor.setSelectedViewAlpha(progress / 100f)
         }
+        binding.seekBarSpacing.setOnUserProgressChanged { progress ->
+            binding.textSpacing.text = context.getString(R.string.layout_editor_spacing_value, progress)
+            editor.setSelectedViewSpacing(progress / 100f)
+        }
 
         binding.toggleGroupAspectRatio.addOnButtonCheckedListener { _, checkedId, isChecked ->
             val view = selectedView
@@ -298,6 +303,11 @@ class LayoutEditorItemControls(
         binding.layoutOpacityRow.isVisible = isScreen
         binding.seekBarOpacity.progress = opacity
         binding.textOpacity.text = context.getString(R.string.layout_editor_opacity_value, opacity)
+
+        val spacing = (view.spacing * 100).roundToInt()
+        binding.layoutSpacingRow.isVisible = view.component == LayoutComponent.DPAD || view.component == LayoutComponent.BUTTONS
+        binding.seekBarSpacing.progress = spacing
+        binding.textSpacing.text = context.getString(R.string.layout_editor_spacing_value, spacing)
 
         binding.switchAboveScreen.isVisible = isScreen
         binding.switchAboveScreen.isChecked = view.onTop

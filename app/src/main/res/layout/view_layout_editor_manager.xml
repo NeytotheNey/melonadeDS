@@ -237,6 +237,28 @@
                         android:max="100" />
                 </LinearLayout>
 
+                <LinearLayout
+                    android:id="@+id/layout_spacing_row"
+                    style="@style/LayoutEditorPanelRow">
+
+                    <LinearLayout style="@style/LayoutEditorPanelValueLabels">
+
+                        <TextView
+                            style="@style/LayoutEditorPanelText"
+                            android:text="@string/layout_editor_spacing" />
+
+                        <TextView
+                            android:id="@+id/text_spacing"
+                            style="@style/LayoutEditorPanelText"
+                            tools:text="0%" />
+                    </LinearLayout>
+
+                    <SeekBar
+                        android:id="@+id/seek_bar_spacing"
+                        style="@style/LayoutEditorPanelSeekBar"
+                        android:max="100" />
+                </LinearLayout>
+
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/switch_above_screen"
                     android:layout_width="match_parent"

@@ -14,5 +14,9 @@ class EditorBackgroundLayoutComponentViewBuilder(private val baseBuilder: Layout
         }
     }
 
+    override fun applySpacing(view: View, spacing: Float) {
+        baseBuilder.applySpacing(view, spacing)
+    }
+
     override fun getAspectRatio() = baseBuilder.getAspectRatio()
 }

@@ -21,10 +21,10 @@ import kotlin.math.min
 @SuppressLint("ViewConstructor")
 class RaisedButtonView(
     context: Context,
-    private val designSize: Float,
+    private var designSize: Float,
     private val lip: Float,
     private val travel: Float,
-    private val parts: List<Part>,
+    parts: List<Part>,
     private val appearance: ControllerAppearance,
 ) : View(context), PressedInputsView {
 
@@ -48,13 +48,14 @@ class RaisedButtonView(
         typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
     }
 
-    private val colors = Array(parts.size) { appearance.colorsFor(parts[it].input) }
-    private val pressedParts = BooleanArray(parts.size)
-    private val faces = Array(parts.size) { Path() }
-    private val lips = Array(parts.size) { Path() }
-    private val glyphs = Array(parts.size) { Path() }
-    private val centersX = FloatArray(parts.size)
-    private val centersY = FloatArray(parts.size)
+    private var parts = emptyList<Part>()
+    private var colors = emptyArray<ButtonColors>()
+    private var pressedParts = BooleanArray(0)
+    private var faces = emptyArray<Path>()
+    private var lips = emptyArray<Path>()
+    private var glyphs = emptyArray<Path>()
+    private var centersX = FloatArray(0)
+    private var centersY = FloatArray(0)
     private val transform = Matrix()
     private var scale = 1f
     private var offsetX = 0f
@@ -62,14 +63,42 @@ class RaisedButtonView(
     private var isToggledOn = true
 
     init {
+        setParts(parts)
+    }
+
+    /**
+     * Replaces the buttons drawn by this view and the size of the design space they're given in, e.g. to show a new spacing while a layout is being edited.
+     * The view itself stays the same, so its size, touch listener and selection are kept. Nothing is pressed afterwards.
+     */
+    fun setParts(newParts: List<Part>, newDesignSize: Float = designSize) {
+        parts = newParts
+        designSize = newDesignSize
+        colors = Array(parts.size) { appearance.colorsFor(parts[it].input) }
+        pressedParts = BooleanArray(parts.size)
+        faces = Array(parts.size) { Path() }
+        lips = Array(parts.size) { Path() }
+        glyphs = Array(parts.size) { Path() }
+        centersX = FloatArray(parts.size)
+        centersY = FloatArray(parts.size)
         for (i in parts.indices) {
             parts[i].icon?.setTint(colors[i].label)
             parts[i].offIcon?.setTint(colors[i].label)
         }
+        if (width > 0 && height > 0) {
+            updateGeometry(width, height)
+        }
+        invalidate()
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        updateGeometry(w, h)
+    }
+
+    /**
+     * Scales the parts from the design space to the view's size.
+     */
+    private fun updateGeometry(w: Int, h: Int) {
         scale = min(w, h) / designSize
         offsetX = (w - designSize * scale) / 2f
         offsetY = (h - designSize * scale) / 2f

@@ -26,6 +26,7 @@ import me.magnum.melonds.domain.model.layout.UILayout
 import me.magnum.melonds.domain.model.ui.Orientation
 import me.magnum.melonds.ui.common.LayoutComponentView
 import me.magnum.melonds.ui.common.LayoutView
+import me.magnum.melonds.ui.common.view.RaisedButtons
 import me.magnum.melonds.ui.layouteditor.model.LayoutTarget
 import me.magnum.melonds.impl.dpToPixels
 import kotlin.math.*
@@ -49,6 +50,13 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         var isDragging = false
     }
 
+    /**
+     * The selected view's rect and spacing before the spacing slider started moving. Every new spacing is worked out from here instead of from the
+     * previous step, so rounding doesn't add up. [lastRect] is the rect the slider last gave the view. If the view has been moved or resized since, the
+     * baseline is taken again.
+     */
+    private class SpacingBaseline(val view: LayoutComponentView, val rect: Rect, val spacing: Float, var lastRect: Rect)
+
     private var onViewSelectedListener: ((LayoutComponentView) -> Unit)? = null
     private var onViewDeselectedListener: ((LayoutComponentView) -> Unit)? = null
     private var otherClickListener: OnClickListener? = null
@@ -58,6 +66,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     private var selectedViewAnchor = Anchor.TOP_LEFT
     private var modifiedByUser = false
     private var resizeGesture: ResizeGesture? = null
+    private var spacingBaseline: SpacingBaseline? = null
     private val updateAnchorRunnable = Runnable { updateSelectedViewAnchor() }
 
     /**
@@ -176,7 +185,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
     fun buildCurrentLayout(): List<PositionedLayoutComponent> {
         return views.values.map {
-            PositionedLayoutComponent(it.getRect(), it.component, it.baseAlpha, it.onTop)
+            PositionedLayoutComponent(it.getRect(), it.component, it.baseAlpha, it.onTop, it.spacing)
         }
     }
 
@@ -601,6 +610,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
     private fun selectView(view: LayoutComponentView) {
         selectedView = view
+        spacingBaseline = null
         updateSelectedViewAnchor()
         invalidate()
         onViewSelectedListener?.invoke(view)
@@ -646,6 +656,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         }
         selectedView = null
         resizeGesture = null
+        spacingBaseline = null
         invalidate()
     }
 
@@ -689,6 +700,44 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
             it.baseAlpha = alpha
             modifiedByUser = true
         }
+    }
+
+    /**
+     * Sets the spacing of the selected D-pad or face buttons and redraws them straight away. The view grows or shrinks around its centre, so the buttons
+     * keep their size on screen and only the gaps between them change. It's moved back inside the editor if it would stick out, and if it doesn't fit at
+     * all it's capped at the editor's size, which is the only case where the buttons get smaller.
+     */
+    fun setSelectedViewSpacing(spacing: Float) {
+        val view = selectedView ?: return
+        // The layout params are up to date even before the next layout pass, which the slider doesn't wait for
+        val params = view.view.layoutParams as LayoutParams
+        val currentRect = Rect(params.leftMargin, params.topMargin, params.width, params.height)
+        val baseline = spacingBaseline?.takeIf { it.view === view && it.lastRect == currentRect } ?: SpacingBaseline(view, currentRect, view.spacing, currentRect)
+        spacingBaseline = baseline
+
+        val growth = RaisedButtons.spacedDesignSize(spacing) / RaisedButtons.spacedDesignSize(baseline.spacing)
+        var newWidth = baseline.rect.width * growth
+        var newHeight = baseline.rect.height * growth
+        val fitScale = min(1f, min(width / newWidth, height / newHeight))
+        newWidth = max(newWidth * fitScale, minComponentSize.toFloat())
+        newHeight = max(newHeight * fitScale, minComponentSize.toFloat())
+        val roundedWidth = newWidth.roundToInt()
+        val roundedHeight = newHeight.roundToInt()
+        val centerX = baseline.rect.x + baseline.rect.width / 2f
+        val centerY = baseline.rect.y + baseline.rect.height / 2f
+        val newRect = Rect(
+            (centerX - roundedWidth / 2f).roundToInt().coerceIn(0, max(0, width - roundedWidth)),
+            (centerY - roundedHeight / 2f).roundToInt().coerceIn(0, max(0, height - roundedHeight)),
+            roundedWidth,
+            roundedHeight,
+        )
+
+        view.spacing = spacing
+        viewBuilderFactory.getLayoutComponentViewBuilder(view.component).applySpacing(view.view, spacing)
+        applyRect(view, newRect)
+        baseline.lastRect = newRect
+        modifiedByUser = true
+        updateSelectedViewAnchorAfterLayout()
     }
 
     fun setSelectedScreenOnTop(onTop: Boolean) {

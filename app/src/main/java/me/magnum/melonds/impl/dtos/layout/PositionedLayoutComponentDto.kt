@@ -13,6 +13,8 @@ data class PositionedLayoutComponentDto(
     val alpha: Float? = null,
     @SerializedName("onTop")
     val onTop: Boolean? = null,
+    @SerializedName("spacing")
+    val spacing: Float? = null,
 ) {
 
     companion object {
@@ -22,6 +24,7 @@ data class PositionedLayoutComponentDto(
                 positionedLayoutComponent.component.name,
                 positionedLayoutComponent.alpha,
                 positionedLayoutComponent.onTop,
+                positionedLayoutComponent.spacing,
             )
         }
     }
@@ -32,6 +35,7 @@ data class PositionedLayoutComponentDto(
             enumValueOfIgnoreCase(component),
             alpha ?: 1f,
             onTop ?: false,
+            spacing?.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f,
         )
     }
 }

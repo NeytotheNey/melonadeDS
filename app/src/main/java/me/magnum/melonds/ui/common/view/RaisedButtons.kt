@@ -10,32 +10,72 @@ import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.input.ControllerStyle
 
 /**
- * Builders for the raised on-screen buttons. Button positions match the hit areas used by the input handlers (512 grid for the D-pad and ABXY).
+ * Builders for the raised on-screen buttons. Button positions match the hit areas used by the input handlers: the D-pad and ABXY are drawn on a 512 grid,
+ * which grows with their spacing (see [spacedDesignSize]), and the hit areas scale with the view either way.
  */
 object RaisedButtons {
     private const val OFF_ICON_ALPHA = 90
 
+    /**
+     * How many design units the D-pad and ABXY buttons move out by at spacing 1. Their design box grows by twice that, so the buttons keep their size.
+     */
+    const val SPACING_EXTRA = 128f
+
+    /**
+     * The size of the design box of the D-pad and ABXY with the given spacing, from 512 at 0 to 768 at 1. The view must grow by the same ratio for the
+     * buttons to keep their size on screen.
+     */
+    fun spacedDesignSize(spacing: Float): Float {
+        return 512f + 2f * SPACING_EXTRA * spacing
+    }
+
     fun dpad(context: Context, style: ControllerStyle): RaisedButtonView {
-        // Centre square at (256, 246) so that the cross plus its lip is centred in the view
+        return RaisedButtonView(context, spacedDesignSize(0f), 20f, 16f, dpadParts(0f), ControllerAppearance.of(style))
+    }
+
+    /**
+     * The parts of [dpad] with the given [spacing], which goes from 0 to 1, to be drawn in a box of [spacedDesignSize]. Raising it moves the arms away from
+     * the centre square by up to [SPACING_EXTRA], while every part keeps its size.
+     */
+    fun dpadParts(spacing: Float): List<RaisedButtonView.Part> {
+        // The centre square is 10 units above the middle so that the cross plus its lip is centred in the box
+        val extra = SPACING_EXTRA * spacing
+        val cx = spacedDesignSize(spacing) / 2f
+        val cy = cx - 10f
+        val halfWidth = 80f
+        val armStart = halfWidth + 6f + extra
+        val reach = 232f + extra
+        // Glyphs sit halfway along their arm
+        val glyphOffset = (armStart + reach) / 2f
         val corner = 16f
-        val parts = listOf(
-            RaisedButtonView.Part(roundRect(176f, 166f, 336f, 326f, corner), pressable = false),
-            RaisedButtonView.Part(roundRect(176f, 14f, 336f, 160f, corner), Input.UP, glyph = triangle(256f, 87f, 0f, -1f)),
-            RaisedButtonView.Part(roundRect(176f, 332f, 336f, 478f, corner), Input.DOWN, glyph = triangle(256f, 405f, 0f, 1f)),
-            RaisedButtonView.Part(roundRect(24f, 166f, 170f, 326f, corner), Input.LEFT, glyph = triangle(97f, 246f, -1f, 0f)),
-            RaisedButtonView.Part(roundRect(342f, 166f, 488f, 326f, corner), Input.RIGHT, glyph = triangle(415f, 246f, 1f, 0f)),
+        return listOf(
+            RaisedButtonView.Part(roundRect(cx - halfWidth, cy - halfWidth, cx + halfWidth, cy + halfWidth, corner), pressable = false),
+            RaisedButtonView.Part(roundRect(cx - halfWidth, cy - reach, cx + halfWidth, cy - armStart, corner), Input.UP, glyph = triangle(cx, cy - glyphOffset, 0f, -1f)),
+            RaisedButtonView.Part(roundRect(cx - halfWidth, cy + armStart, cx + halfWidth, cy + reach, corner), Input.DOWN, glyph = triangle(cx, cy + glyphOffset, 0f, 1f)),
+            RaisedButtonView.Part(roundRect(cx - reach, cy - halfWidth, cx - armStart, cy + halfWidth, corner), Input.LEFT, glyph = triangle(cx - glyphOffset, cy, -1f, 0f)),
+            RaisedButtonView.Part(roundRect(cx + armStart, cy - halfWidth, cx + reach, cy + halfWidth, corner), Input.RIGHT, glyph = triangle(cx + glyphOffset, cy, 1f, 0f)),
         )
-        return RaisedButtonView(context, 512f, 20f, 16f, parts, ControllerAppearance.of(style))
     }
 
     fun abxy(context: Context, style: ControllerStyle): RaisedButtonView {
-        val parts = listOf(
-            circleButton(256f, 94f, 78f, Input.X, "X", 64f),
-            circleButton(96f, 254f, 78f, Input.Y, "Y", 64f),
-            circleButton(416f, 254f, 78f, Input.A, "A", 64f),
-            circleButton(256f, 414f, 78f, Input.B, "B", 64f),
+        return RaisedButtonView(context, spacedDesignSize(0f), 20f, 16f, abxyParts(0f), ControllerAppearance.of(style))
+    }
+
+    /**
+     * The parts of [abxy] with the given [spacing], which goes from 0 to 1, to be drawn in a box of [spacedDesignSize]. Raising it moves the buttons away
+     * from the middle by up to [SPACING_EXTRA], while they keep their size.
+     */
+    fun abxyParts(spacing: Float): List<RaisedButtonView.Part> {
+        // The middle sits 2 units above the centre of the box, which leaves room for the lip under the bottom button
+        val cx = spacedDesignSize(spacing) / 2f
+        val cy = cx - 2f
+        val offset = 160f + SPACING_EXTRA * spacing
+        return listOf(
+            circleButton(cx, cy - offset, 78f, Input.X, "X", 64f),
+            circleButton(cx - offset, cy, 78f, Input.Y, "Y", 64f),
+            circleButton(cx + offset, cy, 78f, Input.A, "A", 64f),
+            circleButton(cx, cy + offset, 78f, Input.B, "B", 64f),
         )
-        return RaisedButtonView(context, 512f, 20f, 16f, parts, ControllerAppearance.of(style))
     }
 
     fun shoulderL(context: Context, style: ControllerStyle): RaisedButtonView {

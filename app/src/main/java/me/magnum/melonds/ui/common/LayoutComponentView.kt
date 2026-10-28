@@ -16,6 +16,11 @@ class LayoutComponentView(val view: View, val aspectRatio: Float, val component:
 
     var onTop: Boolean = false
 
+    /**
+     * See [me.magnum.melonds.domain.model.layout.PositionedLayoutComponent.spacing]. Changing it doesn't redraw the view.
+     */
+    var spacing: Float = 0f
+
     fun setPosition(position: Point) {
         view.updateLayoutParams<FrameLayout.LayoutParams> {
             leftMargin = position.x

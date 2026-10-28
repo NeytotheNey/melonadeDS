@@ -191,8 +191,8 @@ private fun ControllerPreview(
             PreviewButton(Modifier.size(smallButtonSize), touchVibrator, { singleButtonHandler(Input.PAUSE, it) }) { RaisedButtons.iconButton(it, style, R.drawable.ic_settings) }
             PreviewButton(Modifier.size(smallButtonSize), touchVibrator, { singleButtonHandler(Input.FAST_FORWARD, it) }) { RaisedButtons.iconButton(it, style, R.drawable.ic_button_fast_forward) }
         }
-        PreviewButton(Modifier.align(Alignment.BottomStart).offset(margin, -margin * 1.5f).size(padSize), touchVibrator, { DpadInputHandler(NoOpInputListener, false, it) }) { RaisedButtons.dpad(it, style) }
-        PreviewButton(Modifier.align(Alignment.BottomEnd).offset(-margin, -margin * 1.5f).size(padSize), touchVibrator, { ButtonsInputHandler(NoOpInputListener, false, it) }) { RaisedButtons.abxy(it, style) }
+        PreviewButton(Modifier.align(Alignment.BottomStart).offset(margin, -margin * 1.5f).size(padSize), touchVibrator, { DpadInputHandler(NoOpInputListener, false, it, 0f) }) { RaisedButtons.dpad(it, style) }
+        PreviewButton(Modifier.align(Alignment.BottomEnd).offset(-margin, -margin * 1.5f).size(padSize), touchVibrator, { ButtonsInputHandler(NoOpInputListener, false, it, 0f) }) { RaisedButtons.abxy(it, style) }
         Row(
             modifier = Modifier.align(Alignment.BottomCenter).offset(y = -margin * 1.5f),
             horizontalArrangement = Arrangement.spacedBy(maxWidth * 0.02f),
