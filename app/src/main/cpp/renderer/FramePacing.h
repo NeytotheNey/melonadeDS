@@ -6,6 +6,9 @@
 #include <cstdint>
 #include <cstdlib>
 
+// Frame rate the emulator runs at without fast-forward. Must match EMULATOR_TARGET_FPS in NDS.kt
+constexpr int EMULATOR_TARGET_FPS = 60;
+
 /**
  * Tracks the display's vsync timestamps and estimates its refresh period from the interval between them. Timestamps are published from the
  * Choreographer callback on the UI thread (the only writer) and read by the emulator and render threads. All times are CLOCK_MONOTONIC, in ns.
@@ -134,6 +137,19 @@ public:
     // When the refresh divisor changes, the chain of frame starts is kept if the frame period is within this fraction of the previous one. Each
     // refresh rate is within 0.5% of a multiple of 60Hz (see [getRefreshDivisor]), so this holds for any change between two paced rates
     static constexpr double MATCHING_FRAME_PERIOD_TOLERANCE = 0.02;
+    // Frames are only locked to the display if refresh_hz / 60 is within this fraction of a whole number
+    static constexpr double REFRESH_RATIO_TOLERANCE = 0.005;
+    // Being late by up to this fraction of a refresh (1/4, wake-up latency) is ignored
+    static constexpr int64_t LATE_SLACK_REFRESH_DENOMINATOR = 4;
+    // When the chain of frame starts carries over to a new grid, a target up to this fraction of a refresh (1/8) past a grid point still goes
+    // to that point instead of the next one
+    static constexpr int64_t CARRY_OVER_TOLERANCE_REFRESH_DENOMINATOR = 8;
+    // The emulator is considered overloaded after this many frames in a row over budget
+    static constexpr int OVERLOADED_AFTER_FRAMES = 2;
+    // Each frame, the phase correction moves the target this fraction (1/8) of the way back to the closest grid point...
+    static constexpr int64_t PHASE_CORRECTION_GAIN_DENOMINATOR = 8;
+    // ...but never by more than this percentage of a frame period, so that the emulation speed never changes by more than that
+    static constexpr int64_t MAX_PHASE_CORRECTION_PERCENT = 2;
 
     /**
      * Returns the number of refreshes each 60 FPS frame should last (N, from 1 to [MAX_REFRESH_DIVISOR]) if the display's refresh rate is within
@@ -145,12 +161,12 @@ public:
             return 0;
 
         // refresh_hz / 60
-        double refreshRatio = (1000000000.0 / 60.0) / (double) refreshPeriodNs;
+        double refreshRatio = (1000000000.0 / EMULATOR_TARGET_FPS) / (double) refreshPeriodNs;
         long divisor = std::lround(refreshRatio);
         if (divisor < 1 || divisor > MAX_REFRESH_DIVISOR)
             return 0;
 
-        if (std::fabs(refreshRatio / (double) divisor - 1.0) > 0.005)
+        if (std::fabs(refreshRatio / (double) divisor - 1.0) > REFRESH_RATIO_TOLERANCE)
             return 0;
 
         return (int) divisor;
@@ -209,7 +225,7 @@ public:
     {
         int64_t framePeriodNs = refreshPeriodNs * divisor;
         int64_t gridOriginNs = lastVsyncNs + VSYNC_OFFSET_NS;
-        int64_t lateSlackNs = refreshPeriodNs / 4;
+        int64_t lateSlackNs = refreshPeriodNs / LATE_SLACK_REFRESH_DENOMINATOR;
         int64_t dueOffsetNs = framePeriodNs * (isBufferEnabled ? 2 : 1);
 
         bool isOverBudget = lastWorkNs > framePeriodNs;
@@ -230,9 +246,9 @@ public:
             // 60Hz), the chain moves later by half a refresh. Moving it earlier would make two frames due on the same vsync, and skip one of them.
             // The small tolerance keeps an aligned chain from being pushed a whole refresh later because of the estimate error
             bool isSameFramePeriod = std::llabs(framePeriodNs - lastFramePeriodNs) <= (int64_t) ((double) lastFramePeriodNs * MATCHING_FRAME_PERIOD_TOLERANCE);
-            if (wasLocked && overBudgetFrames < 2 && isSameFramePeriod)
+            if (wasLocked && overBudgetFrames < OVERLOADED_AFTER_FRAMES && isSameFramePeriod)
             {
-                int64_t targetNs = getNextGridPoint(lastTargetNs + framePeriodNs - refreshPeriodNs / 8, gridOriginNs, refreshPeriodNs);
+                int64_t targetNs = getNextGridPoint(lastTargetNs + framePeriodNs - refreshPeriodNs / CARRY_OVER_TOLERANCE_REFRESH_DENOMINATOR, gridOriginNs, refreshPeriodNs);
                 bool isTargetPlausible = nowNs - targetNs <= lateSlackNs && targetNs - nowNs <= framePeriodNs + refreshPeriodNs;
                 if (isTargetPlausible)
                 {
@@ -257,7 +273,7 @@ public:
             int64_t targetNs = lastTargetNs + framePeriodNs + getPhaseCorrection(lastTargetNs + framePeriodNs, gridOriginNs, refreshPeriodNs, framePeriodNs);
             int64_t lateNs = nowNs - targetNs;
 
-            if (overBudgetFrames >= 2 || lateNs > framePeriodNs)
+            if (overBudgetFrames >= OVERLOADED_AFTER_FRAMES || lateNs > framePeriodNs)
             {
                 isLocked = false;
                 isOverloaded = true;
@@ -271,7 +287,7 @@ public:
             // Behind without the buffer (the debt is dropped), or the grid moved. Re-lock below
             isLocked = false;
         }
-        else if (overBudgetFrames >= 2)
+        else if (overBudgetFrames >= OVERLOADED_AFTER_FRAMES)
         {
             isOverloaded = true;
             return scheduleOverloadedFrame(nowNs, gridOriginNs, refreshPeriodNs, framePeriodNs);
@@ -302,8 +318,8 @@ private:
         int64_t phaseNs = floorMod(targetNs - gridOriginNs, refreshPeriodNs);
         int64_t phaseErrorNs = phaseNs > refreshPeriodNs / 2 ? phaseNs - refreshPeriodNs : phaseNs;
 
-        int64_t maxCorrectionNs = framePeriodNs * 2 / 100;
-        int64_t correctionNs = -phaseErrorNs / 8;
+        int64_t maxCorrectionNs = framePeriodNs * MAX_PHASE_CORRECTION_PERCENT / 100;
+        int64_t correctionNs = -phaseErrorNs / PHASE_CORRECTION_GAIN_DENOMINATOR;
         if (correctionNs > maxCorrectionNs)
             correctionNs = maxCorrectionNs;
         if (correctionNs < -maxCorrectionNs)

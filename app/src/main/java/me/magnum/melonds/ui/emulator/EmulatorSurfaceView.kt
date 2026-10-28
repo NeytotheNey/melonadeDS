@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import me.magnum.melonds.domain.model.EMULATOR_TARGET_FPS
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import me.magnum.melonds.ui.emulator.model.RuntimeRendererConfiguration
 import me.magnum.melonds.ui.emulator.render.EmulatorRenderer
@@ -17,7 +18,7 @@ class EmulatorSurfaceView(context: Context, attrs: AttributeSet? = null) : Surfa
 
     private companion object {
         const val TAG = "EmulatorSurfaceView"
-        const val PACED_FRAME_RATE = 60f
+        const val PACED_FRAME_RATE = EMULATOR_TARGET_FPS.toFloat()
     }
 
     private val surfaceLock = Any()

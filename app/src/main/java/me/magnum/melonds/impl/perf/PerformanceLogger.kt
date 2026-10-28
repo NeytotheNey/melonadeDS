@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import me.magnum.melonds.MelonEmulator
+import me.magnum.melonds.domain.model.EMULATOR_TARGET_FPS
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.extensions.find60HzMode
 import me.magnum.melonds.extensions.getModesAtCurrentResolution
@@ -60,8 +61,9 @@ class PerformanceLogger(
         private const val PREVIOUS_SESSION_TIMEOUT_MS = 5000L
         private const val FRAME_DRAIN_BATCH_SIZE = 4096
         private const val DISPLAY_DRAIN_BATCH_SIZE = 1024
-        private const val TARGET_FPS = 60.0
-        private const val TARGET_FRAME_INTERVAL_NS = 16_666_667L
+        private const val TARGET_FPS = EMULATOR_TARGET_FPS.toDouble()
+        // Rounded to the nearest ns
+        private const val TARGET_FRAME_INTERVAL_NS = (1_000_000_000L + EMULATOR_TARGET_FPS / 2) / EMULATOR_TARGET_FPS
         private const val MISSED_FRAME_THRESHOLD_NS = TARGET_FRAME_INTERVAL_NS * 3 / 2
         // Holds from 1 to 31 refreshes get their own bucket. The last bucket counts 32 and above
         private const val HOLD_HISTOGRAM_SIZE = 33
@@ -69,7 +71,7 @@ class PerformanceLogger(
         private const val HOLD_WHOLE_NUMBER_TOLERANCE = 0.05
         private const val JUDDER_WINDOW_SECONDS = 10
         // A window is only evaluated once it holds at least 80% of the holds a full window should have at 60 FPS (480)
-        private const val JUDDER_WINDOW_MIN_FRAMES = JUDDER_WINDOW_SECONDS * 60 * 4 / 5
+        private const val JUDDER_WINDOW_MIN_FRAMES = JUDDER_WINDOW_SECONDS * EMULATOR_TARGET_FPS * 4 / 5
         private const val MAX_SESSION_NAME_LENGTH = 48
         private const val LOG_FILE_MIME_TYPE = "application/octet-stream"
 

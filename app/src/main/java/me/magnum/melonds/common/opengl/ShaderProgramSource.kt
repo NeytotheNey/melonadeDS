@@ -1,5 +1,10 @@
 package me.magnum.melonds.common.opengl
 
+import me.magnum.melonds.domain.model.FRAME_TEXTURE_HEIGHT
+import me.magnum.melonds.domain.model.SCREEN_GAP
+import me.magnum.melonds.domain.model.SCREEN_HEIGHT
+import me.magnum.melonds.domain.model.SCREEN_WIDTH
+
 class ShaderProgramSource private constructor(val textureFiltering: TextureFiltering, val vertexShaderSource: String, val fragmentShaderSource: String) {
     enum class TextureFiltering {
         NEAREST,
@@ -13,10 +18,15 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // keep using these, since they draw one line/subpixel group per DS pixel. The scalers can't stay on the DS grid: upscaled 3D isn't
         // aligned to it (some games draw everything in 3D, sprites included), so DS-grid neighbours would make them copy pixels into the wrong
         // places
-        private const val SCREEN_HEIGHT = 192
-        private const val SCREEN_GAP = 2
-        private const val LOGICAL_TEXTURE_WIDTH = 256
-        private const val LOGICAL_TEXTURE_HEIGHT = SCREEN_HEIGHT * 2 + SCREEN_GAP
+        private const val LOGICAL_TEXTURE_WIDTH = SCREEN_WIDTH
+        private const val LOGICAL_TEXTURE_HEIGHT = FRAME_TEXTURE_HEIGHT
+
+        // Fragment shader precision: high where the GPU supports it, medium otherwise
+        private const val PRECISION_HEADER = "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
+                "precision highp float;\n" +
+                "#else\n" +
+                "precision mediump float;\n" +
+                "#endif\n"
 
         private const val DEFAULT_VERT_SHADER = "attribute vec2 vUV;\n" +
                 "attribute vec2 vPos;\n" +
@@ -158,11 +168,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    alpha = vAlpha;\n" +
                     "    omega = 3.141592654 * 2.0 * vec2($LOGICAL_TEXTURE_WIDTH, $LOGICAL_TEXTURE_HEIGHT);\n" +
                     "}",
-            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
-                    "precision highp float;\n" +
-                    "#else\n" +
-                    "precision mediump float;\n" +
-                    "#endif\n" +
+            PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "varying vec2 uv;\n" +
                     "varying float alpha;\n" +
@@ -208,11 +214,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    alpha = vAlpha;\n" +
                     "    omega = vec2(3.1415 * outputSize.x * textureSize.x / inputSize.x, 2.0 * 3.1415 * textureSize.y);\n" +
                     "}",
-            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
-                    "precision highp float;\n" +
-                    "#else\n" +
-                    "precision mediump float;\n" +
-                    "#endif\n" +
+            PRECISION_HEADER +
                     "" +
                     "uniform sampler2D tex;\n" +
                     "varying float alpha;\n" +
@@ -252,11 +254,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         val XbrShader = ShaderProgramSource(
             TextureFiltering.NEAREST,
             DEFAULT_VERT_SHADER,
-            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
-                    "precision highp float;\n" +
-                    "#else\n" +
-                    "precision mediump float;\n" +
-                    "#endif\n" +
+            PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "uniform vec2 texSize;\n" +
                     "varying vec2 uv;\n" +
@@ -353,11 +351,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "" +
                     "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
                     "}",
-            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
-                    "precision highp float;\n" +
-                    "#else\n" +
-                    "precision mediump float;\n" +
-                    "#endif\n" +
+            PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "varying vec4 uv[5];\n" +
                     "varying float alpha;\n" +
@@ -460,11 +454,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    uv[4].zw = vUV - ddx;\n" +
                     "    alpha = vAlpha;\n" +
                     "}",
-            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
-                    "precision highp float;\n" +
-                    "#else\n" +
-                    "precision mediump float;\n" +
-                    "#endif\n" +
+            PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "varying vec4 uv[7];\n" +
                     "varying float alpha;\n" +
@@ -527,11 +517,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         val QuilezShader = ShaderProgramSource(
             TextureFiltering.LINEAR,
             DEFAULT_VERT_SHADER,
-            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
-                    "precision highp float;\n" +
-                    "#else\n" +
-                    "precision mediump float;\n" +
-                    "#endif\n" +
+            PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "uniform vec2 texSize;\n" +
                     "varying float alpha;\n" +
@@ -562,11 +548,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         val Scale2xShader = ShaderProgramSource(
             TextureFiltering.NEAREST,
             DEFAULT_VERT_SHADER,
-            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
-                    "precision highp float;\n" +
-                    "#else\n" +
-                    "precision mediump float;\n" +
-                    "#endif\n" +
+            PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "uniform vec2 texSize;\n" +
                     "varying vec2 uv;\n" +
@@ -614,11 +596,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         val FxaaPrePassShader = ShaderProgramSource(
             TextureFiltering.LINEAR,
             PRE_PASS_VERT_SHADER,
-            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
-                    "precision highp float;\n" +
-                    "#else\n" +
-                    "precision mediump float;\n" +
-                    "#endif\n" +
+            PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "uniform vec2 texSize;\n" +
                     "varying vec2 uv;\n" +
@@ -768,11 +746,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         val MmpxPrePassShader = ShaderProgramSource(
             TextureFiltering.NEAREST,
             PRE_PASS_VERT_SHADER,
-            "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
-                    "precision highp float;\n" +
-                    "#else\n" +
-                    "precision mediump float;\n" +
-                    "#endif\n" +
+            PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "uniform vec2 texSize;\n" +
                     "varying vec2 uv;\n" +

@@ -1,7 +1,6 @@
 package me.magnum.melonds.ui.emulator.render
 
 import android.os.Build
-import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Message
@@ -128,6 +127,13 @@ class FrameRenderCoordinator {
         @Volatile private var running = true
         private val renderStatistics = RenderStatistics()
 
+        // Latest frame render request. Written by the main thread and taken by this one when it handles MSG_RENDER_FRAME, so that no Bundle is
+        // allocated on every vsync. Only the latest request matters, like with the pending message that each new request replaces
+        private val renderRequestLock = Any()
+        private var hasPendingRenderRequest = false
+        private var pendingFrameDeadlineNanos = 0L
+        private var pendingVsyncTimeNanos = 0L
+
         private val frameRenderCallback = object : FrameRenderCallback {
             override fun renderFrame(isValidFrame: Boolean, frameTextureId: Int, frameTextureWidth: Int, frameTextureHeight: Int, frameSequence: Long) {
                 val renderStart = System.nanoTime()
@@ -166,10 +172,7 @@ class FrameRenderCoordinator {
             handler = object : Handler(looper) {
                 override fun handleMessage(msg: Message) {
                     when (msg.what) {
-                        MSG_RENDER_FRAME -> {
-                            val vsyncTimeNanos = (msg.arg1.toLong() shl 32) or (msg.arg2.toLong() and 0xFFFFFFFFL)
-                            renderFrame(msg.data.getLong(MSG_RENDER_FRAME_FRAME_DEADLINE_NS), vsyncTimeNanos)
-                        }
+                        MSG_RENDER_FRAME -> renderPendingFrame()
                         MSG_DESTROY_SURFACES -> destroySurfaces()
                         MSG_STOP -> stopThread()
                         MSG_RENDER_STRATEGY_SWITCH -> handleModeSwitch()
@@ -179,16 +182,14 @@ class FrameRenderCoordinator {
         }
 
         fun requestFrameRender(frameDeadlineNanos: Long?, vsyncTimeNanos: Long) {
-            handler?.removeMessages(MSG_RENDER_FRAME)
-            handler?.obtainMessage(MSG_RENDER_FRAME)?.let {
-                // The vsync time is split into the message's int arguments so that no extra allocation is needed
-                it.arg1 = (vsyncTimeNanos ushr 32).toInt()
-                it.arg2 = vsyncTimeNanos.toInt()
-                it.data = Bundle().apply {
-                    putLong(MSG_RENDER_FRAME_FRAME_DEADLINE_NS, frameDeadlineNanos ?: 0L)
-                }
-                handler?.sendMessage(it)
+            val handler = handler ?: return
+            synchronized(renderRequestLock) {
+                hasPendingRenderRequest = true
+                pendingFrameDeadlineNanos = frameDeadlineNanos ?: 0L
+                pendingVsyncTimeNanos = vsyncTimeNanos
             }
+            handler.removeMessages(MSG_RENDER_FRAME)
+            handler.sendEmptyMessage(MSG_RENDER_FRAME)
         }
 
         fun requestSurfaceDestruction() {
@@ -204,6 +205,21 @@ class FrameRenderCoordinator {
         fun requestStop() {
             running = false
             handler?.sendEmptyMessage(MSG_STOP)
+        }
+
+        private fun renderPendingFrame() {
+            val frameDeadlineNanos: Long
+            val vsyncTimeNanos: Long
+            synchronized(renderRequestLock) {
+                // Already taken by an earlier message that was handled after the request was made
+                if (!hasPendingRenderRequest) {
+                    return
+                }
+                hasPendingRenderRequest = false
+                frameDeadlineNanos = pendingFrameDeadlineNanos
+                vsyncTimeNanos = pendingVsyncTimeNanos
+            }
+            renderFrame(frameDeadlineNanos, vsyncTimeNanos)
         }
 
         private fun renderFrame(frameDeadlineNanos: Long, vsyncTimeNanos: Long) {
@@ -276,7 +292,5 @@ class FrameRenderCoordinator {
         const val MSG_DESTROY_SURFACES = 2
         const val MSG_STOP = 3
         const val MSG_RENDER_STRATEGY_SWITCH = 4
-
-        const val MSG_RENDER_FRAME_FRAME_DEADLINE_NS = "frame-deadline"
     }
 }

@@ -39,7 +39,7 @@ namespace MelonDSAndroid
 
     void resetAudioOutputStream(oboe::AudioStream* erroredStream);
 
-    // setupAudioOutputStream() and cleanupAudioOutputStream() must be called with audioOutputMutex held
+    // setupAudioOutputStream(), cleanupAudioOutputStream() and recreateAudioOutputStream() must be called with audioOutputMutex held
     void setupAudioOutputStream(int audioLatency, int volume)
     {
         oboe::PerformanceMode performanceMode;
@@ -101,19 +101,23 @@ namespace MelonDSAndroid
         }
     }
 
+    void recreateAudioOutputStream(int audioLatency, int volume)
+    {
+        cleanupAudioOutputStream();
+        setupAudioOutputStream(audioLatency, volume);
+    }
+
     // Starts the output stream. Must be called with audioOutputMutex held. A stream that got
     // disconnected without an error callback (e.g. while paused) can't be started again, so it's
     // recreated with the given settings instead
     void startAudioOutputStream(int audioLatency, int volume)
     {
         if (audioStream && audioStream->getState() == oboe::StreamState::Disconnected) {
-            cleanupAudioOutputStream();
-            setupAudioOutputStream(audioLatency, volume);
+            recreateAudioOutputStream(audioLatency, volume);
         }
 
         if (audioStream && audioStream->requestStart() == oboe::Result::ErrorDisconnected) {
-            cleanupAudioOutputStream();
-            setupAudioOutputStream(audioLatency, volume);
+            recreateAudioOutputStream(audioLatency, volume);
             if (audioStream)
                 audioStream->requestStart();
         }
@@ -129,8 +133,7 @@ namespace MelonDSAndroid
         if (erroredStream != audioStream.get())
             return;
 
-        cleanupAudioOutputStream();
-        setupAudioOutputStream(currentAudioSettings.audioLatency, currentAudioSettings.volume);
+        recreateAudioOutputStream(currentAudioSettings.audioLatency, currentAudioSettings.volume);
         if (audioStream && isAudioRunning) {
             audioStream->requestStart();
         }
@@ -313,8 +316,7 @@ namespace MelonDSAndroid
                 setupAudioOutputStream(audioSettings.audioLatency, audioSettings.volume);
             } else if (currentAudioSettings.audioLatency != audioSettings.audioLatency || currentAudioSettings.volume != audioSettings.volume) {
                 // Recreate audio stream with new settings
-                cleanupAudioOutputStream();
-                setupAudioOutputStream(audioSettings.audioLatency, audioSettings.volume);
+                recreateAudioOutputStream(audioSettings.audioLatency, audioSettings.volume);
             }
 
             // A newly created stream is stopped. Start it if audio is supposed to be playing. Don't

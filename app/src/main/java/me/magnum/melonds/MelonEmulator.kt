@@ -14,6 +14,7 @@ import me.magnum.melonds.ui.emulator.rewind.model.RewindWindow
 import java.nio.ByteBuffer
 
 object MelonEmulator {
+    // The perf frame sample layout and the flags must match PERF_FRAME_* and PERF_STATE_FLAG_* in MelonDSAndroidJNI.cpp
     const val PERF_FRAME_SAMPLE_FIELDS = 6
     const val PERF_FRAME_FLAG_FAST_FORWARD = 1L
     const val PERF_FRAME_FLAG_AFTER_PAUSE = 2L

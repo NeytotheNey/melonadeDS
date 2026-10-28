@@ -177,8 +177,13 @@ void SaveManager::run()
             continue;
         }
 
+        // CheckFlush() (on the emulator thread) and FlushSecondaryBuffer() change it under the lock.
+        Platform::Mutex_Lock(SecondaryBufferLock);
+        time_t timeAtLastFlushRequest = TimeAtLastFlushRequest;
+        Platform::Mutex_Unlock(SecondaryBufferLock);
+
         // We debounce for two seconds after last flush request to ensure that writing has finished.
-        if (TimeAtLastFlushRequest == 0 || difftime(time(nullptr), TimeAtLastFlushRequest) < 2)
+        if (timeAtLastFlushRequest == 0 || difftime(time(nullptr), timeAtLastFlushRequest) < 2)
         {
             continue;
         }
@@ -206,17 +211,21 @@ void SaveManager::run()
 
 bool SaveManager::FlushSecondaryBuffer()
 {
-    if (!SecondaryBuffer) return true;
-
-    // There's no point in re-writing the exact same data.
-    if (!NeedsFlush()) return true;
-
     bool flushed = true;
 
     Platform::Mutex_Lock(FlushLock);
     // Only hold SecondaryBufferLock long enough to snapshot the data. Holding it during
     // the file write would stall the emulator thread in CheckFlush() on slow storage.
     Platform::Mutex_Lock(SecondaryBufferLock);
+
+    // There's no point in re-writing the exact same data.
+    if (!SecondaryBuffer || FlushVersion == PreviousFlushVersion)
+    {
+        Platform::Mutex_Unlock(SecondaryBufferLock);
+        Platform::Mutex_Unlock(FlushLock);
+        return true;
+    }
+
     if (WriteBufferLength != SecondaryBufferLength)
     {
         WriteBufferLength = SecondaryBufferLength;
@@ -259,5 +268,8 @@ bool SaveManager::FlushSecondaryBuffer()
 
 bool SaveManager::NeedsFlush()
 {
-    return FlushVersion != PreviousFlushVersion;
+    Platform::Mutex_Lock(SecondaryBufferLock);
+    bool needsFlush = FlushVersion != PreviousFlushVersion;
+    Platform::Mutex_Unlock(SecondaryBufferLock);
+    return needsFlush;
 }

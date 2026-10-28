@@ -1,9 +1,10 @@
 package me.magnum.melonds.extensions
 
 import android.view.Display
+import me.magnum.melonds.domain.model.EMULATOR_TARGET_FPS
 import kotlin.math.abs
 
-private const val TARGET_REFRESH_RATE = 60f
+private const val TARGET_REFRESH_RATE = EMULATOR_TARGET_FPS.toFloat()
 // Accept modes within 0.5% of 60Hz (e.g. 59.94Hz)
 private const val TARGET_REFRESH_RATE_TOLERANCE = TARGET_REFRESH_RATE * 0.005f
 

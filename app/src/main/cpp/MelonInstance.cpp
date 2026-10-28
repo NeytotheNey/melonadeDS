@@ -706,9 +706,11 @@ void MelonInstance::setBatteryLevels()
 void MelonInstance::setDateTime()
 {
     std::time_t t = std::time(0);
-    std::tm* now = std::localtime(&t);
+    std::tm now = {};
+    if (!localtime_r(&t, &now))
+        return;
 
-    nds->RTC.SetDateTime(now->tm_year + 1900, now->tm_mon + 1, now->tm_mday, now->tm_hour, now->tm_min, now->tm_sec);
+    nds->RTC.SetDateTime(now.tm_year + 1900, now.tm_mon + 1, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec);
 }
 
 void MelonInstance::syncDateTimeToDevice()
@@ -733,7 +735,9 @@ void MelonInstance::syncDateTimeToDevice()
     std::time_t dsWallClock = timegm(&dsTime);
 
     std::time_t t = std::time(0);
-    std::tm deviceTime = *std::localtime(&t);
+    std::tm deviceTime = {};
+    if (!localtime_r(&t, &deviceTime))
+        return;
     std::time_t deviceWallClock = timegm(&deviceTime);
 
     if (dsWallClock == (std::time_t) -1 || deviceWallClock == (std::time_t) -1)

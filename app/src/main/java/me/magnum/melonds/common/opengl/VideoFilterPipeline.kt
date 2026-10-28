@@ -2,7 +2,7 @@ package me.magnum.melonds.common.opengl
 
 import android.opengl.GLES30
 import android.util.Log
-import me.magnum.melonds.domain.model.SCREEN_HEIGHT
+import me.magnum.melonds.domain.model.FRAME_TEXTURE_HEIGHT
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import java.nio.ByteBuffer
@@ -37,13 +37,17 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     private companion object {
         const val TAG = "VideoFilterPipeline"
         val COLOR_ATTACHMENTS = intArrayOf(GLES30.GL_COLOR_ATTACHMENT0)
-        // Size of the frame texture when the 3D renderer isn't upscaled: both screens and the 2 empty lines between them
+        // Size of the frame texture when the 3D renderer isn't upscaled: both screens and the empty lines between them
         const val NATIVE_TEXTURE_WIDTH = SCREEN_WIDTH
-        const val NATIVE_TEXTURE_HEIGHT = SCREEN_HEIGHT * 2 + 2
+        const val NATIVE_TEXTURE_HEIGHT = FRAME_TEXTURE_HEIGHT
     }
 
-    val screenShader: Shader = ShaderFactory.createShaderProgram(filter.screenShader, colorCorrection)
-    private val prePasses = filter.prePasses.map { PrePass(ShaderFactory.createShaderProgram(it.source), it.scale, it.nativeResolutionOnly) }
+    // A screen shader that fails to build falls back to the no-filter shader. A pre-pass that fails is left out, so the screen shader gets its
+    // input instead, like when a pre-pass's framebuffer can't be used
+    val screenShader: Shader = ShaderFactory.createScreenShaderProgram(filter.screenShader, colorCorrection)
+    private val prePasses = filter.prePasses.mapNotNull { prePass ->
+        ShaderFactory.createShaderProgramOrNull(prePass.source)?.let { PrePass(it, prePass.scale, prePass.nativeResolutionOnly) }
+    }
 
     // Returned by renderPrePasses(). Reused so that no garbage is created on every frame
     private val output = FilterOutput()
@@ -67,11 +71,6 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     private val savedInt = IntArray(1)
     private var savedDrawFramebuffer = 0
     private var savedReadFramebuffer = 0
-    private var savedProgram = 0
-    private var savedActiveTexture = 0
-    private var savedTexture = 0
-    private var savedVao = 0
-    private var savedArrayBuffer = 0
     private var savedBlendEnabled = false
 
     /**
@@ -79,8 +78,10 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
      * and its size when the filter has no pre-passes, or none of them run for this frame. The texture always has the frame texture's layout,
      * so the screen UVs don't change, but a pass with a scale makes it bigger: set the screen shader's texSize from the returned size. The
      * returned object is reused, so read it before the next call. Call it before drawing anything to the surface: on tiled GPUs, switching
-     * framebuffers in the middle of a frame makes the driver store the surface and load it back. All the GL state it touches is restored.
-     * Call it for invalid frames too, so the cache is cleared.
+     * framebuffers in the middle of a frame makes the driver store the surface and load it back. It restores the framebuffers, the viewport
+     * and blending (the renderer draws its background with whatever blending is enabled). The program, the VAO and array buffer, and the
+     * texture bound to unit 0 (which it leaves active) are left changed, so set them before drawing. Call it for invalid frames too, so the
+     * cache is cleared.
      */
     fun renderPrePasses(frame: PresentFrameWrapper): FilterOutput {
         output.set(frame.textureId, frame.textureWidth, frame.textureHeight)
@@ -209,24 +210,14 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GLES30.GL_STATIC_DRAW)
     }
 
+    // Only the state that the renderer doesn't set again before drawing: the target (the surface, or the front buffer renderer's framebuffer),
+    // its viewport and blending. The vertex attribute setup is stored in the VAOs, so the pre-passes never touch the renderer's own
     private fun saveState() {
         GLES30.glGetIntegerv(GLES30.GL_DRAW_FRAMEBUFFER_BINDING, savedInt, 0)
         savedDrawFramebuffer = savedInt[0]
         GLES30.glGetIntegerv(GLES30.GL_READ_FRAMEBUFFER_BINDING, savedInt, 0)
         savedReadFramebuffer = savedInt[0]
         GLES30.glGetIntegerv(GLES30.GL_VIEWPORT, savedViewport, 0)
-        GLES30.glGetIntegerv(GLES30.GL_CURRENT_PROGRAM, savedInt, 0)
-        savedProgram = savedInt[0]
-        GLES30.glGetIntegerv(GLES30.GL_ACTIVE_TEXTURE, savedInt, 0)
-        savedActiveTexture = savedInt[0]
-        // Only texture unit 0 is used, by the pre-passes and by the renderers
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-        GLES30.glGetIntegerv(GLES30.GL_TEXTURE_BINDING_2D, savedInt, 0)
-        savedTexture = savedInt[0]
-        GLES30.glGetIntegerv(GLES30.GL_VERTEX_ARRAY_BINDING, savedInt, 0)
-        savedVao = savedInt[0]
-        GLES30.glGetIntegerv(GLES30.GL_ARRAY_BUFFER_BINDING, savedInt, 0)
-        savedArrayBuffer = savedInt[0]
         savedBlendEnabled = GLES30.glIsEnabled(GLES30.GL_BLEND)
     }
 
@@ -234,14 +225,6 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, savedDrawFramebuffer)
         GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, savedReadFramebuffer)
         GLES30.glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3])
-        GLES30.glUseProgram(savedProgram)
-        // The vertex attribute setup is stored in the VAO, so the pre-passes never touched the renderer's own. That includes VAO 0, which the
-        // renderers that use client-side buffers draw with
-        GLES30.glBindVertexArray(savedVao)
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, savedArrayBuffer)
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, savedTexture)
-        GLES30.glActiveTexture(savedActiveTexture)
         if (savedBlendEnabled) {
             GLES30.glEnable(GLES30.GL_BLEND)
         }

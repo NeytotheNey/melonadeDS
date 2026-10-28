@@ -1,6 +1,7 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <jni.h>
+#include <atomic>
 #include <string>
 #include <sstream>
 #include <stdlib.h>
@@ -42,42 +43,68 @@ pthread_t emuThread;
 pthread_mutex_t emuThreadMutex;
 pthread_cond_t emuThreadCond;
 
-bool started = false;
+// The emulation state is written from the UI side and read by the emulator thread, and by the render thread for the performance logger (which
+// doesn't take emuThreadMutex), so it's atomic. paused is still only changed while holding emuThreadMutex, for the pause wait. While the
+// emulator thread runs, stop is only accessed while holding it
+std::atomic_bool started = false;
 bool stop;
-bool paused;
+std::atomic_bool paused = false;
 std::atomic_bool isThreadReallyPaused = false;
 int observedFrames = 0;
 float fps = 0;
-int targetFps;
-float fastForwardSpeedMultiplier;
-bool limitFps = true;
-bool isFastForwardEnabled = false;
+std::atomic_int targetFps = 0;
+std::atomic<float> fastForwardSpeedMultiplier = 0.0f;
+std::atomic_bool limitFps = true;
+std::atomic_bool isFastForwardEnabled = false;
 
 jobject globalCameraManager;
 MelonDSAndroidCameraHandler* androidCameraHandler;
 
-static const int64_t FRAME_DURATION_60FPS_NS = 16666666;
+static const int64_t FRAME_DURATION_60FPS_NS = 1000000000LL / EMULATOR_TARGET_FPS;
 static const int64_t FRAME_DURATION_1000FPS_NS = 1000000; // 1ms. Used as frame time when fast-forward is enabled
 ThreadSafePerformanceHintSession* performanceHintSession = nullptr;
 
 // Performance logging. Each frame sample contains: frame end timestamp, work duration, sleep duration, interval since the previous frame end (all in
-// ns), emulated line count and flags. 16384 samples are enough for over 1 second of emulation at 16x speed between each drain
+// ns), emulated line count and flags. 16384 samples are enough for over 1 second of emulation at 16x speed between each drain. The field count
+// and the flags must match MelonEmulator.PERF_FRAME_*
+static constexpr std::size_t PERF_FRAME_SAMPLE_FIELDS = 6;
 static const int64_t PERF_FRAME_FLAG_FAST_FORWARD = 1;
 static const int64_t PERF_FRAME_FLAG_AFTER_PAUSE = 2;
 // The frame's start was locked to the display's vsync grid. The refresh divisor (N) of locked frames is stored in the flags as well
 static const int64_t PERF_FRAME_FLAG_PACING_LOCKED = 4;
 static const int PERF_FRAME_PACING_DIVISOR_SHIFT = 8;
-FrameSampleRing<16384, 6> perfFrameSamples;
-std::atomic_bool isPerfCaptureEnabled = false;
+// Returned by getPerformanceEmulationStateFlags(). Must match MelonEmulator.PERF_STATE_FLAG_*
+static const jint PERF_STATE_FLAG_PAUSED = 1;
+static const jint PERF_STATE_FLAG_DS_SLEEP = 2;
+static const jint PERF_STATE_FLAG_FAST_FORWARD = 4;
+static FrameSampleRing<16384, PERF_FRAME_SAMPLE_FIELDS> perfFrameSamples;
+static std::atomic_bool isPerfCaptureEnabled = false;
 
 // Frame pacing. Vsync timestamps are published by the UI thread and used by the emulator thread to schedule frames and by the render thread to
 // pick which frame to present
-DisplayVsyncTracker displayVsyncTracker;
-std::atomic_bool isFramePacingEnabled = false;
-std::atomic_bool isFramePacingBufferEnabled = false;
+static DisplayVsyncTracker displayVsyncTracker;
+static std::atomic_bool isFramePacingEnabled = false;
+static std::atomic_bool isFramePacingBufferEnabled = false;
 // Due vsync of the frame the emulator thread is about to run (or is running), or 0 if that frame isn't paced. Lets the render thread know whether
 // it's worth waiting for a frame that hasn't been pushed yet
-std::atomic<int64_t> upcomingFrameDueNs = 0;
+static std::atomic<int64_t> upcomingFrameDueNs = 0;
+// Paced frames are due a fixed offset after a vsync. This fraction of a refresh (half) of tolerance absorbs that offset and any phase error
+static const int64_t PRESENT_DUE_TOLERANCE_REFRESH_DENOMINATOR = 2;
+
+/**
+ * FrameRenderCallback.renderFrame(), looked up on the first call. presentFrame() is always called from Java, so FindClass() uses the app's class
+ * loader. The global reference is never released: it keeps the class loaded, and with it the method ID valid.
+ */
+static jmethodID getRenderFrameMethodId(JNIEnv* env)
+{
+    static const jmethodID renderFrameMethodId = [env]() {
+        jclass localCallbackClass = env->FindClass("me/magnum/melonds/ui/emulator/render/FrameRenderCallback");
+        jclass callbackClass = (jclass) env->NewGlobalRef(localCallbackClass);
+        env->DeleteLocalRef(localCallbackClass);
+        return env->GetMethodID(callbackClass, "renderFrame", "(ZIIIJ)V");
+    }();
+    return renderFrameMethodId;
+}
 
 extern "C"
 {
@@ -268,7 +295,7 @@ Java_me_magnum_melonds_MelonEmulator_startEmulation(JNIEnv* env, jobject thiz)
     stop = false;
     isThreadReallyPaused = false;
     limitFps = true;
-    targetFps = 60;
+    targetFps = EMULATOR_TARGET_FPS;
     isFastForwardEnabled = false;
     MelonDSAndroid::setAudioFastForwardActive(false);
 
@@ -289,8 +316,7 @@ Java_me_magnum_melonds_MelonEmulator_onDisplayVsync(JNIEnv* env, jobject thiz, j
 JNIEXPORT void JNICALL
 Java_me_magnum_melonds_MelonEmulator_presentFrame(JNIEnv* env, jobject thiz, jlong deadlineNs, jlong vsyncTimeNs, jobject renderFrameCallback)
 {
-    jclass presentFrameWrapperClass = env->GetObjectClass(renderFrameCallback);
-    jmethodID renderFrameMethodId = env->GetMethodID(presentFrameWrapperClass, "renderFrame", "(ZIIIJ)V");
+    jmethodID renderFrameMethodId = getRenderFrameMethodId(env);
 
     std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadlineTime;
     if (deadlineNs > 0)
@@ -303,10 +329,9 @@ Java_me_magnum_melonds_MelonEmulator_presentFrame(JNIEnv* env, jobject thiz, jlo
         deadlineTime = std::nullopt;
     }
 
-    // Paced frames are due a fixed offset after a vsync. Half a refresh of tolerance absorbs that offset and any phase error
-    int64_t dueToleranceNs = displayVsyncTracker.getRefreshPeriodNs() / 2;
-    int64_t nextFrameDueNs = upcomingFrameDueNs.load(std::memory_order_relaxed);
-    Frame* presentationFrame = MelonDSAndroid::getPresentationFrame(deadlineTime, (int64_t) vsyncTimeNs, dueToleranceNs, nextFrameDueNs);
+    int64_t dueToleranceNs = displayVsyncTracker.getRefreshPeriodNs() / PRESENT_DUE_TOLERANCE_REFRESH_DENOMINATOR;
+    int64_t emulatingFrameDueNs = upcomingFrameDueNs.load(std::memory_order_relaxed);
+    Frame* presentationFrame = MelonDSAndroid::getPresentationFrame(deadlineTime, (int64_t) vsyncTimeNs, dueToleranceNs, emulatingFrameDueNs);
     EGLDisplay currentDisplay = eglGetCurrentDisplay();
 
     if (presentationFrame != nullptr && presentationFrame->presentFence)
@@ -366,14 +391,13 @@ Java_me_magnum_melonds_MelonEmulator_getDroppedPerformanceFrameSampleCount(JNIEn
 JNIEXPORT jint JNICALL
 Java_me_magnum_melonds_MelonEmulator_getPerformanceEmulationStateFlags(JNIEnv* env, jobject thiz)
 {
-    // Must match MelonEmulator.PERF_STATE_FLAG_*
     jint flags = 0;
     if (started && paused)
-        flags |= 1;
+        flags |= PERF_STATE_FLAG_PAUSED;
     if (MelonDSAndroid::isSleeping())
-        flags |= 2;
+        flags |= PERF_STATE_FLAG_DS_SLEEP;
     if (isFastForwardEnabled)
-        flags |= 4;
+        flags |= PERF_STATE_FLAG_FAST_FORWARD;
     return flags;
 }
 
@@ -598,20 +622,21 @@ Java_me_magnum_melonds_MelonEmulator_takeScreenshot(JNIEnv* env, jobject thiz)
 JNIEXPORT void JNICALL
 Java_me_magnum_melonds_MelonEmulator_setFastForwardEnabled(JNIEnv* env, jobject thiz, jboolean enabled)
 {
+    float speedMultiplier = fastForwardSpeedMultiplier;
     isFastForwardEnabled = enabled;
     MelonDSAndroid::setAudioFastForwardActive(enabled);
     if (enabled) {
-        limitFps = fastForwardSpeedMultiplier > 0;
-        targetFps = 60 * fastForwardSpeedMultiplier;
+        limitFps = speedMultiplier > 0;
+        targetFps = (int) (EMULATOR_TARGET_FPS * speedMultiplier);
     } else {
         limitFps = true;
-        targetFps = 60;
+        targetFps = EMULATOR_TARGET_FPS;
     }
 
     if (performanceHintSession != nullptr) {
         if (enabled) {
-            if (fastForwardSpeedMultiplier > 0) {
-                auto frameDurationNs = static_cast<int64_t>(FRAME_DURATION_60FPS_NS / fastForwardSpeedMultiplier);
+            if (speedMultiplier > 0) {
+                auto frameDurationNs = static_cast<int64_t>(FRAME_DURATION_60FPS_NS / speedMultiplier);
                 performanceHintSession->updateTargetWorkDuration(frameDurationNs);
             } else {
                 performanceHintSession->updateTargetWorkDuration(FRAME_DURATION_1000FPS_NS);
@@ -636,19 +661,20 @@ Java_me_magnum_melonds_MelonEmulator_updateEmulatorConfiguration(JNIEnv* env, jo
 {
     MelonDSAndroid::EmulatorConfiguration newConfiguration = MelonDSAndroidConfiguration::buildEmulatorConfiguration(env, emulatorConfiguration);
 
-    fastForwardSpeedMultiplier = newConfiguration.fastForwardSpeedMultiplier;
+    float speedMultiplier = newConfiguration.fastForwardSpeedMultiplier;
+    fastForwardSpeedMultiplier = speedMultiplier;
     isFramePacingEnabled = newConfiguration.framePacingVsync;
     isFramePacingBufferEnabled = newConfiguration.framePacingBuffer;
 
     MelonDSAndroid::updateEmulatorConfiguration(std::make_unique<MelonDSAndroid::EmulatorConfiguration>(std::move(newConfiguration)));
 
     if (isFastForwardEnabled) {
-        limitFps = fastForwardSpeedMultiplier > 0;
-        targetFps = 60 * fastForwardSpeedMultiplier;
+        limitFps = speedMultiplier > 0;
+        targetFps = (int) (EMULATOR_TARGET_FPS * speedMultiplier);
 
         if (performanceHintSession != nullptr) {
-            if (fastForwardSpeedMultiplier > 0) {
-                auto frameDurationNs = static_cast<int64_t>(FRAME_DURATION_60FPS_NS / fastForwardSpeedMultiplier);
+            if (speedMultiplier > 0) {
+                auto frameDurationNs = static_cast<int64_t>(FRAME_DURATION_60FPS_NS / speedMultiplier);
                 performanceHintSession->updateTargetWorkDuration(frameDurationNs);
             } else {
                 performanceHintSession->updateTargetWorkDuration(FRAME_DURATION_1000FPS_NS);
@@ -696,10 +722,129 @@ double getCurrentMillis() {
     return (now.tv_sec * 1000.0) + now.tv_nsec / 1000000.0;
 }
 
-int64_t getCurrentNanos() {
+static int64_t getCurrentNanos() {
     timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     return (int64_t) now.tv_sec * 1000000000LL + now.tv_nsec;
+}
+
+// Frame pacing state of the emulator thread, carried from one frame to the next
+struct FramePacingState
+{
+    VsyncFramePacer framePacer;
+    // Presentation due time and refresh divisor of the next frame. The due time is 0 when the next frame isn't paced
+    int64_t nextFrameDueNs = 0;
+    int nextFrameDivisor = 0;
+    // Whether the next frame's start is locked to the vsync grid. Overloaded frames have a due time but aren't locked
+    bool isNextFrameLocked = false;
+};
+
+/**
+ * Used when the next frame falls back to the timer. The first frame after pacing stops is kept behind a buffered frame that may still be queued.
+ * Later ones are presented right away.
+ */
+static void unlockPacingFromRunning(FramePacingState& pacing)
+{
+    pacing.nextFrameDueNs = pacing.framePacer.unlockFromRunning();
+    pacing.isNextFrameLocked = false;
+    pacing.nextFrameDivisor = 0;
+    upcomingFrameDueNs.store(pacing.nextFrameDueNs, std::memory_order_relaxed);
+}
+
+/**
+ * Locks the next frame's start to the display's vsync grid and sleeps until then. [workNs] is how long the frame that just ran took to emulate.
+ * Returns false without scheduling anything if frames can't be locked to the display, so that the caller falls back to the timer. Pacing never
+ * waits for the display: if vsyncs stop arriving, the divisor becomes 0 and the timer takes over. If it sleeps, [currentTick] is moved to the
+ * time after sleeping and [sleepDuration] is set to how long it slept (in ms).
+ */
+static bool schedulePacedFrame(FramePacingState& pacing, int64_t workNs, double& currentTick, double& sleepDuration)
+{
+    int64_t lastVsyncNs = displayVsyncTracker.getLastVsyncNs();
+    int64_t refreshPeriodNs = displayVsyncTracker.getRefreshPeriodNs();
+    int64_t currentNs = getCurrentNanos();
+    int pacingDivisor = VsyncFramePacer::getRefreshDivisor(currentNs, lastVsyncNs, refreshPeriodNs);
+    if (pacingDivisor <= 0)
+        return false;
+
+    // Without the buffer, a locked frame is due on the first vsync after one frame period. The buffer adds one more frame period. While
+    // overloaded, frames start right away (see VsyncFramePacer)
+    bool isBufferEnabled = isFramePacingBufferEnabled.load(std::memory_order_relaxed);
+    VsyncFramePacer::FrameSchedule schedule = pacing.framePacer.scheduleNextFrame(currentNs, lastVsyncNs, refreshPeriodNs, pacingDivisor, workNs, isBufferEnabled);
+    pacing.nextFrameDueNs = schedule.dueNs;
+    pacing.isNextFrameLocked = schedule.isLocked;
+    pacing.nextFrameDivisor = pacingDivisor;
+    // Published before sleeping so that the render thread knows whether this frame can still be due on the vsync it's presenting
+    upcomingFrameDueNs.store(pacing.nextFrameDueNs, std::memory_order_relaxed);
+
+    int64_t nextFrameStartNs = schedule.startNs;
+    if (nextFrameStartNs > currentNs)
+    {
+        timespec wakeUpTime = {
+            .tv_sec = (time_t) (nextFrameStartNs / 1000000000LL),
+            .tv_nsec = (long) (nextFrameStartNs % 1000000000LL),
+        };
+        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &wakeUpTime, nullptr);
+        double timeAfterSleep = getCurrentMillis();
+        sleepDuration = timeAfterSleep - currentTick;
+        currentTick = timeAfterSleep;
+    }
+
+    return true;
+}
+
+/**
+ * Timer frame limiter, used when frames aren't paced. Sleeps for the rest of the time that the [nLines] that just ran should take, carrying the
+ * error over to the next frame. [delay] is the time since the previous frame ended. All times are in ms. Returns how long it slept, and moves
+ * [currentTick] to the time after sleeping.
+ */
+static double runTimerLimiter(double& frameLimitError, u32 nLines, double delay, double& currentTick)
+{
+    double sleepDuration = 0;
+    double frameTimeStep = (double) nLines / ((float) targetFps.load(std::memory_order_relaxed) * 263.0) * 1000.0;
+    if (frameTimeStep < 1)
+        frameTimeStep = 1;
+
+    frameLimitError += frameTimeStep - delay;
+    if (frameLimitError < -frameTimeStep)
+        frameLimitError = -frameTimeStep;
+    if (frameLimitError > frameTimeStep)
+        frameLimitError = frameTimeStep;
+
+    if (round(frameLimitError) > 0.0)
+    {
+        timespec sleepTime = {
+            .tv_sec = 0,
+            .tv_nsec = (long) (frameLimitError * 1000000),
+        };
+        clock_nanosleep(CLOCK_MONOTONIC, 0, &sleepTime, nullptr);
+        double timeAfterSleep = getCurrentMillis();
+        sleepDuration = timeAfterSleep - currentTick;
+        frameLimitError -= timeAfterSleep - currentTick;
+        currentTick = timeAfterSleep;
+    }
+
+    return sleepDuration;
+}
+
+/**
+ * Records the frame that just ran for the performance logger. [frameBeginTick], [frameEndTick] and [sleepDuration] are in ms. [isFrameLocked]
+ * and [frameDivisor] are whether the frame started on the vsync grid, and its refresh divisor.
+ */
+static void pushPerfSample(double frameBeginTick, double frameEndTick, int64_t workNs, double sleepDuration, u32 nLines, bool isFirstFrameAfterPause, bool isFrameLocked, int frameDivisor)
+{
+    int64_t flags = (isFastForwardEnabled.load(std::memory_order_relaxed) ? PERF_FRAME_FLAG_FAST_FORWARD : 0) | (isFirstFrameAfterPause ? PERF_FRAME_FLAG_AFTER_PAUSE : 0);
+    if (isFrameLocked)
+        flags |= PERF_FRAME_FLAG_PACING_LOCKED | ((int64_t) frameDivisor << PERF_FRAME_PACING_DIVISOR_SHIFT);
+
+    const int64_t sample[PERF_FRAME_SAMPLE_FIELDS] = {
+        (int64_t) (frameEndTick * 1000000.0),
+        workNs,
+        (int64_t) (sleepDuration * 1000000.0),
+        (int64_t) ((frameEndTick - frameBeginTick) * 1000000.0),
+        (int64_t) nLines,
+        flags,
+    };
+    perfFrameSamples.push(sample);
 }
 
 void* emulate(void*)
@@ -710,12 +855,7 @@ void* emulate(void*)
     double frameLimitError = 0.0;
     bool isFirstFrameAfterPause = true;
 
-    VsyncFramePacer framePacer;
-    // Presentation due time and refresh divisor of the next frame. The due time is 0 when the next frame isn't paced
-    int64_t nextFrameDueNs = 0;
-    int nextFrameDivisor = 0;
-    // Whether the next frame's start is locked to the vsync grid. Overloaded frames have a due time but aren't locked
-    bool isNextFrameLocked = false;
+    FramePacingState pacing;
     upcomingFrameDueNs.store(0, std::memory_order_relaxed);
 
     MelonDSAndroid::start();
@@ -738,10 +878,10 @@ void* emulate(void*)
             isFirstFrameAfterPause = true;
 
             // The first frame after a pause starts right away, so it isn't on the vsync grid. Pacing re-syncs after it
-            isNextFrameLocked = false;
-            framePacer.unlock();
-            nextFrameDueNs = 0;
-            nextFrameDivisor = 0;
+            pacing.isNextFrameLocked = false;
+            pacing.framePacer.unlock();
+            pacing.nextFrameDueNs = 0;
+            pacing.nextFrameDivisor = 0;
             upcomingFrameDueNs.store(0, std::memory_order_relaxed);
         }
 
@@ -754,124 +894,46 @@ void* emulate(void*)
 
         double frameBeginTick = lastTick;
         double sleepDuration = 0;
-        int64_t frameDueNs = nextFrameDueNs;
-        int frameDivisor = nextFrameDivisor;
-        bool isFrameLocked = isNextFrameLocked;
+        int64_t frameDueNs = pacing.nextFrameDueNs;
+        int frameDivisor = pacing.nextFrameDivisor;
+        bool isFrameLocked = pacing.isNextFrameLocked;
         auto frameStart = std::chrono::steady_clock::now();
 
         u32 nLines = MelonDSAndroid::loop(frameDueNs);
 
-        auto frameDuration = std::chrono::steady_clock::now() - frameStart;
+        int64_t workNs = std::chrono::nanoseconds(std::chrono::steady_clock::now() - frameStart).count();
         if (performanceHintSession != nullptr)
-            performanceHintSession->reportActualWorkDuration(std::chrono::nanoseconds(frameDuration).count());
+            performanceHintSession->reportActualWorkDuration(workNs);
 
         double currentTick = getCurrentMillis();
         double delay = currentTick - lastTick;
 
-        // All times are in ms
-        double frameTimeStep = (double) nLines / ((float) targetFps * 263.0) * 1000.0;
-        if (frameTimeStep < 1)
-            frameTimeStep = 1;
+        // Lock the next frame's start to the display's vsync grid if possible. Otherwise, fall back to the timer
+        bool isFpsLimited = limitFps.load(std::memory_order_relaxed);
+        bool isNextFramePaced = isFpsLimited && !isFastForwardEnabled.load(std::memory_order_relaxed) && isFramePacingEnabled.load(std::memory_order_relaxed)
+                && schedulePacedFrame(pacing, workNs, currentTick, sleepDuration);
 
-        // Lock the next frame's start to the display's vsync grid if possible. Otherwise, fall back to the timer below. Pacing never waits for
-        // the display: if vsyncs stop arriving, the divisor becomes 0 and the timer takes over
-        int pacingDivisor = 0;
-        int64_t lastVsyncNs = 0;
-        int64_t refreshPeriodNs = 0;
-        int64_t currentNs = 0;
-        if (limitFps && !isFastForwardEnabled && isFramePacingEnabled.load(std::memory_order_relaxed))
+        if (isNextFramePaced)
         {
-            lastVsyncNs = displayVsyncTracker.getLastVsyncNs();
-            refreshPeriodNs = displayVsyncTracker.getRefreshPeriodNs();
-            currentNs = getCurrentNanos();
-            pacingDivisor = VsyncFramePacer::getRefreshDivisor(currentNs, lastVsyncNs, refreshPeriodNs);
-        }
-
-        if (pacingDivisor > 0)
-        {
-            // Without the buffer, a locked frame is due on the first vsync after one frame period. The buffer adds one more frame period. While
-            // overloaded, frames start right away (see VsyncFramePacer)
-            int64_t workNs = std::chrono::nanoseconds(frameDuration).count();
-            bool isBufferEnabled = isFramePacingBufferEnabled.load(std::memory_order_relaxed);
-            VsyncFramePacer::FrameSchedule schedule = framePacer.scheduleNextFrame(currentNs, lastVsyncNs, refreshPeriodNs, pacingDivisor, workNs, isBufferEnabled);
-            nextFrameDueNs = schedule.dueNs;
-            isNextFrameLocked = schedule.isLocked;
-            nextFrameDivisor = pacingDivisor;
-            // Published before sleeping so that the render thread knows whether this frame can still be due on the vsync it's presenting
-            upcomingFrameDueNs.store(nextFrameDueNs, std::memory_order_relaxed);
-
-            int64_t nextFrameStartNs = schedule.startNs;
-            if (nextFrameStartNs > currentNs)
-            {
-                timespec wakeUpTime = {
-                    .tv_sec = (time_t) (nextFrameStartNs / 1000000000LL),
-                    .tv_nsec = (long) (nextFrameStartNs % 1000000000LL),
-                };
-                clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &wakeUpTime, nullptr);
-                double timeAfterSleep = getCurrentMillis();
-                sleepDuration = timeAfterSleep - currentTick;
-                currentTick = timeAfterSleep;
-            }
-
             // Start the timer limiter from scratch if pacing stops
             frameLimitError = 0;
             lastTick = currentTick;
         }
-        else if (limitFps)
+        else if (isFpsLimited)
         {
-            // The first frame after pacing stops is kept behind a buffered frame that may still be queued. Later ones are presented right away
-            nextFrameDueNs = framePacer.unlockFromRunning();
-            isNextFrameLocked = false;
-            nextFrameDivisor = 0;
-            upcomingFrameDueNs.store(nextFrameDueNs, std::memory_order_relaxed);
-
-            frameLimitError += frameTimeStep - delay;
-            if (frameLimitError < -frameTimeStep)
-                frameLimitError = -frameTimeStep;
-            if (frameLimitError > frameTimeStep)
-                frameLimitError = frameTimeStep;
-
-            if (round(frameLimitError) > 0.0)
-            {
-                timespec sleepTime = {
-                    .tv_sec = 0,
-                    .tv_nsec = (long) (frameLimitError * 1000000),
-                };
-                clock_nanosleep(CLOCK_MONOTONIC, 0, &sleepTime, nullptr);
-                double timeAfterSleep = getCurrentMillis();
-                sleepDuration = timeAfterSleep - currentTick;
-                frameLimitError -= timeAfterSleep - currentTick;
-                currentTick = timeAfterSleep;
-            }
-
+            unlockPacingFromRunning(pacing);
+            sleepDuration = runTimerLimiter(frameLimitError, nLines, delay, currentTick);
             lastTick = currentTick;
-        } else {
-            // The first frame after pacing stops is kept behind a buffered frame that may still be queued. Later ones are presented right away
-            nextFrameDueNs = framePacer.unlockFromRunning();
-            isNextFrameLocked = false;
-            nextFrameDivisor = 0;
-            upcomingFrameDueNs.store(nextFrameDueNs, std::memory_order_relaxed);
-
+        }
+        else
+        {
+            unlockPacingFromRunning(pacing);
             frameLimitError = 0;
             lastTick = getCurrentMillis();
         }
 
         if (isPerfCaptureEnabled.load(std::memory_order_relaxed)) [[unlikely]]
-        {
-            int64_t flags = (isFastForwardEnabled ? PERF_FRAME_FLAG_FAST_FORWARD : 0) | (isFirstFrameAfterPause ? PERF_FRAME_FLAG_AFTER_PAUSE : 0);
-            // Whether this frame (the one that just ran) started on the vsync grid
-            if (isFrameLocked)
-                flags |= PERF_FRAME_FLAG_PACING_LOCKED | ((int64_t) frameDivisor << PERF_FRAME_PACING_DIVISOR_SHIFT);
-            const int64_t sample[6] = {
-                (int64_t) (lastTick * 1000000.0),
-                (int64_t) std::chrono::nanoseconds(frameDuration).count(),
-                (int64_t) (sleepDuration * 1000000.0),
-                (int64_t) ((lastTick - frameBeginTick) * 1000000.0),
-                (int64_t) nLines,
-                flags,
-            };
-            perfFrameSamples.push(sample);
-        }
+            pushPerfSample(frameBeginTick, lastTick, workNs, sleepDuration, nLines, isFirstFrameAfterPause, isFrameLocked, frameDivisor);
         isFirstFrameAfterPause = false;
 
         observedFrames++;

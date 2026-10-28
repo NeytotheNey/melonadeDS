@@ -9,9 +9,9 @@ import me.magnum.melonds.common.opengl.ShaderFactory
 import me.magnum.melonds.common.opengl.ShaderProgramSource
 import me.magnum.melonds.common.opengl.VideoFilterPipeline
 import me.magnum.melonds.common.opengl.VideoFilterShaderProvider
+import me.magnum.melonds.domain.model.FRAME_TEXTURE_HEIGHT
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.RuntimeBackground
-import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.VideoFiltering
 import me.magnum.melonds.domain.model.layout.BackgroundMode
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
@@ -28,6 +28,10 @@ private const val SHADOW_RADIUS_FACTOR = 0.06f
 private const val SHADOW_MIN_RADIUS = 8
 private const val SHADOW_STRENGTH = 0.6f
 
+// Screen and shadow vertices: position (2), UVs or distance outside the screen (2) and alpha (1). Background vertices have no alpha
+private const val FLOATS_PER_VERTEX = 5
+private const val BACKGROUND_FLOATS_PER_VERTEX = 4
+
 class DSRenderer(private val context: Context) : EmulatorRenderer {
 
     private val configurationLock = Any()
@@ -39,6 +43,11 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var backgroundTexture = 0
 
     private var screenFilter: VideoFilterPipeline? = null
+    // Settings the screen filter was built with. It's only rebuilt when they change, or after the GL objects are recreated. Only accessed on the
+    // GL thread
+    private var screenFilterFiltering: VideoFiltering? = null
+    private var screenFilterDsScreenColors = false
+    private var mustRebuildScreenFilter = true
     private lateinit var backgroundShader: Shader
     private lateinit var shadowShader: Shader
 
@@ -153,6 +162,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         backgroundShader = ShaderFactory.createShaderProgram(ShaderProgramSource.BackgroundShader)
         shadowShader = ShaderFactory.createShaderProgram(ShaderProgramSource.ScreenShadowShader)
 
+        mustRebuildScreenFilter = true
         synchronized(configurationLock) {
             mustUpdateConfiguration = true
         }
@@ -205,8 +215,9 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         //   3                         5
         // Texture is vertically flipped
 
-        // The texture will have 2 empty lines between the screens. Take that into account when computing UVs
-        val lineRelativeSize = 1f / (SCREEN_HEIGHT * 2 + 2).toFloat()
+        // The texture has 2 empty lines between the screens (SCREEN_GAP), one on each side of the middle. Take that into account when computing
+        // UVs
+        val lineRelativeSize = 1f / FRAME_TEXTURE_HEIGHT.toFloat()
 
         val topUvs = floatArrayOf(
             0f, 0.5f - lineRelativeSize,
@@ -249,7 +260,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         GLES30.glBindVertexArray(screensVao)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, screensVbo)
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GLES30.GL_STATIC_DRAW)
-        screenIndices = vertexBuffer.capacity() / 5 // Each vertex has 5 values
+        screenIndices = vertexBuffer.capacity() / FLOATS_PER_VERTEX
 
         updateShadowCoordinates()
     }
@@ -277,7 +288,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         GLES30.glBindVertexArray(shadowsVao)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, shadowsVbo)
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GLES30.GL_STATIC_DRAW)
-        shadowIndices = vertexBuffer.capacity() / 5 // Each vertex has 5 values
+        shadowIndices = vertexBuffer.capacity() / FLOATS_PER_VERTEX
     }
 
     private fun buildShadowVertexData(rect: Rect, alpha: Float): FloatArray {
@@ -292,7 +303,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         val ys = intArrayOf(rect.y - radius, rect.y, rect.y + rect.height, rect.y + rect.height + radius)
         val distances = floatArrayOf(1f, 0f, 0f, 1f)
 
-        val vertexData = FloatArray(8 * 6 * 5) // 8 cells, 6 vertices each, 5 values per vertex
+        val vertexData = FloatArray(8 * 6 * FLOATS_PER_VERTEX) // 8 cells, 6 vertices each
         var offset = 0
         for (row in 0 until 3) {
             for (column in 0 until 3) {
@@ -319,7 +330,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
                     right, top,    rightDistance, topDistance,     shadowAlpha,
                     right, bottom, rightDistance, bottomDistance,  shadowAlpha,
                 ).copyInto(vertexData, offset)
-                offset += 6 * 5
+                offset += 6 * FLOATS_PER_VERTEX
             }
         }
         return vertexData
@@ -344,12 +355,20 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     }
 
     private fun updateShader() {
+        val filtering = rendererConfiguration?.videoFiltering ?: VideoFiltering.NONE
+        val dsScreenColors = rendererConfiguration?.dsScreenColors ?: false
+        // Fold and layout changes also end up here. Building the filter compiles its shaders, so it's only done when it changes
+        if (!mustRebuildScreenFilter && filtering == screenFilterFiltering && dsScreenColors == screenFilterDsScreenColors) {
+            return
+        }
+
         // Delete previous shader
         screenFilter?.delete()
 
-        val filtering = rendererConfiguration?.videoFiltering ?: VideoFiltering.NONE
-        val dsScreenColors = rendererConfiguration?.dsScreenColors ?: false
         screenFilter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(filtering), dsScreenColors)
+        screenFilterFiltering = filtering
+        screenFilterDsScreenColors = dsScreenColors
+        mustRebuildScreenFilter = false
     }
 
     override fun onSurfaceChanged(width: Int, height: Int) {
@@ -404,9 +423,9 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, shader.textureFiltering)
             GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, shader.textureFiltering)
 
-            GLES30.glVertexAttribPointer(shader.attribPos, 2, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 0)
-            GLES30.glVertexAttribPointer(shader.attribUv, 2, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
-            GLES30.glVertexAttribPointer(shader.attribAlpha, 1, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 4 * Float.SIZE_BYTES)
+            GLES30.glVertexAttribPointer(shader.attribPos, 2, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 0)
+            GLES30.glVertexAttribPointer(shader.attribUv, 2, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
+            GLES30.glVertexAttribPointer(shader.attribAlpha, 1, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 4 * Float.SIZE_BYTES)
             GLES30.glUniform1i(shader.uniformTex, 0)
             // A pre-pass with a scale makes the texture bigger than the frame
             shader.setTextureSize(
@@ -442,8 +461,8 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, backgroundTexture)
 
-        GLES30.glVertexAttribPointer(backgroundShader.attribPos, 2, GLES30.GL_FLOAT, false, 4 * Float.SIZE_BYTES, 0)
-        GLES30.glVertexAttribPointer(backgroundShader.attribUv, 2, GLES30.GL_FLOAT, false, 4 * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
+        GLES30.glVertexAttribPointer(backgroundShader.attribPos, 2, GLES30.GL_FLOAT, false, BACKGROUND_FLOATS_PER_VERTEX * Float.SIZE_BYTES, 0)
+        GLES30.glVertexAttribPointer(backgroundShader.attribUv, 2, GLES30.GL_FLOAT, false, BACKGROUND_FLOATS_PER_VERTEX * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
         GLES30.glUniform1i(backgroundShader.uniformTex, 0)
 
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
@@ -459,9 +478,9 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
         shadowShader.use()
 
-        GLES30.glVertexAttribPointer(shadowShader.attribPos, 2, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 0)
-        GLES30.glVertexAttribPointer(shadowShader.attribUv, 2, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
-        GLES30.glVertexAttribPointer(shadowShader.attribAlpha, 1, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 4 * Float.SIZE_BYTES)
+        GLES30.glVertexAttribPointer(shadowShader.attribPos, 2, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 0)
+        GLES30.glVertexAttribPointer(shadowShader.attribUv, 2, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
+        GLES30.glVertexAttribPointer(shadowShader.attribAlpha, 1, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 4 * Float.SIZE_BYTES)
 
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, shadowIndices)
     }

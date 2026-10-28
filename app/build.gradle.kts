@@ -42,7 +42,7 @@ android {
         }
         externalNativeBuild {
             cmake {
-                cppFlags("-std=c++17 -Wno-write-strings")
+                cppFlags("-std=c++20 -Wno-write-strings")
             }
         }
     }
@@ -109,15 +109,16 @@ android {
         // Adds exported schema location as test app assets.
         getByName("androidTest").assets.directories += "$projectDir/schemas"
     }
-    packaging {
-        // minSdk >= 28 stores dex uncompressed, which doubles the unminified debug APK
-        dex {
-            useLegacyPackaging = true
-        }
-    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+    }
+}
+
+androidComponents {
+    // minSdk >= 28 stores dex uncompressed, which doubles the unminified debug APK. Release builds are minified, so they keep the default
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.packaging.dex.useLegacyPackaging.set(true)
     }
 }
 
