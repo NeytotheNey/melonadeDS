@@ -1,0 +1,10 @@
+<!-- Material icon "save_alt" (Apache 2.0) with the arrow pointing up -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M19,12v7H5v-7H3v7c0,1.1 0.9,2 2,2h14c1.1,0 2,-0.9 2,-2v-7h-2zM11,6.83L8.41,9.41 7,8l5,-5 5,5 -1.41,1.41L13,6.83V16h-2z" />
+</vector>

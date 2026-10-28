@@ -25,12 +25,15 @@ import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
 import com.squareup.picasso.Picasso
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.Rect
+import me.magnum.melonds.domain.model.input.ControllerStyle
 import me.magnum.melonds.domain.model.layout.Insets
 import me.magnum.melonds.domain.model.layout.ScreenFold
 import me.magnum.melonds.domain.model.ui.Orientation
+import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.extensions.insetsControllerCompat
 import me.magnum.melonds.extensions.setLayoutOrientation
 import me.magnum.melonds.impl.ScreenUnitsConverter
@@ -68,6 +71,8 @@ class LayoutEditorActivity : AppCompatActivity() {
     lateinit var deviceLayoutDisplayMapper: DeviceLayoutDisplayMapper
     @Inject
     lateinit var picasso: Picasso
+    @Inject
+    lateinit var settingsRepository: SettingsRepository
 
     private val viewModel: LayoutEditorViewModel by viewModels()
     private lateinit var layoutEditorManager: LayoutEditorManagerView
@@ -88,6 +93,7 @@ class LayoutEditorActivity : AppCompatActivity() {
 
     private var externalLayoutEditorPresentation: ExternalLayoutEditorPresentation? = null
     private var savedExternalEditorState: ScreenEditorState? = null
+    private var controllerStyle = ControllerStyle.CLASSIC
 
     private val mainScreenBackgroundPickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == RESULT_OK) {
@@ -179,16 +185,18 @@ class LayoutEditorActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.currentLayout.collect {
-                    if (it == null) {
+                combine(viewModel.currentLayout, settingsRepository.getControllerStyle(), ::Pair).collect { (currentLayout, style) ->
+                    controllerStyle = style
+                    layoutEditorManager.layoutEditorView.controllerStyle = style
+                    if (currentLayout == null) {
                         layoutEditorManager.layoutEditorView.destroyLayout()
                         externalLayoutEditorPresentation?.layoutEditorManager?.layoutEditorView?.destroyLayout()
                     } else {
                         handler.removeCallbacksAndMessages(null)
                         handler.post {
-                            layoutEditorManager.layoutEditorView.instantiateLayout(it.layout)
-                            externalLayoutEditorPresentation?.instantiateLayout(it.layout)
-                            setLayoutOrientation(it.orientation)
+                            layoutEditorManager.layoutEditorView.instantiateLayout(currentLayout.layout)
+                            externalLayoutEditorPresentation?.instantiateLayout(currentLayout.layout, style)
+                            setLayoutOrientation(currentLayout.orientation)
                         }
                     }
                 }
@@ -292,7 +300,7 @@ class LayoutEditorActivity : AppCompatActivity() {
                 setOnShowListener {
                     val currentConfiguration = viewModel.currentLayout.value
                     if (currentConfiguration != null) {
-                        instantiateLayout(currentConfiguration.layout)
+                        instantiateLayout(currentConfiguration.layout, controllerStyle)
                     }
                 }
                 show()

@@ -16,6 +16,7 @@ import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.squareup.picasso.Picasso
+import me.magnum.melonds.domain.model.input.ControllerStyle
 import me.magnum.melonds.domain.model.layout.UILayout
 import me.magnum.melonds.ui.layouteditor.model.LayoutTarget
 import me.magnum.melonds.ui.layouteditor.model.ScreenEditorState
@@ -77,7 +78,8 @@ class ExternalLayoutEditorPresentation(
         layoutEditorManager.handleBackNavigation()
     }
 
-    fun instantiateLayout(layout: UILayout) {
+    fun instantiateLayout(layout: UILayout, controllerStyle: ControllerStyle) {
+        layoutEditorManager.layoutEditorView.controllerStyle = controllerStyle
         layoutEditorManager.layoutEditorView.instantiateLayout(layout, LayoutTarget.SECONDARY_SCREEN)
     }
 

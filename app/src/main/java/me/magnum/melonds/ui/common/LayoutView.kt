@@ -3,6 +3,7 @@ package me.magnum.melonds.ui.common
 import android.content.Context
 import android.util.AttributeSet
 import android.widget.FrameLayout
+import me.magnum.melonds.domain.model.input.ControllerStyle
 import me.magnum.melonds.domain.model.layout.LayoutComponent
 import me.magnum.melonds.domain.model.layout.PositionedLayoutComponent
 import me.magnum.melonds.domain.model.layout.UILayout
@@ -12,6 +13,8 @@ open class LayoutView(context: Context, attrs: AttributeSet?) : FrameLayout(cont
 
     protected lateinit var viewBuilderFactory: LayoutComponentViewBuilderFactory
     protected val views = mutableMapOf<LayoutComponent, LayoutComponentView>()
+
+    var controllerStyle = ControllerStyle.CLASSIC
 
     init {
         layoutDirection = LAYOUT_DIRECTION_LTR
@@ -63,7 +66,7 @@ open class LayoutView(context: Context, attrs: AttributeSet?) : FrameLayout(cont
 
     protected fun addPositionedLayoutComponent(layoutComponent: PositionedLayoutComponent): LayoutComponentView {
         val viewBuilder = viewBuilderFactory.getLayoutComponentViewBuilder(layoutComponent.component)
-        val view = viewBuilder.build(context)
+        val view = viewBuilder.build(context, controllerStyle)
 
         val viewParams = LayoutParams(layoutComponent.rect.width, layoutComponent.rect.height).apply {
             leftMargin = layoutComponent.rect.x

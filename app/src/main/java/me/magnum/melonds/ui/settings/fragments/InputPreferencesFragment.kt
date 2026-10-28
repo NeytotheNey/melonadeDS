@@ -13,6 +13,7 @@ import me.magnum.melonds.common.vibration.TouchVibrator
 import me.magnum.melonds.ui.inputsetup.InputSetupActivity
 import me.magnum.melonds.ui.layouts.LayoutListActivity
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
+import me.magnum.melonds.ui.settings.preferences.ControllerStylePreference
 import me.magnum.melonds.ui.settings.preferences.SoftwareInputBehaviourPreference
 import javax.inject.Inject
 
@@ -22,12 +23,14 @@ class InputPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
     @Inject lateinit var vibrator: TouchVibrator
 
     private lateinit var softInputBehaviourPreference: SoftwareInputBehaviourPreference
+    private lateinit var controllerStylePreference: ControllerStylePreference
 
     override fun getTitle() = getString(R.string.settings_controls)
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.pref_input, rootKey)
         softInputBehaviourPreference = findPreference("soft_input_behaviour")!!
+        controllerStylePreference = findPreference("input_controller_style")!!
         val touchVibratePreference = findPreference<SwitchPreference>("input_touch_haptic_feedback_enabled")!!
         val vibrationStrengthPreference = findPreference<SeekBarPreference>("input_touch_haptic_feedback_strength")!!
         val keyMappingPreference = findPreference<Preference>("input_key_mapping")!!
@@ -60,5 +63,6 @@ class InputPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         super.onResume()
         // Set proper value for soft input behaviour preference since the value is not updated when returning from the fragment
         softInputBehaviourPreference.value = softInputBehaviourPreference.sharedPreferences?.getString(softInputBehaviourPreference.key, "hide_system_buttons_when_controller_connected")
+        controllerStylePreference.value = controllerStylePreference.sharedPreferences?.getString(controllerStylePreference.key, "classic")
     }
 }

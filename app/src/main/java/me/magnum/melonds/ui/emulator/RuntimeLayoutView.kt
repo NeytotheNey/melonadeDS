@@ -10,13 +10,13 @@ import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.input.SoftInputBehaviour
 import me.magnum.melonds.domain.model.layout.LayoutComponent
 import me.magnum.melonds.ui.common.LayoutView
+import me.magnum.melonds.ui.common.view.RaisedButtonView
 import me.magnum.melonds.ui.emulator.input.ButtonsInputHandler
 import me.magnum.melonds.ui.emulator.input.DpadInputHandler
 import me.magnum.melonds.ui.emulator.input.FrontendInputHandler
 import me.magnum.melonds.ui.emulator.input.IInputListener
 import me.magnum.melonds.ui.emulator.input.SingleButtonInputHandler
 import me.magnum.melonds.ui.emulator.input.TouchscreenInputHandler
-import me.magnum.melonds.ui.emulator.input.view.ToggleableImageView
 import me.magnum.melonds.ui.emulator.model.ConnectedControllersState
 import me.magnum.melonds.ui.emulator.model.RuntimeInputLayoutConfiguration
 import me.magnum.melonds.ui.layouteditor.model.LayoutTarget
@@ -66,12 +66,13 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     }
 
     fun setLayoutComponentToggleState(layoutComponent: LayoutComponent, isEnabled: Boolean) {
-        val toggleableImageView = getLayoutComponentView(layoutComponent)?.view as? ToggleableImageView ?: return
-        toggleableImageView.setToggleState(isEnabled)
+        val buttonView = getLayoutComponentView(layoutComponent)?.view as? RaisedButtonView ?: return
+        buttonView.setToggleState(isEnabled)
     }
 
     fun instantiateLayout(runtimeLayout: RuntimeInputLayoutConfiguration, layoutTarget: LayoutTarget) {
         currentRuntimeLayout = runtimeLayout
+        controllerStyle = runtimeLayout.controllerStyle
         instantiateLayout(runtimeLayout.layout, layoutTarget)
         updateInputs()
         updateVisibility()

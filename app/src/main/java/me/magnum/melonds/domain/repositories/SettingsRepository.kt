@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import me.magnum.melonds.domain.model.*
 import me.magnum.melonds.domain.model.camera.DSiCameraSourceType
+import me.magnum.melonds.domain.model.input.ControllerStyle
 import me.magnum.melonds.domain.model.input.SoftInputBehaviour
 import me.magnum.melonds.domain.model.render.RenderStrategy
 import me.magnum.melonds.domain.model.rewind.RewindWindowPosition
@@ -67,6 +68,7 @@ interface SettingsRepository {
     fun observeControllerConfiguration(): StateFlow<ControllerConfiguration>
     fun getSelectedLayoutId(): UUID
     fun getSoftInputBehaviour(): Flow<SoftInputBehaviour>
+    fun getControllerStyle(): Flow<ControllerStyle>
     fun isTouchHapticFeedbackEnabled(): Flow<Boolean>
     fun getTouchHapticFeedbackStrength(): Int
     fun getSoftInputOpacity(): Flow<Int>

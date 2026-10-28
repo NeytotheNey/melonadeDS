@@ -1,0 +1,26 @@
+<!-- Open clamshell with an arrow folding the lid down -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M3,17.5h18v3H3z" />
+    <group
+        android:pivotX="4.5"
+        android:pivotY="17.5"
+        android:rotation="-35">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M3,14.5h15v3H3z" />
+    </group>
+    <path
+        android:pathData="M14.5,4.2A8.5,8.5 0,0 1,20.6 11.4"
+        android:strokeWidth="1.8"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M18,11.2L21,14.6L23.2,10.6z" />
+</vector>

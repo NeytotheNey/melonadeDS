@@ -4,14 +4,18 @@ import android.content.Context
 import android.graphics.Matrix
 import android.graphics.Path
 import android.graphics.RectF
+import androidx.annotation.DrawableRes
+import androidx.core.content.ContextCompat
 import me.magnum.melonds.domain.model.Input
+import me.magnum.melonds.domain.model.input.ControllerStyle
 
 /**
  * Builders for the raised on-screen buttons. Button positions match the hit areas used by the input handlers (512 grid for the D-pad and ABXY).
  */
 object RaisedButtons {
+    private const val OFF_ICON_ALPHA = 90
 
-    fun dpad(context: Context): RaisedButtonView {
+    fun dpad(context: Context, style: ControllerStyle): RaisedButtonView {
         // Centre square at (256, 246) so that the cross plus its lip is centred in the view
         val corner = 16f
         val parts = listOf(
@@ -21,33 +25,49 @@ object RaisedButtons {
             RaisedButtonView.Part(roundRect(24f, 166f, 170f, 326f, corner), Input.LEFT, glyph = triangle(97f, 246f, -1f, 0f)),
             RaisedButtonView.Part(roundRect(342f, 166f, 488f, 326f, corner), Input.RIGHT, glyph = triangle(415f, 246f, 1f, 0f)),
         )
-        return RaisedButtonView(context, 512f, 20f, 16f, parts)
+        return RaisedButtonView(context, 512f, 20f, 16f, parts, ControllerAppearance.of(style))
     }
 
-    fun abxy(context: Context): RaisedButtonView {
+    fun abxy(context: Context, style: ControllerStyle): RaisedButtonView {
         val parts = listOf(
             circleButton(256f, 94f, 78f, Input.X, "X", 64f),
             circleButton(96f, 254f, 78f, Input.Y, "Y", 64f),
             circleButton(416f, 254f, 78f, Input.A, "A", 64f),
             circleButton(256f, 414f, 78f, Input.B, "B", 64f),
         )
-        return RaisedButtonView(context, 512f, 20f, 16f, parts)
+        return RaisedButtonView(context, 512f, 20f, 16f, parts, ControllerAppearance.of(style))
     }
 
-    fun shoulderL(context: Context): RaisedButtonView {
-        return RaisedButtonView(context, 128f, 10f, 8f, listOf(RaisedButtonView.Part(shoulderShape(false), label = "L", labelX = 40f, labelY = 59f, labelSize = 60f)))
+    fun shoulderL(context: Context, style: ControllerStyle): RaisedButtonView {
+        return RaisedButtonView(context, 128f, 10f, 8f, listOf(RaisedButtonView.Part(shoulderShape(false), label = "L", labelX = 40f, labelY = 59f, labelSize = 60f)), ControllerAppearance.of(style))
     }
 
-    fun shoulderR(context: Context): RaisedButtonView {
-        return RaisedButtonView(context, 128f, 10f, 8f, listOf(RaisedButtonView.Part(shoulderShape(true), label = "R", labelX = 88f, labelY = 59f, labelSize = 60f)))
+    fun shoulderR(context: Context, style: ControllerStyle): RaisedButtonView {
+        return RaisedButtonView(context, 128f, 10f, 8f, listOf(RaisedButtonView.Part(shoulderShape(true), label = "R", labelX = 88f, labelY = 59f, labelSize = 60f)), ControllerAppearance.of(style))
     }
 
-    fun start(context: Context): RaisedButtonView {
-        return RaisedButtonView(context, 64f, 7f, 5.6f, listOf(circleButton(32f, 28.5f, 28f, null, "START", 12f)))
+    fun start(context: Context, style: ControllerStyle): RaisedButtonView {
+        return RaisedButtonView(context, 64f, 7f, 5.6f, listOf(circleButton(32f, 28.5f, 28f, null, "START", 12f)), ControllerAppearance.of(style))
     }
 
-    fun select(context: Context): RaisedButtonView {
-        return RaisedButtonView(context, 64f, 7f, 5.6f, listOf(circleButton(32f, 28.5f, 28f, null, "SELECT", 12f)))
+    fun select(context: Context, style: ControllerStyle): RaisedButtonView {
+        return RaisedButtonView(context, 64f, 7f, 5.6f, listOf(circleButton(32f, 28.5f, 28f, null, "SELECT", 12f)), ControllerAppearance.of(style))
+    }
+
+    /**
+     * Rounded square with an icon in the middle. When [offIconRes] is given it's shown while the button is toggled off, otherwise [dimWhenOff] shows a faded
+     * [iconRes] instead.
+     */
+    fun iconButton(context: Context, style: ControllerStyle, @DrawableRes iconRes: Int?, @DrawableRes offIconRes: Int? = null, dimWhenOff: Boolean = false): RaisedButtonView {
+        val icon = iconRes?.let { ContextCompat.getDrawable(context, it)?.mutate() }
+        val offIcon = when {
+            offIconRes != null -> ContextCompat.getDrawable(context, offIconRes)?.mutate()
+            dimWhenOff && iconRes != null -> ContextCompat.getDrawable(context, iconRes)?.mutate()?.apply { alpha = OFF_ICON_ALPHA }
+            else -> null
+        }
+        // Same proportions as Start/Select: the 57 unit face plus its 7 unit lip fill the 64 unit square
+        val shape = roundRect(3.5f, 0f, 60.5f, 57f, 11.4f)
+        return RaisedButtonView(context, 64f, 7f, 5.6f, listOf(RaisedButtonView.Part(shape, icon = icon, offIcon = offIcon)), ControllerAppearance.of(style))
     }
 
     private fun circleButton(cx: Float, cy: Float, radius: Float, input: Input?, label: String, labelSize: Float): RaisedButtonView.Part {

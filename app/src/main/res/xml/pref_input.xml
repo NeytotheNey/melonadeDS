@@ -32,6 +32,16 @@
             app:fragment="me.magnum.melonds.ui.settings.fragments.SoftInputBehaviourPreferencesFragment"
             app:iconSpaceReserved="false" />
 
+        <me.magnum.melonds.ui.settings.preferences.ControllerStylePreference
+            android:key="input_controller_style"
+            android:title="@string/controller_style"
+            android:summary="%s"
+            android:entries="@array/controller_style_options"
+            android:entryValues="@array/controller_style"
+            android:defaultValue="classic"
+            app:fragment="me.magnum.melonds.ui.settings.fragments.ControllerStylePreferencesFragment"
+            app:iconSpaceReserved="false" />
+
         <me.magnum.melonds.ui.settings.preferences.SliderPreference
                 android:key="input_opacity"
                 android:title="@string/soft_input_opacity"

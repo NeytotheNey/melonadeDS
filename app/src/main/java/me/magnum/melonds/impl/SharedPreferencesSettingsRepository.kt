@@ -47,6 +47,7 @@ import me.magnum.melonds.domain.model.SortingOrder
 import me.magnum.melonds.domain.model.VideoFiltering
 import me.magnum.melonds.domain.model.VideoRenderer
 import me.magnum.melonds.domain.model.camera.DSiCameraSourceType
+import me.magnum.melonds.domain.model.input.ControllerStyle
 import me.magnum.melonds.domain.model.input.SoftInputBehaviour
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.render.RenderStrategy
@@ -508,6 +509,21 @@ class SharedPreferencesSettingsRepository(
                 "hide_mapped_buttons_when_controller_connected" -> SoftInputBehaviour.HIDE_ALL_BUTTONS_ASSIGNED_TO_CONNECTED_CONTROLLERS
                 "always_invisible" -> SoftInputBehaviour.ALWAYS_INVISIBLE
                 else -> SoftInputBehaviour.HIDE_SYSTEM_BUTTONS_WHEN_CONTROLLERS_CONNECTED
+            }
+        }
+    }
+
+    override fun getControllerStyle(): Flow<ControllerStyle> {
+        return getOrCreatePreferenceSharedFlow("input_controller_style") {
+            when (preferences.getString("input_controller_style", "classic")) {
+                "classic" -> ControllerStyle.CLASSIC
+                "ds_lite" -> ControllerStyle.DS_LITE
+                "charcoal" -> ControllerStyle.CHARCOAL
+                "super_colours" -> ControllerStyle.SUPER_COLOURS
+                "indigo" -> ControllerStyle.INDIGO
+                "outline" -> ControllerStyle.OUTLINE
+                "soft_tint" -> ControllerStyle.SOFT_TINT
+                else -> ControllerStyle.CLASSIC
             }
         }
     }

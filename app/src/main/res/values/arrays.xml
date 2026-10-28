@@ -91,6 +91,16 @@
         <item>device</item>
     </string-array>
 
+    <string-array name="controller_style">
+        <item>classic</item>
+        <item>ds_lite</item>
+        <item>charcoal</item>
+        <item>super_colours</item>
+        <item>indigo</item>
+        <item>outline</item>
+        <item>soft_tint</item>
+    </string-array>
+
     <string-array name="soft_input_behaviour">
         <item>always_visible</item>
         <item>hide_system_buttons_when_controller_connected</item>

@@ -645,10 +645,10 @@ class EmulatorViewModel @Inject constructor(
             combine(
                 _layout,
                 _currentLayout,
-                settingsRepository.getSoftInputBehaviour(),
+                combine(settingsRepository.getSoftInputBehaviour(), settingsRepository.getControllerStyle(), ::Pair),
                 settingsRepository.isTouchHapticFeedbackEnabled(),
                 settingsRepository.getSoftInputOpacity(),
-            ) { layoutConfiguration, variant, softInputBehaviour, isHapticFeedbackEnabled, inputOpacity ->
+            ) { layoutConfiguration, variant, (softInputBehaviour, controllerStyle), isHapticFeedbackEnabled, inputOpacity ->
                 val layout = variant?.second
                 if (layoutConfiguration == null || layout == null) {
                     null
@@ -661,6 +661,7 @@ class EmulatorViewModel @Inject constructor(
 
                     RuntimeInputLayoutConfiguration(
                         softInputBehaviour = softInputBehaviour,
+                        controllerStyle = controllerStyle,
                         softInputOpacity = opacity,
                         isHapticFeedbackEnabled = isHapticFeedbackEnabled,
                         layoutOrientation = layoutConfiguration.orientation,
