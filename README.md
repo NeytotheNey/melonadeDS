@@ -33,12 +33,6 @@ When launching ROMs from third-party frontends, if melonDS hasn't scanned that p
 option "Save next to ROM file" is enabled in the settings or the save file directory is not set. Instead, melonDS will create a save file in
 `Android/data/me.magnum.melonds/files/saves`
 
-# Nightly Builds
-
-To have access to the latest changes, you can install nightly builds that you can find [here](https://github.com/rafaelvcaetano/melonDS-android/releases/tag/nightly-release).
-
-Be aware that these builds can contain more bugs than usual and you may need to clear your app data to get it to work properly after updates.
-
 # Building
 To build the project you will need Android SDK, NDK and CMake.
 
