@@ -3,7 +3,7 @@ package me.magnum.melonds.ui.layouteditor
 import kotlin.math.abs
 
 /**
- * How close, as a fraction of the other screen's size, a screen has to be to line up with it or match its size. Same as DraStic's alignment.
+ * How close, as a fraction of the other screen's size, a screen has to be to line up with it or match its size.
  */
 private const val SCREEN_ALIGNMENT_THRESHOLD = 0.05f
 
@@ -45,8 +45,7 @@ class SnapAxis(val limit: Int, val cell: Int, val gaps: List<SnapSpan> = emptyLi
 data class SnappedEdge(val position: Int, val distance: Int)
 
 /**
- * The snapping maths of the layout editor, ported from the snap grid in the DraStic mod. Everything works on one axis at a time, in editor
- * pixels.
+ * The snapping maths behind the layout editor's snap grid. Everything works on one axis at a time, in editor pixels.
  */
 object LayoutEditorSnapping {
 
@@ -92,7 +91,7 @@ object LayoutEditorSnapping {
         // Every candidate is a new start position. Ones that would put the screen outside the editor are skipped, so the result is always on a line
         val nearest = Nearest(start, 0, maxStart)
         val end = start + length
-        // The start edge goes first, so it wins ties like in DraStic
+        // The start edge goes first, so it wins ties
         offerGridLines(nearest, start, axis) { it }
         offerGridLines(nearest, end, axis) { it - length }
         nearest.offer(0)

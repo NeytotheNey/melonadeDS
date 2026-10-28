@@ -15,7 +15,7 @@ object VideoFilterShaderProvider {
         VideoFiltering.LCD to VideoFilter(ShaderProgramSource.LcdShader),
         VideoFiltering.SCANLINES to VideoFilter(ShaderProgramSource.ScanlinesShader),
         VideoFiltering.SCALE2X to VideoFilter(ShaderProgramSource.Scale2xShader),
-        // FXAA has to run once per frame texel, so it's a pre-pass. Quilez then scales the result up smoothly, like DraStic does
+        // FXAA has to run once per frame texel, so it's a pre-pass. Quilez then scales the result up smoothly
         VideoFiltering.FXAA to VideoFilter(ShaderProgramSource.QuilezShader, listOf(FilterPrePass(ShaderProgramSource.FxaaPrePassShader))),
         VideoFiltering.SHARP to VideoFilter(ShaderProgramSource.SharpShader),
         // MMPX doubles the frame texture, then Sharp scales that to the screen with every pixel the same size. When the 3D is upscaled the
