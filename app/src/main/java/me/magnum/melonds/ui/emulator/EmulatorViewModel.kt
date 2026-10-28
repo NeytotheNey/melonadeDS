@@ -771,6 +771,7 @@ class EmulatorViewModel @Inject constructor(
                 _runtimeRendererConfiguration.value = RuntimeRendererConfiguration(
                     it.videoFiltering,
                     it.dsScreenColors,
+                    it.screenShadow,
                     it.resolutionScaling,
                     it.renderStrategy,
                 )

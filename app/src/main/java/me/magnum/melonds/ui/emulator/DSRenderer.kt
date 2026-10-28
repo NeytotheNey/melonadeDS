@@ -22,6 +22,12 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.roundToInt
 
+// Screen shadow: its radius is this share of the screen's shorter side, but never less than the minimum (in surface pixels). The strength is
+// the shadow's alpha at the screen's edge
+private const val SHADOW_RADIUS_FACTOR = 0.06f
+private const val SHADOW_MIN_RADIUS = 8
+private const val SHADOW_STRENGTH = 0.6f
+
 class DSRenderer(private val context: Context) : EmulatorRenderer {
 
     private val configurationLock = Any()
@@ -34,10 +40,15 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
     private var screenFilter: VideoFilterPipeline? = null
     private lateinit var backgroundShader: Shader
+    private lateinit var shadowShader: Shader
 
     private var screensVbo = 0
     private var screensVao = 0
     private var screenIndices = 0
+
+    private var shadowsVbo = 0
+    private var shadowsVao = 0
+    private var shadowIndices = 0
 
     private var backgroundVbo = 0
     private var backgroundVao = 0
@@ -122,18 +133,22 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
 
         // Setup vertex buffers
-        val vbos = IntArray(2)
-        val vaos = IntArray(2)
-        GLES30.glGenBuffers(2, vbos, 0)
-        GLES30.glGenVertexArrays(2, vaos, 0)
+        val vbos = IntArray(3)
+        val vaos = IntArray(3)
+        GLES30.glGenBuffers(3, vbos, 0)
+        GLES30.glGenVertexArrays(3, vaos, 0)
         screensVbo = vbos[0]
         screensVao = vaos[0]
 
         backgroundVbo = vbos[1]
         backgroundVao = vaos[1]
 
-        // Create background shader
+        shadowsVbo = vbos[2]
+        shadowsVao = vaos[2]
+
+        // Create background and shadow shaders
         backgroundShader = ShaderFactory.createShaderProgram(ShaderProgramSource.BackgroundShader)
+        shadowShader = ShaderFactory.createShaderProgram(ShaderProgramSource.ScreenShadowShader)
 
         synchronized(configurationLock) {
             mustUpdateConfiguration = true
@@ -202,6 +217,79 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, screensVbo)
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GLES30.GL_STATIC_DRAW)
         screenIndices = vertexBuffer.capacity() / 5 // Each vertex has 5 values
+
+        updateShadowCoordinates()
+    }
+
+    private fun updateShadowCoordinates() {
+        // Empty when the setting is off, so nothing is drawn
+        val shadowVertexData = if (rendererConfiguration?.screenShadow == true) {
+            listOfNotNull(
+                topScreenRect?.let { buildShadowVertexData(it, topAlpha) },
+                bottomScreenRect?.let { buildShadowVertexData(it, bottomAlpha) },
+            )
+        } else {
+            emptyList()
+        }
+
+        val vertexBufferSize = shadowVertexData.sumOf { it.size } * Float.SIZE_BYTES
+        val vertexBuffer = ByteBuffer.allocateDirect(vertexBufferSize)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+            .apply {
+                shadowVertexData.forEach { put(it) }
+                position(0)
+            }
+
+        GLES30.glBindVertexArray(shadowsVao)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, shadowsVbo)
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GLES30.GL_STATIC_DRAW)
+        shadowIndices = vertexBuffer.capacity() / 5 // Each vertex has 5 values
+    }
+
+    private fun buildShadowVertexData(rect: Rect, alpha: Float): FloatArray {
+        val radius = (minOf(rect.width, rect.height) * SHADOW_RADIUS_FACTOR).roundToInt().coerceAtLeast(SHADOW_MIN_RADIUS)
+        val shadowAlpha = alpha * SHADOW_STRENGTH
+
+        // The shadow is a 3x3 grid of cells around the screen, without the middle one: the screen covers it, and leaving it out keeps a
+        // semi-transparent screen from being darkened by its own shadow. Each vertex gets how far it is outside the screen on each axis, in
+        // radii: 0 on the screen's edges and 1 on the shadow's. That distance is linear within every cell, so the interpolated value is exact
+        // and the shader only needs its length to get the distance to the screen's rectangle
+        val xs = intArrayOf(rect.x - radius, rect.x, rect.x + rect.width, rect.x + rect.width + radius)
+        val ys = intArrayOf(rect.y - radius, rect.y, rect.y + rect.height, rect.y + rect.height + radius)
+        val distances = floatArrayOf(1f, 0f, 0f, 1f)
+
+        val vertexData = FloatArray(8 * 6 * 5) // 8 cells, 6 vertices each, 5 values per vertex
+        var offset = 0
+        for (row in 0 until 3) {
+            for (column in 0 until 3) {
+                if (row == 1 && column == 1) {
+                    continue
+                }
+
+                val left = screenXToViewportX(xs[column])
+                val right = screenXToViewportX(xs[column + 1])
+                val top = screenYToViewportY(ys[row])
+                val bottom = screenYToViewportY(ys[row + 1])
+                val leftDistance = distances[column]
+                val rightDistance = distances[column + 1]
+                val topDistance = distances[row]
+                val bottomDistance = distances[row + 1]
+
+                // Same vertex order as the screens
+                floatArrayOf(
+                    // Position    Distance outside                Alpha
+                    left, bottom,  leftDistance, bottomDistance,   shadowAlpha,
+                    left, top,     leftDistance, topDistance,      shadowAlpha,
+                    right, top,    rightDistance, topDistance,     shadowAlpha,
+                    left, bottom,  leftDistance, bottomDistance,   shadowAlpha,
+                    right, top,    rightDistance, topDistance,     shadowAlpha,
+                    right, bottom, rightDistance, bottomDistance,  shadowAlpha,
+                ).copyInto(vertexData, offset)
+                offset += 6 * 5
+            }
+        }
+        return vertexData
     }
 
     private fun buildScreenVertexData(rect: Rect, uvs: FloatArray, alpha: Float): FloatArray {
@@ -264,6 +352,10 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             renderBackground()
         }
 
+        if (shadowIndices > 0) {
+            renderScreenShadows()
+        }
+
         screenFilter?.screenShader?.let { shader ->
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
             GLES30.glEnable(GLES30.GL_BLEND)
@@ -322,6 +414,23 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         GLES30.glUniform1i(backgroundShader.uniformTex, 0)
 
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
+    }
+
+    private fun renderScreenShadows() {
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+
+        GLES30.glBindVertexArray(shadowsVao)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, shadowsVbo)
+
+        shadowShader.use()
+
+        GLES30.glVertexAttribPointer(shadowShader.attribPos, 2, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 0)
+        GLES30.glVertexAttribPointer(shadowShader.attribUv, 2, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
+        GLES30.glVertexAttribPointer(shadowShader.attribAlpha, 1, GLES30.GL_FLOAT, false, 5 * Float.SIZE_BYTES, 4 * Float.SIZE_BYTES)
+
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, shadowIndices)
     }
 
     private fun loadBackground() {

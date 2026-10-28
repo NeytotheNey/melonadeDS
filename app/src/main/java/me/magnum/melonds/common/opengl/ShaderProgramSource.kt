@@ -113,6 +113,22 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "}"
         )
 
+        // The soft shadow drawn around each screen when the "Screen shadow" setting is on. Draws no texture (the filtering is unused). uv is
+        // how far the fragment is outside the screen on each axis, in shadow radii (see DSRenderer), so its length is the distance to the
+        // screen's rectangle. The shadow fades from alpha at the screen's edge to nothing 1 radius away
+        val ScreenShadowShader = ShaderProgramSource(
+            TextureFiltering.LINEAR,
+            DEFAULT_VERT_SHADER,
+            "precision mediump float;\n" +
+                    "varying vec2 uv;\n" +
+                    "varying float alpha;\n" +
+                    "void main()\n" +
+                    "{\n" +
+                    "    float dist = length(uv);\n" +
+                    "    gl_FragColor = vec4(0.0, 0.0, 0.0, alpha * (1.0 - smoothstep(0.0, 1.0, dist)));\n" +
+                    "}"
+        )
+
         val NoFilterShader = ShaderProgramSource(
             TextureFiltering.NEAREST,
             DEFAULT_VERT_SHADER,

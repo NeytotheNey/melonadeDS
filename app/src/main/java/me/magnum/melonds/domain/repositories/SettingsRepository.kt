@@ -45,6 +45,7 @@ interface SettingsRepository {
     fun getVideoInternalResolutionScaling(): Flow<Int>
     fun getVideoFiltering(): Flow<VideoFiltering>
     fun isDsScreenColorsEnabled(): Flow<Boolean>
+    fun isScreenShadowEnabled(): Flow<Boolean>
     fun isThreadedRenderingEnabled(): Flow<Boolean>
     fun getRenderStrategy(): Flow<RenderStrategy>
     fun getFpsCounterPosition(): FpsCounterPosition

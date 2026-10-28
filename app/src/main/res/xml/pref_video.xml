@@ -42,6 +42,13 @@
                 android:title="@string/ds_screen_colors"
                 app:iconSpaceReserved="false"
                 android:defaultValue="false" />
+
+        <SwitchPreference
+                android:key="video_screen_shadow"
+                android:title="@string/screen_shadow"
+                android:summary="@string/screen_shadow_summary"
+                app:iconSpaceReserved="false"
+                android:defaultValue="false" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/settings_section_frame_pacing">

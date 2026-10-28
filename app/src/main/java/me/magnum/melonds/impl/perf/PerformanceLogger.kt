@@ -428,6 +428,7 @@ class PerformanceLogger(
                     "internal_resolution_scaling" to rendererConfiguration.resolutionScaling.toString(),
                     "video_filtering" to rendererConfiguration.videoFiltering.name,
                     "ds_screen_colors" to rendererConfiguration.dsScreenColors.toString(),
+                    "screen_shadow" to rendererConfiguration.screenShadow.toString(),
                     "threaded_rendering" to rendererConfiguration.threadedRendering.toString(),
                     "render_strategy" to rendererConfiguration.renderStrategy.name,
                     "jit_enabled" to settingsRepository.isJitEnabled().toString(),

@@ -97,18 +97,22 @@ class SharedPreferencesSettingsRepository(
         setDefaultThemeIfRequired()
         setDefaultMacAddressIfRequired()
 
-        // combine() only takes up to 5 flows with their own types, so the 2 filter settings are paired up first
-        val filterSettingsFlow = combine(getVideoFiltering(), isDsScreenColorsEnabled()) { filtering, dsScreenColors ->
-            filtering to dsScreenColors
+        // combine() only takes up to 5 flows with their own types, so the 3 look settings (filter, colours and shadow) are grouped first
+        val lookSettingsFlow = combine(
+            getVideoFiltering(),
+            isDsScreenColorsEnabled(),
+            isScreenShadowEnabled(),
+        ) { filtering, dsScreenColors, screenShadow ->
+            Triple(filtering, dsScreenColors, screenShadow)
         }
         renderConfigurationFlow = combine(
             getVideoRenderer(),
-            filterSettingsFlow,
+            lookSettingsFlow,
             isThreadedRenderingEnabled(),
             getRenderStrategy(),
             getVideoInternalResolutionScaling(),
-        ) { renderer, (filtering, dsScreenColors), threadedRenderingEnabled, renderStrategy, resolutionScaling ->
-            RendererConfiguration(renderer, filtering, dsScreenColors, threadedRenderingEnabled, renderStrategy, resolutionScaling)
+        ) { renderer, (filtering, dsScreenColors, screenShadow), threadedRenderingEnabled, renderStrategy, resolutionScaling ->
+            RendererConfiguration(renderer, filtering, dsScreenColors, screenShadow, threadedRenderingEnabled, renderStrategy, resolutionScaling)
         }.conflate().shareIn(preferencesCoroutineScope, SharingStarted.Lazily, replay = 1)
     }
 
@@ -344,6 +348,12 @@ class SharedPreferencesSettingsRepository(
     override fun isDsScreenColorsEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow("video_ds_screen_colors") {
             preferences.getBoolean("video_ds_screen_colors", false)
+        }
+    }
+
+    override fun isScreenShadowEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow("video_screen_shadow") {
+            preferences.getBoolean("video_screen_shadow", false)
         }
     }
 
