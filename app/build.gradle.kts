@@ -220,6 +220,8 @@ dependencies {
     ksp(libs.room.compiler)
 
     testImplementation(libs.junit)
+    // The real org.json, since android.jar only has stubs in local unit tests
+    testImplementation(libs.org.json)
 
     androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.test.core)
