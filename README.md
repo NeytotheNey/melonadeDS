@@ -45,12 +45,12 @@ To build the project you will need Android SDK, NDK and CMake.
 ## Build steps:
 1.  Clone the project, including submodules with:
     
-    `git clone --recurse-submodules https://github.com/rafaelvcaetano/melonDS-android.git`
+    `git clone --recurse-submodules https://github.com/NeytotheNey/melonadeDS.git`
 2.  Install the Android SDK, NDK and CMake
 3.  Build with:
     1.  Unix: `./gradlew :app:assembleGitHubProdDebug`
     2.  Windows: `gradlew.bat :app:assembleGitHubProdDebug`
-4.  The generated APK can be found at `app/gitHubProd/debug`
+4.  The generated APK can be found at `app/build/outputs/apk/gitHubProd/debug`
 
 If you want to create a release build, you will need to modify your `local.properties` file to include the following fields:  
 *  `MELONDS_KEYSTORE=<path_to_your_keystore>`
