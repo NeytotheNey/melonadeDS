@@ -527,7 +527,6 @@ class PerformanceLogger(
                     "ds_screen_colors" to rendererConfiguration.dsScreenColors.toString(),
                     "screen_shadow" to rendererConfiguration.screenShadow.toString(),
                     "threaded_rendering" to rendererConfiguration.threadedRendering.toString(),
-                    "render_strategy" to rendererConfiguration.renderStrategy.name,
                     "jit_enabled" to settingsRepository.isJitEnabled().toString(),
                     "sustained_performance_mode" to settingsRepository.isSustainedPerformanceModeEnabled().toString(),
                     "frame_pacing_vsync" to settingsRepository.isFramePacingVsyncEnabled().toString(),

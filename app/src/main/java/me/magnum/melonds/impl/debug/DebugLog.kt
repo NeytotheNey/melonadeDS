@@ -102,7 +102,6 @@ object DebugLog {
         lines.add("resolution_scaling" to renderer.resolutionScaling)
         lines.add("video_filtering" to renderer.videoFiltering.name)
         lines.add("threaded_rendering" to renderer.threadedRendering)
-        lines.add("render_strategy" to renderer.renderStrategy.name)
         lines.add("ds_screen_colors" to renderer.dsScreenColors)
         lines.add("screen_shadow" to renderer.screenShadow)
 

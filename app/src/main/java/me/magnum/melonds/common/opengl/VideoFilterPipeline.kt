@@ -210,7 +210,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GLES30.GL_STATIC_DRAW)
     }
 
-    // Only the state that the renderer doesn't set again before drawing: the target (the surface, or the front buffer renderer's framebuffer),
+    // Only the state that the renderer doesn't set again before drawing: the target (the surface),
     // its viewport and blending. The vertex attribute setup is stored in the VAOs, so the pre-passes never touch the renderer's own
     private fun saveState() {
         GLES30.glGetIntegerv(GLES30.GL_DRAW_FRAMEBUFFER_BINDING, savedInt, 0)

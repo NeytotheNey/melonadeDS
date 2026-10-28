@@ -1,21 +1,17 @@
 package me.magnum.melonds.ui.emulator.render
 
-import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Message
 import me.magnum.melonds.MelonDSAndroidInterface
 import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
-import me.magnum.melonds.domain.model.render.RenderStrategy
 import me.magnum.melonds.impl.perf.DisplayPerformanceCapture
 import me.magnum.melonds.ui.emulator.EmulatorSurfaceView
 
 class FrameRenderCoordinator {
 
     private val glContext: GlContext
-    private val frontBufferSupported = FrontBufferCapability.isFrontBufferSupported()
-    @Volatile private var currentRenderStrategy: RenderStrategy = computeEffectiveRenderStrategy(RenderStrategy.BACK_BUFFER_RENDERING)
 
     private val frameRenderThread = FrameRenderThread()
     private val presentFrameWrapper = PresentFrameWrapper()
@@ -38,18 +34,10 @@ class FrameRenderCoordinator {
         frameRenderThread.start()
     }
 
-    fun setRenderStrategy(strategy: RenderStrategy) {
-        val newRenderStrategy = computeEffectiveRenderStrategy(strategy)
-        if (newRenderStrategy != currentRenderStrategy) {
-            currentRenderStrategy = newRenderStrategy
-            frameRenderThread.requestModeSwitch()
-        }
-    }
-
     fun addSurface(surface: EmulatorSurfaceView) {
         surface.setPacedFrameRateEnabled(surfaceFrameRateVote)
         synchronized(surfacesLock) {
-            surface.setSurfaceRenderer(createRendererForStrategy(currentRenderStrategy), glContext)
+            surface.setSurfaceRenderer(SurfaceBackRenderer(), glContext)
             managedSurfaces.add(surface)
             surfacesToRelease.add(surface)
         }
@@ -121,22 +109,6 @@ class FrameRenderCoordinator {
         frameRenderThread.join()
     }
 
-    private fun computeEffectiveRenderStrategy(strategy: RenderStrategy): RenderStrategy {
-        return if (strategy == RenderStrategy.FRONT_BUFFER_RENDERING && frontBufferSupported) {
-            RenderStrategy.FRONT_BUFFER_RENDERING
-        } else {
-            RenderStrategy.BACK_BUFFER_RENDERING
-        }
-    }
-
-    private fun createRendererForStrategy(strategy: RenderStrategy): SurfaceRenderer {
-        return if (strategy == RenderStrategy.FRONT_BUFFER_RENDERING && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            SurfaceFrontRenderer()
-        } else {
-            SurfaceBackRenderer()
-        }
-    }
-
     private inner class FrameRenderThread : HandlerThread("FrameRenderThread") {
 
         private var handler: Handler? = null
@@ -191,7 +163,6 @@ class FrameRenderCoordinator {
                         MSG_RENDER_FRAME -> renderPendingFrame()
                         MSG_DESTROY_SURFACES -> destroySurfaces()
                         MSG_STOP -> stopThread()
-                        MSG_RENDER_STRATEGY_SWITCH -> handleModeSwitch()
                     }
                 }
             }
@@ -211,11 +182,6 @@ class FrameRenderCoordinator {
         fun requestSurfaceDestruction() {
             handler?.removeMessages(MSG_DESTROY_SURFACES)
             handler?.sendEmptyMessage(MSG_DESTROY_SURFACES)
-        }
-
-        fun requestModeSwitch() {
-            handler?.removeMessages(MSG_RENDER_STRATEGY_SWITCH)
-            handler?.sendEmptyMessage(MSG_RENDER_STRATEGY_SWITCH)
         }
 
         fun requestStop() {
@@ -267,14 +233,6 @@ class FrameRenderCoordinator {
             }
         }
 
-        private fun handleModeSwitch() {
-            synchronized(surfacesLock) {
-                managedSurfaces.forEach { surface ->
-                    surface.setSurfaceRenderer(createRendererForStrategy(currentRenderStrategy), glContext)
-                }
-            }
-        }
-
         private fun stopThread() {
             synchronized(surfacesLock) {
                 managedSurfaces.forEach {
@@ -319,6 +277,5 @@ class FrameRenderCoordinator {
         const val MSG_RENDER_FRAME = 1
         const val MSG_DESTROY_SURFACES = 2
         const val MSG_STOP = 3
-        const val MSG_RENDER_STRATEGY_SWITCH = 4
     }
 }

@@ -773,7 +773,6 @@ class EmulatorViewModel @Inject constructor(
                     it.dsScreenColors,
                     it.screenShadow,
                     it.resolutionScaling,
-                    it.renderStrategy,
                 )
             }
         }

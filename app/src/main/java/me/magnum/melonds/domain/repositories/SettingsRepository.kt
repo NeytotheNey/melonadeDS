@@ -7,7 +7,6 @@ import me.magnum.melonds.domain.model.*
 import me.magnum.melonds.domain.model.camera.DSiCameraSourceType
 import me.magnum.melonds.domain.model.input.ControllerStyle
 import me.magnum.melonds.domain.model.input.SoftInputBehaviour
-import me.magnum.melonds.domain.model.render.RenderStrategy
 import me.magnum.melonds.domain.model.rewind.RewindWindowPosition
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.ui.Theme
@@ -48,7 +47,6 @@ interface SettingsRepository {
     fun isDsScreenColorsEnabled(): Flow<Boolean>
     fun isScreenShadowEnabled(): Flow<Boolean>
     fun isThreadedRenderingEnabled(): Flow<Boolean>
-    fun getRenderStrategy(): Flow<RenderStrategy>
     fun getFpsCounterPosition(): FpsCounterPosition
     fun showStatusBar(): Boolean
     fun getDSiCameraSource(): DSiCameraSourceType

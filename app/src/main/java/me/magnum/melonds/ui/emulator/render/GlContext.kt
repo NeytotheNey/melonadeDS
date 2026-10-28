@@ -1,6 +1,5 @@
 package me.magnum.melonds.ui.emulator.render
 
-import android.hardware.HardwareBuffer
 import android.opengl.EGL14
 import android.opengl.EGLConfig
 import android.opengl.EGLDisplay
@@ -32,7 +31,7 @@ class GlContext(sharedEglContext: Long? = null) {
             throw GlContextException("Failed to create context: ${EGL14.eglGetError()}")
         }
 
-        // Create a small pbuffer surface for making the context current without a window surface. Used for front-buffer rendering
+        // Create a small pbuffer surface for making the context current without a window surface. Used for freeing GL objects when there may be no window surface left
         val pbufferAttributess = intArrayOf(
             EGL14.EGL_WIDTH, 1,
             EGL14.EGL_HEIGHT, 1,
@@ -95,14 +94,6 @@ class GlContext(sharedEglContext: Long? = null) {
         EGL14.eglDestroySurface(display, eglSurface)
     }
 
-    fun createEglImageFromHardwareBuffer(hardwareBuffer: HardwareBuffer): Long {
-        return nativeCreateEglImageFromHardwareBuffer(display.nativeHandle, hardwareBuffer)
-    }
-
-    fun destroyEglImage(eglImage: Long) {
-        nativeDestroyEglImage(display.nativeHandle, eglImage)
-    }
-
     private fun createGlConfig(): EGLConfig {
         val attributeList = intArrayOf(
             EGL14.EGL_RENDERABLE_TYPE, EGLExt.EGL_OPENGL_ES3_BIT_KHR,
@@ -130,8 +121,6 @@ class GlContext(sharedEglContext: Long? = null) {
     private external fun createContext(display: Long, config: Long, sharedGlContext: Long): Long
     private external fun makeCurrent(display: Long, surface: Long, context: Long): Boolean
     private external fun destroyContext(display: Long, context: Long)
-    private external fun nativeCreateEglImageFromHardwareBuffer(display: Long, hardwareBuffer: HardwareBuffer): Long
-    private external fun nativeDestroyEglImage(display: Long, eglImage: Long)
 
     class GlContextException(message: String) : Exception(message)
 }
