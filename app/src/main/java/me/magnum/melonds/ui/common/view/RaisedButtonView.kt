@@ -49,7 +49,7 @@ class RaisedButtonView(
     }
 
     private var parts = emptyList<Part>()
-    private var colors = emptyArray<ButtonColors>()
+    private var colors = emptyArray<ControllerButtonColors>()
     private var pressedParts = BooleanArray(0)
     private var faces = emptyArray<Path>()
     private var lips = emptyArray<Path>()

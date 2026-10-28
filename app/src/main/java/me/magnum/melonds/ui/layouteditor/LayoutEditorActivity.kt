@@ -125,12 +125,12 @@ class LayoutEditorActivity : AppCompatActivity() {
         }
 
         override fun onSaveLayout() {
-            storeLayoutChanges()
-            viewModel.saveCurrentLayout()
+            saveLayout()
         }
 
         override fun onSaveLayoutAndExit() {
-            saveLayoutAndExit()
+            saveLayout()
+            finish()
         }
 
         override fun onExit() {
@@ -327,10 +327,9 @@ class LayoutEditorActivity : AppCompatActivity() {
         window.setupGameSystemBars(settingsRepository.showStatusBar())
     }
 
-    private fun saveLayoutAndExit() {
+    private fun saveLayout() {
         storeLayoutChanges()
         viewModel.saveCurrentLayout()
-        finish()
     }
 
     override fun onStop() {

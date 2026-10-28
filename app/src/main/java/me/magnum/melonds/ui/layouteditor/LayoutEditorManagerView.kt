@@ -7,6 +7,7 @@ import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.Toast
@@ -37,7 +38,6 @@ import me.magnum.melonds.databinding.ViewLayoutEditorManagerBinding
 import me.magnum.melonds.domain.model.RuntimeBackground
 import me.magnum.melonds.domain.model.layout.LayoutComponent
 import me.magnum.melonds.extensions.setBackgroundMode
-import me.magnum.melonds.impl.dpToPixels
 import me.magnum.melonds.ui.common.component.dialog.TextInputDialog
 import me.magnum.melonds.ui.common.component.dialog.TextInputDialogState
 import me.magnum.melonds.ui.layouteditor.LayoutEditorActivity.MenuOption
@@ -79,9 +79,11 @@ class LayoutEditorManagerView(
 
     var listener: LayoutEditorManagerListener? = null
     private val itemControls: LayoutEditorItemControls
-    private var topCutoutInset = 0
+    private var topControlInset = 0
     private var isDraggingFloatingMenuButton = false
-    private val preferences by lazy { PreferenceManager.getDefaultSharedPreferences(context) }
+    private val preferences = PreferenceManager.getDefaultSharedPreferences(context)
+    // Runs after every layout pass, so the item controls follow the selected item however it was moved or resized
+    private val globalLayoutListener = ViewTreeObserver.OnGlobalLayoutListener { itemControls.onLayout() }
 
     private var showLayoutPropertiesDialog by mutableStateOf(initialEditorState?.isPropertiesDialogShown ?: false)
     private var showBackgroundPropertiesDialog by mutableStateOf(initialEditorState?.isBackgroundPropertiesDialogShown ?: false)
@@ -167,11 +169,11 @@ class LayoutEditorManagerView(
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
             // The status bar is included so that the editor's own controls stay clear of it when it's shown. Only used for these controls, not the layouts
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.statusBars())
-            if (insets.top != topCutoutInset) {
-                topCutoutInset = insets.top
+            if (insets.top != topControlInset) {
+                topControlInset = insets.top
                 positionFloatingMenuButton()
             }
-            itemControls.setCutoutInsets(insets)
+            itemControls.setControlInsets(insets)
 
             WindowInsetsCompat.CONSUMED
         }
@@ -184,10 +186,16 @@ class LayoutEditorManagerView(
         binding.viewLayoutEditor.setOnViewDeselectedListener {
             itemControls.hide()
         }
-        // Runs after every layout pass, so the item controls follow the selected item however it was moved or resized
-        viewTreeObserver.addOnGlobalLayoutListener {
-            itemControls.onLayout()
-        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        viewTreeObserver.addOnGlobalLayoutListener(globalLayoutListener)
+    }
+
+    override fun onDetachedFromWindow() {
+        viewTreeObserver.removeOnGlobalLayoutListener(globalLayoutListener)
+        super.onDetachedFromWindow()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
@@ -260,6 +268,7 @@ class LayoutEditorManagerView(
 
         // Set in code because app:tint isn't applied when inflated in the external display presentation (no AppCompat inflater there)
         button.imageTintList = ContextCompat.getColorStateList(context, R.color.textLayoutEditor)
+        button.alpha = FLOATING_MENU_BUTTON_IDLE_ALPHA
         button.setOnClickListener {
             openMenu()
         }
@@ -338,7 +347,7 @@ class LayoutEditorManagerView(
         val centerY = if (savedCenterY >= 0f) {
             savedCenterY * parentHeight
         } else {
-            topCutoutInset + context.dpToPixels(8f) + button.height / 2f
+            topControlInset + resources.getDimension(R.dimen.layout_editor_margin) + button.height / 2f
         }
         moveFloatingMenuButton(centerX - button.width / 2f, centerY - button.height / 2f)
     }
@@ -390,20 +399,8 @@ class LayoutEditorManagerView(
             MenuOption.GRID -> openGridDialog()
             MenuOption.REVERT -> viewModel.revertLayoutChanges()
             MenuOption.RESET -> viewModel.resetLayout()
-            MenuOption.SAVE -> {
-                if (viewModel.currentLayoutHasName()) {
-                    saveLayout()
-                } else {
-                    showLayoutNameInputDialog { saveLayout() }
-                }
-            }
-            MenuOption.SAVE_AND_EXIT -> {
-                if (viewModel.currentLayoutHasName()) {
-                    listener?.onSaveLayoutAndExit()
-                } else {
-                    showLayoutNameInputDialog { listener?.onSaveLayoutAndExit() }
-                }
-            }
+            MenuOption.SAVE -> withLayoutName { saveLayout() }
+            MenuOption.SAVE_AND_EXIT -> withLayoutName { listener?.onSaveLayoutAndExit() }
             MenuOption.EXIT_WITHOUT_SAVING -> exitWithoutSaving()
         }
     }
@@ -414,6 +411,7 @@ class LayoutEditorManagerView(
     }
 
     private fun exitWithoutSaving() {
+        // Stored again because the menu only blocks its own window, so the editor on the other display may have changed while it was open
         listener?.onStoreLayoutChanges()
         if (viewModel.hasUnsavedChanges()) {
             MaterialAlertDialogBuilder(context)
@@ -464,6 +462,17 @@ class LayoutEditorManagerView(
             .setView(dialogBinding.root)
             .setPositiveButton(R.string.done, null)
             .showInCurrentWindow()
+    }
+
+    /**
+     * Runs [action] straight away if the layout has a name, otherwise once the user has given it one.
+     */
+    private fun withLayoutName(action: () -> Unit) {
+        if (viewModel.currentLayoutHasName()) {
+            action()
+        } else {
+            showLayoutNameInputDialog(action)
+        }
     }
 
     private fun showLayoutNameInputDialog(onNameSet: () -> Unit) {

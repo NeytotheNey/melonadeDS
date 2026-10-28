@@ -11,6 +11,9 @@
     <dimen name="preference_list_padding_bottom">24dp</dimen>
     <item name="preference_card_background" type="id" />
 
+    <!-- Gap the layout editor keeps between its controls (pill, panel and menu button), the selected item and the screen edges -->
+    <dimen name="layout_editor_margin">8dp</dimen>
+
     <fraction name="fragment_translate_enter_pop_origin">-100%</fraction>
     <fraction name="fragment_translate_enter_push_origin">100%</fraction>
     <fraction name="fragment_translate_exit_pop_destination">100%</fraction>

@@ -31,6 +31,13 @@ import me.magnum.melonds.ui.layouteditor.model.LayoutTarget
 import me.magnum.melonds.impl.dpToPixels
 import kotlin.math.*
 
+private const val UNSELECTED_ALPHA = 0.5f
+// The handle touch areas take up at most this much of the view's smaller side, which leaves the middle of each side free for dragging the view
+private const val HANDLE_TOUCH_FRACTION = 0.25f
+// Small views only get the bottom-right handle, so it can take up more of them
+private const val SMALL_VIEW_HANDLE_TOUCH_FRACTION = 0.4f
+private const val MIN_GRID_CELL_PX = 4
+
 class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(context, attrs) {
     enum class Anchor {
         TOP_LEFT,
@@ -60,8 +67,8 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     private var onViewSelectedListener: ((LayoutComponentView) -> Unit)? = null
     private var onViewDeselectedListener: ((LayoutComponentView) -> Unit)? = null
     private var otherClickListener: OnClickListener? = null
-    private val defaultComponentWidth by lazy { context.dpToPixels(100f).toInt() }
-    val minComponentSize by lazy { context.dpToPixels(30f).toInt() }
+    private val defaultComponentWidth = context.dpToPixels(100f).toInt()
+    val minComponentSize = context.dpToPixels(30f).toInt()
     private var selectedView: LayoutComponentView? = null
     private var selectedViewAnchor = Anchor.TOP_LEFT
     private var modifiedByUser = false
@@ -132,11 +139,12 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         super.onDetachedFromWindow()
         gridSettingsListener?.let { gridSettings.removeListener(it) }
         gridSettingsListener = null
+        removeCallbacks(updateAnchorRunnable)
     }
 
     private fun loadGridSettings() {
         isSnapEnabled = gridSettings.isSnapEnabled
-        gridCellSize = max(4, context.dpToPixels(gridSettings.gridSize.dp.toFloat()).roundToInt())
+        gridCellSize = max(MIN_GRID_CELL_PX, context.dpToPixels(gridSettings.gridSize.dp.toFloat()).roundToInt())
         invalidate()
     }
 
@@ -207,7 +215,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     override fun onLayoutComponentViewAdded(layoutComponentView: LayoutComponentView) {
         super.onLayoutComponentViewAdded(layoutComponentView)
         setupDragHandler(layoutComponentView)
-        layoutComponentView.view.alpha = 0.5f
+        layoutComponentView.view.alpha = UNSELECTED_ALPHA
         layoutComponentView.setHighlighted(false)
     }
 
@@ -349,7 +357,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
      * Small views only get the bottom-right handle, so that their middle can still be grabbed to move them.
      */
     private fun isSmallForHandles(viewWidth: Int, viewHeight: Int): Boolean {
-        return min(viewWidth, viewHeight) / 4f < minHandleTouchSize
+        return min(viewWidth, viewHeight) * HANDLE_TOUCH_FRACTION < minHandleTouchSize
     }
 
     /**
@@ -364,9 +372,9 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
         val smallerSide = min(rect.width, rect.height)
         val (corners, touchSize) = if (isSmallForHandles(rect.width, rect.height)) {
-            listOf(Anchor.BOTTOM_RIGHT) to smallerSide * 0.4f
+            listOf(Anchor.BOTTOM_RIGHT) to smallerSide * SMALL_VIEW_HANDLE_TOUCH_FRACTION
         } else {
-            Anchor.entries to min(maxHandleTouchSize, smallerSide / 4f)
+            Anchor.entries to min(maxHandleTouchSize, smallerSide * HANDLE_TOUCH_FRACTION)
         }
         return corners.firstOrNull {
             val cornerX = if (it.isLeft) rect.x else rect.right
@@ -496,23 +504,13 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     }
 
     /**
-     * Returns the range of widths the selected view can have inside the editor, taking its locked aspect ratio into account.
+     * Returns the ranges of widths and heights the selected view can have inside the editor, taking its locked aspect ratio into account.
      */
-    fun getSelectedViewWidthRange(): IntRange {
-        val view = selectedView ?: return IntRange.EMPTY
-        val (minWidth, _) = constrainSize(view, 0f, 0f, width, height)
-        val (maxWidth, _) = constrainSize(view, width.toFloat(), height.toFloat(), width, height)
-        return minWidth..max(minWidth, maxWidth)
-    }
-
-    /**
-     * Returns the range of heights the selected view can have inside the editor, taking its locked aspect ratio into account.
-     */
-    fun getSelectedViewHeightRange(): IntRange {
-        val view = selectedView ?: return IntRange.EMPTY
-        val (_, minHeight) = constrainSize(view, 0f, 0f, width, height)
-        val (_, maxHeight) = constrainSize(view, width.toFloat(), height.toFloat(), width, height)
-        return minHeight..max(minHeight, maxHeight)
+    fun getSelectedViewSizeRanges(): Pair<IntRange, IntRange> {
+        val view = selectedView ?: return IntRange.EMPTY to IntRange.EMPTY
+        val (minWidth, minHeight) = constrainSize(view, 0f, 0f, width, height)
+        val (maxWidth, maxHeight) = constrainSize(view, width.toFloat(), height.toFloat(), width, height)
+        return minWidth..max(minWidth, maxWidth) to minHeight..max(minHeight, maxHeight)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -532,7 +530,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
                     return false
 
                 // Let touches that start in the system gesture area (e.g. the back gesture) go through to the system instead of grabbing the view
-                if (motionEvent.action == MotionEvent.ACTION_DOWN && isInSystemGestureArea(view, motionEvent)) {
+                if (motionEvent.actionMasked == MotionEvent.ACTION_DOWN && isInSystemGestureArea(view, motionEvent)) {
                     return false
                 }
 
@@ -540,7 +538,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
                     deselectSelectedView()
                 }
 
-                return when (motionEvent.action) {
+                return when (motionEvent.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         dragging = false
                         downX = view.x + motionEvent.x
@@ -557,7 +555,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
                         val offsetY = view.y + motionEvent.y - downY
                         val start = startRect
                         if (!dragging) {
-                            if (hypot(offsetX, offsetY) >= 25) {
+                            if (hypot(offsetX, offsetY) >= touchSlop) {
                                 dragging = true
                             }
                         } else if (start != null) {
@@ -569,7 +567,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
                         if (!dragging) {
                             selectView(layoutComponentView)
                         } else {
-                            view.alpha = 0.5f
+                            view.alpha = UNSELECTED_ALPHA
                             layoutComponentView.setHighlighted(false)
                             dragging = false
                         }
@@ -578,10 +576,10 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
                     MotionEvent.ACTION_CANCEL -> {
                         // The gesture was taken away (usually by the system back gesture). Undo the drag and don't select the view
                         if (dragging) {
-                            startRect?.let { layoutComponentView.setPosition(Point(it.x, it.y)) }
+                            startRect?.let { applyRect(layoutComponentView, it) }
                             modifiedByUser = modifiedBeforeDown
                         }
-                        view.alpha = 0.5f
+                        view.alpha = UNSELECTED_ALPHA
                         layoutComponentView.setHighlighted(false)
                         dragging = false
                         true
@@ -643,7 +641,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
     fun deselectSelectedView() {
         selectedView?.let {
-            it.view.alpha = 0.5f
+            it.view.alpha = UNSELECTED_ALPHA
             it.setHighlighted(false)
             onViewDeselectedListener?.invoke(it)
         }
@@ -666,26 +664,32 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
      * what gets snapped, so the view doesn't get stuck on a line once it's on it.
      */
     private fun dragView(view: LayoutComponentView, startRect: Rect, offsetX: Float, offsetY: Float) {
-        val x = min(max(startRect.x + offsetX, 0f), width - startRect.width.toFloat())
-        val y = min(max(startRect.y + offsetY, 0f), height - startRect.height.toFloat())
-        val rect = startRect.copy(x = x.toInt(), y = y.toInt())
+        val rect = clampInside(startRect.copy(x = (startRect.x + offsetX).toInt(), y = (startRect.y + offsetY).toInt()))
         applyRect(view, if (isSnapEnabled) snapPosition(view, rect) else rect)
     }
 
     /**
      * Moves a view by the given offset, without snapping. Used by the nudge arrows and the D-pad, which are for fine adjustments.
      */
-    private fun moveView(view: LayoutComponentView, offsetX: Float, offsetY: Float) {
+    private fun moveView(view: LayoutComponentView, offsetX: Int, offsetY: Int) {
         val rect = view.getRect()
-        val finalX = min(max(rect.x + offsetX, 0f), width - rect.width.toFloat())
-        val finalY = min(max(rect.y + offsetY, 0f), height - rect.height.toFloat())
-        applyRect(view, rect.copy(x = finalX.toInt(), y = finalY.toInt()))
+        applyRect(view, clampInside(rect.copy(x = rect.x + offsetX, y = rect.y + offsetY)))
     }
 
     fun moveSelectedView(offsetX: Int, offsetY: Int) {
         val view = selectedView ?: return
-        moveView(view, offsetX.toFloat(), offsetY.toFloat())
+        moveView(view, offsetX, offsetY)
         updateSelectedViewAnchorAfterLayout()
+    }
+
+    /**
+     * Moves a rect back inside the editor. One that's bigger than the editor sticks out on the left or top.
+     */
+    private fun clampInside(rect: Rect): Rect {
+        return rect.copy(
+            x = rect.x.coerceAtLeast(0).coerceAtMost(width - rect.width),
+            y = rect.y.coerceAtLeast(0).coerceAtMost(height - rect.height),
+        )
     }
 
     fun setSelectedViewAlpha(alpha: Float) {
@@ -703,8 +707,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     fun setSelectedViewSpacing(spacing: Float) {
         val view = selectedView ?: return
         // The layout params are up to date even before the next layout pass, which the slider doesn't wait for
-        val params = view.view.layoutParams as LayoutParams
-        val currentRect = Rect(params.leftMargin, params.topMargin, params.width, params.height)
+        val currentRect = getParamsRect(view)
         val baseline = spacingBaseline?.takeIf { it.view === view && it.lastRect == currentRect } ?: SpacingBaseline(view, currentRect, view.spacing, currentRect)
         spacingBaseline = baseline
 
@@ -718,12 +721,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         val roundedHeight = newHeight.roundToInt()
         val centerX = baseline.rect.x + baseline.rect.width / 2f
         val centerY = baseline.rect.y + baseline.rect.height / 2f
-        val newRect = Rect(
-            (centerX - roundedWidth / 2f).roundToInt().coerceIn(0, max(0, width - roundedWidth)),
-            (centerY - roundedHeight / 2f).roundToInt().coerceIn(0, max(0, height - roundedHeight)),
-            roundedWidth,
-            roundedHeight,
-        )
+        val newRect = clampInside(Rect((centerX - roundedWidth / 2f).roundToInt(), (centerY - roundedHeight / 2f).roundToInt(), roundedWidth, roundedHeight))
 
         view.spacing = spacing
         viewBuilderFactory.getLayoutComponentViewBuilder(view.component).applySpacing(view.view, spacing)
@@ -793,12 +791,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
         val x = if (selectedViewAnchor.isLeft) rect.x else rect.right - constrainedWidth
         val y = if (selectedViewAnchor.isTop) rect.y else rect.bottom - constrainedHeight
-        val newRect = Rect(
-            x.coerceIn(0, max(0, width - constrainedWidth)),
-            y.coerceIn(0, max(0, height - constrainedHeight)),
-            constrainedWidth,
-            constrainedHeight,
-        )
+        val newRect = clampInside(Rect(x, y, constrainedWidth, constrainedHeight))
         applyRect(view, if (isSnapEnabled) snapPosition(view, newRect) else newRect)
     }
 
@@ -829,11 +822,18 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
     private fun applyRect(view: LayoutComponentView, rect: Rect) {
         // Compare with the layout params instead of the view's bounds, since those only update on the next layout pass
-        val params = view.view.layoutParams as LayoutParams
-        if (params.leftMargin == rect.x && params.topMargin == rect.y && params.width == rect.width && params.height == rect.height) {
+        if (getParamsRect(view) == rect) {
             return
         }
         view.setPositionAndSize(Point(rect.x, rect.y), rect.width, rect.height)
         modifiedByUser = true
+    }
+
+    /**
+     * Returns the view's rect as set in its layout params, which already hold a new position and size before the next layout pass.
+     */
+    private fun getParamsRect(view: LayoutComponentView): Rect {
+        val params = view.view.layoutParams as LayoutParams
+        return Rect(params.leftMargin, params.topMargin, params.width, params.height)
     }
 }

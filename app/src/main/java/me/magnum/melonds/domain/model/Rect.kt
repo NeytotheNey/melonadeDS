@@ -9,4 +9,8 @@ data class Rect(val x: Int, val y: Int, val width: Int, val height: Int) {
     fun contains(other: Rect): Boolean {
         return x <= other.x && y <= other.y && right >= other.right && bottom >= other.bottom
     }
+
+    fun overlaps(other: Rect): Boolean {
+        return x < other.right && other.x < right && y < other.bottom && other.y < bottom
+    }
 }

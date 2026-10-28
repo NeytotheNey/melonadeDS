@@ -401,10 +401,6 @@ class DefaultLayoutProvider(
         }
     }
 
-    private fun Rect.overlaps(other: Rect): Boolean {
-        return x < other.right && other.x < right && y < other.bottom && other.y < bottom
-    }
-
     private fun buildSingleScreenLayout(width: Int, height: Int, screenComponent: LayoutComponent): ScreenLayout {
         val screenView = centerScreenIn(width, height)
         val positionedScreenComponent = PositionedLayoutComponent(screenView, screenComponent)

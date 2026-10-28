@@ -16,12 +16,14 @@ import com.google.android.material.color.MaterialColors
 import me.magnum.melonds.R
 import me.magnum.melonds.databinding.ViewLayoutEditorManagerBinding
 import me.magnum.melonds.domain.model.Rect
+import me.magnum.melonds.domain.model.SCREEN_HEIGHT
+import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.consoleAspectRatio
 import me.magnum.melonds.domain.model.layout.LayoutComponent
-import me.magnum.melonds.impl.dpToPixels
 import me.magnum.melonds.ui.common.LayoutComponentView
 import me.magnum.melonds.ui.layouteditor.model.LayoutComponentEditableProperty
 import me.magnum.melonds.utils.getLayoutComponentName
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -29,8 +31,6 @@ import kotlin.math.roundToInt
 
 private const val KEY_ITEM_PANEL_EXPANDED = "layout_editor_item_panel_expanded"
 private const val SIZE_STEP_PX = 16
-private const val DS_SCREEN_WIDTH = 256
-private const val DS_SCREEN_HEIGHT = 192
 private const val REPEAT_INITIAL_DELAY_MS = 400L
 private const val REPEAT_INTERVAL_MS = 50L
 
@@ -51,15 +51,16 @@ class LayoutEditorItemControls(
 
     private val context = binding.root.context
     private val editor = binding.viewLayoutEditor
-    private val preferences by lazy { PreferenceManager.getDefaultSharedPreferences(context) }
-    private val margin = context.dpToPixels(8f)
-    private val marginPx = margin.roundToInt()
+    private val preferences = PreferenceManager.getDefaultSharedPreferences(context)
+    private val margin = context.resources.getDimension(R.dimen.layout_editor_margin)
+    private val marginPx = context.resources.getDimensionPixelSize(R.dimen.layout_editor_margin)
     private var isExpanded = preferences.getBoolean(KEY_ITEM_PANEL_EXPANDED, false)
     private var selectedView: LayoutComponentView? = null
     private var screenAspectRatio = ScreenAspectRatio.RATIO_4_3
     private var lastSelectedViewRect: Rect? = null
-    private var cutoutInsets = Insets.NONE
+    private var controlInsets = Insets.NONE
     private var fillingControls = false
+    private val scaleButtons = mapOf(1 to binding.buttonScale1x, 2 to binding.buttonScale2x, 3 to binding.buttonScale3x)
 
     val isShown get() = selectedView != null
 
@@ -85,8 +86,11 @@ class LayoutEditorItemControls(
         binding.layoutItemPanel.isVisible = false
     }
 
-    fun setCutoutInsets(insets: Insets) {
-        cutoutInsets = insets
+    /**
+     * Sets the insets the pill and the panel must stay clear of: the display cutout and the status bar.
+     */
+    fun setControlInsets(insets: Insets) {
+        controlInsets = insets
         binding.layoutItemPanelContainer.setPadding(insets.left, insets.top, insets.right, insets.bottom)
     }
 
@@ -96,11 +100,7 @@ class LayoutEditorItemControls(
      */
     fun onLayout() {
         val view = selectedView ?: return
-        if (isExpanded) {
-            keepPanelClearOfMenuButton()
-        } else {
-            positionPill(view)
-        }
+        reposition(view)
 
         val rect = view.getRect()
         if (rect != lastSelectedViewRect) {
@@ -115,7 +115,10 @@ class LayoutEditorItemControls(
      * Moving the floating menu button doesn't cause a layout pass, so it must tell the controls to get out of its way.
      */
     fun onMenuButtonMoved() {
-        val view = selectedView ?: return
+        selectedView?.let { reposition(it) }
+    }
+
+    private fun reposition(view: LayoutComponentView) {
         if (isExpanded) {
             keepPanelClearOfMenuButton()
         } else {
@@ -200,17 +203,18 @@ class LayoutEditorItemControls(
         binding.layoutWidthLabels.setOnClickListener { onEditPropertyValue(LayoutComponentEditableProperty.WIDTH) }
         binding.layoutHeightLabels.setOnClickListener { onEditPropertyValue(LayoutComponentEditableProperty.HEIGHT) }
 
-        binding.seekBarSize.setOnUserProgressChanged { progress ->
-            val view = selectedView ?: return@setOnUserProgressChanged
-            editor.resizeSelectedView((editor.getSelectedViewWidthRange().first + progress).toFloat(), view.getHeight().toFloat())
-        }
-        binding.seekBarWidth.setOnUserProgressChanged { progress ->
-            val view = selectedView ?: return@setOnUserProgressChanged
-            editor.resizeSelectedView((editor.getSelectedViewWidthRange().first + progress).toFloat(), view.getHeight().toFloat())
+        // The Size slider and the Width slider of Free screens both set the width
+        listOf(binding.seekBarSize, binding.seekBarWidth).forEach { seekBar ->
+            seekBar.setOnUserProgressChanged { progress ->
+                val view = selectedView ?: return@setOnUserProgressChanged
+                val (widthRange, _) = editor.getSelectedViewSizeRanges()
+                editor.resizeSelectedView((widthRange.first + progress).toFloat(), view.getHeight().toFloat())
+            }
         }
         binding.seekBarHeight.setOnUserProgressChanged { progress ->
             val view = selectedView ?: return@setOnUserProgressChanged
-            editor.resizeSelectedView(view.getWidth().toFloat(), (editor.getSelectedViewHeightRange().first + progress).toFloat())
+            val (_, heightRange) = editor.getSelectedViewSizeRanges()
+            editor.resizeSelectedView(view.getWidth().toFloat(), (heightRange.first + progress).toFloat())
         }
         binding.seekBarOpacity.setOnUserProgressChanged { progress ->
             binding.textOpacity.text = context.getString(R.string.layout_editor_opacity_value, progress)
@@ -237,12 +241,10 @@ class LayoutEditorItemControls(
             fillPanel()
         }
 
-        binding.buttonScale1x.text = context.getString(R.string.layout_editor_scale_multiplier, 1)
-        binding.buttonScale2x.text = context.getString(R.string.layout_editor_scale_multiplier, 2)
-        binding.buttonScale3x.text = context.getString(R.string.layout_editor_scale_multiplier, 3)
-        binding.buttonScale1x.setOnClickListener { applyScale(getScaleSize(1)) }
-        binding.buttonScale2x.setOnClickListener { applyScale(getScaleSize(2)) }
-        binding.buttonScale3x.setOnClickListener { applyScale(getScaleSize(3)) }
+        scaleButtons.forEach { (scale, button) ->
+            button.text = context.getString(R.string.layout_editor_scale_multiplier, scale)
+            button.setOnClickListener { applyScale(getScaleSize(scale)) }
+        }
         binding.buttonScaleFit.setOnClickListener { applyScale(getFitSize()) }
 
         binding.switchAboveScreen.setOnCheckedChangeListener { _, isChecked ->
@@ -274,16 +276,15 @@ class LayoutEditorItemControls(
         binding.layoutSizeRow.isVisible = !isFree
         binding.layoutWidthRow.isVisible = isFree
         binding.layoutHeightRow.isVisible = isFree
-        val widthRange = editor.getSelectedViewWidthRange()
-        val heightRange = editor.getSelectedViewHeightRange()
+        val (widthRange, heightRange) = editor.getSelectedViewSizeRanges()
         if (isFree) {
             binding.seekBarWidth.fill(view.getWidth(), widthRange)
-            binding.textWidth.text = view.getWidth().toString()
+            binding.textWidth.text = formatSize(view.getWidth())
             binding.seekBarHeight.fill(view.getHeight(), heightRange)
-            binding.textHeight.text = view.getHeight().toString()
+            binding.textHeight.text = formatSize(view.getHeight())
         } else {
             binding.seekBarSize.fill(view.getWidth(), widthRange)
-            binding.textSize.text = view.getWidth().toString()
+            binding.textSize.text = formatSize(view.getWidth())
         }
 
         binding.toggleGroupAspectRatio.isVisible = isScreen
@@ -294,9 +295,7 @@ class LayoutEditorItemControls(
         })
 
         binding.layoutScaleShortcuts.isVisible = isScreen
-        binding.buttonScale1x.isVisible = fitsInEditor(getScaleSize(1))
-        binding.buttonScale2x.isVisible = fitsInEditor(getScaleSize(2))
-        binding.buttonScale3x.isVisible = fitsInEditor(getScaleSize(3))
+        scaleButtons.forEach { (scale, button) -> button.isVisible = fitsInEditor(getScaleSize(scale)) }
 
         // Only screens use their own opacity in game. Controls use the layout's opacity instead
         val opacity = (view.baseAlpha * 100).roundToInt()
@@ -312,6 +311,10 @@ class LayoutEditorItemControls(
         binding.switchAboveScreen.isVisible = isScreen
         binding.switchAboveScreen.isChecked = view.onTop
         fillingControls = false
+    }
+
+    private fun formatSize(size: Int): String {
+        return String.format(Locale.getDefault(), "%d", size)
     }
 
     private fun SeekBar.fill(value: Int, range: IntRange) {
@@ -336,8 +339,8 @@ class LayoutEditorItemControls(
      * Returns the size of the screen at an integer scale of the DS resolution. The height follows the locked aspect ratio, if any.
      */
     private fun getScaleSize(scale: Int): Pair<Int, Int> {
-        val width = DS_SCREEN_WIDTH * scale
-        val height = screenAspectRatio.ratio?.let { (width / it).roundToInt() } ?: (DS_SCREEN_HEIGHT * scale)
+        val width = SCREEN_WIDTH * scale
+        val height = screenAspectRatio.ratio?.let { (width / it).roundToInt() } ?: (SCREEN_HEIGHT * scale)
         return width to height
     }
 
@@ -379,10 +382,10 @@ class LayoutEditorItemControls(
         val root = binding.root
         if (pill.width == 0 || root.width == 0) return
 
-        val minX = cutoutInsets.left.toFloat()
-        val maxX = max(minX, (root.width - cutoutInsets.right - pill.width).toFloat())
-        val minY = cutoutInsets.top.toFloat()
-        val maxY = max(minY, (root.height - cutoutInsets.bottom - pill.height).toFloat())
+        val minX = controlInsets.left.toFloat()
+        val maxX = max(minX, (root.width - controlInsets.right - pill.width).toFloat())
+        val minY = controlInsets.top.toFloat()
+        val maxY = max(minY, (root.height - controlInsets.bottom - pill.height).toFloat())
         val itemLeft = editor.left + view.view.x
         val itemTop = editor.top + view.view.y
         val itemRight = itemLeft + view.view.width

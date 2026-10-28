@@ -17,6 +17,18 @@ object RaisedButtons {
     private const val OFF_ICON_ALPHA = 90
 
     /**
+     * How far a button's lip sticks out below its face, and how far the face sinks while pressed, in design units. Each pair goes with one design size.
+     */
+    private class Depth(val lip: Float, val travel: Float)
+
+    // D-pad and ABXY, on the 512 grid
+    private val PAD_DEPTH = Depth(20f, 16f)
+    // L and R, on the 128 grid
+    private val SHOULDER_DEPTH = Depth(10f, 8f)
+    // Start, Select and the icon buttons, on the 64 grid
+    private val SMALL_DEPTH = Depth(7f, 5.6f)
+
+    /**
      * How many design units the D-pad and ABXY buttons move out by at spacing 1. Their design box grows by twice that, so the buttons keep their size.
      */
     const val SPACING_EXTRA = 128f
@@ -30,7 +42,7 @@ object RaisedButtons {
     }
 
     fun dpad(context: Context, style: ControllerStyle): RaisedButtonView {
-        return RaisedButtonView(context, spacedDesignSize(0f), 20f, 16f, dpadParts(0f), ControllerAppearance.of(style))
+        return build(context, style, spacedDesignSize(0f), PAD_DEPTH, dpadParts(0f))
     }
 
     /**
@@ -58,7 +70,7 @@ object RaisedButtons {
     }
 
     fun abxy(context: Context, style: ControllerStyle): RaisedButtonView {
-        return RaisedButtonView(context, spacedDesignSize(0f), 20f, 16f, abxyParts(0f), ControllerAppearance.of(style))
+        return build(context, style, spacedDesignSize(0f), PAD_DEPTH, abxyParts(0f))
     }
 
     /**
@@ -79,19 +91,19 @@ object RaisedButtons {
     }
 
     fun shoulderL(context: Context, style: ControllerStyle): RaisedButtonView {
-        return RaisedButtonView(context, 128f, 10f, 8f, listOf(RaisedButtonView.Part(shoulderShape(false), label = "L", labelX = 40f, labelY = 59f, labelSize = 60f)), ControllerAppearance.of(style))
+        return build(context, style, 128f, SHOULDER_DEPTH, listOf(RaisedButtonView.Part(shoulderShape(false), label = "L", labelX = 40f, labelY = 59f, labelSize = 60f)))
     }
 
     fun shoulderR(context: Context, style: ControllerStyle): RaisedButtonView {
-        return RaisedButtonView(context, 128f, 10f, 8f, listOf(RaisedButtonView.Part(shoulderShape(true), label = "R", labelX = 88f, labelY = 59f, labelSize = 60f)), ControllerAppearance.of(style))
+        return build(context, style, 128f, SHOULDER_DEPTH, listOf(RaisedButtonView.Part(shoulderShape(true), label = "R", labelX = 88f, labelY = 59f, labelSize = 60f)))
     }
 
     fun start(context: Context, style: ControllerStyle): RaisedButtonView {
-        return RaisedButtonView(context, 64f, 7f, 5.6f, listOf(circleButton(32f, 28.5f, 28f, null, "START", 12f)), ControllerAppearance.of(style))
+        return build(context, style, 64f, SMALL_DEPTH, listOf(circleButton(32f, 28.5f, 28f, null, "START", 12f)))
     }
 
     fun select(context: Context, style: ControllerStyle): RaisedButtonView {
-        return RaisedButtonView(context, 64f, 7f, 5.6f, listOf(circleButton(32f, 28.5f, 28f, null, "SELECT", 12f)), ControllerAppearance.of(style))
+        return build(context, style, 64f, SMALL_DEPTH, listOf(circleButton(32f, 28.5f, 28f, null, "SELECT", 12f)))
     }
 
     /**
@@ -107,7 +119,11 @@ object RaisedButtons {
         }
         // Same proportions as Start/Select: the 57 unit face plus its 7 unit lip fill the 64 unit square
         val shape = roundRect(3.5f, 0f, 60.5f, 57f, 11.4f)
-        return RaisedButtonView(context, 64f, 7f, 5.6f, listOf(RaisedButtonView.Part(shape, icon = icon, offIcon = offIcon)), ControllerAppearance.of(style))
+        return build(context, style, 64f, SMALL_DEPTH, listOf(RaisedButtonView.Part(shape, icon = icon, offIcon = offIcon)))
+    }
+
+    private fun build(context: Context, style: ControllerStyle, designSize: Float, depth: Depth, parts: List<RaisedButtonView.Part>): RaisedButtonView {
+        return RaisedButtonView(context, designSize, depth.lip, depth.travel, parts, ControllerAppearance.of(style))
     }
 
     private fun circleButton(cx: Float, cy: Float, radius: Float, input: Input?, label: String, labelSize: Float): RaisedButtonView.Part {

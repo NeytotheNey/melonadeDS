@@ -7,7 +7,7 @@ import me.magnum.melonds.domain.model.input.ControllerStyle
 /**
  * Colours for one button. [edge] is the lip for raised buttons, the ring for outlined buttons and the inner ring for tinted buttons.
  */
-class ButtonColors(
+class ControllerButtonColors(
     @ColorInt val face: Int,
     @ColorInt val pressedFace: Int,
     @ColorInt val edge: Int,
@@ -16,8 +16,8 @@ class ButtonColors(
 
 class ControllerAppearance(
     val shading: Shading,
-    private val colors: ButtonColors,
-    private val inputColors: Map<Input, ButtonColors> = emptyMap(),
+    private val colors: ControllerButtonColors,
+    private val inputColors: Map<Input, ControllerButtonColors> = emptyMap(),
 ) {
     enum class Shading {
         RAISED,
@@ -25,7 +25,7 @@ class ControllerAppearance(
         SOFT_TINT,
     }
 
-    fun colorsFor(input: Input?): ButtonColors {
+    fun colorsFor(input: Input?): ControllerButtonColors {
         return input?.let { inputColors[it] } ?: colors
     }
 
@@ -65,8 +65,8 @@ class ControllerAppearance(
             return ControllerAppearance(Shading.RAISED, colors(face, pressedFace, lip, label))
         }
 
-        private fun colors(face: Long, pressedFace: Long, edge: Long, label: Int): ButtonColors {
-            return ButtonColors(face.toInt(), pressedFace.toInt(), edge.toInt(), label)
+        private fun colors(face: Long, pressedFace: Long, edge: Long, label: Int): ControllerButtonColors {
+            return ControllerButtonColors(face.toInt(), pressedFace.toInt(), edge.toInt(), label)
         }
     }
 }
