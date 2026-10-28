@@ -8,7 +8,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -23,6 +22,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import me.magnum.melonds.R
 import me.magnum.melonds.ui.common.DetachedDialog
+import me.magnum.melonds.ui.common.ProvideEnabledContentColor
 import me.magnum.melonds.ui.common.component.text.CaptionText
 
 @Composable
@@ -39,7 +39,7 @@ fun SingleChoiceItem(
         mutableStateOf(false)
     }
 
-    CompositionLocalProvider(LocalContentColor provides if (enabled) LocalContentColor.current else LocalContentColor.current.copy(alpha = 0.38f)) {
+    ProvideEnabledContentColor(enabled) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

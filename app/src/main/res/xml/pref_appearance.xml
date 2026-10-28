@@ -9,16 +9,14 @@
                 android:key="theme"
                 android:title="@string/theme"
                 android:summary="%s"
-                app:iconSpaceReserved="false"
                 android:entries="@array/theme_options"
                 android:entryValues="@array/theme_values"
-                android:defaultValue="light" />
+                android:defaultValue="system" />
 
         <SwitchPreference
                 android:key="dynamic_colors"
                 android:title="@string/dynamic_colors"
                 android:summary="@string/dynamic_colors_summary"
-                app:iconSpaceReserved="false"
                 android:defaultValue="true" />
     </PreferenceCategory>
 
@@ -30,13 +28,11 @@
         <Preference
                 android:key="backup_settings"
                 android:title="@string/backup_settings"
-                android:summary="@string/backup_settings_summary"
-                app:iconSpaceReserved="false" />
+                android:summary="@string/backup_settings_summary" />
 
         <Preference
                 android:key="restore_settings"
                 android:title="@string/restore_settings"
-                android:summary="@string/restore_settings_summary"
-                app:iconSpaceReserved="false" />
+                android:summary="@string/restore_settings_summary" />
     </PreferenceCategory>
 </PreferenceScreen>

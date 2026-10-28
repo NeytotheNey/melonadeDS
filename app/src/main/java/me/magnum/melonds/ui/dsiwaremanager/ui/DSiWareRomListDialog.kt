@@ -2,7 +2,6 @@ package me.magnum.melonds.ui.dsiwaremanager.ui
 
 import android.content.res.Configuration.UI_MODE_NIGHT_YES
 import android.net.Uri
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -110,26 +108,23 @@ private fun FullScreenDialog(
     FullScreen(onDismiss = onDismiss) {
         Scaffold(
             topBar = {
-                // Add spacing for status bar to have a different color
-                Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
-                    TopAppBar(
-                        modifier = Modifier.fillMaxWidth(),
-                        title = {
-                            Text(
-                                text = stringResource(id = R.string.select_dsiware_title),
+                TopAppBar(
+                    modifier = Modifier.fillMaxWidth(),
+                    title = {
+                        Text(
+                            text = stringResource(id = R.string.select_dsiware_title),
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = stringResource(id = R.string.close),
                             )
-                        },
-                        navigationIcon = {
-                            IconButton(onClick = onDismiss) {
-                                Icon(
-                                    imageVector = Icons.Filled.Close,
-                                    contentDescription = stringResource(id = R.string.close),
-                                )
-                            }
-                        },
-                        windowInsets = WindowInsets.safeDrawing.exclude(WindowInsets(bottom = Int.MAX_VALUE)),
-                    )
-                }
+                        }
+                    },
+                    windowInsets = WindowInsets.safeDrawing.exclude(WindowInsets(bottom = Int.MAX_VALUE)),
+                )
             },
             containerColor = MaterialTheme.colorScheme.surface,
             contentWindowInsets = WindowInsets.safeDrawing,

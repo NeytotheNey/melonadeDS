@@ -9,8 +9,7 @@
                 android:key="input_key_mapping"
                 android:title="@string/key_mapping"
                 android:summary="@string/key_mapping_summary"
-                android:widgetLayout="@layout/preference_widget_chevron"
-                app:iconSpaceReserved="false" />
+                android:widgetLayout="@layout/preference_widget_chevron" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/settings_section_on_screen_controls">
@@ -19,33 +18,29 @@
             android:key="input_layouts"
             android:title="@string/layouts"
             android:summary="@string/layouts_summary"
-            android:widgetLayout="@layout/preference_widget_chevron"
-            app:iconSpaceReserved="false" />
+            android:widgetLayout="@layout/preference_widget_chevron" />
 
-        <me.magnum.melonds.ui.settings.preferences.SoftwareInputBehaviourPreference
+        <me.magnum.melonds.ui.settings.preferences.PageListPreference
             android:key="soft_input_behaviour"
             android:title="@string/soft_input_behaviour"
             android:summary="%s"
             android:entries="@array/soft_input_behaviour_options"
             android:entryValues="@array/soft_input_behaviour"
             android:defaultValue="hide_system_buttons_when_controller_connected"
-            app:fragment="me.magnum.melonds.ui.settings.fragments.SoftInputBehaviourPreferencesFragment"
-            app:iconSpaceReserved="false" />
+            app:fragment="me.magnum.melonds.ui.settings.fragments.SoftInputBehaviourPreferencesFragment" />
 
-        <me.magnum.melonds.ui.settings.preferences.ControllerStylePreference
+        <me.magnum.melonds.ui.settings.preferences.PageListPreference
             android:key="input_controller_style"
             android:title="@string/controller_style"
             android:summary="%s"
             android:entries="@array/controller_style_options"
             android:entryValues="@array/controller_style"
             android:defaultValue="classic"
-            app:fragment="me.magnum.melonds.ui.settings.fragments.ControllerStylePreferencesFragment"
-            app:iconSpaceReserved="false" />
+            app:fragment="me.magnum.melonds.ui.settings.fragments.ControllerStylePreferencesFragment" />
 
         <me.magnum.melonds.ui.settings.preferences.SliderPreference
                 android:key="input_opacity"
                 android:title="@string/soft_input_opacity"
-                app:iconSpaceReserved="false"
                 android:defaultValue="50"
                 android:max="100" />
     </PreferenceCategory>
@@ -57,7 +52,6 @@
         <SwitchPreference
                 android:key="input_touch_haptic_feedback_enabled"
                 android:title="@string/vibrate_on_touch"
-                app:iconSpaceReserved="false"
                 android:defaultValue="true" />
 
         <!-- Vibration strength can go to 255 but the finer controls are in the lower values. As such, the max value is
@@ -66,7 +60,6 @@
                 android:key="input_touch_haptic_feedback_strength"
                 android:title="@string/vibration_strength"
                 android:dependency="input_touch_haptic_feedback_enabled"
-                app:iconSpaceReserved="false"
                 app:updatesContinuously="true"
                 android:defaultValue="30"
                 app:min="1"

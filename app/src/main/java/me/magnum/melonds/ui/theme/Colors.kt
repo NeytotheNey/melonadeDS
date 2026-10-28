@@ -1,87 +1,74 @@
 package me.magnum.melonds.ui.theme
 
+import android.content.Context
+import android.content.res.Configuration
+import androidx.annotation.ColorRes
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
+import androidx.core.content.ContextCompat
+import me.magnum.melonds.R
 
 val gameMasteryColor: Color get() = Color(0xFFFFD700)
 
-// Generated from the melonDS red (#F44336) as the seed colour (fidelity palettes with tonal spot neutrals). Keep in sync with the m3* colours in
-// res/values/colors.xml and res/values-night/colors.xml, which are used by the View based screens when dynamic colours are not in use
-val LightMelonColors = lightColorScheme(
-    primary = Color(0xFFB81311),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFDC3128),
-    onPrimaryContainer = Color(0xFFFFFBFF),
-    inversePrimary = Color(0xFFFFB4A9),
-    secondary = Color(0xFFA23D32),
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFFE8172),
-    onSecondaryContainer = Color(0xFF731A13),
-    tertiary = Color(0xFF006576),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFF008095),
-    onTertiaryContainer = Color(0xFFF9FDFF),
-    error = Color(0xFFBA1A1A),
-    onError = Color(0xFFFFFFFF),
-    errorContainer = Color(0xFFFFDAD6),
-    onErrorContainer = Color(0xFF93000A),
-    background = Color(0xFFFFF8F7),
-    onBackground = Color(0xFF231918),
-    surface = Color(0xFFFFF8F7),
-    onSurface = Color(0xFF231918),
-    surfaceVariant = Color(0xFFF5DDDA),
-    onSurfaceVariant = Color(0xFF534341),
-    surfaceTint = Color(0xFFB81311),
-    inverseSurface = Color(0xFF392E2C),
-    inverseOnSurface = Color(0xFFFFEDEA),
-    outline = Color(0xFF857370),
-    outlineVariant = Color(0xFFD8C2BE),
-    scrim = Color(0xFF000000),
-    surfaceBright = Color(0xFFFFF8F7),
-    surfaceDim = Color(0xFFE8D6D3),
-    surfaceContainer = Color(0xFFFCEAE7),
-    surfaceContainerHigh = Color(0xFFF7E4E1),
-    surfaceContainerHighest = Color(0xFFF1DEDC),
-    surfaceContainerLow = Color(0xFFFFF0EE),
-    surfaceContainerLowest = Color(0xFFFFFFFF),
-)
+/**
+ * The melonDS colour scheme, generated from the melonDS red (#F44336) as the seed colour (fidelity palettes with tonal spot neutrals). It's read
+ * from the m3* colours in res/values/colors.xml and res/values-night/colors.xml, which the View based screens use too, so both always match.
+ * Used when dynamic colours are not in use.
+ */
+fun Context.melonColorScheme(isDarkTheme: Boolean): ColorScheme {
+    // The requested mode isn't always the mode of this context, like for the achievement list, which is always dark
+    val nightMode = if (isDarkTheme) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO
+    val colorContext = if (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == nightMode) {
+        this
+    } else {
+        val configuration = Configuration(resources.configuration).apply {
+            uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or nightMode
+        }
+        createConfigurationContext(configuration)
+    }
+    fun color(@ColorRes id: Int) = Color(ContextCompat.getColor(colorContext, id))
 
-val DarkMelonColors = darkColorScheme(
-    primary = Color(0xFFFFB4A9),
-    onPrimary = Color(0xFF690002),
-    primaryContainer = Color(0xFFFF5545),
-    onPrimaryContainer = Color(0xFF450001),
-    inversePrimary = Color(0xFFBB1614),
-    secondary = Color(0xFFFFB4A9),
-    onSecondary = Color(0xFF630E0A),
-    secondaryContainer = Color(0xFF83251D),
-    onSecondaryContainer = Color(0xFFFF9A8C),
-    tertiary = Color(0xFF6AD5EE),
-    onTertiary = Color(0xFF003640),
-    tertiaryContainer = Color(0xFF239EB6),
-    onTertiaryContainer = Color(0xFF002129),
-    error = Color(0xFFFFB4AB),
-    onError = Color(0xFF690005),
-    errorContainer = Color(0xFF93000A),
-    onErrorContainer = Color(0xFFFFDAD6),
-    background = Color(0xFF1A1110),
-    onBackground = Color(0xFFF1DEDC),
-    surface = Color(0xFF1A1110),
-    onSurface = Color(0xFFF1DEDC),
-    surfaceVariant = Color(0xFF534341),
-    onSurfaceVariant = Color(0xFFD8C2BE),
-    surfaceTint = Color(0xFFFFB4A9),
-    inverseSurface = Color(0xFFF1DEDC),
-    inverseOnSurface = Color(0xFF392E2C),
-    outline = Color(0xFFA08C89),
-    outlineVariant = Color(0xFF534341),
-    scrim = Color(0xFF000000),
-    surfaceBright = Color(0xFF423735),
-    surfaceDim = Color(0xFF1A1110),
-    surfaceContainer = Color(0xFF271D1C),
-    surfaceContainerHigh = Color(0xFF322826),
-    surfaceContainerHighest = Color(0xFF3D3231),
-    surfaceContainerLow = Color(0xFF231918),
-    surfaceContainerLowest = Color(0xFF140C0B),
-)
+    val primary = color(R.color.m3Primary)
+    // The colours that aren't set here (the scrim and the fixed colours) keep the M3 defaults, like with lightColorScheme() and darkColorScheme()
+    val baseScheme = if (isDarkTheme) darkColorScheme() else lightColorScheme()
+    return baseScheme.copy(
+        primary = primary,
+        onPrimary = color(R.color.m3OnPrimary),
+        primaryContainer = color(R.color.m3PrimaryContainer),
+        onPrimaryContainer = color(R.color.m3OnPrimaryContainer),
+        inversePrimary = color(R.color.m3InversePrimary),
+        secondary = color(R.color.m3Secondary),
+        onSecondary = color(R.color.m3OnSecondary),
+        secondaryContainer = color(R.color.m3SecondaryContainer),
+        onSecondaryContainer = color(R.color.m3OnSecondaryContainer),
+        tertiary = color(R.color.m3Tertiary),
+        onTertiary = color(R.color.m3OnTertiary),
+        tertiaryContainer = color(R.color.m3TertiaryContainer),
+        onTertiaryContainer = color(R.color.m3OnTertiaryContainer),
+        error = color(R.color.m3Error),
+        onError = color(R.color.m3OnError),
+        errorContainer = color(R.color.m3ErrorContainer),
+        onErrorContainer = color(R.color.m3OnErrorContainer),
+        background = color(R.color.m3Background),
+        onBackground = color(R.color.m3OnBackground),
+        surface = color(R.color.m3Surface),
+        onSurface = color(R.color.m3OnSurface),
+        surfaceVariant = color(R.color.m3SurfaceVariant),
+        onSurfaceVariant = color(R.color.m3OnSurfaceVariant),
+        // lightColorScheme() and darkColorScheme() use the primary colour by default
+        surfaceTint = primary,
+        inverseSurface = color(R.color.m3InverseSurface),
+        inverseOnSurface = color(R.color.m3InverseOnSurface),
+        outline = color(R.color.m3Outline),
+        outlineVariant = color(R.color.m3OutlineVariant),
+        surfaceBright = color(R.color.m3SurfaceBright),
+        surfaceDim = color(R.color.m3SurfaceDim),
+        surfaceContainer = color(R.color.m3SurfaceContainer),
+        surfaceContainerHigh = color(R.color.m3SurfaceContainerHigh),
+        surfaceContainerHighest = color(R.color.m3SurfaceContainerHighest),
+        surfaceContainerLow = color(R.color.m3SurfaceContainerLow),
+        surfaceContainerLowest = color(R.color.m3SurfaceContainerLowest),
+    )
+}

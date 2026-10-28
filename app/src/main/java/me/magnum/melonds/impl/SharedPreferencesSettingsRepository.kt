@@ -26,6 +26,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream
+import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.common.uridelegates.UriHandler
 import me.magnum.melonds.domain.model.AudioBitrate
 import me.magnum.melonds.domain.model.AudioInterpolation
@@ -57,6 +58,7 @@ import me.magnum.melonds.impl.dtos.input.ControllerConfigurationDto
 import me.magnum.melonds.impl.input.ControllerConfigurationFactory
 import me.magnum.melonds.ui.Theme
 import me.magnum.melonds.utils.enumValueOfIgnoreCase
+import me.magnum.melonds.utils.enumValueOfIgnoreCaseOrNull
 import java.io.File
 import java.util.UUID
 import kotlin.math.pow
@@ -73,6 +75,8 @@ class SharedPreferencesSettingsRepository(
     companion object {
         private const val TAG = "SPSettingsRepository"
         private const val CONTROLLER_CONFIG_FILE = "controller_config.json"
+        // Same default as the theme preference in pref_appearance.xml
+        private const val DEFAULT_THEME = "system"
     }
 
     @OptIn(ExperimentalSerializationApi::class)
@@ -120,9 +124,8 @@ class SharedPreferencesSettingsRepository(
         if (preferences.getString("theme", null) != null)
             return
 
-        val defaultTheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) "system" else "light"
         preferences.edit {
-            putString("theme", defaultTheme)
+            putString("theme", DEFAULT_THEME)
         }
     }
 
@@ -172,7 +175,7 @@ class SharedPreferencesSettingsRepository(
             rewindPeriodSeconds = getRewindPeriod(),
             rewindWindowSeconds = getRewindWindow(),
             useJit = isJitEnabled(),
-            syncRtcToDevice = preferences.getBoolean("sync_rtc_to_device", true),
+            syncRtcToDevice = preferences.getBoolean(PreferenceKeys.SYNC_RTC_TO_DEVICE, true),
             consoleType = consoleType,
             soundEnabled = isSoundEnabled(),
             muteFastForwardAudio = shouldMuteFastForwardAudio(),
@@ -187,12 +190,12 @@ class SharedPreferencesSettingsRepository(
     }
 
     override fun getTheme(): Theme {
-        val themePreference = preferences.getString("theme", "light")!!
+        val themePreference = preferences.getString("theme", DEFAULT_THEME)!!
         return Theme.valueOf(themePreference.uppercase())
     }
 
     override fun isDynamicColorsEnabled(): Boolean {
-        return preferences.getBoolean("dynamic_colors", true)
+        return preferences.getBoolean(PreferenceKeys.DYNAMIC_COLORS, true)
     }
 
     override fun getFastForwardSpeedMultiplier(): Float {
@@ -214,23 +217,23 @@ class SharedPreferencesSettingsRepository(
     }
 
     override fun isFramePacingVsyncEnabled(): Boolean {
-        return preferences.getBoolean("frame_pacing_vsync", true)
+        return preferences.getBoolean(PreferenceKeys.FRAME_PACING_VSYNC, true)
     }
 
     override fun isFramePacingLock60HzEnabled(): Boolean {
-        return preferences.getBoolean("frame_pacing_lock_60hz", true)
+        return preferences.getBoolean(PreferenceKeys.FRAME_PACING_LOCK_60HZ, true)
     }
 
     override fun isFramePacingBufferEnabled(): Boolean {
-        return preferences.getBoolean("frame_pacing_buffer", true)
+        return preferences.getBoolean(PreferenceKeys.FRAME_PACING_BUFFER, true)
     }
 
     override fun isPerformanceLoggingEnabled(): Boolean {
-        return preferences.getBoolean("enable_perf_logging", false)
+        return preferences.getBoolean(PreferenceKeys.ENABLE_PERF_LOGGING, false)
     }
 
     override fun getPerformanceLogDirectory(): Uri? {
-        val dirPreference = preferences.getStringSet("perf_log_dir", null)?.firstOrNull()
+        val dirPreference = preferences.getStringSet(PreferenceKeys.PERF_LOG_DIR, null)?.firstOrNull()
         return dirPreference?.toUri()
     }
 
@@ -346,14 +349,14 @@ class SharedPreferencesSettingsRepository(
     }
 
     override fun isDsScreenColorsEnabled(): Flow<Boolean> {
-        return getOrCreatePreferenceSharedFlow("video_ds_screen_colors") {
-            preferences.getBoolean("video_ds_screen_colors", false)
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_DS_SCREEN_COLORS) {
+            preferences.getBoolean(PreferenceKeys.VIDEO_DS_SCREEN_COLORS, false)
         }
     }
 
     override fun isScreenShadowEnabled(): Flow<Boolean> {
-        return getOrCreatePreferenceSharedFlow("video_screen_shadow") {
-            preferences.getBoolean("video_screen_shadow", false)
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_SCREEN_SHADOW) {
+            preferences.getBoolean(PreferenceKeys.VIDEO_SCREEN_SHADOW, false)
         }
     }
 
@@ -379,7 +382,7 @@ class SharedPreferencesSettingsRepository(
     }
 
     override fun showStatusBar(): Boolean {
-        return preferences.getBoolean("show_status_bar", false)
+        return preferences.getBoolean(PreferenceKeys.SHOW_STATUS_BAR, false)
     }
 
     override fun getDSiCameraSource(): DSiCameraSourceType {
@@ -397,7 +400,7 @@ class SharedPreferencesSettingsRepository(
     }
 
     override fun shouldMuteFastForwardAudio(): Boolean {
-        return preferences.getBoolean("mute_fast_forward_audio", true)
+        return preferences.getBoolean(PreferenceKeys.MUTE_FAST_FORWARD_AUDIO, true)
     }
 
     private fun getRewindPeriod(): Int {
@@ -528,17 +531,10 @@ class SharedPreferencesSettingsRepository(
     }
 
     override fun getControllerStyle(): Flow<ControllerStyle> {
-        return getOrCreatePreferenceSharedFlow("input_controller_style") {
-            when (preferences.getString("input_controller_style", "classic")) {
-                "classic" -> ControllerStyle.CLASSIC
-                "ds_lite" -> ControllerStyle.DS_LITE
-                "charcoal" -> ControllerStyle.CHARCOAL
-                "super_colours" -> ControllerStyle.SUPER_COLOURS
-                "indigo" -> ControllerStyle.INDIGO
-                "outline" -> ControllerStyle.OUTLINE
-                "soft_tint" -> ControllerStyle.SOFT_TINT
-                else -> ControllerStyle.CLASSIC
-            }
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.INPUT_CONTROLLER_STYLE) {
+            // Saved as the lowercase name of the style. An unknown value falls back to the default
+            val stylePreference = preferences.getString(PreferenceKeys.INPUT_CONTROLLER_STYLE, null)
+            enumValueOfIgnoreCaseOrNull<ControllerStyle>(stylePreference) ?: ControllerStyle.CLASSIC
         }
     }
 
@@ -665,7 +661,7 @@ class SharedPreferencesSettingsRepository(
     }
 
     override fun observeDynamicColorsEnabled(): Flow<Boolean> {
-        return getOrCreatePreferenceSharedFlow("dynamic_colors") {
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.DYNAMIC_COLORS) {
             isDynamicColorsEnabled()
         }
     }

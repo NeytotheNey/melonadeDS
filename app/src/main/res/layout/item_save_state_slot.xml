@@ -83,6 +83,6 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent"
             app:srcCompat="@drawable/ic_clear"
-            app:tint="@color/romConfigButtonDefault" />
+            app:tint="?attr/colorOnSurfaceVariant" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

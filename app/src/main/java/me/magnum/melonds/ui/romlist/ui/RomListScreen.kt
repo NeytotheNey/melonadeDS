@@ -3,7 +3,6 @@ package me.magnum.melonds.ui.romlist.ui
 import android.net.Uri
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -15,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -102,32 +100,30 @@ fun RomListScreen(
             }
         },
         topBar = {
-            Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
-                if (isSearchActive) {
-                    SearchTopBar(
-                        query = searchQuery,
-                        onQueryChange = { query ->
-                            searchQuery = query
-                            onSearchQueryChange(query)
-                        },
-                        onClose = {
-                            isSearchActive = false
-                            searchQuery = ""
-                            onSearchQueryChange(null)
-                        },
-                    )
-                } else {
-                    RomListTopBar(
-                        showOverflowMenu = showOverflowMenu,
-                        onOverflowMenuChange = { showOverflowMenu = it },
-                        onSearchClick = { isSearchActive = true },
-                        onSortChange = onSortChange,
-                        onFirmwareBoot = onFirmwareBoot,
-                        onNavigateToDsiWareManager = onNavigateToDsiWareManager,
-                        onRefresh = onRefresh,
-                        onNavigateToSettings = onNavigateToSettings,
-                    )
-                }
+            if (isSearchActive) {
+                SearchTopBar(
+                    query = searchQuery,
+                    onQueryChange = { query ->
+                        searchQuery = query
+                        onSearchQueryChange(query)
+                    },
+                    onClose = {
+                        isSearchActive = false
+                        searchQuery = ""
+                        onSearchQueryChange(null)
+                    },
+                )
+            } else {
+                RomListTopBar(
+                    showOverflowMenu = showOverflowMenu,
+                    onOverflowMenuChange = { showOverflowMenu = it },
+                    onSearchClick = { isSearchActive = true },
+                    onSortChange = onSortChange,
+                    onFirmwareBoot = onFirmwareBoot,
+                    onNavigateToDsiWareManager = onNavigateToDsiWareManager,
+                    onRefresh = onRefresh,
+                    onNavigateToSettings = onNavigateToSettings,
+                )
             }
         },
         containerColor = MaterialTheme.colorScheme.surface,
@@ -175,6 +171,10 @@ private fun RomListTopBar(
 
     val actionFocusRequesters = remember { List(5) { FocusRequester() } }
     var lastFocusedActionIndex by rememberSaveable { mutableIntStateOf(-1) }
+    // Lets the action at [index] take the focus, and remembers it as the last focused one so the row can give the focus back to it
+    fun Modifier.actionFocus(index: Int) = focusRequester(actionFocusRequesters[index]).onFocusChanged {
+        if (it.isFocused) lastFocusedActionIndex = index
+    }
 
     TopAppBar(
         title = {
@@ -194,9 +194,7 @@ private fun RomListTopBar(
                 }.focusable(),
             ) {
                 IconButton(
-                    modifier = Modifier.focusRequester(actionFocusRequesters[0]).onFocusChanged {
-                        if (it.isFocused) lastFocusedActionIndex = 0
-                    },
+                    modifier = Modifier.actionFocus(0),
                     onClick = onSearchClick,
                 ) {
                     Icon(
@@ -208,9 +206,7 @@ private fun RomListTopBar(
                 // Sort menu
                 Box {
                     IconButton(
-                        modifier = Modifier.focusRequester(actionFocusRequesters[1]).onFocusChanged {
-                            if (it.isFocused) lastFocusedActionIndex = 1
-                        },
+                        modifier = Modifier.actionFocus(1),
                         onClick = { showSortMenu = true },
                     ) {
                         Icon(
@@ -254,9 +250,7 @@ private fun RomListTopBar(
                 // Firmware boot menu
                 Box {
                     IconButton(
-                        modifier = Modifier.focusRequester(actionFocusRequesters[2]).onFocusChanged {
-                            if (it.isFocused) lastFocusedActionIndex = 2
-                        },
+                        modifier = Modifier.actionFocus(2),
                         onClick = { showFirmwareMenu = true },
                     ) {
                         Icon(
@@ -286,9 +280,7 @@ private fun RomListTopBar(
                 }
 
                 IconButton(
-                    modifier = Modifier.focusRequester(actionFocusRequesters[3]).onFocusChanged {
-                        if (it.isFocused) lastFocusedActionIndex = 3
-                    },
+                    modifier = Modifier.actionFocus(3),
                     onClick = onNavigateToSettings,
                 ) {
                     Icon(
@@ -300,9 +292,7 @@ private fun RomListTopBar(
                 // Overflow menu
                 Box {
                     IconButton(
-                        modifier = Modifier.focusRequester(actionFocusRequesters[4]).onFocusChanged {
-                            if (it.isFocused) lastFocusedActionIndex = 4
-                        },
+                        modifier = Modifier.actionFocus(4),
                         onClick = { onOverflowMenuChange(true) },
                     ) {
                         Icon(

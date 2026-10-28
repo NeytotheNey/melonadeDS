@@ -29,11 +29,9 @@ class AudioPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         val volumePreference = findPreference<SeekBarPreference>("volume")!!
         micSourcePreference = findPreference("mic_source")!!
 
-        updateVolumePreferenceSummary(volumePreference, volumePreference.value)
-
-        volumePreference.setOnPreferenceChangeListener { _, newValue ->
-            updateVolumePreferenceSummary(volumePreference, newValue as Int)
-            true
+        setSliderSummary(volumePreference) { volume ->
+            val volumePercentage = (volume / volumePreference.max.toFloat() * 100f).toInt()
+            getString(R.string.volume_percentage, volumePercentage)
         }
         micSourcePreference.setOnPreferenceChangeListener { _, newValue ->
             val newMicSource = enumValueOfIgnoreCase<MicSource>(newValue as String)
@@ -44,11 +42,6 @@ class AudioPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
                 true
             }
         }
-    }
-
-    private fun updateVolumePreferenceSummary(volumePreference: SeekBarPreference, volume: Int) {
-        val volumePercentage = (volume / volumePreference.max.toFloat() * 100f).toInt()
-        volumePreference.summary = getString(R.string.volume_percentage, volumePercentage)
     }
 
     private fun requestMicrophonePermission(overrideRationaleRequest: Boolean) {

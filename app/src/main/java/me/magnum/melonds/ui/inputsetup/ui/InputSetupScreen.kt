@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -100,20 +99,18 @@ private fun InputSetupScreenContent(
 
     Scaffold(
         topBar = {
-            Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
-                TopAppBar(
-                    title = { Text(stringResource(R.string.key_mapping)) },
-                    navigationIcon = {
-                        IconButton(onClick = onBackClick) {
-                            Icon(
-                                painter = rememberVectorPainter(Icons.AutoMirrored.Filled.ArrowBack),
-                                contentDescription = stringResource(R.string.clear),
-                            )
-                        }
-                    },
-                    windowInsets = WindowInsets.safeDrawing.exclude(WindowInsets(bottom = Int.MAX_VALUE)),
-                )
-            }
+            TopAppBar(
+                title = { Text(stringResource(R.string.key_mapping)) },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(
+                            painter = rememberVectorPainter(Icons.AutoMirrored.Filled.ArrowBack),
+                            contentDescription = stringResource(R.string.clear),
+                        )
+                    }
+                },
+                windowInsets = WindowInsets.safeDrawing.exclude(WindowInsets(bottom = Int.MAX_VALUE)),
+            )
         },
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets.safeDrawing,

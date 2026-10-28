@@ -8,12 +8,12 @@ import androidx.preference.SeekBarPreference
 import androidx.preference.SwitchPreference
 import dagger.hilt.android.AndroidEntryPoint
 import me.magnum.melonds.R
+import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.common.vibration.TouchVibrator
 import me.magnum.melonds.ui.inputsetup.InputSetupActivity
 import me.magnum.melonds.ui.layouts.LayoutListActivity
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
-import me.magnum.melonds.ui.settings.preferences.ControllerStylePreference
-import me.magnum.melonds.ui.settings.preferences.SoftwareInputBehaviourPreference
+import me.magnum.melonds.ui.settings.preferences.PageListPreference
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -21,15 +21,15 @@ class InputPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
 
     @Inject lateinit var vibrator: TouchVibrator
 
-    private lateinit var softInputBehaviourPreference: SoftwareInputBehaviourPreference
-    private lateinit var controllerStylePreference: ControllerStylePreference
+    private lateinit var softInputBehaviourPreference: PageListPreference
+    private lateinit var controllerStylePreference: PageListPreference
 
     override fun getTitle() = getString(R.string.settings_controls)
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.pref_input, rootKey)
         softInputBehaviourPreference = findPreference("soft_input_behaviour")!!
-        controllerStylePreference = findPreference("input_controller_style")!!
+        controllerStylePreference = findPreference(PreferenceKeys.INPUT_CONTROLLER_STYLE)!!
         val touchVibratePreference = findPreference<SwitchPreference>("input_touch_haptic_feedback_enabled")!!
         val vibrationStrengthPreference = findPreference<SeekBarPreference>("input_touch_haptic_feedback_strength")!!
         val keyMappingPreference = findPreference<Preference>("input_key_mapping")!!
@@ -39,7 +39,7 @@ class InputPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
             touchVibratePreference.isVisible = false
         }
         vibrationStrengthPreference.isVisible = false
-        updateGroupVisibility(findPreference<PreferenceCategory>("category_controls_vibration")!!)
+        updateGroupVisibility(findPreference<PreferenceCategory>(PreferenceKeys.CATEGORY_CONTROLS_VIBRATION)!!)
 
         vibrationStrengthPreference.setOnPreferenceChangeListener { _, newValue ->
             val strength = newValue as Int

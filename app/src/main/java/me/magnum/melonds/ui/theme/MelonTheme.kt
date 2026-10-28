@@ -10,6 +10,8 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import me.magnum.melonds.R
 
@@ -19,12 +21,15 @@ fun MelonTheme(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
-    val colorScheme = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.isDynamicColorsApplied() -> {
-            if (isDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    // Colours only change with the configuration, like the dark mode or the wallpaper colours
+    val configuration = LocalConfiguration.current
+    val colorScheme = remember(context, configuration, isDarkTheme) {
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.isDynamicColorsApplied() -> {
+                if (isDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            }
+            else -> context.melonColorScheme(isDarkTheme)
         }
-        isDarkTheme -> DarkMelonColors
-        else -> LightMelonColors
     }
 
     MaterialTheme(

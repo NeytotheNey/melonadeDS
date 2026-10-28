@@ -14,6 +14,7 @@ import androidx.core.view.isVisible
 import androidx.preference.PreferenceManager
 import com.google.android.material.color.MaterialColors
 import me.magnum.melonds.R
+import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.databinding.ViewLayoutEditorManagerBinding
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
@@ -29,7 +30,6 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-private const val KEY_ITEM_PANEL_EXPANDED = "layout_editor_item_panel_expanded"
 private const val SIZE_STEP_PX = 16
 private const val REPEAT_INITIAL_DELAY_MS = 400L
 private const val REPEAT_INTERVAL_MS = 50L
@@ -54,7 +54,7 @@ class LayoutEditorItemControls(
     private val preferences = PreferenceManager.getDefaultSharedPreferences(context)
     private val margin = context.resources.getDimension(R.dimen.layout_editor_margin)
     private val marginPx = context.resources.getDimensionPixelSize(R.dimen.layout_editor_margin)
-    private var isExpanded = preferences.getBoolean(KEY_ITEM_PANEL_EXPANDED, false)
+    private var isExpanded = preferences.getBoolean(PreferenceKeys.LAYOUT_EDITOR_ITEM_PANEL_EXPANDED, false)
     private var selectedView: LayoutComponentView? = null
     private var screenAspectRatio = ScreenAspectRatio.RATIO_4_3
     private var lastSelectedViewRect: Rect? = null
@@ -144,7 +144,7 @@ class LayoutEditorItemControls(
 
     private fun setExpanded(expanded: Boolean) {
         isExpanded = expanded
-        preferences.edit { putBoolean(KEY_ITEM_PANEL_EXPANDED, expanded) }
+        preferences.edit { putBoolean(PreferenceKeys.LAYOUT_EDITOR_ITEM_PANEL_EXPANDED, expanded) }
         updateMode()
     }
 
@@ -178,8 +178,8 @@ class LayoutEditorItemControls(
         ).forEach { it.imageTintList = iconTint }
         binding.switchAboveScreen.compoundDrawableTintList = iconTint
 
-        val accentColor = MaterialColors.getColor(context, androidx.appcompat.R.attr.colorPrimary, ContextCompat.getColor(context, R.color.colorPrimary))
-        val onAccentColor = MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimary, ContextCompat.getColor(context, R.color.colorOnPrimary))
+        val accentColor = MaterialColors.getColor(context, androidx.appcompat.R.attr.colorPrimary, ContextCompat.getColor(context, R.color.m3Primary))
+        val onAccentColor = MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimary, ContextCompat.getColor(context, R.color.m3OnPrimary))
         listOf(binding.buttonPillDone, binding.buttonPanelDone).forEach {
             it.backgroundTintList = ColorStateList.valueOf(accentColor)
             it.imageTintList = ColorStateList.valueOf(onAccentColor)

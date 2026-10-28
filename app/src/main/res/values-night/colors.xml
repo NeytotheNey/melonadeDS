@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- M3 colour scheme generated from the melonDS red (#F44336). Keep in sync with DarkMelonColors in ui/theme/Colors.kt -->
+    <!-- M3 colour scheme generated from the melonDS red (#F44336). The Compose colour scheme in ui/theme/Colors.kt is built from these -->
     <color name="m3Primary">#FFB4A9</color>
     <color name="m3OnPrimary">#690002</color>
     <color name="m3PrimaryContainer">#FF5545</color>
@@ -36,16 +36,8 @@
     <color name="m3SurfaceContainerLow">#231918</color>
     <color name="m3SurfaceContainerLowest">#140C0B</color>
 
-    <color name="colorPrimary">#333</color>
-
-    <color name="textColorPrimary">#FFFFFF</color>
-
-    <color name="romConfigButtonDefault">#AAA</color>
-
-    <color name="buttonContrasted">#DFFF</color>
-
     <color name="textLayoutEditor">@android:color/white</color>
     <color name="layoutEditorPanelBackground">#B0000000</color>
 
-    <color name="splashBackground">@color/colorPrimary</color>
+    <color name="splashBackground">@color/m3SurfaceContainerHigh</color>
 </resources>

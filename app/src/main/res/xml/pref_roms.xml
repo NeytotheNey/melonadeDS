@@ -9,7 +9,6 @@
                 android:key="rom_search_dirs"
                 android:title="@string/rom_search_directory"
                 android:widgetLayout="@layout/preference_widget_chevron"
-                app:iconSpaceReserved="false"
                 app:selection="multi"
                 app:type="directory"
                 app:permissions="read_write"
@@ -22,7 +21,6 @@
                 android:key="rom_icon_filtering"
                 android:title="@string/rom_icon_filtering"
                 android:summary="%s"
-                app:iconSpaceReserved="false"
                 android:entries="@array/rom_icon_filtering_options"
                 android:entryValues="@array/rom_icon_filtering_values"
                 android:defaultValue="none" />
@@ -34,7 +32,6 @@
         <me.magnum.melonds.ui.settings.preferences.SliderPreference
                 android:key="rom_cache_max_size"
                 android:title="@string/max_rom_cache_size"
-                app:iconSpaceReserved="false"
                 app:updatesContinuously="true"
                 android:defaultValue="3"
                 app:min="0"
@@ -43,7 +40,6 @@
         <Preference
                 android:key="rom_cache_clear"
                 android:title="@string/clear_extracted_rom_cache"
-                android:summary="@string/cache_size_calculating"
-                app:iconSpaceReserved="false" />
+                android:summary="@string/cache_size_calculating" />
     </PreferenceCategory>
 </PreferenceScreen>

@@ -5,13 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.add
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -29,6 +23,7 @@ import com.mikepenz.aboutlibraries.ui.compose.m3.LibrariesContainer
 import com.mikepenz.aboutlibraries.ui.compose.variant.LibraryDetailMode
 import me.magnum.melonds.R
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
+import me.magnum.melonds.ui.settings.settingsContentPadding
 import me.magnum.melonds.ui.theme.MelonTheme
 
 /**
@@ -73,10 +68,7 @@ private fun OpenSourceLicensesScreen() {
         LibrariesContainer(
             libraries = libraries,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = WindowInsets.safeDrawing
-                .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
-                .add(WindowInsets(bottom = 16.dp))
-                .asPaddingValues(),
+            contentPadding = settingsContentPadding(bottom = 16.dp),
             // The sheet shows the licence as plain text. The dialog parses it as HTML, which drops anything in angle brackets, like the
             // addresses in the GPL
             detailMode = LibraryDetailMode.Sheet,

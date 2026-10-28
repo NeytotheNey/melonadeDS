@@ -11,3 +11,10 @@ fun <T : Enum<T>> findEnumValueIgnoreCase(enumValues: Array<T>, value: String): 
 inline fun <reified T> enumValueOfIgnoreCase(value: String): T where T : Enum<T> {
     return findEnumValueIgnoreCase(enumValues(), value)
 }
+
+/**
+ * Like [enumValueOfIgnoreCase], but returns null when [value] is null or doesn't match any entry.
+ */
+inline fun <reified T> enumValueOfIgnoreCaseOrNull(value: String?): T? where T : Enum<T> {
+    return enumValues<T>().firstOrNull { it.name.equals(value, true) }
+}

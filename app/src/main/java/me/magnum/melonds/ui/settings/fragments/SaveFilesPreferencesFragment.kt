@@ -43,27 +43,17 @@ class SaveFilesPreferencesFragment : BasePreferenceFragment(), PreferenceFragmen
 
         rewindPeriodPreference.setOnPreferenceChangeListener { _, newValue ->
             updateRewindInfo(rewindInfoPreference, newValue as Int, rewindWindowPreference.value, deviceMemory)
-            updateRewindPeriodPreferenceSummary(rewindPeriodPreference, newValue)
             true
         }
         rewindWindowPreference.setOnPreferenceChangeListener { _, newValue ->
             updateRewindInfo(rewindInfoPreference, rewindPeriodPreference.value, newValue as Int, deviceMemory)
-            updateRewindWindowPreferenceSummary(rewindWindowPreference, newValue)
             true
         }
 
-        updateRewindPeriodPreferenceSummary(rewindPeriodPreference, rewindPeriodPreference.value)
-        updateRewindWindowPreferenceSummary(rewindWindowPreference, rewindWindowPreference.value)
+        setSliderSummary(rewindPeriodPreference) { getString(R.string.rewind_time_seconds, it.toString()) }
+        // The window is set in steps of 10 seconds
+        setSliderSummary(rewindWindowPreference) { getString(R.string.rewind_time_seconds, (it * 10).toString()) }
         updateRewindInfo(rewindInfoPreference, rewindPeriodPreference.value, rewindWindowPreference.value, deviceMemory)
-    }
-
-    private fun updateRewindPeriodPreferenceSummary(rewindPeriodPreference: SeekBarPreference, newValue: Int) {
-        rewindPeriodPreference.summary = getString(R.string.rewind_time_seconds, newValue.toString())
-    }
-
-    private fun updateRewindWindowPreferenceSummary(rewindWindowPreference: SeekBarPreference, newValue: Int) {
-        val newWindow = newValue * 10
-        rewindWindowPreference.summary = getString(R.string.rewind_time_seconds, newWindow.toString())
     }
 
     private fun updateRewindInfo(rewindInfoPreference: Preference, rewindPeriodValue: Int, rewindWindowValue: Int, deviceMemory: SizeUnit?) {

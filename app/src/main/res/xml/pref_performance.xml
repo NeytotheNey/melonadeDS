@@ -9,7 +9,6 @@
                 android:key="enable_jit"
                 android:title="@string/enable_jit"
                 android:summary="@string/enable_jit_summary"
-                app:iconSpaceReserved="false"
                 android:defaultValue="true" />
     </PreferenceCategory>
 
@@ -19,7 +18,6 @@
                 android:key="enable_threaded_rendering"
                 android:title="@string/threaded_rendering"
                 android:summary="@string/threaded_rendering_summary"
-                app:iconSpaceReserved="false"
                 android:defaultValue="true" />
     </PreferenceCategory>
 
@@ -31,7 +29,6 @@
                 android:key="enable_sustained_performance"
                 android:title="@string/sustained_performance_mode"
                 android:summary="@string/sustained_performance_mode_summary"
-                app:iconSpaceReserved="false"
                 android:defaultValue="false" />
     </PreferenceCategory>
 
@@ -41,7 +38,6 @@
                 android:key="fast_forward_speed_multiplier"
                 android:title="@string/fast_forward_max_speed"
                 android:summary="%s"
-                app:iconSpaceReserved="false"
                 android:entries="@array/fast_forward_speed_multiplier_options"
                 android:entryValues="@array/fast_forward_speed_multiplier_values"
                 android:defaultValue="-1" />
@@ -53,7 +49,6 @@
                 android:key="enable_perf_logging"
                 android:title="@string/performance_logging"
                 android:summary="@string/performance_logging_summary"
-                app:iconSpaceReserved="false"
                 android:defaultValue="false" />
 
         <me.magnum.melonds.ui.settings.preferences.StoragePickerPreference
@@ -61,7 +56,6 @@
                 android:title="@string/performance_log_directory"
                 android:dependency="enable_perf_logging"
                 android:widgetLayout="@layout/preference_widget_chevron"
-                app:iconSpaceReserved="false"
                 app:type="directory"
                 app:permissions="read_write"
                 app:persistPermissions="true" />

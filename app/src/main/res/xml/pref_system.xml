@@ -10,21 +10,18 @@
                 android:title="@string/internal_firmware_settings"
                 android:summary="@string/internal_firmware_settings_summary"
                 android:widgetLayout="@layout/preference_widget_chevron"
-                app:iconSpaceReserved="false"
                 android:fragment="me.magnum.melonds.ui.settings.fragments.FirmwarePreferencesFragment" />
 
         <Preference
                 android:title="@string/custom_bios_firmware"
                 android:summary="@string/custom_bios_firmware_summary"
                 android:widgetLayout="@layout/preference_widget_chevron"
-                app:iconSpaceReserved="false"
                 android:fragment="me.magnum.melonds.ui.settings.fragments.CustomFirmwarePreferencesFragment" />
 
         <SwitchPreference
                 android:key="sync_rtc_to_device"
                 android:title="@string/sync_rtc_to_device"
                 android:summary="@string/sync_rtc_to_device_summary"
-                app:iconSpaceReserved="false"
                 android:defaultValue="true" />
     </PreferenceCategory>
 
@@ -34,7 +31,6 @@
                 android:key="dsi_camera_source"
                 android:title="@string/dsi_camera_source"
                 android:summary="%s"
-                app:iconSpaceReserved="false"
                 android:entries="@array/dsi_camera_source_options"
                 android:entryValues="@array/dsi_camera_source_values"
                 android:defaultValue="physical_cameras" />
@@ -44,7 +40,6 @@
                 android:title="@string/dsi_camera_image"
                 android:dependency="dsi_camera_source"
                 android:widgetLayout="@layout/preference_widget_chevron"
-                app:iconSpaceReserved="false"
                 app:type="file"
                 app:permissions="read"
                 app:persistPermissions="true"

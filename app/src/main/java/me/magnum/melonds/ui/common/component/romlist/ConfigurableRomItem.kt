@@ -16,9 +16,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +35,7 @@ import me.magnum.melonds.domain.model.RomIconFiltering
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.model.rom.config.RomConfig
 import me.magnum.melonds.ui.common.MelonPreviewSet
+import me.magnum.melonds.ui.common.ProvideEnabledContentColor
 import me.magnum.melonds.ui.romlist.RomIcon
 import me.magnum.melonds.ui.theme.MelonTheme
 
@@ -51,7 +50,7 @@ fun ConfigurableRomItem(
     contentPadding: PaddingValues = DefaultRomItemPadding,
 ) {
     val (mainFocusRequester, romDetailsFocusRequester) = remember { FocusRequester.createRefs() }
-    CompositionLocalProvider(LocalContentColor provides if (enabled) LocalContentColor.current else LocalContentColor.current.copy(alpha = 0.38f)) {
+    ProvideEnabledContentColor(enabled) {
         Column(modifier) {
             Row(
                 modifier = Modifier.height(IntrinsicSize.Min).focusRequester(mainFocusRequester)

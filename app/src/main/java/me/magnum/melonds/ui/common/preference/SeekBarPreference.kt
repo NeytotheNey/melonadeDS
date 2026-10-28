@@ -6,13 +6,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -26,6 +23,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import me.magnum.melonds.ui.common.ProvideEnabledContentColor
 
 @Composable
 fun SeekBarItem(
@@ -65,7 +63,7 @@ fun SeekBarItem(
             .heightIn(min = 64.dp)
             .padding(start = horizontalPadding, end = horizontalPadding, top = 8.dp, bottom = 8.dp),
     ) {
-        CompositionLocalProvider(LocalContentColor provides if (enabled) LocalContentColor.current else LocalContentColor.current.copy(alpha = 0.38f)) {
+        ProvideEnabledContentColor(enabled) {
             Text(
                 text = name,
                 style = MaterialTheme.typography.bodyLarge,
@@ -79,10 +77,6 @@ fun SeekBarItem(
                 onValueChange = { currentValue = it },
                 onValueChangeFinished = { onValueChange(currentValue) },
                 enabled = enabled,
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                ),
             )
         }
     }

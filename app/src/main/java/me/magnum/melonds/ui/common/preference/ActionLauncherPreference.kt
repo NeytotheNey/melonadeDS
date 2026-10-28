@@ -7,15 +7,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import me.magnum.melonds.ui.common.ProvideEnabledContentColor
 import me.magnum.melonds.ui.common.component.text.CaptionText
 
 @Composable
@@ -40,7 +39,7 @@ fun ActionLauncherItem(
             .padding(start = horizontalPadding, end = horizontalPadding, top = 8.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.Center,
     ) {
-        CompositionLocalProvider(LocalContentColor provides if (enabled) LocalContentColor.current else LocalContentColor.current.copy(alpha = 0.38f)) {
+        ProvideEnabledContentColor(enabled) {
             Text(
                 text = name,
                 style = MaterialTheme.typography.bodyLarge,

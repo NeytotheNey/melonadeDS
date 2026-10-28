@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,7 +30,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
@@ -49,7 +49,6 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.window.core.layout.WindowSizeClass
 import coil.compose.AsyncImage
@@ -99,34 +98,21 @@ fun RomHeaderUi(
             PrimaryTabRow(
                 modifier = Modifier.fillMaxWidth(),
                 selectedTabIndex = pagerState.currentPage,
-                containerColor = MaterialTheme.colorScheme.surface,
+                // Keeps the tab labels onSurface. The default content colour of the row is primary
                 contentColor = MaterialTheme.colorScheme.onSurface,
-                indicator = {
-                    TabRowDefaults.PrimaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(pagerState.currentPage, matchContentSize = true),
-                        width = Dp.Unspecified,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
             ) {
                 Tab(
                     selected = pagerState.currentPage == RomDetailsTab.CONFIG.tabIndex,
                     onClick = { onTabClicked(RomDetailsTab.CONFIG) },
                     text = {
-                        Text(
-                            text = stringResource(id = R.string.rom_details_configuration_tab).uppercase(),
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                        Text(text = stringResource(id = R.string.rom_details_configuration_tab).uppercase())
                     }
                 )
                 Tab(
                     selected = pagerState.currentPage == RomDetailsTab.RETRO_ACHIEVEMENTS.tabIndex,
                     onClick = { onTabClicked(RomDetailsTab.RETRO_ACHIEVEMENTS) },
                     text = {
-                        Text(
-                            text = stringResource(id = R.string.retro_achievements_tab).uppercase(),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        Text(text = stringResource(id = R.string.retro_achievements_tab).uppercase())
                     }
                 )
             }
@@ -144,18 +130,7 @@ private fun PortraitTopBar(
 ) {
     TopAppBar(
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (LocalInspectionMode.current) {
-                    Box(Modifier.size(42.dp).background(Color.Gray))
-                } else {
-                    AsyncImage(
-                        modifier = Modifier.size(42.dp),
-                        model = rom,
-                        contentDescription = null,
-                        filterQuality = FilterQuality.None,
-                    )
-                }
-
+            RomTitleRow(rom) {
                 Text(
                     modifier = Modifier.padding(start = 16.dp),
                     text = rom.config.customName ?: rom.name,
@@ -197,18 +172,7 @@ private fun ColumnScope.LandscapeTopBar(
 ) {
     TopAppBar(
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (LocalInspectionMode.current) {
-                    Box(Modifier.size(42.dp).background(Color.Gray))
-                } else {
-                    AsyncImage(
-                        modifier = Modifier.size(42.dp),
-                        model = rom,
-                        contentDescription = null,
-                        filterQuality = FilterQuality.None,
-                    )
-                }
-
+            RomTitleRow(rom) {
                 Column(Modifier.padding(start = 16.dp).weight(1f)) {
                     Text(
                         text = rom.config.customName ?: rom.name,
@@ -232,6 +196,27 @@ private fun ColumnScope.LandscapeTopBar(
         // Insets are already applied by the parent
         windowInsets = WindowInsets(0),
     )
+}
+
+/**
+ * The title row of both top bars: the ROM's icon followed by [content].
+ */
+@Composable
+private fun RomTitleRow(rom: Rom, content: @Composable RowScope.() -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (LocalInspectionMode.current) {
+            Box(Modifier.size(42.dp).background(Color.Gray))
+        } else {
+            AsyncImage(
+                modifier = Modifier.size(42.dp),
+                model = rom,
+                contentDescription = null,
+                filterQuality = FilterQuality.None,
+            )
+        }
+
+        content()
+    }
 }
 
 @Composable

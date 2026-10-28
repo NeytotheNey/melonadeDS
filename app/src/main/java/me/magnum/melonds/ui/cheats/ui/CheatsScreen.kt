@@ -3,13 +3,10 @@ package me.magnum.melonds.ui.cheats.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.CheckBox
@@ -115,36 +112,34 @@ fun CheatsScreen(
         modifier = Modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = appBarTitle ?: stringResource(R.string.cheats),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+            TopAppBar(
+                title = {
+                    Text(
+                        text = appBarTitle ?: stringResource(R.string.cheats),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = { navigateBack() }) {
+                        Icon(
+                            painter = rememberVectorPainter(Icons.AutoMirrored.Filled.ArrowBack),
+                            contentDescription = null,
                         )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { navigateBack() }) {
+                    }
+                },
+                actions = {
+                    if (showEnabledCheatsButton) {
+                        IconButton(onClick = { viewModel.openEnabledCheats() }) {
                             Icon(
-                                painter = rememberVectorPainter(Icons.AutoMirrored.Filled.ArrowBack),
-                                contentDescription = null,
+                                painter = rememberVectorPainter(Icons.Outlined.CheckBox),
+                                contentDescription = stringResource(R.string.enabled_cheats),
                             )
                         }
-                    },
-                    actions = {
-                        if (showEnabledCheatsButton) {
-                            IconButton(onClick = { viewModel.openEnabledCheats() }) {
-                                Icon(
-                                    painter = rememberVectorPainter(Icons.Outlined.CheckBox),
-                                    contentDescription = stringResource(R.string.enabled_cheats),
-                                )
-                            }
-                        }
-                    },
-                    windowInsets = WindowInsets.safeDrawing.exclude(WindowInsets(bottom = Int.MAX_VALUE)),
-                )
-            }
+                    }
+                },
+                windowInsets = WindowInsets.safeDrawing.exclude(WindowInsets(bottom = Int.MAX_VALUE)),
+            )
         },
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets.safeDrawing,

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
@@ -39,6 +38,7 @@ import me.magnum.melonds.domain.model.input.SoftInputBehaviour
 import me.magnum.melonds.ui.common.MelonPreviewSet
 import me.magnum.melonds.ui.common.component.text.CaptionText
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
+import me.magnum.melonds.ui.settings.settingsContentPadding
 import me.magnum.melonds.ui.theme.MelonTheme
 
 class SoftInputBehaviourPreferencesFragment : Fragment(), PreferenceFragmentTitleProvider {
@@ -86,7 +86,7 @@ private fun SoftInputBehaviourPreferencesScreen() {
         modifier = Modifier.fillMaxSize()
             .verticalScroll(rememberScrollState())
             .selectableGroup()
-            .safeDrawingPadding(),
+            .padding(settingsContentPadding()),
     ) {
         SoftInputBehaviour.entries.forEachIndexed { index, behaviour ->
             if (index > 0) {

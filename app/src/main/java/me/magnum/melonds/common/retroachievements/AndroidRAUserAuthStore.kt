@@ -7,7 +7,8 @@ import me.magnum.rcheevosapi.model.RAUserAuth
 
 class AndroidRAUserAuthStore(private val sharedPreferences: SharedPreferences) : RAUserAuthStore {
 
-    private companion object {
+    companion object {
+        // Also listed in SettingsBackupFormat.KEPT_PREF_KEYS, so the login stays with this install
         const val USERNAME_KEY = "ra_username"
         const val TOKEN_KEY = "ra_token"
     }

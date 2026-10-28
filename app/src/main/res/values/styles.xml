@@ -44,7 +44,7 @@
         <item name="android:windowLightNavigationBar">@bool/lightNavigationBar</item>
         <item name="toolbarNavigationButtonStyle">@style/Toolbar.Button.Navigation</item>
         <item name="actionOverflowMenuStyle">@style/Menu.OverflowUnder</item>
-        <item name="preferenceTheme">@style/Preference</item>
+        <item name="preferenceTheme">@style/ThemeOverlay.MelonDS.Preference</item>
     </style>
 
     <!-- Applied on top of the activity theme by DynamicColors when dynamic colours are enabled -->
@@ -90,8 +90,8 @@
         <item name="android:windowEnterAnimation">@null</item>
     </style>
 
-    <style name="Preference" parent="@style/PreferenceThemeOverlay">
-        <item name="android:tint">@color/buttonContrasted</item>
+    <!-- Not named "Preference", which would replace the base style of the preference library's own Preference.* styles -->
+    <style name="ThemeOverlay.MelonDS.Preference" parent="@style/PreferenceThemeOverlay">
         <item name="preferenceStyle">@style/PreferenceCard</item>
         <item name="preferenceCategoryStyle">@style/PreferenceCard.Category</item>
         <item name="dialogPreferenceStyle">@style/PreferenceCard.Dialog</item>
@@ -99,9 +99,11 @@
         <item name="switchPreferenceStyle">@style/Preference.SwitchPreference.MaterialSwitch</item>
     </style>
 
-    <!-- Settings rows drawn as grouped cards. The row layouts set the card background and PreferenceCardDecoration rounds its corners -->
+    <!-- Settings rows drawn as grouped cards. The row layouts set the card background and PreferenceCardDecoration rounds its corners.
+         The rows have no icons, so no space is kept for one -->
     <style name="PreferenceCard" parent="@style/Preference.Material">
         <item name="android:layout">@layout/preference_card</item>
+        <item name="iconSpaceReserved">false</item>
     </style>
 
     <style name="PreferenceCard.Category" parent="@style/Preference.Category.Material">
@@ -112,16 +114,19 @@
 
     <style name="PreferenceCard.Dialog" parent="@style/Preference.DialogPreference.Material">
         <item name="android:layout">@layout/preference_card</item>
+        <item name="iconSpaceReserved">false</item>
     </style>
 
     <style name="PreferenceCard.EditText" parent="@style/Preference.DialogPreference.EditTextPreference.Material">
         <item name="android:layout">@layout/preference_card</item>
+        <item name="iconSpaceReserved">false</item>
     </style>
 
     <!-- Use M3 switches in the preference screens. The ids must match the ones expected by SwitchPreference -->
     <style name="Preference.SwitchPreference.MaterialSwitch" parent="@style/Preference.SwitchPreference.Material">
         <item name="android:layout">@layout/preference_card</item>
         <item name="android:widgetLayout">@layout/preference_widget_material_switch</item>
+        <item name="iconSpaceReserved">false</item>
     </style>
 
     <style name="Button.Ripple.Small" parent="android:Widget.ImageButton">

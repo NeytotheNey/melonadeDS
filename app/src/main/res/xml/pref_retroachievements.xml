@@ -6,8 +6,7 @@
 
         <Preference
             android:key="ra_login"
-            android:title="@string/login_with_retro_achievements"
-            app:iconSpaceReserved="false" />
+            android:title="@string/login_with_retro_achievements" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/settings_section_gameplay">
@@ -16,7 +15,6 @@
             android:key="ra_hardcore_enabled"
             android:title="@string/hardcore_mode"
             android:summary="@string/hardcore_mode_summary"
-            app:iconSpaceReserved="false"
             app:dependency="ra_login"
             android:defaultValue="false" />
 
@@ -24,7 +22,6 @@
             android:key="ra_rich_presence"
             android:title="@string/enable_rich_presence"
             android:summary="@string/rich_presence_summary"
-            app:iconSpaceReserved="false"
             android:defaultValue="true" />
     </PreferenceCategory>
 
@@ -34,7 +31,6 @@
             android:key="ra_active_challenge_indicators"
             android:title="@string/show_active_challenge_indicators"
             android:summary="@string/show_active_challenge_indicators_summary"
-            app:iconSpaceReserved="false"
             app:dependency="ra_login"
             android:defaultValue="true" />
 
@@ -42,7 +38,6 @@
             android:key="ra_progress_indicators"
             android:title="@string/show_progress_indicators"
             android:summary="@string/show_progress_indicators_summary"
-            app:iconSpaceReserved="false"
             app:dependency="ra_login"
             android:defaultValue="true" />
 
@@ -50,7 +45,6 @@
             android:key="ra_leaderboard_indicators"
             android:title="@string/show_leaderboard_indicators"
             android:summary="@string/show_leaderboard_indicators_summary"
-            app:iconSpaceReserved="false"
             app:dependency="ra_login"
             android:defaultValue="true" />
     </PreferenceCategory>

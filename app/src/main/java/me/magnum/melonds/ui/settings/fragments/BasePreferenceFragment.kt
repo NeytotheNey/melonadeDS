@@ -7,8 +7,10 @@ import android.view.ViewGroup
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
+import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceGroup
+import androidx.preference.SeekBarPreference
 import androidx.recyclerview.widget.RecyclerView
 import me.magnum.melonds.R
 import me.magnum.melonds.ui.settings.PreferenceCardDecoration
@@ -47,5 +49,13 @@ abstract class BasePreferenceFragment : PreferenceFragmentCompat() {
      */
     protected fun updateGroupVisibility(group: PreferenceGroup) {
         group.isVisible = (0 until group.preferenceCount).any { group.getPreference(it).isVisible }
+    }
+
+    /**
+     * Shows the value of [preference], formatted by [format], as its summary. The summary follows the saved value, so it doesn't have to be
+     * updated when the value changes.
+     */
+    protected fun setSliderSummary(preference: SeekBarPreference, format: (Int) -> String) {
+        preference.summaryProvider = Preference.SummaryProvider<SeekBarPreference> { format(it.value) }
     }
 }

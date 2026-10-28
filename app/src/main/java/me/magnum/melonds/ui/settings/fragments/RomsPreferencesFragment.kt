@@ -41,11 +41,9 @@ class RomsPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTitl
 
         helper.setupStoragePickerPreference(findPreference("rom_search_dirs")!!)
 
-        updateMaxCacheSizePreferenceSummary(cacheSizePreference, cacheSizePreference.value)
-
-        cacheSizePreference.setOnPreferenceChangeListener { preference, newValue ->
-            updateMaxCacheSizePreferenceSummary(preference as SeekBarPreference, newValue as Int)
-            true
+        setSliderSummary(cacheSizePreference) { cacheSizeStep ->
+            val cacheSize = SizeUnit.MB(128) * 2.toDouble().pow(cacheSizeStep).toLong()
+            SizeUtils.getBestSizeStringRepresentation(requireContext(), cacheSize)
         }
         clearRomCachePreference.setOnPreferenceClickListener {
             if (!viewModel.clearRomCache()) {
@@ -65,10 +63,5 @@ class RomsPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTitl
                 }
             }
         }
-    }
-
-    private fun updateMaxCacheSizePreferenceSummary(maxCacheSizePreference: SeekBarPreference, cacheSizeStep: Int) {
-        val cacheSize = SizeUnit.MB(128) * 2.toDouble().pow(cacheSizeStep).toLong()
-        maxCacheSizePreference.summary = SizeUtils.getBestSizeStringRepresentation(requireContext(), cacheSize)
     }
 }

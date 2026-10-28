@@ -4,9 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import androidx.preference.PreferenceManager
-
-private const val KEY_SNAP_TO_GRID = "layout_editor_snap_to_grid"
-private const val KEY_GRID_SIZE = "layout_editor_grid_size"
+import me.magnum.melonds.common.PreferenceKeys
 
 enum class LayoutEditorGridSize(val dp: Int) {
     SMALL(16),
@@ -21,15 +19,15 @@ class LayoutEditorGridSettings(context: Context) {
     private val preferences = PreferenceManager.getDefaultSharedPreferences(context)
 
     var isSnapEnabled: Boolean
-        get() = preferences.getBoolean(KEY_SNAP_TO_GRID, false)
-        set(value) = preferences.edit { putBoolean(KEY_SNAP_TO_GRID, value) }
+        get() = preferences.getBoolean(PreferenceKeys.LAYOUT_EDITOR_SNAP_TO_GRID, false)
+        set(value) = preferences.edit { putBoolean(PreferenceKeys.LAYOUT_EDITOR_SNAP_TO_GRID, value) }
 
     var gridSize: LayoutEditorGridSize
         get() {
-            val name = preferences.getString(KEY_GRID_SIZE, null)
+            val name = preferences.getString(PreferenceKeys.LAYOUT_EDITOR_GRID_SIZE, null)
             return LayoutEditorGridSize.entries.firstOrNull { it.name == name } ?: LayoutEditorGridSize.MEDIUM
         }
-        set(value) = preferences.edit { putString(KEY_GRID_SIZE, value.name) }
+        set(value) = preferences.edit { putString(PreferenceKeys.LAYOUT_EDITOR_GRID_SIZE, value.name) }
 
     /**
      * Calls [onChanged] whenever the setting changes. The returned listener must be kept and passed to [removeListener] later, since the
@@ -37,7 +35,7 @@ class LayoutEditorGridSettings(context: Context) {
      */
     fun addListener(onChanged: () -> Unit): SharedPreferences.OnSharedPreferenceChangeListener {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == KEY_SNAP_TO_GRID || key == KEY_GRID_SIZE) {
+            if (key == PreferenceKeys.LAYOUT_EDITOR_SNAP_TO_GRID || key == PreferenceKeys.LAYOUT_EDITOR_GRID_SIZE) {
                 onChanged()
             }
         }

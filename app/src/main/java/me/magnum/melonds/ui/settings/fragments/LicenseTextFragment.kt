@@ -5,14 +5,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.annotation.StringRes
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.add
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -30,6 +24,7 @@ import androidx.fragment.app.Fragment
 import com.mikepenz.aboutlibraries.ui.compose.android.produceLibraries
 import me.magnum.melonds.R
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
+import me.magnum.melonds.ui.settings.settingsContentPadding
 import me.magnum.melonds.ui.theme.MelonTheme
 
 /**
@@ -82,10 +77,7 @@ private fun LicenseTextScreen(licenseHash: String?) {
     SelectionContainer {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = WindowInsets.safeDrawing
-                .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
-                .add(WindowInsets(left = 16.dp, top = 8.dp, right = 16.dp, bottom = 16.dp))
-                .asPaddingValues(),
+            contentPadding = settingsContentPadding(left = 16.dp, top = 8.dp, right = 16.dp, bottom = 16.dp),
         ) {
             items(paragraphs) {
                 Text(

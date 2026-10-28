@@ -58,9 +58,10 @@ class AndroidRetroAchievementsRepository(
     private val context: Context,
 ) : RetroAchievementsRepository {
 
-    private companion object {
+    companion object {
+        // Also listed in SettingsBackupFormat.KEPT_PREF_KEYS, since the hash database isn't part of a backup
         const val RA_HASH_LIBRARY_LAST_UPDATED = "ra_hash_library_last_updated"
-        const val PENDING_ACHIEVEMENT_SUBMISSION_WORKER_NAME = "ra_pending_achievement_submission_worker"
+        private const val PENDING_ACHIEVEMENT_SUBMISSION_WORKER_NAME = "ra_pending_achievement_submission_worker"
     }
 
     override suspend fun isUserAuthenticated(): Boolean {

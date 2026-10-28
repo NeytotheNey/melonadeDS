@@ -6,26 +6,28 @@ import android.net.Uri
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.documentfile.provider.DocumentFile
 import com.google.gson.Gson
+import com.google.gson.JsonElement
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.json.Json
-import me.magnum.melonds.impl.PendingSettingsRestore.Companion.CONTROLLER_FILE
-import me.magnum.melonds.impl.PendingSettingsRestore.Companion.DATA_FILES
-import me.magnum.melonds.impl.PendingSettingsRestore.Companion.KEPT_PREF_KEYS
-import me.magnum.melonds.impl.PendingSettingsRestore.Companion.LAST_VERSION_KEY
-import me.magnum.melonds.impl.PendingSettingsRestore.Companion.LAYOUTS_FILE
-import me.magnum.melonds.impl.PendingSettingsRestore.Companion.READY_MARKER
-import me.magnum.melonds.impl.PendingSettingsRestore.Companion.ROM_DATA_FILE
-import me.magnum.melonds.impl.PendingSettingsRestore.Companion.SETTINGS_FILE
-import me.magnum.melonds.impl.PendingSettingsRestore.Companion.STAGING_DIR
-import me.magnum.melonds.impl.PendingSettingsRestore.Companion.getBackupLong
-import me.magnum.melonds.impl.PendingSettingsRestore.Companion.preferencesToJson
+import me.magnum.melonds.impl.SettingsBackupFormat.CONTROLLER_FILE
+import me.magnum.melonds.impl.SettingsBackupFormat.DATA_FILES
+import me.magnum.melonds.impl.SettingsBackupFormat.KEPT_PREF_KEYS
+import me.magnum.melonds.impl.SettingsBackupFormat.LAST_VERSION_KEY
+import me.magnum.melonds.impl.SettingsBackupFormat.LAYOUTS_FILE
+import me.magnum.melonds.impl.SettingsBackupFormat.READY_MARKER
+import me.magnum.melonds.impl.SettingsBackupFormat.ROM_DATA_FILE
+import me.magnum.melonds.impl.SettingsBackupFormat.SETTINGS_FILE
+import me.magnum.melonds.impl.SettingsBackupFormat.STAGING_DIR
+import me.magnum.melonds.impl.SettingsBackupFormat.getBackupLong
+import me.magnum.melonds.impl.SettingsBackupFormat.preferencesToJson
 import me.magnum.melonds.impl.dtos.input.ControllerConfigurationDto
 import me.magnum.melonds.impl.dtos.layout.LayoutConfigurationDto
 import me.magnum.melonds.impl.dtos.rom.RomDto
 import me.magnum.melonds.utils.PackageManagerCompat
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -78,11 +80,7 @@ class SettingsBackupManager @Inject constructor(
 
         // Read and check every file first, so a missing or broken file never gets staged
         val settingsText = readDocument(root, SETTINGS_FILE) ?: throw FileNotFoundException("$SETTINGS_FILE not found in the selected folder")
-        // JSONObject ignores anything after the object, so check that the whole file is a single object first
-        if (!parseWholeDocument(settingsText).isJsonObject) {
-            throw IOException("$SETTINGS_FILE is not a JSON object")
-        }
-        val settingsJson = JSONObject(settingsText)
+        val settingsJson = parseSettings(settingsText)
 
         val currentVersion = getCurrentVersion()
         // A backup without a version is treated as being in the current format
@@ -122,6 +120,12 @@ class SettingsBackupManager @Inject constructor(
      * migrations understand, so for those only the JSON itself is checked.
      */
     private fun validateDataFile(fileName: String, text: String, isCurrentFormat: Boolean) {
+        if (fileName == CONTROLLER_FILE && isCurrentFormat) {
+            // Read with kotlinx like SharedPreferencesSettingsRepository does, which also fails if the file isn't a single object
+            json.decodeFromString<ControllerConfigurationDto>(text).toControllerConfiguration()
+            return
+        }
+
         val document = parseWholeDocument(text)
         val expectedStructure = if (fileName == CONTROLLER_FILE) document.isJsonObject else document.isJsonArray
         if (!expectedStructure) {
@@ -131,9 +135,9 @@ class SettingsBackupManager @Inject constructor(
             return
         }
 
-        // The same parsers and DTOs as SharedPreferencesSettingsRepository, InternalLayoutsRepository and FileSystemRomsRepository
+        // The same parser and DTOs as InternalLayoutsRepository and FileSystemRomsRepository. They read the text, not the parsed document, because
+        // Gson's tree path quietly truncates numbers that the text path rejects
         when (fileName) {
-            CONTROLLER_FILE -> json.decodeFromString<ControllerConfigurationDto>(text).toControllerConfiguration()
             LAYOUTS_FILE -> {
                 val layoutListType = object : TypeToken<List<LayoutConfigurationDto>>() {}.type
                 val layouts = gson.fromJson<List<LayoutConfigurationDto>>(text, layoutListType) ?: throw IOException("$fileName is empty")
@@ -148,9 +152,23 @@ class SettingsBackupManager @Inject constructor(
     }
 
     /**
+     * Parses settings.json with the same parser [PendingSettingsRestore] applies it with, so anything it would reject fails here instead. The
+     * parser stops after the object, so it also checks that nothing other than whitespace comes after it.
+     */
+    private fun parseSettings(text: String): JSONObject {
+        val tokener = JSONTokener(text)
+        val settingsJson = tokener.nextValue() as? JSONObject ?: throw IOException("$SETTINGS_FILE is not a JSON object")
+        // nextClean() skips whitespace and returns the null character once the text has been read to the end
+        if (tokener.nextClean() != '\u0000') {
+            throw IOException("$SETTINGS_FILE has more than one JSON value")
+        }
+        return settingsJson
+    }
+
+    /**
      * Parses [text] as one JSON document and fails if anything other than whitespace comes after it, like Gson and kotlinx do.
      */
-    private fun parseWholeDocument(text: String) = JsonParser.parseString(text)
+    private fun parseWholeDocument(text: String): JsonElement = JsonParser.parseString(text)
 
     private fun getCurrentVersion(): Long {
         val packageInfo = PackageManagerCompat.getPackageInfo(context.packageManager, context.packageName, 0)

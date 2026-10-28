@@ -9,7 +9,6 @@
         <SwitchPreference
                 android:key="use_rom_dir"
                 android:title="@string/save_next_rom"
-                app:iconSpaceReserved="false"
                 android:defaultValue="true"
                 android:disableDependentsState="true" />
 
@@ -18,7 +17,6 @@
                 android:title="@string/save_file_directory"
                 android:dependency="use_rom_dir"
                 android:widgetLayout="@layout/preference_widget_chevron"
-                app:iconSpaceReserved="false"
                 app:type="directory"
                 app:permissions="read_write"
                 app:persistPermissions="true" />
@@ -30,7 +28,6 @@
                 android:key="save_state_location"
                 android:title="@string/save_state_location"
                 android:summary="%s"
-                app:iconSpaceReserved="false"
                 android:entries="@array/save_state_locations"
                 android:entryValues="@array/save_state_location_values"
                 android:defaultValue="save_dir" />
@@ -42,7 +39,6 @@
                 android:key="enable_rewind"
                 android:title="@string/rewind"
                 android:summaryOff="@string/rewind_description"
-                app:iconSpaceReserved="false"
                 android:defaultValue="false" />
 
         <!-- Each step represents 1 second -->
@@ -53,8 +49,7 @@
                 app:min="1"
                 android:max="60"
                 android:defaultValue="10"
-                app:updatesContinuously="true"
-                app:iconSpaceReserved="false" />
+                app:updatesContinuously="true" />
 
         <!-- Each step represents 10 seconds. Min: 10 sec, max: 5 min. Default: 1 min -->
         <me.magnum.melonds.ui.settings.preferences.SliderPreference
@@ -64,15 +59,13 @@
                 app:min="1"
                 android:max="30"
                 android:defaultValue="6"
-                app:updatesContinuously="true"
-                app:iconSpaceReserved="false" />
+                app:updatesContinuously="true" />
 
         <!--Only used to display information (max. memory usage) -->
         <Preference
                 android:key="rewind_info"
                 android:dependency="enable_rewind"
                 android:selectable="false"
-                app:iconSpaceReserved="false"
                 tools:summary="Max. memory usage: 100MB" />
 
         <ListPreference
@@ -80,7 +73,6 @@
                 android:title="@string/rewind_window_position"
                 android:dependency="enable_rewind"
                 android:summary="%s"
-                app:iconSpaceReserved="false"
                 android:entries="@array/rewind_window_position_options"
                 android:entryValues="@array/rewind_window_position_values"
                 android:defaultValue="bottom" />

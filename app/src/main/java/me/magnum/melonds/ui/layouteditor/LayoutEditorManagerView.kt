@@ -33,6 +33,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.squareup.picasso.Callback
 import com.squareup.picasso.Picasso
 import me.magnum.melonds.R
+import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.databinding.DialogLayoutEditorGridBinding
 import me.magnum.melonds.databinding.ViewLayoutEditorManagerBinding
 import me.magnum.melonds.domain.model.RuntimeBackground
@@ -53,7 +54,6 @@ import java.util.UUID
 import kotlin.math.max
 
 private const val FLOATING_MENU_BUTTON_IDLE_ALPHA = 0.6f
-private const val FLOATING_MENU_BUTTON_KEY_PREFIX = "layout_editor_menu_button"
 
 class LayoutEditorManagerView(
     private val layoutTarget: LayoutTarget,
@@ -376,7 +376,7 @@ class LayoutEditorManagerView(
     private fun getFloatingMenuButtonKeyPrefix(): String {
         val orientation = if (binding.root.width > binding.root.height) "landscape" else "portrait"
         val target = if (layoutTarget == LayoutTarget.SECONDARY_SCREEN) "_external" else ""
-        return "${FLOATING_MENU_BUTTON_KEY_PREFIX}${target}_$orientation"
+        return "${PreferenceKeys.LAYOUT_EDITOR_MENU_BUTTON_PREFIX}${target}_$orientation"
     }
 
     private fun openMenu() {

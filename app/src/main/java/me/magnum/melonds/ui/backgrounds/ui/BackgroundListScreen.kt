@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -109,20 +108,18 @@ fun BackgroundListScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
-                TopAppBar(
-                    title = { Text(stringResource(R.string.backgrounds)) },
-                    navigationIcon = {
-                        IconButton(onClick = onBackClick) {
-                            Icon(
-                                painter = rememberVectorPainter(Icons.AutoMirrored.Filled.ArrowBack),
-                                contentDescription = null,
-                            )
-                        }
-                    },
-                    windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
-                )
-            }
+            TopAppBar(
+                title = { Text(stringResource(R.string.backgrounds)) },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(
+                            painter = rememberVectorPainter(Icons.AutoMirrored.Filled.ArrowBack),
+                            contentDescription = null,
+                        )
+                    }
+                },
+                windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
+            )
         },
         floatingActionButton = {
             // Manually apply navigation bar insets due to a bug in Scaffold. Scaffold does not apply horizontal insets to FABs

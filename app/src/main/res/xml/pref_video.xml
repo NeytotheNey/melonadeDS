@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PreferenceScreen
-        xmlns:android="http://schemas.android.com/apk/res/android"
-        xmlns:app="http://schemas.android.com/apk/res-auto">
+        xmlns:android="http://schemas.android.com/apk/res/android">
 
     <PreferenceCategory
             android:key="category_display_3d_rendering"
@@ -11,7 +10,6 @@
                 android:key="video_renderer"
                 android:title="@string/renderer"
                 android:summary="%s"
-                app:iconSpaceReserved="false"
                 android:entries="@array/video_renderer_options"
                 android:entryValues="@array/video_renderer_values"
                 android:defaultValue="software"/>
@@ -20,7 +18,6 @@
                 android:key="video_internal_resolution"
                 android:title="@string/internal_resolution"
                 android:summary="%s"
-                app:iconSpaceReserved="false"
                 android:entries="@array/video_internal_resolution_options"
                 android:entryValues="@array/video_internal_resolution_values"
                 android:defaultValue="1"/>
@@ -32,7 +29,6 @@
                 android:key="video_filtering"
                 android:title="@string/filter"
                 android:summary="%s"
-                app:iconSpaceReserved="false"
                 android:entries="@array/video_filtering_options"
                 android:entryValues="@array/video_filtering_values"
                 android:defaultValue="none"/>
@@ -40,14 +36,12 @@
         <SwitchPreference
                 android:key="video_ds_screen_colors"
                 android:title="@string/ds_screen_colors"
-                app:iconSpaceReserved="false"
                 android:defaultValue="false" />
 
         <SwitchPreference
                 android:key="video_screen_shadow"
                 android:title="@string/screen_shadow"
                 android:summary="@string/screen_shadow_summary"
-                app:iconSpaceReserved="false"
                 android:defaultValue="false" />
     </PreferenceCategory>
 
@@ -57,14 +51,12 @@
                 android:key="frame_pacing_vsync"
                 android:title="@string/frame_pacing_vsync"
                 android:summary="@string/frame_pacing_vsync_summary"
-                app:iconSpaceReserved="false"
                 android:defaultValue="true" />
 
         <SwitchPreference
                 android:key="frame_pacing_lock_60hz"
                 android:title="@string/frame_pacing_lock_60hz"
                 android:summary="@string/frame_pacing_lock_60hz_summary"
-                app:iconSpaceReserved="false"
                 android:defaultValue="true" />
 
         <SwitchPreference
@@ -72,7 +64,6 @@
                 android:title="@string/frame_pacing_buffer"
                 android:summary="@string/frame_pacing_buffer_summary"
                 android:dependency="frame_pacing_vsync"
-                app:iconSpaceReserved="false"
                 android:defaultValue="true" />
     </PreferenceCategory>
 
@@ -82,7 +73,6 @@
                 android:key="fps_counter_position"
                 android:title="@string/fps_counter_position"
                 android:summary="%s"
-                app:iconSpaceReserved="false"
                 android:entries="@array/fps_counter_position_options"
                 android:entryValues="@array/fps_counter_position_values"
                 android:defaultValue="hidden" />
@@ -91,7 +81,6 @@
                 android:key="show_status_bar"
                 android:title="@string/show_status_bar"
                 android:summary="@string/show_status_bar_summary"
-                app:iconSpaceReserved="false"
                 android:defaultValue="false" />
     </PreferenceCategory>
 </PreferenceScreen>

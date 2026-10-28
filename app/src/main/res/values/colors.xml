@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- M3 colour scheme generated from the melonDS red (#F44336). Keep in sync with LightMelonColors in ui/theme/Colors.kt -->
+    <!-- M3 colour scheme generated from the melonDS red (#F44336). The Compose colour scheme in ui/theme/Colors.kt is built from these -->
     <color name="m3Primary">#B81311</color>
     <color name="m3OnPrimary">#FFFFFF</color>
     <color name="m3PrimaryContainer">#DC3128</color>
@@ -36,26 +36,16 @@
     <color name="m3SurfaceContainerLow">#FFF0EE</color>
     <color name="m3SurfaceContainerLowest">#FFFFFF</color>
 
-    <color name="colorPrimary">#f44336</color>
-    <color name="colorOnPrimary">#fff</color>
-
-    <color name="textColorPrimary">#DD000000</color>
-
-    <color name="romConfigButtonDefault">#555</color>
-
-    <color name="buttonContrasted">#D000</color>
-
     <color name="textLayoutEditor">@android:color/black</color>
     <color name="layoutEditorPanelBackground">#AFFF</color>
-
-    <color name="melonMain">#5C913B</color>
 
     <!-- Launcher icon. The nightly flavour overrides the liquid colours -->
     <color name="launcherBackground">#FFD54A</color>
     <color name="launcherLiquid">#FF6B7A</color>
     <color name="launcherLiquidTop">#FF95A0</color>
 
-    <color name="splashBackground">@color/colorPrimary</color>
+    <!-- The M3 colours closest to the old splash colours: #F44336, and #333 in dark mode -->
+    <color name="splashBackground">@color/m3PrimaryContainer</color>
 
     <color name="statusOk">#4A4</color>
     <color name="statusWarn">#FF9800</color>

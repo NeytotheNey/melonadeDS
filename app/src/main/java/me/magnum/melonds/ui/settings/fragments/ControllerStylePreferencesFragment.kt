@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -47,10 +46,13 @@ import androidx.fragment.app.Fragment
 import androidx.preference.PreferenceManager
 import dagger.hilt.android.AndroidEntryPoint
 import me.magnum.melonds.R
+import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.common.vibration.TouchVibrator
 import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.Point
 import me.magnum.melonds.domain.model.input.ControllerStyle
+import me.magnum.melonds.domain.model.layout.LayoutComponent
+import me.magnum.melonds.ui.common.componentbuilders.SingleButtonIcons
 import me.magnum.melonds.ui.common.view.RaisedButtonView
 import me.magnum.melonds.ui.common.view.RaisedButtons
 import me.magnum.melonds.ui.emulator.input.ButtonsInputHandler
@@ -58,7 +60,9 @@ import me.magnum.melonds.ui.emulator.input.DpadInputHandler
 import me.magnum.melonds.ui.emulator.input.IInputListener
 import me.magnum.melonds.ui.emulator.input.SingleButtonInputHandler
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
+import me.magnum.melonds.ui.settings.settingsContentPadding
 import me.magnum.melonds.ui.theme.MelonTheme
+import me.magnum.melonds.utils.enumValueOfIgnoreCaseOrNull
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -84,9 +88,6 @@ class ControllerStylePreferencesFragment : Fragment(), PreferenceFragmentTitlePr
 private fun ControllerStylePreferencesScreen(touchVibrator: TouchVibrator) {
     val context = LocalContext.current
     val resources = LocalResources.current
-    val styleValues = remember {
-        resources.getStringArray(R.array.controller_style)
-    }
     val styleNames = remember {
         resources.getStringArray(R.array.controller_style_options)
     }
@@ -94,14 +95,15 @@ private fun ControllerStylePreferencesScreen(touchVibrator: TouchVibrator) {
         PreferenceManager.getDefaultSharedPreferences(context)
     }
     var selectedStyle by remember(sharedPreferences) {
-        val initialPreference = sharedPreferences.getString("input_controller_style", "classic")
-        val initialStyle = ControllerStyle.entries.getOrElse(styleValues.indexOf(initialPreference)) { ControllerStyle.CLASSIC }
+        // Saved as the lowercase name of the style, like SharedPreferencesSettingsRepository reads it. An unknown value falls back to the default
+        val initialPreference = sharedPreferences.getString(PreferenceKeys.INPUT_CONTROLLER_STYLE, null)
+        val initialStyle = enumValueOfIgnoreCaseOrNull<ControllerStyle>(initialPreference) ?: ControllerStyle.CLASSIC
         mutableStateOf(initialStyle)
     }
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(150.dp),
-        modifier = Modifier.fillMaxSize().safeDrawingPadding(),
+        modifier = Modifier.fillMaxSize().padding(settingsContentPadding()),
         contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -115,7 +117,7 @@ private fun ControllerStylePreferencesScreen(touchVibrator: TouchVibrator) {
                 onClick = {
                     selectedStyle = style
                     sharedPreferences.edit {
-                        putString("input_controller_style", styleValues[index])
+                        putString(PreferenceKeys.INPUT_CONTROLLER_STYLE, style.name.lowercase())
                     }
                 },
             )
@@ -188,8 +190,8 @@ private fun ControllerPreview(
             modifier = Modifier.align(Alignment.TopCenter).offset(y = margin),
             horizontalArrangement = Arrangement.spacedBy(maxWidth * 0.02f),
         ) {
-            PreviewButton(Modifier.size(smallButtonSize), touchVibrator, { singleButtonHandler(Input.PAUSE, it) }) { RaisedButtons.iconButton(it, style, R.drawable.ic_settings) }
-            PreviewButton(Modifier.size(smallButtonSize), touchVibrator, { singleButtonHandler(Input.FAST_FORWARD, it) }) { RaisedButtons.iconButton(it, style, R.drawable.ic_button_fast_forward) }
+            PreviewButton(Modifier.size(smallButtonSize), touchVibrator, { singleButtonHandler(Input.PAUSE, it) }) { RaisedButtons.iconButton(it, style, SingleButtonIcons.icon(LayoutComponent.BUTTON_PAUSE)) }
+            PreviewButton(Modifier.size(smallButtonSize), touchVibrator, { singleButtonHandler(Input.FAST_FORWARD, it) }) { RaisedButtons.iconButton(it, style, SingleButtonIcons.icon(LayoutComponent.BUTTON_FAST_FORWARD_TOGGLE)) }
         }
         PreviewButton(Modifier.align(Alignment.BottomStart).offset(margin, -margin * 1.5f).size(padSize), touchVibrator, { DpadInputHandler(NoOpInputListener, false, it, 0f) }) { RaisedButtons.dpad(it, style) }
         PreviewButton(Modifier.align(Alignment.BottomEnd).offset(-margin, -margin * 1.5f).size(padSize), touchVibrator, { ButtonsInputHandler(NoOpInputListener, false, it, 0f) }) { RaisedButtons.abxy(it, style) }

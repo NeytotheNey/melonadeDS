@@ -10,6 +10,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
+import androidx.fragment.app.Fragment
 import androidx.fragment.app.commit
 import androidx.fragment.app.commitNow
 import androidx.preference.Preference
@@ -106,11 +107,18 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
             arguments = pref.extras
         }
 
+        showPage(fragment)
+        return true
+    }
+
+    /**
+     * Opens [fragment] as a new settings page on top of the current one. Back returns to the current page.
+     */
+    fun showPage(fragment: Fragment) {
         supportFragmentManager.commit {
             setCustomAnimations(R.anim.fragment_translate_enter_push, R.anim.fragment_translate_exit_push, R.anim.fragment_translate_enter_pop, R.anim.fragment_translate_exit_pop)
             replace(binding.settingsContainer.id, fragment)
             addToBackStack(null)
         }
-        return true
     }
 }

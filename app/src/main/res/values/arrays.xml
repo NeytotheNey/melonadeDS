@@ -91,6 +91,8 @@
         <item>device</item>
     </string-array>
 
+    <!-- Saved values of input_controller_style: the lowercase names of ControllerStyle, in the same order. Already saved on devices, so never
+         change them -->
     <string-array name="controller_style">
         <item>classic</item>
         <item>ds_lite</item>

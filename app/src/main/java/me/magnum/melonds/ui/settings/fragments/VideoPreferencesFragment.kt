@@ -9,6 +9,7 @@ import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
 import dagger.hilt.android.AndroidEntryPoint
 import me.magnum.melonds.R
+import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.domain.model.VideoRenderer
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
 import me.magnum.melonds.utils.enumValueOfIgnoreCase
@@ -26,7 +27,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.pref_video, rootKey)
-        renderingCategory = findPreference("category_display_3d_rendering")!!
+        renderingCategory = findPreference(PreferenceKeys.CATEGORY_DISPLAY_3D_RENDERING)!!
 
         internalResolutionPreference = findPreference("video_internal_resolution")!!
 

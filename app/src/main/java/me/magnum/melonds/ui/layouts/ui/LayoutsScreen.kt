@@ -3,7 +3,6 @@ package me.magnum.melonds.ui.layouts.ui
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
@@ -149,28 +147,26 @@ private fun LayoutsScreenContent(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            Box(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
-                TopAppBar(
-                    navigationIcon = {
-                        IconButton(onClick = onBackClick) {
-                            Icon(
-                                painter = rememberVectorPainter(Icons.AutoMirrored.Filled.ArrowBack),
-                                contentDescription = stringResource(R.string.navigate_back),
-                            )
-                        }
-                    },
-                    title = { Text(stringResource(R.string.layouts)) },
-                    windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
-                    actions = {
-                        IconButton(onClick = onCreateLayout) {
-                            Icon(
-                                painter = rememberVectorPainter(Icons.Default.Add),
-                                contentDescription = stringResource(R.string.action_layouts_new),
-                            )
-                        }
-                    },
-                )
-            }
+            TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(
+                            painter = rememberVectorPainter(Icons.AutoMirrored.Filled.ArrowBack),
+                            contentDescription = stringResource(R.string.navigate_back),
+                        )
+                    }
+                },
+                title = { Text(stringResource(R.string.layouts)) },
+                windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
+                actions = {
+                    IconButton(onClick = onCreateLayout) {
+                        Icon(
+                            painter = rememberVectorPainter(Icons.Default.Add),
+                            contentDescription = stringResource(R.string.action_layouts_new),
+                        )
+                    }
+                },
+            )
         },
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets.safeDrawing,

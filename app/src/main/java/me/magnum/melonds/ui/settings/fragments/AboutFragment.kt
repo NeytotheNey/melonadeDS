@@ -14,17 +14,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.add
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -54,10 +48,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.commit
 import me.magnum.melonds.BuildConfig
 import me.magnum.melonds.R
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
+import me.magnum.melonds.ui.settings.SettingsActivity
+import me.magnum.melonds.ui.settings.settingsContentPadding
 import me.magnum.melonds.ui.theme.MelonTheme
 
 private const val SOURCE_CODE_URL = "https://github.com/NeytotheNey/melonadeDS"
@@ -74,6 +69,9 @@ class AboutFragment : Fragment(), PreferenceFragmentTitleProvider {
         const val GPL_LICENSE_HASH = "GPL-3.0-only"
     }
 
+    // About is only shown in SettingsActivity
+    private val settingsActivity get() = requireActivity() as SettingsActivity
+
     override fun getTitle() = getString(R.string.settings_about)
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -82,24 +80,13 @@ class AboutFragment : Fragment(), PreferenceFragmentTitleProvider {
             setContent {
                 MelonTheme {
                     AboutScreen(
-                        onOpenGplClick = { showPage(LicenseTextFragment.newInstance(GPL_LICENSE_HASH, R.string.about_gpl)) },
-                        onOpenSourceLicensesClick = { showPage(OpenSourceLicensesFragment()) },
+                        onOpenGplClick = { settingsActivity.showPage(LicenseTextFragment.newInstance(GPL_LICENSE_HASH, R.string.about_gpl)) },
+                        onOpenSourceLicensesClick = { settingsActivity.showPage(OpenSourceLicensesFragment()) },
                         onSourceCodeClick = { openUrl(SOURCE_CODE_URL) },
                         onUpstreamSourceCodeClick = { openUrl(UPSTREAM_SOURCE_CODE_URL) },
                     )
                 }
             }
-        }
-    }
-
-    /**
-     * Opens [fragment] on top of this page, the same way SettingsActivity opens the pages of the preference screens.
-     */
-    private fun showPage(fragment: Fragment) {
-        parentFragmentManager.commit {
-            setCustomAnimations(R.anim.fragment_translate_enter_push, R.anim.fragment_translate_exit_push, R.anim.fragment_translate_enter_pop, R.anim.fragment_translate_exit_pop)
-            replace(id, fragment)
-            addToBackStack(null)
         }
     }
 
@@ -121,10 +108,7 @@ private fun AboutScreen(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = WindowInsets.safeDrawing
-            .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
-            .add(WindowInsets(left = 16.dp, top = 8.dp, right = 16.dp, bottom = 16.dp))
-            .asPaddingValues(),
+        contentPadding = settingsContentPadding(left = 16.dp, top = 8.dp, right = 16.dp, bottom = 16.dp),
     ) {
         item {
             AppHeader()
