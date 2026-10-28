@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.sp
 import me.magnum.melonds.R
 import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.contracts.DirectoryPickerContract
-import me.magnum.melonds.ui.common.melonButtonColors
 import me.magnum.melonds.ui.theme.MelonTheme
 
 private val DOCUMENT_PICKER_PACKAGES = listOf(
@@ -166,7 +165,6 @@ private fun NoDirectoriesLayout(
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = onButtonClick,
-                    colors = melonButtonColors(),
                 ) {
                     Text(text = buttonText)
                 }

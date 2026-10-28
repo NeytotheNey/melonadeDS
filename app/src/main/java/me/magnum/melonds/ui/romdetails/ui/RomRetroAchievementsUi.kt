@@ -53,7 +53,6 @@ import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.retroachievements.RAUserAchievement
 import me.magnum.melonds.ui.common.MelonPreviewSet
 import me.magnum.melonds.ui.common.achievements.ui.model.AchievementUiModel
-import me.magnum.melonds.ui.common.melonButtonColors
 import me.magnum.melonds.ui.romdetails.model.AchievementBucketUiModel
 import me.magnum.melonds.ui.romdetails.model.AchievementSetUiModel
 import me.magnum.melonds.ui.romdetails.model.RomAchievementsSummary
@@ -126,7 +125,6 @@ private fun LoggedOut(
 
             Button(
                 onClick = { showLoginPopup = true },
-                colors = melonButtonColors(),
             ) {
                 Text(
                     text = stringResource(id = R.string.login_with_retro_achievements).uppercase(),
@@ -335,7 +333,6 @@ private fun LoginError(
 
             Button(
                 onClick = { showLoginPopup = true },
-                colors = melonButtonColors(),
             ) {
                 Text(text = stringResource(id = R.string.login_with_retro_achievements).uppercase())
             }
@@ -374,7 +371,6 @@ private fun LoadError(
 
             Button(
                 onClick = onRetry,
-                colors = melonButtonColors(),
             ) {
                 Text(text = stringResource(id = R.string.retry).uppercase())
             }

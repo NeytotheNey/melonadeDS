@@ -31,7 +31,6 @@ import me.magnum.melonds.domain.model.appupdate.AppUpdate
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.impl.PendingSettingsRestore
 import me.magnum.melonds.parcelables.RomParcelable
-import me.magnum.melonds.ui.common.melonTextButtonColors
 import me.magnum.melonds.ui.common.rom.EmulatorLaunchValidatorDelegate
 import me.magnum.melonds.ui.dsiwaremanager.DSiWareManagerActivity
 import me.magnum.melonds.ui.emulator.EmulatorActivity
@@ -202,7 +201,6 @@ class RomListActivity : AppCompatActivity() {
                         confirmButton = {
                             TextButton(
                                 onClick = { showInvalidDirectoryDialog = false },
-                                colors = melonTextButtonColors(),
                             ) {
                                 Text(stringResource(R.string.ok).uppercase())
                             }
@@ -219,7 +217,6 @@ class RomListActivity : AppCompatActivity() {
                         confirmButton = {
                             TextButton(
                                 onClick = { restoreResultToShow = null },
-                                colors = melonTextButtonColors(),
                             ) {
                                 Text(stringResource(R.string.ok).uppercase())
                             }

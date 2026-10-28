@@ -4,7 +4,6 @@ import android.Manifest
 import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.preference.ListPreference
-import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SeekBarPreference
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import me.magnum.melonds.R

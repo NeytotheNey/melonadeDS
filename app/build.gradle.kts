@@ -46,6 +46,10 @@ android {
             }
         }
     }
+    androidResources {
+        // The app is English only. This also drops the translations that libraries bring in.
+        localeFilters += listOf("en")
+    }
     buildFeatures {
         viewBinding = true
         compose = true

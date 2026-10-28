@@ -331,7 +331,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         val top = screenYToViewportY(rect.y)
         val bottom = screenYToViewportY(rect.y + rect.height)
 
-        // TODO: Apply rotation, like in ExternalScreenRender. Apply to background as well. Rename this class to something more generic
+        // TODO: Apply rotation. Apply to background as well. Rename this class to something more generic
         return floatArrayOf(
             // Position    UVs               Alpha
             left, bottom,  uvs[0], uvs[1],   alpha,

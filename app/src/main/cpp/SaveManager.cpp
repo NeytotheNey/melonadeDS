@@ -204,67 +204,54 @@ void SaveManager::run()
     }
 }
 
-bool SaveManager::FlushSecondaryBuffer(u8* dst, u32 dstLength)
+bool SaveManager::FlushSecondaryBuffer()
 {
-    if (!SecondaryBuffer) return dst == nullptr;
+    if (!SecondaryBuffer) return true;
 
-    // When flushing to a file, there's no point in re-writing the exact same data.
-    if (!dst && !NeedsFlush()) return true;
-    // When flushing to memory, we don't know if dst already has any data so we only check that we CAN flush.
-    if (dst && dstLength < SecondaryBufferLength) return false;
+    // There's no point in re-writing the exact same data.
+    if (!NeedsFlush()) return true;
 
     bool flushed = true;
 
     Platform::Mutex_Lock(FlushLock);
-    if (dst)
+    // Only hold SecondaryBufferLock long enough to snapshot the data. Holding it during
+    // the file write would stall the emulator thread in CheckFlush() on slow storage.
+    Platform::Mutex_Lock(SecondaryBufferLock);
+    if (WriteBufferLength != SecondaryBufferLength)
     {
-        Platform::Mutex_Lock(SecondaryBufferLock);
-        memcpy(dst, SecondaryBuffer.get(), SecondaryBufferLength);
-        PreviousFlushVersion = FlushVersion;
-        TimeAtLastFlushRequest = 0;
-        Platform::Mutex_Unlock(SecondaryBufferLock);
+        WriteBufferLength = SecondaryBufferLength;
+        WriteBuffer = std::make_unique<u8[]>(WriteBufferLength);
+    }
+
+    memcpy(WriteBuffer.get(), SecondaryBuffer.get(), WriteBufferLength);
+    u32 version = FlushVersion;
+    Platform::Mutex_Unlock(SecondaryBufferLock);
+
+    FileHandle* f = Platform::OpenFile(Path, FileMode::Write);
+    if (f)
+    {
+        bool written = FileWrite(WriteBuffer.get(), WriteBufferLength, 1, f) == 1;
+        // Always close the file, even after a short write. A failed close can also mean lost data.
+        bool closed = CloseFile(f);
+        flushed = written && closed;
+        if (flushed)
+            Log(LogLevel::Info, "SaveManager: Wrote %u bytes to %s\n", WriteBufferLength, Path.c_str());
     }
     else
     {
-        // Only hold SecondaryBufferLock long enough to snapshot the data. Holding it during
-        // the file write would stall the emulator thread in CheckFlush() on slow storage.
+        flushed = false;
+    }
+
+    // Only mark the version we wrote as flushed. If a flush was requested during the write,
+    // leave its timestamp alone so that it still gets its own debounced write. If the write
+    // failed, leave everything as is so that the data stays pending and gets retried.
+    if (flushed)
+    {
         Platform::Mutex_Lock(SecondaryBufferLock);
-        if (WriteBufferLength != SecondaryBufferLength)
-        {
-            WriteBufferLength = SecondaryBufferLength;
-            WriteBuffer = std::make_unique<u8[]>(WriteBufferLength);
-        }
-
-        memcpy(WriteBuffer.get(), SecondaryBuffer.get(), WriteBufferLength);
-        u32 version = FlushVersion;
+        PreviousFlushVersion = version;
+        if (FlushVersion == version)
+            TimeAtLastFlushRequest = 0;
         Platform::Mutex_Unlock(SecondaryBufferLock);
-
-        FileHandle* f = Platform::OpenFile(Path, FileMode::Write);
-        if (f)
-        {
-            bool written = FileWrite(WriteBuffer.get(), WriteBufferLength, 1, f) == 1;
-            // Always close the file, even after a short write. A failed close can also mean lost data.
-            bool closed = CloseFile(f);
-            flushed = written && closed;
-            if (flushed)
-                Log(LogLevel::Info, "SaveManager: Wrote %u bytes to %s\n", WriteBufferLength, Path.c_str());
-        }
-        else
-        {
-            flushed = false;
-        }
-
-        // Only mark the version we wrote as flushed. If a flush was requested during the write,
-        // leave its timestamp alone so that it still gets its own debounced write. If the write
-        // failed, leave everything as is so that the data stays pending and gets retried.
-        if (flushed)
-        {
-            Platform::Mutex_Lock(SecondaryBufferLock);
-            PreviousFlushVersion = version;
-            if (FlushVersion == version)
-                TimeAtLastFlushRequest = 0;
-            Platform::Mutex_Unlock(SecondaryBufferLock);
-        }
     }
     Platform::Mutex_Unlock(FlushLock);
     return flushed;

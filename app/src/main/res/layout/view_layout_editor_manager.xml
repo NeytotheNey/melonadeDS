@@ -18,7 +18,7 @@
         android:layout_height="match_parent"
         android:focusable="false" />
 
-    <!-- Holds the item panel inside the display cutout insets (set as padding in code). Touches outside the panel go through to the editor -->
+    <!-- Keeps the item panel clear of the display cutout and the status bar (their insets are set as padding in code). Touches outside the panel go through to the editor -->
     <FrameLayout
         android:id="@+id/layout_item_panel_container"
         android:layout_width="match_parent"

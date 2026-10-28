@@ -113,7 +113,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     init {
         super.setOnClickListener {
             if (selectedView != null) {
-                deselectCurrentView()
+                deselectSelectedView()
             } else {
                 otherClickListener?.onClick(it)
             }
@@ -155,7 +155,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
     override fun destroyLayout() {
         // The selected view is about to be destroyed. Deselect it so that the item controls and handles don't stay on a stale view
-        deselectCurrentView()
+        deselectSelectedView()
         super.destroyLayout()
     }
 
@@ -165,10 +165,6 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
     fun setOnViewDeselectedListener(listener: (LayoutComponentView) -> Unit) {
         onViewDeselectedListener = listener
-    }
-
-    fun getSelectedView(): LayoutComponentView? {
-        return selectedView
     }
 
     fun addLayoutComponent(component: LayoutComponent) {
@@ -541,7 +537,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
                 }
 
                 if (selectedView != null) {
-                    deselectCurrentView()
+                    deselectSelectedView()
                 }
 
                 return when (motionEvent.action) {
@@ -646,10 +642,6 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     }
 
     fun deselectSelectedView() {
-        deselectCurrentView()
-    }
-
-    private fun deselectCurrentView() {
         selectedView?.let {
             it.view.alpha = 0.5f
             it.setHighlighted(false)
@@ -665,7 +657,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         val currentlySelectedView = selectedView ?: return
         removeView(currentlySelectedView.view)
         views.remove(currentlySelectedView.component)
-        deselectCurrentView()
+        deselectSelectedView()
         modifiedByUser = true
     }
 

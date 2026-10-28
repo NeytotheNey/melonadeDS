@@ -10,11 +10,8 @@ import androidx.preference.PreferenceCategory
 import dagger.hilt.android.AndroidEntryPoint
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.VideoRenderer
-import me.magnum.melonds.domain.repositories.LayoutsRepository
-import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
 import me.magnum.melonds.utils.enumValueOfIgnoreCase
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTitleProvider {
@@ -23,24 +20,15 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         const val GLES_3_2 = 0x30002
     }
 
-    @Inject lateinit var layoutsRepository: LayoutsRepository
-    @Inject lateinit var settingsRepository: SettingsRepository
-
-    private val openGlRendererPreferences = mutableListOf<Preference>()
-    private val computeRendererPreferences = mutableListOf<Preference>()
+    // Only the OpenGL and compute renderers have an internal resolution
+    private lateinit var internalResolutionPreference: Preference
     private lateinit var renderingCategory: PreferenceCategory
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.pref_video, rootKey)
         renderingCategory = findPreference("category_display_3d_rendering")!!
 
-        openGlRendererPreferences.apply {
-            add(findPreference("video_internal_resolution")!!)
-        }
-
-        computeRendererPreferences.apply {
-            add(findPreference("video_internal_resolution")!!)
-        }
+        internalResolutionPreference = findPreference("video_internal_resolution")!!
 
         val rendererPreference = findPreference<ListPreference>("video_renderer")!!
 
@@ -76,20 +64,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
 
     private fun onRendererPreferenceChanged(rendererValue: String) {
         val newRenderer = enumValueOfIgnoreCase<VideoRenderer>(rendererValue)
-        when (newRenderer) {
-            VideoRenderer.SOFTWARE -> {
-                computeRendererPreferences.forEach { it.isVisible = false }
-                openGlRendererPreferences.forEach { it.isVisible = false }
-            }
-            VideoRenderer.OPENGL -> {
-                computeRendererPreferences.forEach { it.isVisible = false }
-                openGlRendererPreferences.forEach { it.isVisible = true }
-            }
-            VideoRenderer.COMPUTE -> {
-                openGlRendererPreferences.forEach { it.isVisible = false }
-                computeRendererPreferences.forEach { it.isVisible = true }
-            }
-        }
+        internalResolutionPreference.isVisible = newRenderer != VideoRenderer.SOFTWARE
         // The renderer option is hidden on devices without GLES 3.2, which can leave the section empty
         updateGroupVisibility(renderingCategory)
     }

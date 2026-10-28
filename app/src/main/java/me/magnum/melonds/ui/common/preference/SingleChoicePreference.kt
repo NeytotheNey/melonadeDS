@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.dp
 import me.magnum.melonds.R
 import me.magnum.melonds.ui.common.DetachedDialog
 import me.magnum.melonds.ui.common.component.text.CaptionText
-import me.magnum.melonds.ui.common.melonTextButtonColors
 
 @Composable
 fun SingleChoiceItem(
@@ -141,7 +140,6 @@ private fun SingleChoiceDialog(
                 ) {
                     TextButton(
                         onClick = { onDismissRequest() },
-                        colors = melonTextButtonColors(),
                     ) {
                         Text(
                             text = stringResource(id = R.string.cancel).uppercase(),

@@ -722,9 +722,7 @@ void* emulate(void*)
 
     auto manager = PerformanceHintManagerFactory::create(jniEnvHandler);
     performanceHintSession = new ThreadSafePerformanceHintSession(std::move(manager));
-    if (performanceHintSession != nullptr) {
-        performanceHintSession->createSession(gettid(), FRAME_DURATION_60FPS_NS);
-    }
+    performanceHintSession->createSession(gettid(), FRAME_DURATION_60FPS_NS);
 
     for (;;)
     {

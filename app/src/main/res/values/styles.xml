@@ -97,7 +97,6 @@
         <item name="dialogPreferenceStyle">@style/PreferenceCard.Dialog</item>
         <item name="editTextPreferenceStyle">@style/PreferenceCard.EditText</item>
         <item name="switchPreferenceStyle">@style/Preference.SwitchPreference.MaterialSwitch</item>
-        <item name="switchPreferenceCompatStyle">@style/Preference.SwitchPreferenceCompat.MaterialSwitch</item>
     </style>
 
     <!-- Settings rows drawn as grouped cards. The row layouts set the card background and PreferenceCardDecoration rounds its corners -->
@@ -119,20 +118,10 @@
         <item name="android:layout">@layout/preference_card</item>
     </style>
 
-    <!-- Use M3 switches in the preference screens. The ids must match the ones expected by SwitchPreference and SwitchPreferenceCompat -->
+    <!-- Use M3 switches in the preference screens. The ids must match the ones expected by SwitchPreference -->
     <style name="Preference.SwitchPreference.MaterialSwitch" parent="@style/Preference.SwitchPreference.Material">
         <item name="android:layout">@layout/preference_card</item>
         <item name="android:widgetLayout">@layout/preference_widget_material_switch</item>
-    </style>
-
-    <style name="Preference.SwitchPreferenceCompat.MaterialSwitch" parent="@style/Preference.SwitchPreferenceCompat.Material">
-        <item name="android:layout">@layout/preference_card</item>
-        <item name="android:widgetLayout">@layout/preference_widget_material_switch_compat</item>
-    </style>
-
-    <style name="Button.Ripple" parent="android:Widget.ImageButton">
-        <item name="android:background">@drawable/drawable_ripple</item>
-        <item name="android:scaleType">fitCenter</item>
     </style>
 
     <style name="Button.Ripple.Small" parent="android:Widget.ImageButton">

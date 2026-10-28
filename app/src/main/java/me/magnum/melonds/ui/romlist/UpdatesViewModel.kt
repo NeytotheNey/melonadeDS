@@ -13,6 +13,8 @@ import me.magnum.melonds.domain.repositories.UpdatesRepository
 import me.magnum.melonds.domain.services.UpdateInstallManager
 import javax.inject.Inject
 
+// The update check is kept switched off on purpose: every flavour binds a repository that never reports an update
+// (see DisabledUpdatesRepository). This is left in place so it can be turned back on later.
 @HiltViewModel
 class UpdatesViewModel @Inject constructor(
     private val updatesRepository: UpdatesRepository,

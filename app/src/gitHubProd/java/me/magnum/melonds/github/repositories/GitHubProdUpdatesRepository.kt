@@ -18,6 +18,8 @@ import java.util.Calendar
 import java.util.concurrent.TimeUnit
 import kotlin.time.Instant
 
+// Not used: the update check is kept switched off on purpose (see DisabledUpdatesRepository). This points at
+// upstream's releases, so it is left dormant until the fork has its own.
 class GitHubProdUpdatesRepository(private val context: Context, private val api: GitHubApi, private val preferences: SharedPreferences) : UpdatesRepository {
     companion object {
         private const val APK_CONTENT_TYPE = "application/vnd.android.package-archive"

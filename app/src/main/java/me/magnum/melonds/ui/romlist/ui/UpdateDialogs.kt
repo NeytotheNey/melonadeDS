@@ -20,7 +20,6 @@ import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.DownloadProgress
 import me.magnum.melonds.domain.model.Version
 import me.magnum.melonds.domain.model.appupdate.AppUpdate
-import me.magnum.melonds.ui.common.melonTextButtonColors
 import me.magnum.melonds.ui.theme.MelonTheme
 
 @Composable
@@ -49,7 +48,6 @@ fun ProdUpdateAvailableDialog(
         confirmButton = {
             TextButton(
                 onClick = onUpdate,
-                colors = melonTextButtonColors(),
             ) {
                 Text(stringResource(R.string.update).uppercase())
             }
@@ -58,13 +56,11 @@ fun ProdUpdateAvailableDialog(
             Row {
                 TextButton(
                     onClick = onSkip,
-                    colors = melonTextButtonColors(),
                 ) {
                     Text(stringResource(R.string.skip_update).uppercase())
                 }
                 TextButton(
                     onClick = onDismiss,
-                    colors = melonTextButtonColors(),
                 ) {
                     Text(stringResource(R.string.cancel).uppercase())
                 }
@@ -95,7 +91,6 @@ fun NightlyUpdateDialog(
         confirmButton = {
             TextButton(
                 onClick = onUpdate,
-                colors = melonTextButtonColors(),
             ) {
                 Text(stringResource(R.string.update).uppercase())
             }
@@ -103,7 +98,6 @@ fun NightlyUpdateDialog(
         dismissButton = {
             TextButton(
                 onClick = onDismiss,
-                colors = melonTextButtonColors(),
             ) {
                 Text(stringResource(R.string.remind_later_update).uppercase())
             }
@@ -152,7 +146,6 @@ fun DownloadProgressDialog(
         confirmButton = {
             TextButton(
                 onClick = onMoveToBackground,
-                colors = melonTextButtonColors(),
             ) {
                 Text(stringResource(R.string.move_to_background).uppercase())
             }

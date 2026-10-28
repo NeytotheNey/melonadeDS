@@ -77,7 +77,6 @@ class AppearancePreferencesFragment : BasePreferenceFragment(), PreferenceFragme
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.pref_appearance, rootKey)
-        addPreferencesFromResource(R.xml.pref_general_updates)
 
         val dynamicColorsPreference = findPreference<SwitchPreference>("dynamic_colors")!!
         // Dynamic colours are not supported by every Android 12 device, so this can't be decided from the API level alone

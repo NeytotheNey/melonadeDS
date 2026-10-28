@@ -23,7 +23,6 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import me.magnum.melonds.R
-import me.magnum.melonds.ui.common.melonOutlinedTextFieldColors
 
 @Composable
 fun TextInputDialog(
@@ -56,7 +55,6 @@ fun TextInputDialog(
                             hasError = !textValidator(it.text)
                         },
                         isError = hasError,
-                        colors = melonOutlinedTextFieldColors(),
                         keyboardOptions = dialogState.keyboardOptions,
                         keyboardActions = KeyboardActions(onDone = { if (!hasError) dialogState.confirm() }),
                     )

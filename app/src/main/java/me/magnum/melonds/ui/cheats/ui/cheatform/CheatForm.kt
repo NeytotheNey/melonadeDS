@@ -61,7 +61,6 @@ import me.magnum.melonds.ui.common.MelonPreviewSet
 import me.magnum.melonds.ui.common.component.dialog.BaseDialog
 import me.magnum.melonds.ui.common.component.dialog.DialogButton
 import me.magnum.melonds.ui.common.component.text.OutlinedTextFieldWithError
-import me.magnum.melonds.ui.common.melonOutlinedTextFieldColors
 import me.magnum.melonds.ui.theme.MelonTheme
 
 @Composable
@@ -242,7 +241,6 @@ private fun CheatFormBody(
                 error = {
                     Text(stringResource(R.string.error_name_cannot_be_empty))
                 },
-                colors = melonOutlinedTextFieldColors(),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
                 singleLine = true,
             )
@@ -251,7 +249,6 @@ private fun CheatFormBody(
                 value = cheatFormState.cheatDescription,
                 onValueChange = { cheatFormState.cheatDescription = it },
                 label = { Text(stringResource(R.string.description)) },
-                colors = melonOutlinedTextFieldColors(),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
             )
             OutlinedTextFieldWithError(
@@ -273,7 +270,6 @@ private fun CheatFormBody(
                         else -> Unit
                     }
                 },
-                colors = melonOutlinedTextFieldColors(),
                 minLines = 4,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { onDoneClick() }),

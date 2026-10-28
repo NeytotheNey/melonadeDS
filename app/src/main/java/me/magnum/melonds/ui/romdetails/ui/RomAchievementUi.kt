@@ -57,7 +57,6 @@ import me.magnum.melonds.domain.model.retroachievements.RARuntimeUserAchievement
 import me.magnum.melonds.domain.model.retroachievements.RAUserAchievement
 import me.magnum.melonds.ui.common.MelonPreviewSet
 import me.magnum.melonds.ui.common.achievements.ui.model.AchievementUiModel
-import me.magnum.melonds.ui.common.melonTextButtonColors
 import me.magnum.melonds.ui.romdetails.ui.preview.mockRAAchievementPreview
 import me.magnum.melonds.ui.theme.MelonTheme
 
@@ -229,7 +228,6 @@ fun RomAchievementUi(
                         start = bodyFocusRequester
                     },
                 onClick = onViewAchievement,
-                colors = melonTextButtonColors(),
             ) {
                 Icon(
                     modifier = Modifier.size(18.dp),

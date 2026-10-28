@@ -209,7 +209,6 @@ class LayoutEditorManagerView(
 
     fun saveEditorState(): ScreenEditorState {
         return ScreenEditorState(
-            isMenuShown = false,
             isPropertiesDialogShown = showLayoutPropertiesDialog,
             isBackgroundPropertiesDialogShown = showBackgroundPropertiesDialog,
         )

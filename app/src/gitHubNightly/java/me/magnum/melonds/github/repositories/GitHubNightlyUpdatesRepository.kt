@@ -16,6 +16,8 @@ import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 
+// Not used: the update check is kept switched off on purpose (see DisabledUpdatesRepository). This points at
+// upstream's releases, so it is left dormant until the fork has its own.
 class GitHubNightlyUpdatesRepository(private val api: GitHubApi, private val preferences: SharedPreferences) : UpdatesRepository {
     companion object {
         private const val KEY_NEXT_CHECK_DATE = "github_updates_nightly_next_check_date"

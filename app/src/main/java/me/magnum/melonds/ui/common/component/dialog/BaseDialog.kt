@@ -24,7 +24,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.magnum.melonds.ui.common.DetachedDialog
-import me.magnum.melonds.ui.common.melonTextButtonColors
 
 @Composable
 fun BaseDialog(
@@ -92,7 +91,6 @@ fun DialogButton(
     TextButton(
         onClick = onClick,
         enabled = enabled,
-        colors = melonTextButtonColors(),
     ) {
         Text(text.uppercase())
     }

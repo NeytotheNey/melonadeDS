@@ -44,7 +44,7 @@ public:
     bool NeedsFlush();
     // Returns false if the data could not be flushed. A failed file flush leaves the data pending
     // so that it gets retried. Returns true if there was nothing to flush.
-    bool FlushSecondaryBuffer(u8* dst = nullptr, u32 dstLength = 0);
+    bool FlushSecondaryBuffer();
 
 private:
 

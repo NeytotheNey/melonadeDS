@@ -64,7 +64,6 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import me.magnum.melonds.R
 import me.magnum.melonds.ui.common.PaddedListBringIntoViewSpec
-import me.magnum.melonds.ui.common.melonButtonColors
 import me.magnum.melonds.ui.romdetails.model.AchievementBucketUiModel
 import me.magnum.melonds.ui.romdetails.model.AchievementSetUiModel
 import me.magnum.melonds.ui.romdetails.model.RomRetroAchievementsUiState
@@ -366,7 +365,6 @@ private fun LoadError(
 
         Button(
             onClick = onRetry,
-            colors = melonButtonColors(),
         ) {
             Text(text = stringResource(id = R.string.retry).uppercase())
         }

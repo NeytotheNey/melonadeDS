@@ -28,26 +28,12 @@ class LayoutComponentView(val view: View, val aspectRatio: Float, val component:
         }
     }
 
-    fun setSize(width: Int, height: Int) {
-        view.updateLayoutParams {
-            this.width = width
-            this.height = height
-        }
-    }
-
     fun setPositionAndSize(position: Point, width: Int, height: Int) {
         view.updateLayoutParams<FrameLayout.LayoutParams> {
             this.width = width
             this.height = height
             leftMargin = position.x
             topMargin = position.y
-        }
-    }
-
-    fun getPosition(): Point {
-        return Point().apply {
-            x = view.x.toInt()
-            y = view.y.toInt()
         }
     }
 

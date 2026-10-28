@@ -12,7 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import me.magnum.melonds.ui.common.melonSwitchColors
 
 @Composable
 fun SwitchItem(
@@ -41,7 +40,6 @@ fun SwitchItem(
         Switch(
             checked = isOn,
             onCheckedChange = null,
-            colors = melonSwitchColors(),
         )
     }
 }
