@@ -26,4 +26,7 @@ class ColorRenderer(private val color: Int) : EmulatorRenderer {
         GLES30.glClearColor(r, g, b, 1f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
     }
+
+    override fun release() {
+    }
 }

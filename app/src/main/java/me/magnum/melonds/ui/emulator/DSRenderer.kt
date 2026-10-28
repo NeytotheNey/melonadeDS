@@ -50,6 +50,9 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var mustRebuildScreenFilter = true
     private lateinit var backgroundShader: Shader
     private lateinit var shadowShader: Shader
+    // Whether the shaders above exist. Program names are shared with the emulator's context, so deleting them twice could free a program that
+    // reused the name
+    private var areShadersCreated = false
 
     private var screensVbo = 0
     private var screensVao = 0
@@ -161,6 +164,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         // Create background and shadow shaders
         backgroundShader = ShaderFactory.createShaderProgram(ShaderProgramSource.BackgroundShader)
         shadowShader = ShaderFactory.createShaderProgram(ShaderProgramSource.ScreenShadowShader)
+        areShadersCreated = true
 
         mustRebuildScreenFilter = true
         synchronized(configurationLock) {
@@ -190,12 +194,18 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             shadowsVbo = 0
             shadowsVao = 0
         }
-        if (::backgroundShader.isInitialized) {
+        if (areShadersCreated) {
             backgroundShader.delete()
-        }
-        if (::shadowShader.isInitialized) {
             shadowShader.delete()
+            areShadersCreated = false
         }
+        // Rebuilt on the next frame, since mustRebuildScreenFilter is set whenever the GL objects are created again
+        screenFilter?.delete()
+        screenFilter = null
+    }
+
+    override fun release() {
+        deleteGlObjects()
     }
 
     private fun applyRendererConfiguration() {

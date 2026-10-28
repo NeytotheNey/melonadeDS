@@ -9,4 +9,10 @@ interface EmulatorRenderer {
     fun onSurfaceCreated()
     fun onSurfaceChanged(width: Int, height: Int)
     fun drawFrame(presentFrameWrapper: PresentFrameWrapper)
+
+    /**
+     * Frees the renderer's GL objects. Called on the render thread, with the GL context current, when the renderer won't draw again. The next
+     * [onSurfaceCreated] would create them again.
+     */
+    fun release()
 }

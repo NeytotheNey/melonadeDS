@@ -39,9 +39,11 @@ namespace MelonDSAndroid
     std::shared_ptr<Net> net;
 
     std::shared_ptr<MelonInstance> instance;
+    std::recursive_mutex presentationMutex;
 
     bool setupOpenGlContext();
     void cleanupOpenGlContext();
+    void destroyInstance();
 
     /**
      * Used to set the emulator's initial configuration, before boot. To update the configuration during runtime, use @updateEmulatorConfiguration.
@@ -64,14 +66,21 @@ namespace MelonDSAndroid
         eventMessenger = androidEventMessenger;
         RetroAchievements::RetroAchievementsManager::EventMessenger = androidEventMessenger;
 
+        // Normally there is no instance left at this point, since cleanup() destroys it. If there is one, stop its audio first and destroy it
+        // with the GL context current, like cleanup() does
+        if (instance)
+        {
+            cleanupAudio();
+            destroyInstance();
+        }
+
         auto instanceArgs = BuildArgsFromConfiguration(*currentConfiguration, instanceId);
         if (!instanceArgs.has_value())
         {
             // TODO: Handle this somehow?
-            instance = nullptr;
             return;
         }
-        instance = std::make_shared<MelonInstance>(
+        auto newInstance = std::make_shared<MelonInstance>(
             instanceId,
             currentConfiguration,
             std::move(instanceArgs.value()),
@@ -79,6 +88,10 @@ namespace MelonDSAndroid
             std::make_unique<ScreenshotRenderer>(screenshotBufferPointer),
             currentConfiguration->consoleType
         );
+        {
+            std::lock_guard lock(presentationMutex);
+            instance = std::move(newInstance);
+        }
 
         setupAudio(currentConfiguration->audioSettings);
         setAudioActiveInstance(instance);
@@ -212,6 +225,8 @@ namespace MelonDSAndroid
 
     Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs)
     {
+        // The caller must keep holding the lock while it uses the frame
+        std::lock_guard lock(presentationMutex);
         if (!instance)
             return nullptr;
 
@@ -220,6 +235,7 @@ namespace MelonDSAndroid
 
     bool isSleeping()
     {
+        std::lock_guard lock(presentationMutex);
         if (!instance)
             return false;
 
@@ -382,10 +398,34 @@ namespace MelonDSAndroid
 
     void cleanup()
     {
+        // Stop audio first, so that the audio callback can't be holding the last reference to the instance and destroy it on its own thread
         cleanupAudio();
 
-        instance = nullptr;
+        destroyInstance();
         eventMessenger = nullptr;
+    }
+
+    void destroyInstance()
+    {
+        if (!instance)
+            return;
+
+        // The instance owns GL objects (frame textures and fences, the 3D renderer, the compositor), which its destructor deletes. It runs on the
+        // thread that stops the emulator (usually the main thread), which has no GL context current, so every glDelete* call would be a no-op and
+        // the objects would leak. The emulator thread has already released the emulator context in stop() (or never started), so make it current
+        // here while the instance is destroyed.
+        //
+        // The render thread may be presenting one of the instance's frames (and using its fences), or waiting for one. Wake it up, then wait
+        // for it to finish before destroying the frame queue. The lock is taken after waking it, because the render thread holds it while it
+        // waits. The render thread never keeps a reference to the instance: if it destroyed it, the glDelete* calls would run in the render
+        // context, where FBO and VAO names belong to the frontend's renderers
+        instance->abortPresentationWait();
+        std::lock_guard lock(presentationMutex);
+
+        bool isContextCurrent = setupOpenGlContext();
+        instance = nullptr;
+        if (isContextCurrent)
+            cleanupOpenGlContext();
     }
 
     bool setupOpenGlContext()

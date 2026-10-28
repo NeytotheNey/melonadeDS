@@ -331,6 +331,8 @@ Java_me_magnum_melonds_MelonEmulator_presentFrame(JNIEnv* env, jobject thiz, jlo
 
     int64_t dueToleranceNs = displayVsyncTracker.getRefreshPeriodNs() / PRESENT_DUE_TOLERANCE_REFRESH_DENOMINATOR;
     int64_t emulatingFrameDueNs = upcomingFrameDueNs.load(std::memory_order_relaxed);
+    // Keeps the instance (and so the frame, its texture and its fences) from being destroyed by another thread until the frame is presented
+    std::lock_guard presentationLock(MelonDSAndroid::presentationMutex);
     Frame* presentationFrame = MelonDSAndroid::getPresentationFrame(deadlineTime, (int64_t) vsyncTimeNs, dueToleranceNs, emulatingFrameDueNs);
     EGLDisplay currentDisplay = eglGetCurrentDisplay();
 

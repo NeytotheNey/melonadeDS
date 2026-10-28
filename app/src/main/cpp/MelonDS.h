@@ -2,6 +2,7 @@
 #define MELONDS_MELONDS_H
 
 #include <list>
+#include <mutex>
 #include <vector>
 #include "AndroidFileHandler.h"
 #include "AndroidCameraHandler.h"
@@ -33,6 +34,11 @@ namespace MelonDSAndroid {
     extern AndroidCameraHandler* cameraHandler;
     extern std::string internalFilesDir;
     extern std::shared_ptr<MelonEventMessenger> eventMessenger;
+    /**
+     * Held by the render thread while it uses the instance to present a frame, and while the instance is replaced or destroyed. Recursive
+     * because the frame render callback can call back into the native code (isSleeping()) while presentFrame holds it.
+     */
+    extern std::recursive_mutex presentationMutex;
 
     extern void setConfiguration(EmulatorConfiguration emulatorConfiguration);
     extern void setup(AndroidCameraHandler* androidCameraHandler, std::shared_ptr<MelonEventMessenger> androidEventMessenger, u32* screenshotBufferPointer, int instanceId);

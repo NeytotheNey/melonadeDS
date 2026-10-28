@@ -22,6 +22,11 @@ class FrameRenderCoordinator {
     private val surfacesLock = Any()
     private val managedSurfaces = mutableListOf<EmulatorSurfaceView>()
     private val surfacesPendingRemoval = mutableListOf<EmulatorSurfaceView>()
+    // Surfaces whose renderer may still own GL objects, including removed ones that can be added again. Their textures, buffers and programs are
+    // shared with the emulator's context, which lives as long as the process, so destroying the render context doesn't free them. They are
+    // released when the surface is removed for good, or when the render thread stops
+    private val surfacesToRelease = mutableSetOf<EmulatorSurfaceView>()
+    private val surfacesPendingRelease = mutableListOf<EmulatorSurfaceView>()
     // Only accessed from the main thread
     private var framePacingEnabled = false
     private var fastForwardActive = false
@@ -46,13 +51,24 @@ class FrameRenderCoordinator {
         synchronized(surfacesLock) {
             surface.setSurfaceRenderer(createRendererForStrategy(currentRenderStrategy), glContext)
             managedSurfaces.add(surface)
+            surfacesToRelease.add(surface)
         }
     }
 
-    fun removeSurface(surface: EmulatorSurfaceView) {
+    /**
+     * @param releaseRenderer Whether to also free the GL objects of the surface's renderer, for surfaces that won't be added again
+     */
+    fun removeSurface(surface: EmulatorSurfaceView, releaseRenderer: Boolean = false) {
         synchronized(surfacesLock) {
-            if (managedSurfaces.remove(surface)) {
+            val wasManaged = managedSurfaces.remove(surface)
+            if (wasManaged) {
                 surfacesPendingRemoval.add(surface)
+            }
+            val mustRelease = releaseRenderer && surfacesToRelease.remove(surface)
+            if (mustRelease) {
+                surfacesPendingRelease.add(surface)
+            }
+            if (wasManaged || mustRelease) {
                 frameRenderThread.requestSurfaceDestruction()
             }
         }
@@ -244,6 +260,10 @@ class FrameRenderCoordinator {
                     it.stop(glContext)
                 }
                 surfacesPendingRemoval.clear()
+                surfacesPendingRelease.forEach {
+                    it.releaseRenderer(glContext)
+                }
+                surfacesPendingRelease.clear()
             }
         }
 
@@ -256,14 +276,22 @@ class FrameRenderCoordinator {
         }
 
         private fun stopThread() {
-            managedSurfaces.forEach {
-                it.stop(glContext)
+            synchronized(surfacesLock) {
+                managedSurfaces.forEach {
+                    it.stop(glContext)
+                }
+                surfacesPendingRemoval.forEach {
+                    it.stop(glContext)
+                }
+                // The renderers are torn down for good, so free their GL objects while the render context still exists
+                (surfacesToRelease + surfacesPendingRelease).forEach {
+                    it.releaseRenderer(glContext)
+                }
+                managedSurfaces.clear()
+                surfacesPendingRemoval.clear()
+                surfacesToRelease.clear()
+                surfacesPendingRelease.clear()
             }
-            surfacesPendingRemoval.forEach {
-                it.stop(glContext)
-            }
-            managedSurfaces.clear()
-            surfacesPendingRemoval.clear()
 
             glContext.release()
             glContext.destroy()

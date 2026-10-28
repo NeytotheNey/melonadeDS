@@ -43,12 +43,13 @@ Frame* FrameQueue::getPresentFrame(std::optional<std::chrono::time_point<std::ch
         bool canNextFrameBeDue = presentQueue.empty() && isDue(upcomingFrameDueNs, vsyncTimeNs, dueToleranceNs);
 
         bool hasNewFrame = false;
-        if (deadline.has_value() && canNextFrameBeDue)
+        if (deadline.has_value() && canNextFrameBeDue && !isPresentWaitAborted)
         {
-            hasNewFrame = presentFrameReadyCondition.wait_until(lock, *deadline, [&] {
+            presentFrameReadyCondition.wait_until(lock, *deadline, [&] {
                 frameIndex = findDueFrameIndex(vsyncTimeNs, dueToleranceNs);
-                return frameIndex >= 0;
+                return frameIndex >= 0 || isPresentWaitAborted;
             });
+            hasNewFrame = frameIndex >= 0;
         }
 
         if (!hasNewFrame)
@@ -102,6 +103,7 @@ void FrameQueue::validateRenderFrame(Frame* frame, int requiredWidth, int requir
         // Update frame texture to have the required size
         if (!frame->frameTexture)
         {
+            display = eglGetCurrentDisplay();
             glGenTextures(1, &frame->frameTexture);
             glBindTexture(GL_TEXTURE_2D, frame->frameTexture);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -135,6 +137,13 @@ void FrameQueue::discardRenderedFrame(Frame* frame)
     freeQueue.push(frame);
 }
 
+void FrameQueue::abortPresentWait()
+{
+    std::unique_lock lock(frameLock);
+    isPresentWaitAborted = true;
+    presentFrameReadyCondition.notify_all();
+}
+
 void FrameQueue::clear()
 {
     std::unique_lock lock(frameLock);
@@ -147,11 +156,13 @@ void FrameQueue::clear()
     presentQueue.clear();
     previousFrame = nullptr;
 
-    EGLDisplay currentDisplay = eglGetCurrentDisplay();
+    // Must be called with the emulator's GL context current, or the textures are not deleted
     for (auto& frame : frames) {
         glDeleteTextures(1, &frame.frameTexture);
-        eglDestroySyncKHR(currentDisplay, frame.renderFence);
-        eglDestroySyncKHR(currentDisplay, frame.presentFence);
+        if (frame.renderFence)
+            eglDestroySyncKHR(display, frame.renderFence);
+        if (frame.presentFence)
+            eglDestroySyncKHR(display, frame.presentFence);
         frame.frameTexture = 0;
         frame.width = 0;
         frame.height = 0;

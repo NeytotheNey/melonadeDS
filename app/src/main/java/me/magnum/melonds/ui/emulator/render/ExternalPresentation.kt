@@ -138,7 +138,8 @@ class ExternalPresentation(
 
     override fun onStop() {
         super.onStop()
-        frameRenderCoordinator.removeSurface(surfaceView)
+        // A presentation is only stopped when it's dismissed, and it's never shown again
+        frameRenderCoordinator.removeSurface(surfaceView, releaseRenderer = true)
     }
 
     fun updateBackground(background: RuntimeBackground) {

@@ -121,4 +121,21 @@ class EmulatorSurfaceView(context: Context, attrs: AttributeSet? = null) : Surfa
             surfaceRenderer?.stop(glContext)
         }
     }
+
+    /**
+     * Stops the surface and frees the renderer's GL objects, for when it won't draw again. Must be called on the render thread.
+     */
+    fun releaseRenderer(glContext: GlContext) {
+        synchronized(surfaceLock) {
+            surfaceRenderer?.stop(glContext)
+            try {
+                // There may be no window surface left, so use the pbuffer. Without a current context the GL objects wouldn't be freed
+                glContext.useWithoutSurface()
+            } catch (e: GlContext.GlContextException) {
+                Log.w(TAG, "Failed to make the GL context current to release the renderer", e)
+                return
+            }
+            renderer?.release()
+        }
+    }
 }

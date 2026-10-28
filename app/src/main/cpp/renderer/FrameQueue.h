@@ -44,6 +44,11 @@ public:
     void validateRenderFrame(Frame* frame, int requiredWidth, int requiredHeight);
     void pushRenderedFrame(Frame* frame, int64_t presentDueTimeNs);
     void discardRenderedFrame(Frame* frame);
+    /**
+     * Wakes up a presenter waiting in [getPresentFrame], and stops it from waiting again. Used before the queue is destroyed, so that the
+     * presenter doesn't keep the destroying thread blocked until its deadline.
+     */
+    void abortPresentWait();
     void clear();
 
 private:
@@ -58,6 +63,9 @@ private:
     std::deque<Frame*> presentQueue{};
     Frame* previousFrame = nullptr;
     u64 lastFrameSequence = 0;
+    bool isPresentWaitAborted = false;
+    // Display the frame textures and fences were created on. Kept so that clear() can destroy the fences on any thread
+    EGLDisplay display = EGL_NO_DISPLAY;
 };
 
 #endif //FRAMEQUEUE_H

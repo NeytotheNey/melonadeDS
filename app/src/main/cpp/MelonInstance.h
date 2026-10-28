@@ -58,6 +58,7 @@ public:
     int receiveNetPacket(u8* data);
 
     Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs);
+    void abortPresentationWait() { frameQueue.abortPresentWait(); }
     // Whether the emulated console was asleep (lid closed) during the last frame, in which case no frames are presented
     bool isSleeping() { return sleeping.load(std::memory_order_relaxed); }
 
