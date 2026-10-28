@@ -66,6 +66,11 @@
     <color name="melonMain">#5C913B</color>
     <color name="melonDark">#49732F</color>
 
+    <!-- Launcher icon. The nightly flavour overrides the liquid colours -->
+    <color name="launcherBackground">#FFD54A</color>
+    <color name="launcherLiquid">#FF6B7A</color>
+    <color name="launcherLiquidTop">#FF95A0</color>
+
     <color name="splashBackground">@color/colorPrimary</color>
     <color name="splashToolbar">@color/colorPrimaryDark</color>
 

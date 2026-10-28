@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- melonadeDS launcher foreground: a glass of watermelon lemonade with a DS for an ice cube.
+     The liquid colours come from @color/launcherLiquid(Top) so flavours can recolour them. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Liquid -->
+    <path
+        android:fillColor="@color/launcherLiquid"
+        android:pathData="M37,43 L71,43 L67.9,78 Q67.7,80.5 65.2,80.5 L42.8,80.5 Q40.3,80.5 40.1,78 Z" />
+    <path
+        android:fillColor="@color/launcherLiquidTop"
+        android:pathData="M37,43 L71,43 L70.7,46.4 Q54,49.2 37.3,46.4 Z" />
+
+    <!-- Straw -->
+    <path
+        android:pathData="M62,46 L71,28"
+        android:strokeColor="#3E8E41"
+        android:strokeWidth="3.8"
+        android:strokeLineCap="round" />
+
+    <!-- DS ice cube -->
+    <group
+        android:rotation="-12"
+        android:pivotX="50"
+        android:pivotY="62">
+        <path
+            android:fillColor="#F4FBFF"
+            android:strokeColor="#2F2A3A"
+            android:strokeWidth="1.4"
+            android:pathData="M44.4,51 H55.6 A2.4,2.4 0 0 1 58,53.4 V70.6 A2.4,2.4 0 0 1 55.6,73 H44.4 A2.4,2.4 0 0 1 42,70.6 V53.4 A2.4,2.4 0 0 1 44.4,51 Z" />
+        <path
+            android:fillColor="#7FD3E8"
+            android:pathData="M45.4,53.4 H54.6 A1,1 0 0 1 55.6,54.4 V59.6 A1,1 0 0 1 54.6,60.6 H45.4 A1,1 0 0 1 44.4,59.6 V54.4 A1,1 0 0 1 45.4,53.4 Z" />
+        <path
+            android:fillColor="#7FD3E8"
+            android:pathData="M45.4,63.4 H54.6 A1,1 0 0 1 55.6,64.4 V69.6 A1,1 0 0 1 54.6,70.6 H45.4 A1,1 0 0 1 44.4,69.6 V64.4 A1,1 0 0 1 45.4,63.4 Z" />
+        <path
+            android:pathData="M42,62 L58,62"
+            android:strokeColor="#2F2A3A"
+            android:strokeWidth="1.1" />
+    </group>
+
+    <!-- Glass -->
+    <path
+        android:pathData="M36,34 L39.6,77.5 Q39.8,80 42.3,80 L65.7,80 Q68.2,80 68.4,77.5 L72,34"
+        android:strokeColor="#2F2A3A"
+        android:strokeWidth="2.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M40.6,41 L42.8,73"
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.55"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round" />
+
+    <!-- Watermelon wedge -->
+    <group
+        android:rotation="-15"
+        android:pivotX="39"
+        android:pivotY="35">
+        <path
+            android:fillColor="#3E8E41"
+            android:strokeColor="#2F2A3A"
+            android:strokeWidth="1.3"
+            android:strokeLineJoin="round"
+            android:pathData="M29.5,35 A9.5,9.5 0 0 1 48.5,35 Z" />
+        <path
+            android:fillColor="#FFF4D6"
+            android:pathData="M31.6,35 A7.4,7.4 0 0 1 46.4,35 Z" />
+        <path
+            android:fillColor="#FF5466"
+            android:pathData="M32.9,35 A6.1,6.1 0 0 1 45.1,35 Z" />
+        <path
+            android:fillColor="#2F2A3A"
+            android:pathData="M35.2,32.4 A0.8,1.15 0 1 1 36.8,32.4 A0.8,1.15 0 1 1 35.2,32.4 Z" />
+        <path
+            android:fillColor="#2F2A3A"
+            android:pathData="M38.2,31 A0.8,1.15 0 1 1 39.8,31 A0.8,1.15 0 1 1 38.2,31 Z" />
+        <path
+            android:fillColor="#2F2A3A"
+            android:pathData="M41.2,32.4 A0.8,1.15 0 1 1 42.8,32.4 A0.8,1.15 0 1 1 41.2,32.4 Z" />
+    </group>
+</vector>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Blue raspberry lemonade for nightly builds -->
+    <color name="launcherLiquid">#4FA8F0</color>
+    <color name="launcherLiquidTop">#8CCBFA</color>
+</resources>
