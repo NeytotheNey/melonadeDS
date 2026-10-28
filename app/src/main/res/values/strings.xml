@@ -295,6 +295,8 @@
     <string name="external_layout_restore_error">Failed to restore external layout</string>
     <string name="threaded_rendering">Threaded rendering</string>
     <string name="fps_counter_position">FPS counter position</string>
+    <string name="show_status_bar">Show status bar</string>
+    <string name="show_status_bar_summary">Show the clock and battery while playing</string>
     <string name="threaded_rendering_summary">Improves performance on 3D games when enabled but may cause graphical glitches.</string>
     <string name="category_video">Video</string>
     <string name="category_video_summary">Filter, threaded rendering, FPS counter</string>

@@ -86,5 +86,12 @@
                 android:entries="@array/fps_counter_position_options"
                 android:entryValues="@array/fps_counter_position_values"
                 android:defaultValue="hidden" />
+
+        <SwitchPreference
+                android:key="show_status_bar"
+                android:title="@string/show_status_bar"
+                android:summary="@string/show_status_bar_summary"
+                app:iconSpaceReserved="false"
+                android:defaultValue="false" />
     </PreferenceCategory>
 </PreferenceScreen>

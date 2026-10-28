@@ -65,6 +65,9 @@
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowContentOverlay">@null</item>
         <item name="android:windowTranslucentNavigation">true</item>
+        <!-- Used when the "Show status bar" setting is on. The status bar is drawn over the game, so keep it clear with light icons -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
     <!-- Matches the Compose M3 TopAppBar: surface coloured, no elevation -->

@@ -49,6 +49,7 @@ interface SettingsRepository {
     fun isThreadedRenderingEnabled(): Flow<Boolean>
     fun getRenderStrategy(): Flow<RenderStrategy>
     fun getFpsCounterPosition(): FpsCounterPosition
+    fun showStatusBar(): Boolean
     fun getDSiCameraSource(): DSiCameraSourceType
     fun getDSiCameraStaticImage(): Uri?
 

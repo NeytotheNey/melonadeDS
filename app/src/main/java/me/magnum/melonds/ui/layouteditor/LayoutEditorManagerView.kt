@@ -165,7 +165,8 @@ class LayoutEditorManagerView(
         itemControls = LayoutEditorItemControls(binding) { shownEditablePropertyDialog = it }
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
-            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            // The status bar is included so that the editor's own controls stay clear of it when it's shown. Only used for these controls, not the layouts
+            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.statusBars())
             if (insets.top != topCutoutInset) {
                 topCutoutInset = insets.top
                 positionFloatingMenuButton()

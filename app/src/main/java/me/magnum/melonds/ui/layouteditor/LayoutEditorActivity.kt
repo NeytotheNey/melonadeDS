@@ -17,7 +17,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -34,8 +33,8 @@ import me.magnum.melonds.domain.model.layout.Insets
 import me.magnum.melonds.domain.model.layout.ScreenFold
 import me.magnum.melonds.domain.model.ui.Orientation
 import me.magnum.melonds.domain.repositories.SettingsRepository
-import me.magnum.melonds.extensions.insetsControllerCompat
 import me.magnum.melonds.extensions.setLayoutOrientation
+import me.magnum.melonds.extensions.setupGameSystemBars
 import me.magnum.melonds.impl.ScreenUnitsConverter
 import me.magnum.melonds.impl.layout.DeviceLayoutDisplayMapper
 import me.magnum.melonds.impl.layout.SecondaryDisplaySelector
@@ -325,10 +324,7 @@ class LayoutEditorActivity : AppCompatActivity() {
     }
 
     private fun setupFullscreen() {
-        window.insetsControllerCompat?.let {
-            it.hide(WindowInsetsCompat.Type.navigationBars())
-            it.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
+        window.setupGameSystemBars(settingsRepository.showStatusBar())
     }
 
     private fun saveLayoutAndExit() {

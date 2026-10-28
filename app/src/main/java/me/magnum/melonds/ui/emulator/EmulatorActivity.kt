@@ -30,7 +30,6 @@ import androidx.core.content.getSystemService
 import androidx.core.os.ConfigurationCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.isGone
 import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
@@ -68,8 +67,8 @@ import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.model.rom.config.RomGbaSlotConfig
 import me.magnum.melonds.domain.model.ui.Orientation
 import me.magnum.melonds.extensions.find60HzMode
-import me.magnum.melonds.extensions.insetsControllerCompat
 import me.magnum.melonds.extensions.setLayoutOrientation
+import me.magnum.melonds.extensions.setupGameSystemBars
 import me.magnum.melonds.impl.emulator.LifecycleOwnerProvider
 import me.magnum.melonds.impl.layout.DeviceLayoutDisplayMapper
 import me.magnum.melonds.impl.layout.SecondaryDisplaySelector
@@ -373,13 +372,17 @@ class EmulatorActivity : AppCompatActivity() {
         setupFullscreen()
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            // Keep the FPS counter clear of the status bar when it's shown. The layouts only use the cutout, so that they don't change when it's toggled
+            val fpsInsets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.statusBars())
             binding.textFps.updateLayoutParams<ConstraintLayout.LayoutParams> {
-                setMargins(insets.left, insets.top, insets.right, insets.bottom)
+                setMargins(fpsInsets.left, fpsInsets.top, fpsInsets.right, fpsInsets.bottom)
             }
 
             val uiInsets = Insets(insets.left, insets.top, insets.right, insets.bottom)
             viewModel.setUiInsets(uiInsets)
 
+            // The insets are consumed here, so pass them on to the Compose overlays (achievement popups) directly
+            ViewCompat.dispatchApplyWindowInsets(binding.layoutCompose, windowInsets)
             WindowInsetsCompat.CONSUMED
         }
 
@@ -831,10 +834,8 @@ class EmulatorActivity : AppCompatActivity() {
     }
 
     private fun setupFullscreen() {
-        window.insetsControllerCompat?.let {
-            it.hide(WindowInsetsCompat.Type.navigationBars())
-            it.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
+        // Runs on every focus change, so a change made in the settings is picked up when returning to the game
+        window.setupGameSystemBars(viewModel.showStatusBar())
     }
 
     private fun startMotionManagerIfNeeded(rom: Rom) {

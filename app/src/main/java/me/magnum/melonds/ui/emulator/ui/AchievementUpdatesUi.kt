@@ -4,9 +4,13 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -63,7 +67,7 @@ fun AchievementUpdatesUi(
         merge(achievementsFlow, integrationFlow)
     }
 
-    Box(Modifier.fillMaxWidth().displayCutoutPadding()) {
+    Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout.union(WindowInsets.statusBars))) {
         AchievementUpdatesList(
             modifier = Modifier.align(Alignment.TopStart).wrapContentSize(),
             achievementEventFlow = viewModel.achievementsEvent,
