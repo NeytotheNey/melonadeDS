@@ -82,5 +82,12 @@
                 android:summary="@string/settings_appearance_and_backup_summary"
                 app:icon="@drawable/ic_settings_appearance"
                 android:fragment="me.magnum.melonds.ui.settings.fragments.AppearancePreferencesFragment" />
+
+        <Preference
+                android:layout="@layout/preference_top_level"
+                android:title="@string/settings_about"
+                android:summary="@string/settings_about_summary"
+                app:icon="@drawable/ic_settings_about"
+                android:fragment="me.magnum.melonds.ui.settings.fragments.AboutFragment" />
     </PreferenceCategory>
 </PreferenceScreen>

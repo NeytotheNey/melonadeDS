@@ -19,5 +19,4 @@ enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 include(":app")
 include(":common")
-include(":masterswitch")
 include(":rcheevos-api")

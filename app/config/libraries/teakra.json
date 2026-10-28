@@ -1,0 +1,14 @@
+{
+  "uniqueId": "native:teakra",
+  "name": "Teakra",
+  "description": "Emulator of the DSi's Teak DSP, part of melonDS.",
+  "website": "https://github.com/wwylele/teakra",
+  "developers": [
+    {
+      "name": "Weiyi Wang"
+    }
+  ],
+  "licenses": [
+    "teakra"
+  ]
+}

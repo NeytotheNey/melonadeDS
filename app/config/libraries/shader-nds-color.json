@@ -1,0 +1,16 @@
+{
+  "uniqueId": "shader:nds-color",
+  "name": "DS screen colours (nds-color)",
+  "description": "Pokefan531's nds-color profile, from hunterk's Color Mangler.",
+  "developers": [
+    {
+      "name": "Pokefan531"
+    },
+    {
+      "name": "hunterk"
+    }
+  ],
+  "licenses": [
+    "public-domain"
+  ]
+}

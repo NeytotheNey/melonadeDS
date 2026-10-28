@@ -1,0 +1,14 @@
+{
+  "uniqueId": "native:dolphin",
+  "name": "Dolphin code emitters",
+  "description": "ARM64 and x64 code emitters from the Dolphin emulator, used by the melonDS JIT.",
+  "website": "https://dolphin-emu.org",
+  "developers": [
+    {
+      "name": "Dolphin Emulator Project"
+    }
+  ],
+  "licenses": [
+    "GPL-2.0-or-later"
+  ]
+}

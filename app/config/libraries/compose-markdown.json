@@ -1,0 +1,13 @@
+{
+  "uniqueId": "com.github.jeziellago:compose-markdown",
+  "name": "compose-markdown",
+  "website": "https://github.com/jeziellago/compose-markdown",
+  "developers": [
+    {
+      "name": "Jeziel Lago"
+    }
+  ],
+  "licenses": [
+    "compose-markdown"
+  ]
+}

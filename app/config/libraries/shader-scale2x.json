@@ -1,0 +1,14 @@
+{
+  "uniqueId": "shader:scale2x",
+  "name": "Scale2x shader",
+  "description": "Written for melonadeDS, based on the Scale2x (EPX) algorithm by Andrea Mazzoleni.",
+  "website": "https://www.scale2x.it/algorithm",
+  "developers": [
+    {
+      "name": "Andrea Mazzoleni"
+    }
+  ],
+  "licenses": [
+    "GPL-3.0-only"
+  ]
+}

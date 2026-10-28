@@ -1,0 +1,4 @@
+{
+  "uniqueId": "org.apache.commons:commons-compress",
+  "description": "Apache Commons Compress defines an API for working with compression and archive formats. These include bzip2, gzip, pack200, LZMA, XZ, Snappy, traditional Unix Compress, DEFLATE, DEFLATE64, LZ4, Brotli, Zstandard and ar, cpio, jar, tar, zip, dump, 7z, arj.\n\nNOTICE\n\nApache Commons Compress\nCopyright 2002-2024 The Apache Software Foundation\n\nThis product includes software developed at\nThe Apache Software Foundation (https://www.apache.org/)."
+}

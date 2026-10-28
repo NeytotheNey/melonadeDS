@@ -2,6 +2,7 @@ import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
+    alias(libs.plugins.aboutlibraries.android)
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.hilt.android)
@@ -127,8 +128,36 @@ room {
     schemaDirectory("$projectDir/schemas")
 }
 
+// Generates the open source licences list (res/raw/aboutlibraries.json) from the dependencies of each variant. It runs offline, so licence
+// texts are never downloaded: they come from config/licenses, along with the native code and shaders Gradle can't see (config/libraries)
+aboutLibraries {
+    offlineMode = true
+    collect {
+        configPath = file("config")
+    }
+    export {
+        // Not shown anywhere, and it would only make the file bigger
+        excludeFields.add("funding")
+    }
+    library {
+        requireLicense = true
+    }
+    license {
+        // Fails the build when a dependency brings a licence that config/licenses has no text for. The shared BSD entries there hold the
+        // copyright notice of the libraries below, so any other library under those licences needs its own entry first
+        strictMode = com.mikepenz.aboutlibraries.plugin.StrictMode.FAIL
+        allowedLicenses.addAll(
+            "Apache-2.0", "0BSD", "CC0-1.0", "MIT", "Unlicense", "GPL-2.0-or-later", "GPL-3.0-only", "GPL-3.0-or-later", "LGPL-2.1-or-later",
+            "public-domain", "see-source", "fatfs",
+        )
+        allowedLicensesMap = mapOf(
+            "BSD-2-Clause" to listOf("com.atlassian.commonmark", "native:xxhash", "native:freebios"),
+            "BSD-3-Clause" to listOf("androidx.camera:camera-core", "native:libslirp"),
+        )
+    }
+}
+
 dependencies {
-    implementation(projects.masterswitch)
     implementation(projects.rcheevosApi)
     implementation(projects.common)
 
@@ -168,6 +197,7 @@ dependencies {
 
     debugImplementation(libs.compose.ui.tooling)
 
+    implementation(libs.aboutlibraries.compose.m3)
     implementation(libs.coil)
     implementation(libs.gson)
     implementation(libs.hilt)

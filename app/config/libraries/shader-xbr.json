@@ -1,0 +1,13 @@
+{
+  "uniqueId": "shader:2xbr",
+  "name": "2xBR shader",
+  "description": "Pixel art scaler. Copyright (C) 2011 Hyllian/Jararaca.",
+  "developers": [
+    {
+      "name": "Hyllian"
+    }
+  ],
+  "licenses": [
+    "GPL-2.0-or-later"
+  ]
+}

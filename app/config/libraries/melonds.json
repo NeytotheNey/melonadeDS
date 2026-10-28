@@ -1,0 +1,14 @@
+{
+  "uniqueId": "native:melonds",
+  "name": "melonDS",
+  "description": "The DS and DSi emulator that runs the games, from melonDS-android-lib. Copyright 2016-2025 melonDS team.",
+  "website": "https://melonds.kuribo64.net",
+  "developers": [
+    {
+      "name": "melonDS team"
+    }
+  ],
+  "licenses": [
+    "GPL-3.0-or-later"
+  ]
+}

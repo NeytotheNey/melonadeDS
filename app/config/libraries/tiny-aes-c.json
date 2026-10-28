@@ -1,0 +1,9 @@
+{
+  "uniqueId": "native:tiny-aes-c",
+  "name": "Tiny AES in C",
+  "description": "AES implementation, part of melonDS.",
+  "website": "https://github.com/kokke/tiny-AES-c",
+  "licenses": [
+    "Unlicense"
+  ]
+}

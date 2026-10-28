@@ -1,0 +1,14 @@
+{
+  "uniqueId": "native:blip-buf",
+  "name": "blip_buf",
+  "description": "Band-limited audio buffer, part of melonDS. Copyright (C) 2003-2009 Shay Green.",
+  "website": "http://www.slack.net/~ant/",
+  "developers": [
+    {
+      "name": "Shay Green"
+    }
+  ],
+  "licenses": [
+    "LGPL-2.1-or-later"
+  ]
+}

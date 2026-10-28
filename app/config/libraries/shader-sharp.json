@@ -1,0 +1,12 @@
+{
+  "uniqueId": "shader:sharp-shimmerless",
+  "name": "Sharp shader (sharp-shimmerless)",
+  "developers": [
+    {
+      "name": "zadpos (Woohyun Kang)"
+    }
+  ],
+  "licenses": [
+    "public-domain"
+  ]
+}

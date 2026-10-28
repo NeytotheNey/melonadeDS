@@ -1,0 +1,14 @@
+{
+  "uniqueId": "native:fatfs",
+  "name": "FatFs",
+  "description": "FAT file system module, part of melonDS.",
+  "website": "http://elm-chan.org/fsw/ff/",
+  "developers": [
+    {
+      "name": "ChaN"
+    }
+  ],
+  "licenses": [
+    "fatfs"
+  ]
+}

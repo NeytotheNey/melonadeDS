@@ -1,0 +1,12 @@
+{
+  "uniqueId": "shader:scanlines",
+  "name": "Scanlines shader",
+  "developers": [
+    {
+      "name": "Themaister"
+    }
+  ],
+  "licenses": [
+    "public-domain"
+  ]
+}

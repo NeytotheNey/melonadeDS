@@ -1,0 +1,17 @@
+{
+  "uniqueId": "native:faad2",
+  "name": "FAAD2",
+  "description": "AAC audio decoder. Code from FAAD2 is copyright (c) Nero AG, www.nero.com",
+  "website": "https://github.com/knik0/faad2",
+  "developers": [
+    {
+      "name": "M. Bakker"
+    },
+    {
+      "name": "Nero AG"
+    }
+  ],
+  "licenses": [
+    "faad2"
+  ]
+}

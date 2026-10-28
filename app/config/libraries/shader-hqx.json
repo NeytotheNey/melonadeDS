@@ -1,0 +1,13 @@
+{
+  "uniqueId": "shader:hqx",
+  "name": "HQ2x and HQ4x shaders",
+  "description": "2xGLSLHqFilter and 4xGLSLHqFilter. Copyright (C) 2005 guest(r).",
+  "developers": [
+    {
+      "name": "guest(r)"
+    }
+  ],
+  "licenses": [
+    "GPL-2.0-or-later"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "uniqueId": "native:rcheevos",
+  "name": "rcheevos",
+  "description": "RetroAchievements support library.",
+  "website": "https://github.com/RetroAchievements/rcheevos",
+  "developers": [
+    {
+      "name": "RetroAchievements.org"
+    }
+  ],
+  "licenses": [
+    "rcheevos"
+  ]
+}

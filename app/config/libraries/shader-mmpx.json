@@ -1,0 +1,17 @@
+{
+  "uniqueId": "shader:mmpx",
+  "name": "MMPX shader",
+  "description": "Pixel art scaler. Copyright 2020 Morgan McGuire & Mara Gagiu. Adapted for GLSL by hunterk.",
+  "website": "https://casual-effects.com/research/McGuire2021PixelArt/",
+  "developers": [
+    {
+      "name": "Morgan McGuire"
+    },
+    {
+      "name": "Mara Gagiu"
+    }
+  ],
+  "licenses": [
+    "mmpx"
+  ]
+}

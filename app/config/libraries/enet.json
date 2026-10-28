@@ -1,0 +1,14 @@
+{
+  "uniqueId": "native:enet",
+  "name": "ENet",
+  "description": "Networking library over UDP.",
+  "website": "https://github.com/lsalzman/enet",
+  "developers": [
+    {
+      "name": "Lee Salzman"
+    }
+  ],
+  "licenses": [
+    "enet"
+  ]
+}

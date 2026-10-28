@@ -1,0 +1,14 @@
+{
+  "uniqueId": "native:melonds-android",
+  "name": "melonDS Android",
+  "description": "The Android port of melonDS that melonadeDS is a fork of.",
+  "website": "https://github.com/rafaelvcaetano/melonDS-android",
+  "developers": [
+    {
+      "name": "Rafael Caetano"
+    }
+  ],
+  "licenses": [
+    "GPL-3.0-only"
+  ]
+}

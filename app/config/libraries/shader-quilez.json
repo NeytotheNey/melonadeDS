@@ -1,0 +1,14 @@
+{
+  "uniqueId": "shader:quilez",
+  "name": "Quilez shader",
+  "description": "Based on \"Improved texture interpolation\" by Iñigo Quílez.",
+  "website": "http://www.iquilezles.org/www/articles/texture/texture.htm",
+  "developers": [
+    {
+      "name": "Iñigo Quílez"
+    }
+  ],
+  "licenses": [
+    "see-source"
+  ]
+}

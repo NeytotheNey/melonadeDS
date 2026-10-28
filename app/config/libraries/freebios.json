@@ -1,0 +1,13 @@
+{
+  "uniqueId": "native:freebios",
+  "name": "DraStic free BIOS",
+  "description": "Replacement DS ARM7/ARM9 BIOS, part of melonDS.",
+  "developers": [
+    {
+      "name": "Gilead Kutnick"
+    }
+  ],
+  "licenses": [
+    "freebios"
+  ]
+}

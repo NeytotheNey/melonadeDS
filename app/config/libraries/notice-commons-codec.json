@@ -1,0 +1,4 @@
+{
+  "uniqueId": "commons-codec:commons-codec",
+  "description": "The Apache Commons Codec component contains encoders and decoders for various formats such as Base16, Base32, Base64, digest, and Hexadecimal. In addition to these widely used encoders and decoders, the codec package also maintains a collection of phonetic encoding utilities.\n\nNOTICE\n\nApache Commons Codec\nCopyright 2002-2024 The Apache Software Foundation\n\nThis product includes software developed at\nThe Apache Software Foundation (https://www.apache.org/)."
+}

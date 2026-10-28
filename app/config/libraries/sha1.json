@@ -1,0 +1,13 @@
+{
+  "uniqueId": "native:sha1",
+  "name": "SHA-1 in C",
+  "description": "SHA-1 implementation, part of melonDS.",
+  "developers": [
+    {
+      "name": "Steve Reid"
+    }
+  ],
+  "licenses": [
+    "public-domain"
+  ]
+}

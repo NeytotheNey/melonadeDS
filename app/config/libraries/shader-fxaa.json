@@ -1,0 +1,13 @@
+{
+  "uniqueId": "shader:fxaa",
+  "name": "FXAA shader",
+  "description": "Written for melonadeDS, based on the algorithm by Timothy Lottes (the original simple version of FXAA).",
+  "developers": [
+    {
+      "name": "Timothy Lottes (NVIDIA)"
+    }
+  ],
+  "licenses": [
+    "GPL-3.0-only"
+  ]
+}

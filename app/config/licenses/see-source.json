@@ -1,0 +1,5 @@
+{
+  "hash": "see-source",
+  "name": "See source",
+  "content": "The source of this code doesn't state a licence. See the comment above it in app/src/main/java/me/magnum/melonds/common/opengl/ShaderProgramSource.kt in the melonadeDS source code, and the original work linked from there."
+}

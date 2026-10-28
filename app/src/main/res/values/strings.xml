@@ -188,6 +188,8 @@
     <string name="settings_bios_and_firmware_summary">Firmware profile, custom BIOS, DSi camera</string>
     <string name="settings_appearance_and_backup">Appearance and backup</string>
     <string name="settings_appearance_and_backup_summary">Theme, Material You colors, backups</string>
+    <string name="settings_about">About</string>
+    <string name="settings_about_summary">Version, credits and licences</string>
     <string name="settings_section_3d_rendering">3D rendering</string>
     <string name="settings_section_image">Image</string>
     <string name="settings_section_on_screen_info">On-screen info</string>
@@ -771,4 +773,20 @@
     <string name="multiplayer_error_discovery_failed">Discovery failed</string>
     <string name="multiplayer_error_lan_init_failed">Failed to initialize LAN session</string>
     <string name="multiplayer_error_permission_denied">Required permissions not granted</string>
+
+    <!-- About screen -->
+    <string name="about_version">Version %1$s</string>
+    <string name="about_credits">Credits</string>
+    <string name="about_credits_text">Based on melonDS-android by Rafael Caetano, which runs melonDS by Arisotura and the melonDS team.</string>
+    <string name="about_licenses">Licences</string>
+    <string name="about_gpl">GNU General Public License v3.0</string>
+    <string name="about_legal_notice">Copyright © 2018–2026 Rafael Caetano, NeytotheNey and contributors.\n\nmelonadeDS comes with ABSOLUTELY NO WARRANTY. You can redistribute it under the terms of the GNU GPL v3.</string>
+    <string name="about_gpl_summary">melonadeDS is free software, licensed under the GNU General Public License v3.</string>
+    <string name="about_open_source_licenses">Open source licences</string>
+    <string name="about_open_source_licenses_summary">Libraries, native code and shaders used by melonadeDS</string>
+    <string name="about_source_code">Source code</string>
+    <string name="about_source_code_melonadeds">melonadeDS on GitHub</string>
+    <string name="about_source_code_upstream">melonDS-android (upstream)</string>
+    <string name="about_link_open_failed">No app found to open this link</string>
+    <string name="about_license_not_found">This licence text couldn\'t be found.</string>
 </resources>

@@ -1,0 +1,15 @@
+{
+  "uniqueId": "native:libslirp",
+  "name": "libslirp",
+  "description": "User-mode network stack, part of melonDS.",
+  "website": "https://gitlab.freedesktop.org/slirp/libslirp",
+  "developers": [
+    {
+      "name": "Danny Gasparovski and contributors"
+    }
+  ],
+  "licenses": [
+    "libslirp",
+    "libslirp-mit"
+  ]
+}

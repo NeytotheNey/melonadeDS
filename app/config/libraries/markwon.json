@@ -1,0 +1,14 @@
+{
+  "uniqueId": "com.github.jeziellago:Markwon",
+  "name": "Markwon",
+  "description": "Fork of Markwon, used by compose-markdown. Copyright 2019 Dimitry Ivanov.",
+  "website": "https://github.com/jeziellago/Markwon",
+  "developers": [
+    {
+      "name": "Dimitry Ivanov"
+    }
+  ],
+  "licenses": [
+    "Apache-2.0"
+  ]
+}

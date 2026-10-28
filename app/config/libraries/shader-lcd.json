@@ -1,0 +1,12 @@
+{
+  "uniqueId": "shader:lcd",
+  "name": "LCD shader",
+  "developers": [
+    {
+      "name": "Gigaherz"
+    }
+  ],
+  "licenses": [
+    "public-domain"
+  ]
+}

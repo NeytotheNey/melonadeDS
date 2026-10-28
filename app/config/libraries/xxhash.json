@@ -1,0 +1,14 @@
+{
+  "uniqueId": "native:xxhash",
+  "name": "xxHash",
+  "description": "Fast hash algorithm, part of melonDS.",
+  "website": "https://github.com/Cyan4973/xxHash",
+  "developers": [
+    {
+      "name": "Yann Collet"
+    }
+  ],
+  "licenses": [
+    "xxhash"
+  ]
+}
