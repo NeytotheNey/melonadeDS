@@ -34,6 +34,7 @@
 #include "PlatformAndroid.h"
 #include "MelonInstance.h"
 #include "MelonLog.h"
+#include "debug/DebugLog.h"
 #include "net/MPInterface.h"
 
 using namespace melonDS;
@@ -300,6 +301,14 @@ namespace Platform
 
         va_list args;
         va_start(args, fmt);
+
+        // While the debug log is on, core messages get their own tag and repeated lines are collapsed
+        if (DebugLog::isEnabled()) [[unlikely]]
+        {
+            DebugLog::logCoreMessage(level, fmt, args);
+            va_end(args);
+            return;
+        }
 
         switch (level)
         {

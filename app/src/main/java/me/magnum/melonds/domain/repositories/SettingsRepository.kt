@@ -27,6 +27,7 @@ interface SettingsRepository {
     fun isFramePacingBufferEnabled(): Boolean
     fun isPerformanceLoggingEnabled(): Boolean
     fun getPerformanceLogDirectory(): Uri?
+    fun isDebugLogEnabled(): Boolean
 
     fun getRomSearchDirectories(): Array<Uri>
     fun clearRomSearchDirectories()
@@ -85,6 +86,7 @@ interface SettingsRepository {
 
     fun observeTheme(): Flow<Theme>
     fun observeDynamicColorsEnabled(): Flow<Boolean>
+    fun observeDebugLogEnabled(): Flow<Boolean>
     fun observeRomIconFiltering(): Flow<RomIconFiltering>
     fun observeRomSearchDirectories(): Flow<Array<Uri>>
     fun observeSelectedLayoutId(): Flow<UUID>

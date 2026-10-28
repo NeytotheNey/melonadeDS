@@ -51,10 +51,16 @@
                 android:summary="@string/performance_logging_summary"
                 android:defaultValue="false" />
 
+        <SwitchPreference
+                android:key="enable_debug_log"
+                android:title="@string/debug_log"
+                android:summary="@string/debug_log_summary"
+                android:defaultValue="false" />
+
+        <!-- Enabled while either log is on (set up in PerformancePreferencesFragment) -->
         <me.magnum.melonds.ui.settings.preferences.StoragePickerPreference
                 android:key="perf_log_dir"
                 android:title="@string/performance_log_directory"
-                android:dependency="enable_perf_logging"
                 android:widgetLayout="@layout/preference_widget_chevron"
                 app:type="directory"
                 app:permissions="read_write"

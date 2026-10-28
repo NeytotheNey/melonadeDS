@@ -226,6 +226,8 @@
     <string name="sustained_performance_mode_summary">When enabled, peak performance will be lower but thermal throttling will be less pronounced.</string>
     <string name="performance_logging">Performance logging</string>
     <string name="performance_logging_summary">Writes frame timing and memory usage CSV files, plus a summary, for each emulation session.</string>
+    <string name="debug_log">Record debug log</string>
+    <string name="debug_log_summary">Saves this app\'s log to a text file in the log folder, with the game\'s settings and a CPU check every second. Also saves a report when the app crashes. Leave off unless you\'re chasing a bug.</string>
     <string name="performance_log_directory">Log folder</string>
     <string name="performance_log_directory_default">Default: %1$s</string>
     <string name="check_for_updates">Check for updates</string>

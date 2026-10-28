@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <GLES3/gl3.h>
 #include "Args.h"
+#include "CRC32.h"
 #include "GPU3D_Compute.h"
 #include "Configuration.h"
 #include "DSi.h"
@@ -18,6 +19,7 @@
 #include "net/Net_Slirp.h"
 #include "Platform.h"
 #include "SDCardArgsBuilder.h"
+#include "debug/DebugLog.h"
 
 using namespace std;
 using namespace melonDS;
@@ -133,6 +135,10 @@ bool MelonInstance::loadRom(std::string romPath, std::string sramPath)
     sramData = std::make_unique<u8[]>(sramFileLength);
     FileRead(sramData.get(), sramFileLength, 1, sramFile);
     CloseFile(sramFile);
+
+    // The CRC of the whole file identifies the dump. It takes a moment for big ROMs, so it's only worked out for the debug log
+    hasRomCrc32 = DebugLog::isEnabled();
+    romCrc32 = hasRomCrc32 ? CRC32(romData.get(), (int) romFileLength) : 0;
 
     NDSCart::NDSCartArgs cartargs{
         // Don't load the SD card itself yet, because we don't know if
@@ -265,6 +271,9 @@ void MelonInstance::start()
     nds->Start();
 
     screenshotRenderer->init();
+
+    if (DebugLog::isEnabled()) [[unlikely]]
+        DebugLog::logGameStart(*nds, "start", hasRomCrc32, romCrc32);
 }
 
 void MelonInstance::reset()
@@ -287,6 +296,9 @@ void MelonInstance::reset()
     rewindManager.Reset();
     retroAchievementsManager->Reset();
     nds->Start();
+
+    if (DebugLog::isEnabled()) [[unlikely]]
+        DebugLog::logGameStart(*nds, "reset", hasRomCrc32, romCrc32);
 }
 
 u32 MelonInstance::runFrame(int64_t presentDueTimeNs)

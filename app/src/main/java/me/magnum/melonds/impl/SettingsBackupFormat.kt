@@ -38,6 +38,9 @@ internal object SettingsBackupFormat {
         "dsi_bios_dir",
         "dsi_camera_static_image",
         PreferenceKeys.PERF_LOG_DIR,
+        // Debug logging is turned on per install, so a restored backup never starts recording. Also which process exits have been reported
+        PreferenceKeys.ENABLE_DEBUG_LOG,
+        PreferenceKeys.DEBUG_LAST_REPORTED_EXIT_MS,
         // Tracks the RetroAchievements hash database, which isn't part of the backup
         AndroidRetroAchievementsRepository.RA_HASH_LIBRARY_LAST_UPDATED,
         // State of the update checker. Its keys are defined in the gitHub flavours, which main can't see

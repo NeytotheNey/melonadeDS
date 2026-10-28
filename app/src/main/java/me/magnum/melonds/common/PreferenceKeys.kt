@@ -23,6 +23,7 @@ object PreferenceKeys {
     // pref_performance.xml
     const val ENABLE_PERF_LOGGING = "enable_perf_logging"
     const val PERF_LOG_DIR = "perf_log_dir"
+    const val ENABLE_DEBUG_LOG = "enable_debug_log"
 
     // pref_system.xml
     const val SYNC_RTC_TO_DEVICE = "sync_rtc_to_device"
@@ -34,6 +35,9 @@ object PreferenceKeys {
     const val CATEGORY_DISPLAY_3D_RENDERING = "category_display_3d_rendering" // pref_video.xml
     const val CATEGORY_CONTROLS_VIBRATION = "category_controls_vibration" // pref_input.xml
     const val CATEGORY_PERFORMANCE_DEVICE = "category_performance_device" // pref_performance.xml
+
+    // Timestamp (ms) of the newest process exit already looked at by ExitReasonReporter. It has no preference screen
+    const val DEBUG_LAST_REPORTED_EXIT_MS = "debug_last_reported_exit_ms"
 
     // Layout editor state. These have no preference screen
     const val LAYOUT_EDITOR_SNAP_TO_GRID = "layout_editor_snap_to_grid"

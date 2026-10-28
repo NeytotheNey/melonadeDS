@@ -23,6 +23,7 @@
 #include "performancehint/ThreadSafePerformanceHintSession.h"
 #include "performancehint/PerformanceHintManagerFactory.h"
 #include "perf/FrameSampleRing.h"
+#include "debug/DebugLog.h"
 #include "renderer/FramePacing.h"
 
 #include "Platform.h"
@@ -370,6 +371,12 @@ Java_me_magnum_melonds_MelonEmulator_setPerformanceCaptureEnabled(JNIEnv* env, j
         perfFrameSamples.discardAll();
     }
     isPerfCaptureEnabled = enabled;
+}
+
+JNIEXPORT void JNICALL
+Java_me_magnum_melonds_MelonEmulator_setDebugLogEnabled(JNIEnv* env, jobject thiz, jboolean enabled)
+{
+    DebugLog::setEnabled(enabled);
 }
 
 JNIEXPORT jint JNICALL
@@ -937,6 +944,9 @@ void* emulate(void*)
         if (isPerfCaptureEnabled.load(std::memory_order_relaxed)) [[unlikely]]
             pushPerfSample(frameBeginTick, lastTick, workNs, sleepDuration, nLines, isFirstFrameAfterPause, isFrameLocked, frameDivisor);
         isFirstFrameAfterPause = false;
+
+        if (DebugLog::isEnabled()) [[unlikely]]
+            MelonDSAndroid::logDebugFrameState(isFastForwardEnabled.load(std::memory_order_relaxed), fps, workNs);
 
         observedFrames++;
         if (observedFrames >= 30) {

@@ -24,6 +24,7 @@ import me.magnum.melonds.common.UriFileHandler
 import me.magnum.melonds.common.uridelegates.UriHandler
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.impl.PendingSettingsRestore
+import me.magnum.melonds.impl.debug.DebugLogRecorder
 import me.magnum.melonds.migrations.Migrator
 import javax.inject.Inject
 
@@ -41,6 +42,7 @@ class MelonDSApplication : Application(), Configuration.Provider {
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var migrator: Migrator
     @Inject lateinit var uriHandler: UriHandler
+    @Inject lateinit var debugLogRecorder: DebugLogRecorder
 
     private val activeActivities = mutableSetOf<Activity>()
 
@@ -61,6 +63,8 @@ class MelonDSApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // First, so that the debug log (if it's on) covers the rest of the start-up
+        debugLogRecorder.start()
         createNotificationChannels()
         applyTheme()
         applyDynamicColors()

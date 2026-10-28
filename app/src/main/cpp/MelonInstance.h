@@ -14,6 +14,7 @@
 #include "renderer/ScreenshotRenderer.h"
 #include "retroachievements/RetroAchievementsManager.h"
 #include "net/Net.h"
+#include "debug/DebugLog.h"
 
 using namespace melonDS;
 
@@ -61,6 +62,8 @@ public:
     void abortPresentationWait() { frameQueue.abortPresentWait(); }
     // Whether the emulated console was asleep (lid closed) during the last frame, in which case no frames are presented
     bool isSleeping() { return sleeping.load(std::memory_order_relaxed); }
+    // Logs the CPU heartbeat and exception checks for the debug log. Must be called on the emulator thread, between frames
+    void logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs) { DebugLog::onFrame(*nds, isFastForward, fps, lastFrameWorkNs); }
 
     void updateConfiguration(std::shared_ptr<EmulatorConfiguration> newConfiguration);
     void requestNdsSaveWrite(const u8* saveData, u32 saveLength, u32 writeOffset, u32 writeLength);
@@ -107,6 +110,9 @@ private:
     Renderer currentRenderer;
     bool isRenderConfigurationDirty;
     int frame;
+    // CRC32 of the loaded ROM file. Only worked out while the debug log is on
+    bool hasRomCrc32 = false;
+    melonDS::u32 romCrc32 = 0;
 };
 
 }

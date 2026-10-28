@@ -118,6 +118,12 @@ object MelonEmulator {
     external fun setPerformanceCaptureEnabled(enabled: Boolean)
 
     /**
+     * Turns the native side of the debug log on or off: core messages under the melonDS-core tag (with repeats collapsed), the once per second
+     * CPU heartbeat and the exception checks. Off by default, in which case they cost one flag check.
+     */
+    external fun setDebugLogEnabled(enabled: Boolean)
+
+    /**
      * Copies pending frame samples into [buffer] and returns the number of samples copied. Each sample takes [PERF_FRAME_SAMPLE_FIELDS] entries:
      * frame end timestamp (ns, CLOCK_MONOTONIC), work duration (ns), sleep duration (ns), interval since the previous frame end (ns), emulated line
      * count and flags ([PERF_FRAME_FLAG_FAST_FORWARD], [PERF_FRAME_FLAG_AFTER_PAUSE], [PERF_FRAME_FLAG_PACING_LOCKED] and the refresh divisor

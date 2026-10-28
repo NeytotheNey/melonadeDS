@@ -73,6 +73,7 @@ import me.magnum.melonds.extensions.setupGameSystemBars
 import me.magnum.melonds.impl.emulator.LifecycleOwnerProvider
 import me.magnum.melonds.impl.layout.DeviceLayoutDisplayMapper
 import me.magnum.melonds.impl.layout.SecondaryDisplaySelector
+import me.magnum.melonds.impl.debug.DebugLog
 import me.magnum.melonds.impl.perf.PerformanceLogger
 import me.magnum.melonds.impl.system.AppForegroundStateObserver
 import me.magnum.melonds.parcelables.RomInfoParcelable
@@ -274,6 +275,7 @@ class EmulatorActivity : AppCompatActivity() {
 
         private fun applyFastForwardState() {
             val active = isFastForwardActive
+            DebugLog.event { "Fast-forward ${if (active) "on" else "off"} (toggle=$fastForwardEnabled, hold=$fastForwardHoldActive)" }
             MelonEmulator.setFastForwardEnabled(active)
             frameRenderCoordinator.setFastForwardActive(active)
             updateDisplayModeLock(ContextCompat.getDisplayOrDefault(this@EmulatorActivity))

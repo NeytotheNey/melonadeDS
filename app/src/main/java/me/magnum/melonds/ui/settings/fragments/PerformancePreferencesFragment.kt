@@ -62,7 +62,24 @@ class PerformancePreferencesFragment : BasePreferenceFragment(), PreferenceFragm
 
     private fun setupPerformanceLogDirectoryPreference() {
         val logDirectoryPreference = findPreference<StoragePickerPreference>(PreferenceKeys.PERF_LOG_DIR)!!
+        val performanceLoggingPreference = findPreference<SwitchPreference>(PreferenceKeys.ENABLE_PERF_LOGGING)!!
+        val debugLogPreference = findPreference<SwitchPreference>(PreferenceKeys.ENABLE_DEBUG_LOG)!!
         helper.setupStoragePickerPreference(logDirectoryPreference)
+
+        // Both logs write to the same folder, so it can be picked while either of them is on. The change listener runs before the new value is
+        // saved, which is why the new value is passed in
+        fun updateLogDirectoryEnabled(isPerformanceLoggingOn: Boolean, isDebugLogOn: Boolean) {
+            logDirectoryPreference.isEnabled = isPerformanceLoggingOn || isDebugLogOn
+        }
+        updateLogDirectoryEnabled(performanceLoggingPreference.isChecked, debugLogPreference.isChecked)
+        performanceLoggingPreference.setOnPreferenceChangeListener { _, newValue ->
+            updateLogDirectoryEnabled(newValue as Boolean, debugLogPreference.isChecked)
+            true
+        }
+        debugLogPreference.setOnPreferenceChangeListener { _, newValue ->
+            updateLogDirectoryEnabled(performanceLoggingPreference.isChecked, newValue as Boolean)
+            true
+        }
 
         // A picked folder can't be cleared, so the default location only needs to be shown while no folder has been picked
         if (logDirectoryPreference.getPersistedStringSet(null).isNullOrEmpty()) {

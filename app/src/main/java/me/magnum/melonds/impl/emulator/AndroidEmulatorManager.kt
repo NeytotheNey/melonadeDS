@@ -29,6 +29,7 @@ import me.magnum.melonds.domain.model.rom.config.RuntimeEnum
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.domain.services.EmulatorManager
 import me.magnum.melonds.impl.camera.DSiCameraSourceMultiplexer
+import me.magnum.melonds.impl.debug.DebugLog
 import me.magnum.melonds.ui.emulator.rewind.model.RewindSaveState
 import me.magnum.melonds.ui.emulator.rewind.model.RewindWindow
 
@@ -90,7 +91,9 @@ class AndroidEmulatorManager(
             val fileRomProcessor = romFileProcessorFactory.getFileRomProcessorForDocument(fileRomDocument)
             val romUri = fileRomProcessor?.getRealRomUri(rom) ?: return@withContext RomLaunchResult.LaunchFailedRomNotSupported
 
-            setupEmulator(getRomEmulatorConfiguration(rom))
+            val configuration = getRomEmulatorConfiguration(rom)
+            DebugLog.logConfiguration("rom launch", rom, configuration, cheats.size, settingsRepository)
+            setupEmulator(configuration)
 
             val sram = try {
                 sramProvider.getSramForRom(rom)
@@ -115,6 +118,7 @@ class AndroidEmulatorManager(
                 gbaRomUri = (gbaSlotRomConfig as? RomGbaSlotConfig.GbaRom)?.romPath,
                 gbaSramUri = (gbaSlotRomConfig as? RomGbaSlotConfig.GbaRom)?.savePath
             )
+            DebugLog.event { "ROM load result: ${loadResult.name}" }
             if (loadResult.isTerminal || !isActive) {
                 cameraManager.stopCurrentCameraSource()
                 MelonEmulator.stopEmulation()
@@ -131,8 +135,11 @@ class AndroidEmulatorManager(
 
     override suspend fun loadFirmware(consoleType: ConsoleType): FirmwareLaunchResult {
         return withContext(Dispatchers.IO) {
-            setupEmulator(getFirmwareEmulatorConfiguration(consoleType))
+            val configuration = getFirmwareEmulatorConfiguration(consoleType)
+            DebugLog.logConfiguration("firmware launch", null, configuration, null, settingsRepository)
+            setupEmulator(configuration)
             val result = MelonEmulator.bootFirmware()
+            DebugLog.event { "Firmware boot result: ${result.name}" }
             if (result != MelonEmulator.FirmwareLoadResult.SUCCESS) {
                 cameraManager.stopCurrentCameraSource()
                 MelonEmulator.stopEmulation()
@@ -147,11 +154,13 @@ class AndroidEmulatorManager(
 
     override suspend fun updateRomEmulatorConfiguration(rom: Rom) {
         val configuration = getRomEmulatorConfiguration(rom)
+        DebugLog.logConfiguration("configuration update", rom, configuration, null, settingsRepository)
         MelonEmulator.updateEmulatorConfiguration(configuration)
     }
 
     override suspend fun updateFirmwareEmulatorConfiguration(consoleType: ConsoleType) {
         val configuration = getFirmwareEmulatorConfiguration(consoleType)
+        DebugLog.logConfiguration("configuration update", null, configuration, null, settingsRepository)
         MelonEmulator.updateEmulatorConfiguration(configuration)
     }
 
@@ -164,18 +173,22 @@ class AndroidEmulatorManager(
     }
 
     override suspend fun pauseEmulator() {
+        DebugLog.event { "Pause" }
         MelonEmulator.pauseEmulation()
     }
 
     override suspend fun resumeEmulator() {
+        DebugLog.event { "Resume" }
         MelonEmulator.resumeEmulation()
     }
 
     override suspend fun resetEmulator() {
+        DebugLog.event { "Reset" }
         MelonEmulator.resetEmulation()
     }
 
     override suspend fun updateCheats(cheats: List<Cheat>) {
+        DebugLog.event { "Cheats updated: ${cheats.size} active" }
         MelonEmulator.setupCheats(cheats.toTypedArray())
     }
 
@@ -198,15 +211,28 @@ class AndroidEmulatorManager(
     }
 
     override suspend fun loadRewindState(rewindSaveState: RewindSaveState): Boolean {
-        return MelonEmulator.loadRewindState(rewindSaveState)
+        return MelonEmulator.loadRewindState(rewindSaveState).also {
+            DebugLog.event { "Rewind state loaded (success=$it)" }
+        }
     }
 
     override suspend fun saveState(saveStateFileUri: Uri): Boolean = withContext(Dispatchers.IO) {
-        MelonEmulator.saveState(saveStateFileUri)
+        MelonEmulator.saveState(saveStateFileUri).also {
+            DebugLog.event { "Save state written to ${getSaveStateName(saveStateFileUri)} (success=$it)" }
+        }
     }
 
     override suspend fun loadState(saveStateFileUri: Uri): Boolean = withContext(Dispatchers.IO) {
-        MelonEmulator.loadState(saveStateFileUri)
+        MelonEmulator.loadState(saveStateFileUri).also {
+            DebugLog.event { "Save state loaded from ${getSaveStateName(saveStateFileUri)} (success=$it)" }
+        }
+    }
+
+    /**
+     * The save state's file name, without the folder it's in.
+     */
+    private fun getSaveStateName(saveStateFileUri: Uri): String {
+        return saveStateFileUri.lastPathSegment?.substringAfterLast('/') ?: "?"
     }
 
     override suspend fun takeScreenshot(): Boolean = withContext(Dispatchers.IO) {
@@ -214,6 +240,7 @@ class AndroidEmulatorManager(
     }
 
     override fun stopEmulator() {
+        DebugLog.event { "Stop" }
         MelonEmulator.stopEmulation()
         cameraManager.stopCurrentCameraSource()
         messageQueue.stop()

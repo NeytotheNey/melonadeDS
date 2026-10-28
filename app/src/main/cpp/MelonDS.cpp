@@ -223,6 +223,13 @@ namespace MelonDSAndroid
         return instance->runFrame(presentDueTimeNs);
     }
 
+    void logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs)
+    {
+        // Called by the emulator thread right after loop(), so the instance is the one that just ran
+        if (instance)
+            instance->logDebugFrameState(isFastForward, fps, lastFrameWorkNs);
+    }
+
     Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs)
     {
         // The caller must keep holding the lock while it uses the frame

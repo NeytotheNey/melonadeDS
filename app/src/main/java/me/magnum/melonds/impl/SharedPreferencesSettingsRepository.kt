@@ -237,6 +237,10 @@ class SharedPreferencesSettingsRepository(
         return dirPreference?.toUri()
     }
 
+    override fun isDebugLogEnabled(): Boolean {
+        return preferences.getBoolean(PreferenceKeys.ENABLE_DEBUG_LOG, false)
+    }
+
     override fun getRomSearchDirectories(): Array<Uri> {
         val dirPreference = preferences.getStringSet("rom_search_dirs", emptySet())
         return dirPreference?.map { it.toUri() }?.toTypedArray() ?: emptyArray()
@@ -663,6 +667,12 @@ class SharedPreferencesSettingsRepository(
     override fun observeDynamicColorsEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow(PreferenceKeys.DYNAMIC_COLORS) {
             isDynamicColorsEnabled()
+        }
+    }
+
+    override fun observeDebugLogEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.ENABLE_DEBUG_LOG) {
+            isDebugLogEnabled()
         }
     }
 
