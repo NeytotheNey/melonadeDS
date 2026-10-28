@@ -1,7 +1,8 @@
 object AppConfig {
     const val compileSdkVersion = 37
     const val targetSdkVersion = compileSdkVersion
-    const val minSdkVersion = 37
+    // 29 is the lowest level where the NDK uses native TLS instead of emulated TLS
+    const val minSdkVersion = 29
     const val ndkVersion = "28.0.13004108"
 
     const val versionCode = 42
