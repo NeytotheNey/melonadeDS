@@ -36,6 +36,7 @@ import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -44,8 +45,9 @@ import kotlin.math.sqrt
 
 /**
  * Opt-in logger used to compare builds. While a session is active, it drains the frame samples captured by the emulator thread and the display
- * samples captured by the render thread about once per second, writes them to CSV files together with a memory sample, and keeps a summary with
- * aggregated statistics up to date. All work happens on a background thread.
+ * samples captured by the render thread about once per second, writes them to CSV files together with a memory sample (plus a PSS breakdown every
+ * 30 s) and the events reported through [logEvent] and [logStateChange], and keeps a summary with aggregated statistics up to date. All work happens
+ * on a background thread.
  */
 class PerformanceLogger(
     private val context: Context,
@@ -56,6 +58,7 @@ class PerformanceLogger(
         private const val TAG = "PerformanceLogger"
         private const val LOG_DIRECTORY_NAME = "perf_logs"
         private const val DRAIN_INTERVAL_MS = 1000L
+        private const val PSS_SAMPLE_INTERVAL_NS = 30_000_000_000L
         // The summary is rewritten every few drains so that a session that is killed without being stopped still has one
         private const val SUMMARY_INTERVAL_DRAINS = 5
         private const val PREVIOUS_SESSION_TIMEOUT_MS = 5000L
@@ -86,6 +89,8 @@ class PerformanceLogger(
     private val loggerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var currentSession: Session? = null
     private var lastSessionJob: Job? = null
+    // Last value reported for each key through logStateChange, kept across sessions so that a new session can start with the current state
+    private val lastStates = LinkedHashMap<String, String>()
 
     /**
      * Starts a new logging session if performance logging is enabled. Any active session is stopped first.
@@ -100,6 +105,7 @@ class PerformanceLogger(
         }
 
         val session = Session(sessionName)
+        lastStates.forEach { (key, value) -> session.queueEvent(key, value, session.startNs) }
         val previousSessionJob = lastSessionJob
         currentSession = session
         lastSessionJob = loggerScope.launch {
@@ -136,10 +142,32 @@ class PerformanceLogger(
         return currentSession != null
     }
 
+    /**
+     * Records an event (for example the activity being paused) in the active session's events file. Does nothing if there's no active session.
+     * Cheap and safe to call from any thread: the event is only queued here and written by the logger's background thread.
+     */
+    @Synchronized
+    fun logEvent(event: String, detail: String = "") {
+        currentSession?.queueEvent(event, detail, System.nanoTime())
+    }
+
+    /**
+     * Like [logEvent], but only records [value] if it differs from the last value reported for [key]. The current value of every key is also
+     * written at the start of each session.
+     */
+    @Synchronized
+    fun logStateChange(key: String, value: String) {
+        if (lastStates[key] == value) {
+            return
+        }
+        lastStates[key] = value
+        currentSession?.queueEvent(key, value, System.nanoTime())
+    }
+
     private inner class Session(private val sessionName: String) {
         private val stopSignal = CompletableDeferred<Unit>()
         private val startDate = Date()
-        private val startNs = System.nanoTime()
+        val startNs = System.nanoTime()
         private val filePrefix = buildFilePrefix()
 
         private val frameBuffer = LongArray(FRAME_DRAIN_BATCH_SIZE * MelonEmulator.PERF_FRAME_SAMPLE_FIELDS)
@@ -147,6 +175,7 @@ class PerformanceLogger(
         private val lineBuilder = StringBuilder(64 * 1024)
         private val powerManager = context.getSystemService<PowerManager>()
         private val pageSizeKb = Os.sysconf(OsConstants._SC_PAGESIZE) / 1024
+        private val pendingEvents = ConcurrentLinkedQueue<PendingEvent>()
 
         private val stats = SessionStatistics()
         private var settingsSnapshot = emptyList<Pair<String, String>>()
@@ -161,6 +190,11 @@ class PerformanceLogger(
         private var framesWriter: BufferedWriter? = null
         private var displayWriter: BufferedWriter? = null
         private var memoryWriter: BufferedWriter? = null
+        private var eventsWriter: BufferedWriter? = null
+
+        fun queueEvent(event: String, detail: String, timestampNs: Long) {
+            pendingEvents.add(PendingEvent(timestampNs, event, detail))
+        }
 
         fun requestStop() {
             stopSignal.complete(Unit)
@@ -172,7 +206,8 @@ class PerformanceLogger(
 
         suspend fun run() {
             // Full PSS breakdown. This reads /proc/self/smaps while holding the process' mmap lock, which can stall the emulator thread (the JIT
-            // maps and protects memory), so it's only done before capture starts and after it ends
+            // maps and protects memory). So apart from the samples before capture starts and after it ends, it's only taken every 30 s, and the
+            // time each sample took is logged so that the frames it stalled can be told apart
             startMemorySnapshot = takePssSnapshot()
 
             // Start capturing straight away so that start-up frames are kept. Samples wait in the buffers until the first drain
@@ -194,11 +229,19 @@ class PerformanceLogger(
                     write("t_ms,render_ms,valid,new_frame,skipped_frames,paused,ds_sleep,fast_forward,prev_hold_refreshes\n")
                 }
                 memoryWriter = logDestination.openWriter("${filePrefix}_memory.csv").apply {
-                    write("t_s,rss_kb,native_heap_alloc_kb,java_heap_used_kb,thermal_status\n")
+                    // The PSS columns are only set on the rows where a PSS sample was taken
+                    write("t_s,rss_kb,native_heap_alloc_kb,java_heap_used_kb,thermal_status,")
+                    write("pss_total_kb,pss_graphics_kb,pss_native_kb,pss_java_kb,pss_private_other_kb,pss_sample_ms\n")
                 }
+                eventsWriter = logDestination.openWriter("${filePrefix}_events.csv").apply {
+                    write("t_s,event,detail\n")
+                }
+                // The first row carries the PSS sample taken just before capture started
+                sampleMemory(startMemorySnapshot)
 
                 var drainCount = 0
                 var stopRequested = false
+                var nextPssSampleNs = startNs + PSS_SAMPLE_INTERVAL_NS
                 while (!stopRequested) {
                     stopRequested = withTimeoutOrNull(DRAIN_INTERVAL_MS) { stopSignal.await() } != null
                     if (stopRequested) {
@@ -209,7 +252,18 @@ class PerformanceLogger(
 
                     drainFrameSamples()
                     drainDisplaySamples()
-                    sampleMemory()
+                    drainEvents()
+                    val now = System.nanoTime()
+                    val pssSnapshot = when {
+                        // Capture has already stopped, so this one can't stall a logged frame
+                        stopRequested -> takePssSnapshot().also { endMemorySnapshot = it }
+                        now >= nextPssSampleNs -> {
+                            nextPssSampleNs = now + PSS_SAMPLE_INTERVAL_NS
+                            takePssSnapshot()
+                        }
+                        else -> null
+                    }
+                    sampleMemory(pssSnapshot)
                     flushWriters()
 
                     drainCount++
@@ -230,7 +284,10 @@ class PerformanceLogger(
                 return
             }
 
-            endMemorySnapshot = takePssSnapshot()
+            // Already taken by the final drain, unless the session failed before it
+            if (endMemorySnapshot == null) {
+                endMemorySnapshot = takePssSnapshot()
+            }
             writeSummary(isComplete = true)
             Log.i(TAG, "Performance logs written to ${destination?.description}")
         }
@@ -310,7 +367,24 @@ class PerformanceLogger(
             } while (count == DISPLAY_DRAIN_BATCH_SIZE)
         }
 
-        private fun sampleMemory() {
+        private fun drainEvents() {
+            val writer = eventsWriter ?: return
+
+            lineBuilder.setLength(0)
+            while (true) {
+                val event = pendingEvents.poll() ?: break
+                // Elapsed microseconds formatted as "milliseconds" gives seconds with 3 decimal places
+                lineBuilder.appendMillis(maxOf(0L, event.timestampNs - startNs) / 1000).append(',')
+                    .append(event.event.toCsvField()).append(',')
+                    .append(event.detail.toCsvField()).append('\n')
+            }
+            writer.append(lineBuilder)
+        }
+
+        /**
+         * Writes a memory row. [pssSnapshot] fills the PSS columns, which are left empty if it's null.
+         */
+        private fun sampleMemory(pssSnapshot: PssSnapshot?) {
             val writer = memoryWriter ?: return
 
             // Only cheap sources here. /proc/self/statm reads memory counters without walking the memory mappings
@@ -326,7 +400,18 @@ class PerformanceLogger(
                 .append(rss).append(',')
                 .append(nativeHeapAllocated).append(',')
                 .append(javaHeapUsed).append(',')
-                .append(thermalStatus).append('\n')
+                .append(thermalStatus).append(',')
+            if (pssSnapshot != null) {
+                lineBuilder.append(pssSnapshot.total).append(',')
+                    .append(pssSnapshot.graphics).append(',')
+                    .append(pssSnapshot.native).append(',')
+                    .append(pssSnapshot.java).append(',')
+                    .append(pssSnapshot.privateOther).append(',')
+                    .appendMillis(pssSnapshot.durationNs)
+            } else {
+                lineBuilder.append(",,,,,")
+            }
+            lineBuilder.append('\n')
             writer.append(lineBuilder)
 
             stats.trackMemory(rss, nativeHeapAllocated, thermalStatus)
@@ -342,15 +427,23 @@ class PerformanceLogger(
             }
         }
 
+        /**
+         * Takes a full PSS breakdown and adds it to the statistics. It can take tens of ms, so it must only run on the logger's thread.
+         */
         private fun takePssSnapshot(): PssSnapshot {
+            val sampleStartNs = System.nanoTime()
             val memoryInfo = Debug.MemoryInfo()
             Debug.getMemoryInfo(memoryInfo)
-            return PssSnapshot(
+            val snapshot = PssSnapshot(
                 total = memoryInfo.totalPss.toLong(),
                 java = memoryInfo.getMemoryStat("summary.java-heap")?.toLongOrNull() ?: -1L,
                 native = memoryInfo.getMemoryStat("summary.native-heap")?.toLongOrNull() ?: -1L,
                 graphics = memoryInfo.getMemoryStat("summary.graphics")?.toLongOrNull() ?: -1L,
+                privateOther = memoryInfo.getMemoryStat("summary.private-other")?.toLongOrNull() ?: -1L,
+                durationNs = System.nanoTime() - sampleStartNs,
             )
+            stats.trackPss(snapshot)
+            return snapshot
         }
 
         private fun getThermalStatus(): Int {
@@ -365,10 +458,11 @@ class PerformanceLogger(
             framesWriter?.flush()
             displayWriter?.flush()
             memoryWriter?.flush()
+            eventsWriter?.flush()
         }
 
         private fun closeWriters() {
-            listOf(framesWriter, displayWriter, memoryWriter).forEach {
+            listOf(framesWriter, displayWriter, memoryWriter, eventsWriter).forEach {
                 try {
                     it?.close()
                 } catch (e: IOException) {
@@ -378,6 +472,7 @@ class PerformanceLogger(
             framesWriter = null
             displayWriter = null
             memoryWriter = null
+            eventsWriter = null
         }
 
         private fun writeSummary(isComplete: Boolean) {
@@ -591,6 +686,12 @@ class PerformanceLogger(
             line("pss_java_end_kb", endMemorySnapshot?.java)
             line("pss_native_end_kb", endMemorySnapshot?.native)
             line("pss_graphics_end_kb", endMemorySnapshot?.graphics)
+            // Over every PSS sample (start, every 30 s and end)
+            line("pss_samples", stats.pssSamples)
+            line("pss_graphics_min_kb", stats.minPssGraphics.takeIf { it >= 0 })
+            line("pss_graphics_peak_kb", stats.peakPssGraphics.takeIf { it >= 0 })
+            // Slowest Debug.getMemoryInfo call. Samples taken during capture can stall the emulator thread for up to about this long
+            line("pss_sample_max_ms", millis(stats.maxPssSampleDuration.takeIf { stats.pssSamples > 0 }))
             line("thermal_status_final", stats.lastThermalStatus)
             line("thermal_status_max", stats.maxThermalStatus)
 
@@ -616,7 +717,9 @@ class PerformanceLogger(
         }
     }
 
-    private class PssSnapshot(val total: Long, val java: Long, val native: Long, val graphics: Long)
+    private class PssSnapshot(val total: Long, val java: Long, val native: Long, val graphics: Long, val privateOther: Long, val durationNs: Long)
+
+    private class PendingEvent(val timestampNs: Long, val event: String, val detail: String)
 
     private class DisplayStateSnapshot(
         val refreshRate: Float,
@@ -765,6 +868,16 @@ class PerformanceLogger(
         var maxThermalStatus = -1
             private set
         private var rssSum = 0L
+
+        var pssSamples = 0L
+            private set
+        // -1 until a sample reports graphics memory
+        var minPssGraphics = -1L
+            private set
+        var peakPssGraphics = -1L
+            private set
+        var maxPssSampleDuration = 0L
+            private set
 
         fun trackFrame(workDuration: Long, interval: Long, isFastForward: Boolean, isAfterPause: Boolean, isPacingLocked: Boolean, pacingDivisor: Int) {
             totalFrames++
@@ -976,6 +1089,21 @@ class PerformanceLogger(
             }
         }
 
+        fun trackPss(snapshot: PssSnapshot) {
+            pssSamples++
+            if (snapshot.graphics >= 0) {
+                if (minPssGraphics < 0 || snapshot.graphics < minPssGraphics) {
+                    minPssGraphics = snapshot.graphics
+                }
+                if (snapshot.graphics > peakPssGraphics) {
+                    peakPssGraphics = snapshot.graphics
+                }
+            }
+            if (snapshot.durationNs > maxPssSampleDuration) {
+                maxPssSampleDuration = snapshot.durationNs
+            }
+        }
+
         fun averageRenderDurationNs(): Double? {
             return if (displaySamples > 0) displayRenderDurationSum.toDouble() / displaySamples else null
         }
@@ -1073,6 +1201,13 @@ class PerformanceLogger(
             }
         }
     }
+}
+
+/**
+ * Keeps a value in one CSV field. Event names and details are short labels, so separators are simply replaced.
+ */
+private fun String.toCsvField(): String {
+    return replace(',', ';').replace('\n', ' ').replace('\r', ' ')
 }
 
 /**

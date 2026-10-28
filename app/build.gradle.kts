@@ -201,6 +201,8 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
 
     debugImplementation(libs.compose.ui.tooling)
+    // Debug builds only. Configured in src/debug (LeakCanaryInitializer) so that it never dumps the heap while a game is open
+    debugImplementation(libs.leakcanary)
 
     implementation(libs.aboutlibraries.compose.m3)
     implementation(libs.coil)

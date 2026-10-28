@@ -39,7 +39,10 @@ case "${1:-help}" in
     $A install -r "$APK" | tail -1 ;;
   launch)
     # Brings the app to the front; if a game is running it returns to the game, not the ROM list (use restart for that)
-    $A shell monkey -p $PKG -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1; sleep 3
+    # Explicit component: debug builds have a second launcher icon (LeakCanary's "Leaks") that monkey can pick.
+    # 0x10200000 = NEW_TASK | RESET_TASK_IF_NEEDED, the flags a launcher tap uses.
+    $A shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10200000 \
+      -n $PKG/me.magnum.melonds.ui.romlist.RomListActivity > /dev/null 2>&1; sleep 3
     $A shell dumpsys activity activities | grep -m1 topResumedActivity; exit 0 ;;
   restart)
     $A shell am force-stop $PKG; "$0" launch ;;

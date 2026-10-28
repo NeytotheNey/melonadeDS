@@ -12,6 +12,7 @@ import android.os.Handler
 import android.view.Display
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.SurfaceHolder
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
@@ -72,6 +73,7 @@ import me.magnum.melonds.extensions.setupGameSystemBars
 import me.magnum.melonds.impl.emulator.LifecycleOwnerProvider
 import me.magnum.melonds.impl.layout.DeviceLayoutDisplayMapper
 import me.magnum.melonds.impl.layout.SecondaryDisplaySelector
+import me.magnum.melonds.impl.perf.PerformanceLogger
 import me.magnum.melonds.impl.system.AppForegroundStateObserver
 import me.magnum.melonds.parcelables.RomInfoParcelable
 import me.magnum.melonds.parcelables.RomParcelable
@@ -166,6 +168,9 @@ class EmulatorActivity : AppCompatActivity() {
 
     @Inject
     lateinit var appForegroundStateObserver: AppForegroundStateObserver
+
+    @Inject
+    lateinit var performanceLogger: PerformanceLogger
 
     private var presentation: ExternalPresentation? = null
     private var pauseMenuDialog: AlertDialog? = null
@@ -410,6 +415,20 @@ class EmulatorActivity : AppCompatActivity() {
         binding.surfaceMain.apply {
             setRenderer(mainScreenRenderer)
         }
+        // Marks surface recreations in the performance log, to match them with graphics memory changes
+        binding.surfaceMain.holder.addCallback(object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {
+                performanceLogger.logEvent("surface_created")
+            }
+
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                performanceLogger.logEvent("surface_changed", "${width}x$height")
+            }
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                performanceLogger.logEvent("surface_destroyed")
+            }
+        })
 
         binding.textFps.visibility = View.INVISIBLE
         binding.viewLayoutControls.setLayoutComponentViewBuilderFactory(RuntimeLayoutComponentViewBuilderFactory())
@@ -699,6 +718,8 @@ class EmulatorActivity : AppCompatActivity() {
                         }
                     }
                     viewModel.setScreenFolds(folds)
+                    val foldStates = it.displayFeatures.filterIsInstance<FoldingFeature>().map { feature -> feature.state.toString() }
+                    performanceLogger.logStateChange("fold", foldStates.joinToString(" ").ifEmpty { "none" })
                 }
             }
         }
@@ -719,6 +740,7 @@ class EmulatorActivity : AppCompatActivity() {
         getSystemService<InputManager>()?.registerInputDeviceListener(connectedControllerManager, null)
         connectedControllerManager.startTrackingControllers()
         frameRenderCoordinator.addSurface(binding.surfaceMain)
+        performanceLogger.logEvent("activity_start")
     }
 
     private fun updateDisplays() {
@@ -729,6 +751,9 @@ class EmulatorActivity : AppCompatActivity() {
 
         val displays = deviceLayoutDisplayMapper.mapDisplaysToLayoutDisplays(currentDisplay, secondaryDisplay)
         viewModel.setConnectedDisplays(displays)
+        displays.mainScreenDisplay.let {
+            performanceLogger.logStateChange("display", "${it.id} ${it.width}x${it.height}")
+        }
 
         showExternalDisplay(secondaryDisplay)
     }
@@ -814,6 +839,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        performanceLogger.logEvent("activity_resume")
         choreographerFrameRenderer.startRendering()
         emulatorMotionManager.resume()
 
@@ -1140,6 +1166,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        performanceLogger.logEvent("activity_pause")
         frontendInputHandler.releaseFastForwardHold()
         enableScreenTimeOut()
         choreographerFrameRenderer.stopRendering()
@@ -1163,6 +1190,7 @@ class EmulatorActivity : AppCompatActivity() {
         getSystemService<InputManager>()?.unregisterInputDeviceListener(connectedControllerManager)
         connectedControllerManager.stopTrackingControllers()
         frameRenderCoordinator.removeSurface(binding.surfaceMain)
+        performanceLogger.logEvent("activity_stop")
     }
 
     override fun onDestroy() {
