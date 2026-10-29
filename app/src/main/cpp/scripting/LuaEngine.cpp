@@ -192,6 +192,11 @@ static void wrapFunction(lua_State* L, const char* table, const char* name, lua_
 static int loadTextOnly(lua_State* L)
 {
     int argumentCount = lua_gettop(L);
+    // Pad to two arguments so index 2 is the chunk name (or nil), not the original load pushed below. env is only passed if the caller gave
+    // one, because load treats an explicit nil env as "set _ENV to nil"
+    if (argumentCount < 2)
+        lua_settop(L, 2);
+    int top = lua_gettop(L);
     lua_pushvalue(L, lua_upvalueindex(1));
     lua_pushvalue(L, 1);
     lua_pushvalue(L, 2);
@@ -200,7 +205,7 @@ static int loadTextOnly(lua_State* L)
         lua_pushvalue(L, 4);
 
     lua_call(L, argumentCount >= 4 ? 4 : 3, LUA_MULTRET);
-    return lua_gettop(L) - argumentCount;
+    return lua_gettop(L) - top;
 }
 
 /**
