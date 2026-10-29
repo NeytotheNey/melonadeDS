@@ -275,6 +275,8 @@
     <string name="ds_screen_colors">DS screen colours</string>
     <string name="screen_shadow">Screen shadow</string>
     <string name="screen_shadow_summary">Draw a soft shadow around the screens</string>
+    <string name="lua_drawings_in_state_pictures">Show script drawings in save state pictures</string>
+    <string name="lua_drawings_in_state_pictures_summary">Include what Lua scripts draw on the screens in save state and rewind pictures</string>
     <string name="internal_resolution">Internal resolution</string>
     <string name="renderer">Renderer</string>
     <string name="dsi_camera_source">DSi camera source</string>

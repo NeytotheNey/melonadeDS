@@ -52,6 +52,12 @@
                 android:title="@string/screen_shadow"
                 android:summary="@string/screen_shadow_summary"
                 android:defaultValue="false" />
+
+        <SwitchPreference
+                android:key="video_lua_drawings_in_state_pictures"
+                android:title="@string/lua_drawings_in_state_pictures"
+                android:summary="@string/lua_drawings_in_state_pictures_summary"
+                android:defaultValue="false" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/settings_section_frame_pacing">

@@ -35,6 +35,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     jint rewindWindowSeconds = env->GetIntField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "rewindWindowSeconds", "I"));
     jboolean useJit = env->GetBooleanField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "useJit", "Z"));
     jboolean syncRtcToDevice = env->GetBooleanField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "syncRtcToDevice", "Z"));
+    jboolean luaDrawingsInScreenshots = env->GetBooleanField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "luaDrawingsInScreenshots", "Z"));
     jobject consoleTypeEnum = env->GetObjectField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "consoleType", "Lme/magnum/melonds/domain/model/ConsoleType;"));
     jint consoleType = env->GetIntField(consoleTypeEnum, env->GetFieldID(consoleTypeEnumClass, "consoleType", "I"));
     jboolean soundEnabled = env->GetBooleanField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "soundEnabled", "Z"));
@@ -84,6 +85,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     finalEmulatorConfiguration.showBootScreen = showBootScreen;
     finalEmulatorConfiguration.useJit = useJit;
     finalEmulatorConfiguration.syncRtcToDevice = syncRtcToDevice;
+    finalEmulatorConfiguration.luaDrawingsInScreenshots = luaDrawingsInScreenshots;
     finalEmulatorConfiguration.consoleType = consoleType;
     finalEmulatorConfiguration.audioSettings = MelonDSAndroid::AudioSettings {
         .soundEnabled = (bool) soundEnabled,

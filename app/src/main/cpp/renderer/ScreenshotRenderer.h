@@ -9,6 +9,7 @@
 #include "FrameQueue.h"
 #include "types.h"
 #include "renderer/Renderer.h"
+#include "scripting/LuaDraw.h"
 
 namespace MelonDSAndroid
 {
@@ -29,12 +30,19 @@ private:
     GLuint textureUniformLocation;
     GLuint posAttribLocation;
     GLuint texCoordAttribLocation;
+    // Draws the Lua overlay over the screenshot (see renderOverlay()). 0 if it couldn't be built
+    GLuint overlayRenderShader = 0;
+    GLuint overlayTextureUniformLocation;
     bool screenshotRequested;
     bool stopped;
 
     void setupFrameBuffer();
-    void setupShaders();
+    // False if the screenshot shader couldn't be built
+    bool setupShaders();
     void setupVertexBuffers();
+    void setupOverlayShader();
+    void renderOverlay(GLuint overlayTexture);
+    void blendOverlay(const LuaOverlay& overlay);
     void notifyScreenshotReady();
 
     std::mutex screenshotMutex;
@@ -43,7 +51,11 @@ private:
 public:
     ScreenshotRenderer(u32* screenshotBuffer);
     void init();
-    void renderScreenshot(GPU* gpu, Renderer renderer, Frame* renderFrame);
+    /**
+     * Renders [renderFrame] into the screenshot buffer. If [overlay] isn't null, the frame's Lua drawings (which [overlay] holds, and the frame's
+     * overlay texture too) are drawn over it, scaled down to the DS's resolution
+     */
+    void renderScreenshot(GPU* gpu, Renderer renderer, Frame* renderFrame, const LuaOverlay* overlay);
     u32* getScreenshot();
 
     bool takeScreenshot();

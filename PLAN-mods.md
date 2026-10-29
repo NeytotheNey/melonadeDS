@@ -224,6 +224,12 @@ Facts from the code these rest on: draw commands are recorded in `on_frame` and 
 - `on_frame_end()`: a new callback after `RunFrame` (and the software upload), before the overlay upload. `LuaEngine::endFrame()` runs it and then rasterises, so drawings from both callbacks land on the same frame: each script's `on_frame` commands, then its `on_frame_end` commands. It gets its own instruction budget; the 4096-command and 64 KB text caps are per frame across both. `melon.frame()` is the frame that just ran. Memory writes are allowed; `press`/`release` there apply to the next frame. `endFrame()` runs whenever `runLuaFrame` ran, so a script that stopped mid-frame is still cleared.
 - Overlay in savestate and rewind pictures: a global setting in video settings, "Show script drawings in save state pictures", off by default, carried in `EmulatorConfiguration` (which already updates live). GL path: after the frame quad in `ScreenshotRenderer`, draw the overlay texture with a premultiplied blend and a 2×2 average shader (`.bgra` swizzle); don't change the texture's filter, since the render thread may be presenting it. Software path: CPU-blend the overlay with a 2×2 average.
 
+**Done (2026-10-29).** Checked on the emulator (sizes, circles, `on_frame_end`, an error in `on_frame_end`, a runaway circle loop, save state pictures with the setting off and on); not yet on the phone. What differs from the plan above:
+- No `.bgra` swizzle in the save-state-picture overlay shader: the frame and overlay textures already share byte order there, and only the display shader swizzles. The plan's swizzle would have swapped red and blue.
+- A circle's centre is a pixel corner, like `rect`'s x/y (10.5 centres on pixel 10). Radii are capped at 2^28 DS pixels so the maths fits in 64 bits on 32-bit ARM.
+- Circles are charged 32 + 2 per visible row before their pixels are counted (counting and drawing both walk the rows), plus the pixel charge.
+- The setting sits under Settings → Display and is copied into an atomic for the emulator thread.
+
 ### Phase 8: folder content (`require`, images)
 
 - Setup over JNI changes once to an array of `LuaScriptSetup` objects (name, source; later phases add storage and options), plus the session's modules and images.

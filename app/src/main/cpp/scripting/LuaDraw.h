@@ -26,8 +26,11 @@ public:
     static constexpr int kWidth = kScreenWidth;
     static constexpr int kHeight = (192 * 2 + 2) * kScale;
     static constexpr int kBottomScreenRow = (192 + 2) * kScale;
-    // Lines of text are 12 rows of glyph with a row of space above and below
+    // Lines of text are 12 rows of glyph with a row of space above and below (at text size 1)
     static constexpr int kLineHeight = 14;
+    static constexpr int kMaxTextSize = 4;
+    // Circles bigger than this are capped, so that their maths fits in 64 bits. It's over a million screens across
+    static constexpr int64_t kMaxCircleRadius = 1ll << 29;
 
     enum Screen
     {
@@ -70,6 +73,14 @@ public:
      * the font doesn't have are drawn as '?'
      */
     static TextSize measureText(const char* text, size_t length);
+    /**
+     * The spans of row [y] (of one screen) that a circle covers, clipped to the screen: the circle's middle is at the corner ([middleX],
+     * [middleY]), and it covers the pixels whose centre is at most [radius] from it, or for an outline, also more than one DS pixel less than
+     * [radius]. [radius] is at most kMaxCircleRadius, and the middle at most that far outside the screen. Returns how many spans there are (up to 2)
+     */
+    static int getCircleRowSpans(int64_t middleX, int64_t middleY, int64_t radius, bool isFilled, int y, Rect spans[2]);
+    // Pixels drawn by a circle, see getCircleRowSpans()
+    static int64_t circlePixelCount(int64_t middleX, int64_t middleY, int64_t radius, bool isFilled);
 
     /**
      * Erases every drawing. Only goes through the rows that have any
@@ -79,8 +90,11 @@ public:
     void fillRect(Screen screen, const Rect& rect, melonDS::u32 color);
     // Draws a line clipped by [clipLine], one DS pixel thick
     void drawLine(Screen screen, int x0, int y0, int x1, int y1, melonDS::u32 color);
-    // (x, y) is the top left of the text's box, which [background] fills. Lines are kLineHeight apart
-    void drawText(Screen screen, int x, int y, const char* text, size_t length, melonDS::u32 color, melonDS::u32 background);
+    // (x, y) is the top left of the text's box, which [background] fills. Each pixel of a glyph is [size] x [size] pixels (size 1 to
+    // kMaxTextSize), and lines are kLineHeight * [size] apart
+    void drawText(Screen screen, int x, int y, const char* text, size_t length, melonDS::u32 color, melonDS::u32 background, int size);
+    // See getCircleRowSpans()
+    void drawCircle(Screen screen, int64_t middleX, int64_t middleY, int64_t radius, bool isFilled, melonDS::u32 color);
 
     bool hasDrawings() const { return rowStart[Top] < rowEnd[Top] || rowStart[Bottom] < rowEnd[Bottom]; }
     // Rows of the whole overlay (bottom screen included) that may have drawings on [screen]: [start, end), empty if start >= end

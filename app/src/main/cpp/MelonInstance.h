@@ -95,7 +95,8 @@ private:
     void setBatteryLevels();
     void setDateTime();
     void saveRewindState(RewindSaveState* rewindSaveState);
-    void runLuaFrame();
+    // Whether LuaEngine::runFrame() ran, which LuaEngine::endFrame() must then follow
+    bool runLuaFrame();
 
 private:
     int instanceId;
@@ -117,6 +118,8 @@ private:
     // While set, the emulator thread applies the input before each frame (the player's, as changed by the scripts) instead of the UI thread
     std::atomic_bool isLuaInputActive = false;
     LuaEngine luaEngine;
+    // EmulatorConfiguration::luaDrawingsInScreenshots, for the emulator thread. The configuration can be replaced on another thread
+    std::atomic_bool luaDrawingsInScreenshots = false;
 
     std::shared_ptr<EmulatorConfiguration> currentConfiguration;
     FrameQueue frameQueue;

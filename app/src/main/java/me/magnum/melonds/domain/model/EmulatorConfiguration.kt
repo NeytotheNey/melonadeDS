@@ -21,6 +21,8 @@ data class EmulatorConfiguration(
         val rewindWindowSeconds: Int,
         val useJit: Boolean,
         val syncRtcToDevice: Boolean,
+        // Puts the Lua scripts' drawings into savestate and rewind pictures
+        val luaDrawingsInScreenshots: Boolean,
         val consoleType: ConsoleType,
         val soundEnabled: Boolean,
         val muteFastForwardAudio: Boolean,

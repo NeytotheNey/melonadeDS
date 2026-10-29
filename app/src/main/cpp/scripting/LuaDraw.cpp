@@ -190,6 +190,79 @@ LuaOverlay::TextSize LuaOverlay::measureText(const char* text, size_t length)
     return size;
 }
 
+/**
+ * floor(sqrt(value)) for value >= 0, exact for every int64_t (a double alone is off once value goes past 2^53)
+ */
+static int64_t squareRoot(int64_t value)
+{
+    int64_t root = (int64_t) std::sqrt((double) value);
+    while (root > 0 && root * root > value)
+        root--;
+    while ((root + 1) * (root + 1) <= value)
+        root++;
+    return root;
+}
+
+int LuaOverlay::getCircleRowSpans(int64_t middleX, int64_t middleY, int64_t radius, bool isFilled, int y, Rect spans[2])
+{
+    // In half pixels, so that everything stays an integer: a pixel's centre is an odd number of half pixels from the middle on each axis. The
+    // pixels on the right of the middle are 1, 3, 5... half pixels away, so the n-th one is in if (2n - 1)^2 <= (2 * radius)^2 - dy^2. Fits
+    // in 64 bits, since the radius and the middle's distance from the screen are at most 2^29
+    int64_t dy = 2 * (int64_t) y + 1 - 2 * middleY;
+    int64_t outer = 4 * radius * radius - dy * dy;
+    if (outer < 1)
+        return 0;
+    int64_t outerHalfWidth = (squareRoot(outer) + 1) / 2;
+
+    // An outline leaves out the pixels that are at most radius - 1 DS pixel from the middle
+    int64_t innerHalfWidth = 0;
+    if (!isFilled && radius > kThickness)
+    {
+        int64_t inner = 4 * (radius - kThickness) * (radius - kThickness) - dy * dy;
+        if (inner >= 1)
+            innerHalfWidth = (squareRoot(inner) + 1) / 2;
+    }
+
+    Rect candidates[2];
+    int candidateCount;
+    if (innerHalfWidth == 0)
+    {
+        candidates[0] = { middleX - outerHalfWidth, y, middleX + outerHalfWidth, y + 1 };
+        candidateCount = 1;
+    }
+    else
+    {
+        candidates[0] = { middleX - outerHalfWidth, y, middleX - innerHalfWidth, y + 1 };
+        candidates[1] = { middleX + innerHalfWidth, y, middleX + outerHalfWidth, y + 1 };
+        candidateCount = 2;
+    }
+
+    int spanCount = 0;
+    for (int i = 0; i < candidateCount; i++)
+    {
+        Rect clipped = clipToScreen(candidates[i]);
+        if (!clipped.isEmpty())
+            spans[spanCount++] = clipped;
+    }
+    return spanCount;
+}
+
+int64_t LuaOverlay::circlePixelCount(int64_t middleX, int64_t middleY, int64_t radius, bool isFilled)
+{
+    // Only the rows that can be seen
+    int y0 = (int) std::clamp<int64_t>(middleY - radius, 0, kScreenHeight);
+    int y1 = (int) std::clamp<int64_t>(middleY + radius, 0, kScreenHeight);
+    int64_t pixelCount = 0;
+    for (int y = y0; y < y1; y++)
+    {
+        Rect spans[2];
+        int spanCount = getCircleRowSpans(middleX, middleY, radius, isFilled, y, spans);
+        for (int i = 0; i < spanCount; i++)
+            pixelCount += spans[i].x1 - spans[i].x0;
+    }
+    return pixelCount;
+}
+
 void LuaOverlay::clear()
 {
     for (int screen = Top; screen <= Bottom; screen++)
@@ -305,10 +378,11 @@ void LuaOverlay::drawLine(Screen screen, int x0, int y0, int x1, int y1, u32 col
     }
 }
 
-void LuaOverlay::drawText(Screen screen, int x, int y, const char* text, size_t length, u32 color, u32 background)
+void LuaOverlay::drawText(Screen screen, int x, int y, const char* text, size_t length, u32 color, u32 background, int size)
 {
-    TextSize size = measureText(text, length);
-    Rect box = { x, y, x + size.width, y + size.lineCount * kLineHeight };
+    TextSize textSize = measureText(text, length);
+    int64_t lineHeight = (int64_t) kLineHeight * size;
+    Rect box = { x, y, x + textSize.width * size, y + textSize.lineCount * lineHeight };
     fillRect(screen, box, background);
 
     Rect clipped = clipToScreen(box);
@@ -324,7 +398,7 @@ void LuaOverlay::drawText(Screen screen, int x, int y, const char* text, size_t 
         if (character == '\n')
         {
             penX = x;
-            lineY += kLineHeight;
+            lineY += lineHeight;
             // Lines only go down
             if (lineY >= kScreenHeight)
                 break;
@@ -332,22 +406,45 @@ void LuaOverlay::drawText(Screen screen, int x, int y, const char* text, size_t 
         }
 
         const unsigned short* glyph = getGlyph(character);
-        int advance = getGlyphAdvance(glyph);
-        if (glyph[0] && lineY + kLineHeight > 0 && penX < kScreenWidth && penX + advance > 0)
+        int64_t advance = (int64_t) getGlyphAdvance(glyph) * size;
+        if (glyph[0] && lineY + lineHeight > 0 && penX < kScreenWidth && penX + advance > 0)
         {
-            int glyphX = (int) penX + 1;
-            int glyphY = (int) lineY + 1;
+            // The glyph has a pixel of space (at its size) above it and on its left
+            int glyphX = (int) penX + size;
+            int glyphY = (int) lineY + size;
             for (int row = 0; row < 12; row++)
             {
                 unsigned short bits = glyph[4 + row];
                 for (int column = 0; bits; column++, bits >>= 1)
                 {
-                    if (bits & 1)
-                        blendPixel(screen, glyphX + column, glyphY + row, color);
+                    if (!(bits & 1))
+                        continue;
+
+                    for (int blockY = 0; blockY < size; blockY++)
+                    {
+                        for (int blockX = 0; blockX < size; blockX++)
+                            blendPixel(screen, glyphX + column * size + blockX, glyphY + row * size + blockY, color);
+                    }
                 }
             }
         }
         penX += advance;
+    }
+}
+
+void LuaOverlay::drawCircle(Screen screen, int64_t middleX, int64_t middleY, int64_t radius, bool isFilled, u32 color)
+{
+    if ((color >> 24) == 0)
+        return;
+
+    int y0 = (int) std::clamp<int64_t>(middleY - radius, 0, kScreenHeight);
+    int y1 = (int) std::clamp<int64_t>(middleY + radius, 0, kScreenHeight);
+    for (int y = y0; y < y1; y++)
+    {
+        Rect spans[2];
+        int spanCount = getCircleRowSpans(middleX, middleY, radius, isFilled, y, spans);
+        for (int i = 0; i < spanCount; i++)
+            fillRect(screen, spans[i], color);
     }
 }
 

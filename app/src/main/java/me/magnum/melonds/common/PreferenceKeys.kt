@@ -10,6 +10,7 @@ object PreferenceKeys {
     const val VIDEO_THREADED_2D = "video_threaded_2d"
     const val VIDEO_DS_SCREEN_COLORS = "video_ds_screen_colors"
     const val VIDEO_SCREEN_SHADOW = "video_screen_shadow"
+    const val VIDEO_LUA_DRAWINGS_IN_STATE_PICTURES = "video_lua_drawings_in_state_pictures"
     const val SHOW_STATUS_BAR = "show_status_bar"
     const val FRAME_PACING_VSYNC = "frame_pacing_vsync"
     const val FRAME_PACING_LOCK_60HZ = "frame_pacing_lock_60hz"

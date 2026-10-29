@@ -175,6 +175,7 @@ class SharedPreferencesSettingsRepository(
             rewindWindowSeconds = getRewindWindow(),
             useJit = isJitEnabled(),
             syncRtcToDevice = preferences.getBoolean(PreferenceKeys.SYNC_RTC_TO_DEVICE, true),
+            luaDrawingsInScreenshots = preferences.getBoolean(PreferenceKeys.VIDEO_LUA_DRAWINGS_IN_STATE_PICTURES, false),
             consoleType = consoleType,
             soundEnabled = isSoundEnabled(),
             muteFastForwardAudio = shouldMuteFastForwardAudio(),

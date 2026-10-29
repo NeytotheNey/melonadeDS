@@ -87,6 +87,8 @@ typedef struct
     std::unique_ptr<RenderSettings> renderSettings;
     // Draws the 2D layers on their own thread. Used by every renderer, so it's not in renderSettings
     bool threaded2dRendering;
+    // Puts the Lua scripts' drawings into savestate and rewind pictures
+    bool luaDrawingsInScreenshots;
     SdCardSettings dsiSdCardSettings;
     SdCardSettings dldiSdCardSettings;
     Renderer renderer;

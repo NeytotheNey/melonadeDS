@@ -47,7 +47,7 @@ static const char* const kDrawTextLimitError = "drew too much text in one frame 
 static const double kMaxCoordinate = (double) (1ll << 40);
 
 /**
- * A recorded melon.draw call, drawn once every script's on_frame() has run
+ * A recorded melon.draw call, drawn once every script's on_frame_end() has run
  */
 struct LuaEngine::DrawCommand
 {
@@ -59,8 +59,10 @@ struct LuaEngine::DrawCommand
         Outline,
         // A line clipped by LuaOverlay::clipLine()
         Line,
-        // Text with its top left at (x0, y0), stored in Script::drawText
+        // Text with its top left at (x0, y0), stored in Script::drawText. x1 is its size (1 to LuaOverlay::kMaxTextSize)
         Text,
+        // A circle around the corner (x0, y0) with a radius of x1 (see LuaOverlay::getCircleRowSpans()), filled if y1 isn't 0
+        Circle,
     };
 
     Type type;
@@ -102,7 +104,8 @@ struct LuaEngine::Script
     std::optional<bool> showControls;
     std::optional<bool> fastForward;
 
-    // melon.draw calls from the current frame. Text goes into one string, which the commands point into, of at most kMaxDrawTextBytes
+    // melon.draw calls from the current frame: on_frame()'s, then on_frame_end()'s. Text goes into one string, which the commands point into,
+    // of at most kMaxDrawTextBytes
     std::vector<DrawCommand> drawCommands;
     std::string drawText;
 };
@@ -471,14 +474,11 @@ LuaInputOverride LuaEngine::runFrame(int frame, const LuaUserInput& userInput)
             callCallback(*script, "on_state_loaded", nullptr, kCallbackInstructionLimit);
     }
 
-    // Only on_frame() draws, so that a frame's drawings come from one call per script
+    // Only on_frame() and on_frame_end() draw, so that a frame's drawings come from one pass through the frame
     isDrawingAllowed = true;
     for (auto& script : scripts)
         callCallback(*script, "on_frame", nullptr, kCallbackInstructionLimit);
     isDrawingAllowed = false;
-
-    // Also when every script has stopped, so that their last drawings go away
-    rasterizeOverlay();
 
     // Scripts that were switched off don't count anymore
     LuaInputOverride inputOverride;
@@ -500,6 +500,19 @@ LuaInputOverride LuaEngine::runFrame(int frame, const LuaUserInput& userInput)
     }
 
     return inputOverride;
+}
+
+void LuaEngine::endFrame()
+{
+    // Its own instruction budget. press()/release() calls here are kept for the next frame's input, since runFrame() only clears them once
+    // they've been applied
+    isDrawingAllowed = true;
+    for (auto& script : scripts)
+        callCallback(*script, "on_frame_end", nullptr, kCallbackInstructionLimit);
+    isDrawingAllowed = false;
+
+    // Also when every script has stopped, so that their last drawings go away
+    rasterizeOverlay();
 }
 
 void LuaEngine::stop()
@@ -780,6 +793,7 @@ int LuaEngine::setupScript(lua_State* L)
         { "line", luaDrawLine },
         { "rect", luaDrawRect },
         { "text", luaDrawText },
+        { "circle", luaDrawCircle },
         { nullptr, nullptr },
     };
     static const luaL_Reg emuFunctions[] = {
@@ -872,7 +886,10 @@ void LuaEngine::rasterizeOverlay()
                     overlay.drawLine(command.screen, command.x0, command.y0, command.x1, command.y1, command.color);
                     break;
                 case DrawCommand::Type::Text:
-                    overlay.drawText(command.screen, command.x0, command.y0, script->drawText.data() + command.textOffset, command.textLength, command.color, command.background);
+                    overlay.drawText(command.screen, command.x0, command.y0, script->drawText.data() + command.textOffset, command.textLength, command.color, command.background, command.x1);
+                    break;
+                case DrawCommand::Type::Circle:
+                    overlay.drawCircle(command.screen, command.x0, command.y0, command.x1, command.y1 != 0, command.color);
                     break;
             }
         }
@@ -1109,9 +1126,9 @@ static u32 checkColor(lua_State* L, int argument)
 }
 
 /**
- * Adds a draw command for the running script and charges its work. Returns null when there's nothing to draw: outside on_frame(), or when
- * none of it can be seen ([pixelCount] is 0). Raises an error once the script has drawn too much this frame: too many calls, or more than
- * kMaxDrawTextBytes of text once [textLength] more is added
+ * Adds a draw command for the running script and charges its work. Returns null when there's nothing to draw: outside on_frame() and
+ * on_frame_end(), or when none of it can be seen ([pixelCount] is 0). Raises an error once the script has drawn too much this frame (both
+ * callbacks together): too many calls, or more than kMaxDrawTextBytes of text once [textLength] more is added
  */
 LuaEngine::DrawCommand* LuaEngine::addDrawCommand(lua_State* L, int64_t pixelCount, size_t textLength)
 {
@@ -1227,30 +1244,60 @@ int LuaEngine::luaDrawText(lua_State* L)
     const char* text = luaL_checklstring(L, 4, &length);
     u32 color = checkColor(L, 5);
     u32 background = lua_isnoneornil(L, 6) ? 0 : checkColor(L, 6);
+    lua_Integer textSize = luaL_optinteger(L, 7, 1);
+    luaL_argcheck(L, textSize >= 1 && textSize <= LuaOverlay::kMaxTextSize, 7, "size must be 1, 2, 3 or 4");
 
     // Laying the text out goes through every byte, even where nothing is drawn
     melonade_charge_work(L, (lua_Integer) length);
     LuaOverlay::TextSize size = LuaOverlay::measureText(text, length);
+    int64_t width = size.width * textSize;
 
     if (color != 0 || background != 0)
     {
-        // The box's area covers the glyphs as well as the background. Text whose box can be seen starts at an int: strings are at most a few
-        // tens of MB (the memory limit), and glyphs are at most 14 pixels wide
-        LuaOverlay::Rect box = { x, y, x + size.width, y + size.lineCount * LuaOverlay::kLineHeight };
+        // The box's area covers the glyphs as well as the background. Text whose box can be seen starts at an int: a frame's text is at most
+        // kMaxDrawTextBytes, and glyphs are at most 14 pixels wide at size 1
+        LuaOverlay::Rect box = { x, y, x + width, y + size.lineCount * LuaOverlay::kLineHeight * textSize };
         if (DrawCommand* command = addDrawCommand(L, LuaOverlay::clippedArea(box), length))
         {
             Script& script = getScript(L);
-            *command = { DrawCommand::Type::Text, screen, (int) x, (int) y, 0, 0, color, background, script.drawText.size(), length };
+            *command = { DrawCommand::Type::Text, screen, (int) x, (int) y, (int) textSize, 0, color, background, script.drawText.size(), length };
             script.drawText.append(text, length);
         }
     }
 
     // In DS pixels
-    if (size.width % LuaOverlay::kScale == 0)
-        lua_pushinteger(L, size.width / LuaOverlay::kScale);
+    if (width % LuaOverlay::kScale == 0)
+        lua_pushinteger(L, width / LuaOverlay::kScale);
     else
-        lua_pushnumber(L, (lua_Number) size.width / LuaOverlay::kScale);
+        lua_pushnumber(L, (lua_Number) width / LuaOverlay::kScale);
     return 1;
+}
+
+int LuaEngine::luaDrawCircle(lua_State* L)
+{
+    LuaOverlay::Screen screen = checkScreen(L, 1);
+    int64_t middleX = checkCoordinate(L, 2);
+    int64_t middleY = checkCoordinate(L, 3);
+    int64_t radius = checkCoordinate(L, 4);
+    u32 color = checkColor(L, 5);
+    bool isFilled = lua_toboolean(L, 6) != 0;
+
+    // A radius of 0 or less (after rounding to half a pixel) draws nothing. A circle whose square around it is off-screen can't be seen either,
+    // which also keeps the middle close enough to the screen for getCircleRowSpans()
+    radius = std::min(radius, LuaOverlay::kMaxCircleRadius);
+    if (color == 0 || radius <= 0 || LuaOverlay::clippedArea({ middleX - radius, middleY - radius, middleX + radius, middleY + radius }) == 0)
+        return 0;
+    if (!getScript(L).engine->isDrawingAllowed)
+        return 0;
+
+    // Counting the pixels and drawing them each go through every row that can be seen, even where the circle has no pixels on it (a ring
+    // around the screen, say), so the rows are charged twice before counting, on top of addDrawCommand()'s charge for the pixels
+    int64_t rowCount = std::clamp<int64_t>(middleY + radius, 0, LuaOverlay::kScreenHeight) - std::clamp<int64_t>(middleY - radius, 0, LuaOverlay::kScreenHeight);
+    melonade_charge_work(L, kDrawCallCost + 2 * rowCount);
+
+    if (DrawCommand* command = addDrawCommand(L, LuaOverlay::circlePixelCount(middleX, middleY, radius, isFilled)))
+        *command = { DrawCommand::Type::Circle, screen, (int) middleX, (int) middleY, (int) radius, isFilled ? 1 : 0, color };
+    return 0;
 }
 
 }

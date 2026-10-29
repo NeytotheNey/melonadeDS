@@ -49,6 +49,7 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     isRenderConfigurationDirty = true;
     inputMask = 0xFFF;
     frame = 0;
+    luaDrawingsInScreenshots = configuration->luaDrawingsInScreenshots;
 
     net->RegisterInstance(instanceId);
 
@@ -394,8 +395,9 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         nds->GPU.GetRenderer3D().SetOutputTexture(backBuffer, renderFrame->frameTexture);
     }
 
+    bool hasLuaFrameRun = false;
     if (luaEngine.isActive() || isLuaInputActive) [[unlikely]]
-        runLuaFrame();
+        hasLuaFrameRun = runLuaFrame();
 
     u32 nLines = nds->RunFrame();
     retroAchievementsManager->FrameUpdate();
@@ -416,8 +418,13 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         // Do nothing. Emulator already renders into the texture, which was set-up above
     }
 
-    // Lua drawings, before the fence so that they're presented with this frame. Scripts only stop during runLuaFrame(), whose drawing leaves
-    // theirs out, so the overlay is empty while none runs. Then this only clears the frame's old drawings, if it has any
+    // on_frame_end(), which also draws the frame's Lua drawings. Scripts only stop during runLuaFrame() and endFrame(), and endFrame() leaves
+    // their drawings out, so the overlay is empty once none runs
+    if (hasLuaFrameRun) [[unlikely]]
+        luaEngine.endFrame();
+
+    // Lua drawings, before the fence so that they're presented with this frame. While no script runs, this only clears the frame's old
+    // drawings, if it has any
     const LuaOverlay& luaOverlay = luaEngine.getOverlay();
     if (luaOverlay.hasDrawings() || renderFrame->overlayTexture) [[unlikely]]
     {
@@ -455,7 +462,11 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     bool needsScreenshot = screenshotRenderer->isScreenshotPending();
 
     if (needsRewindCapture || needsScreenshot) [[unlikely]]
-        screenshotRenderer->renderScreenshot(&nds->GPU, currentRenderer, renderFrame);
+    {
+        // The overlay only has drawings while a script runs
+        const LuaOverlay* screenshotOverlay = luaDrawingsInScreenshots.load(std::memory_order_relaxed) && luaOverlay.hasDrawings() ? &luaOverlay : nullptr;
+        screenshotRenderer->renderScreenshot(&nds->GPU, currentRenderer, renderFrame, screenshotOverlay);
+    }
 
     if (needsRewindCapture)
     {
@@ -595,6 +606,7 @@ void MelonInstance::updateConfiguration(std::shared_ptr<EmulatorConfiguration> n
 
     rewindManager.UpdateRewindSettings(newConfiguration->rewindEnabled, newConfiguration->rewindLengthSeconds, newConfiguration->rewindCaptureSpacingSeconds);
 
+    luaDrawingsInScreenshots.store(newConfiguration->luaDrawingsInScreenshots, std::memory_order_relaxed);
     currentConfiguration = newConfiguration;
     isRenderConfigurationDirty = true;
 }
@@ -825,8 +837,9 @@ void MelonInstance::syncDateTimeToDevice()
         setDateTime();
 }
 
-void MelonInstance::runLuaFrame()
+bool MelonInstance::runLuaFrame()
 {
+    bool hasFrameRun = false;
     if (luaEngine.isActive())
     {
         isLuaInputActive = true;
@@ -838,6 +851,7 @@ void MelonInstance::runLuaFrame()
             .touchY = (u16) (touch & 0xFFFF),
         };
         LuaInputOverride inputOverride = luaEngine.runFrame(frame, userInput);
+        hasFrameRun = true;
 
         // A script may have been switched off during the call. If none is left, the player's input is restored below
         if (luaEngine.isActive())
@@ -855,7 +869,7 @@ void MelonInstance::runLuaFrame()
             {
                 nds->ReleaseScreen();
             }
-            return;
+            return true;
         }
     }
 
@@ -867,6 +881,7 @@ void MelonInstance::runLuaFrame()
         nds->TouchScreen((touch >> 16) & 0x7FFF, touch & 0xFFFF);
     else
         nds->ReleaseScreen();
+    return hasFrameRun;
 }
 
 void MelonInstance::saveRewindState(RewindSaveState* rewindSaveState)
