@@ -1,6 +1,7 @@
 #ifndef MELONEVENTMESSENGER_H
 #define MELONEVENTMESSENGER_H
 
+#include <string>
 #include <Platform.h>
 
 namespace MelonDSAndroid
@@ -21,6 +22,13 @@ public:
     virtual void onLeaderboardAttemptUpdated(long leaderboardId, std::string formattedValue) = 0;
     virtual void onLeaderboardAttemptCanceled(long leaderboardId) = 0;
     virtual void onLeaderboardAttemptCompleted(long leaderboardId, int value, std::string formattedValue) = 0;
+
+    // Lua scripts. Called on the emulator thread
+    // [scriptId] is the script's position in the list the app sent
+    virtual void onLuaScriptStopped(int scriptId, const std::string& error) = 0;
+    virtual void onLuaSwapScreens(bool swapped) = 0;
+    virtual void onLuaShowControls(bool visible) = 0;
+    virtual void onLuaFastForward(bool enabled) = 0;
 };
 
 }

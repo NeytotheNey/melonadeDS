@@ -236,6 +236,24 @@ namespace MelonDSAndroid
             instance->updateMotionData(ax, ay, az, rx, ry, rz);
     }
 
+    void setLuaScripts(std::vector<LuaScriptSource> scripts)
+    {
+        if (instance)
+            instance->setLuaScripts(std::move(scripts));
+    }
+
+    void disableLuaScript(int scriptId)
+    {
+        if (instance)
+            instance->disableLuaScript(scriptId);
+    }
+
+    void updateLuaSticks(float leftX, float leftY, float rightX, float rightY)
+    {
+        if (instance)
+            instance->updateLuaSticks(leftX, leftY, rightX, rightY);
+    }
+
     void start()
     {
         startAudio();

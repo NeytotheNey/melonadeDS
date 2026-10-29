@@ -74,4 +74,30 @@ enum class EmulatorEventType(val event: Int) {
      * * formated value string (`u8[32]`)
      */
     EventRALeaderboardAttemptCompleted(213),
+
+    /**
+     * A Lua script was switched off after an error. Data:
+     * * script ID (`i32`): its position in the list given to `MelonEmulator.setupLuaScripts()`
+     * * error size (`i32`)
+     * * error (`u8[]`, UTF-8, cut short to fit)
+     */
+    EventLuaScriptStopped(300),
+
+    /**
+     * A Lua script wants the screens swapped or not. Data:
+     * * swapped (`i32`, 0 or 1)
+     */
+    EventLuaSwapScreens(301),
+
+    /**
+     * A Lua script wants the on-screen controls shown or hidden. Data:
+     * * visible (`i32`, 0 or 1)
+     */
+    EventLuaShowControls(302),
+
+    /**
+     * A Lua script wants fast-forward on or off. Data:
+     * * enabled (`i32`, 0 or 1)
+     */
+    EventLuaFastForward(303),
 }

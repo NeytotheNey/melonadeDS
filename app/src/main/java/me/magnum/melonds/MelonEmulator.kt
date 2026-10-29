@@ -75,6 +75,23 @@ object MelonEmulator {
 
     external fun getRuntimeAchievements(): Array<RASimpleRuntimeAchievement>
 
+    /**
+     * Gives the emulator the game's Lua scripts: [names] and [sources] are matching pairs. Must be called after [setupEmulator] and before
+     * [startEmulation]. The scripts are loaded once the game starts.
+     */
+    external fun setupLuaScripts(names: Array<String>, sources: Array<ByteArray>)
+
+    /**
+     * Switches off the script at [scriptId] (its position in the list given to [setupLuaScripts]) for the rest of the session. Applied before
+     * the next frame runs
+     */
+    external fun disableLuaScript(scriptId: Int)
+
+    /**
+     * Controller sticks for Lua scripts, from -1 to 1 (down and right are positive). Only needed while a script runs.
+     */
+    external fun updateLuaSticks(leftX: Float, leftY: Float, rightX: Float, rightY: Float)
+
 	fun loadRom(romUri: Uri, sramUri: Uri, gbaSlotType: GbaSlotType, gbaRomUri: Uri?, gbaSramUri: Uri?): LoadResult {
         val loadResult = loadRomInternal(romUri.toString(), sramUri.toString(), gbaSlotType.ordinal, gbaRomUri?.toString(), gbaSramUri?.toString())
         return when (loadResult) {

@@ -77,6 +77,7 @@ import me.magnum.melonds.ui.emulator.firmware.FirmwarePauseMenuOption
 import me.magnum.melonds.ui.emulator.model.EmulatorState
 import me.magnum.melonds.ui.emulator.model.EmulatorUiEvent
 import me.magnum.melonds.ui.emulator.model.LaunchArgs
+import me.magnum.melonds.ui.emulator.model.LuaUiEvent
 import me.magnum.melonds.ui.emulator.model.PauseMenu
 import me.magnum.melonds.ui.emulator.model.RAEventUi
 import me.magnum.melonds.ui.emulator.model.RAIntegrationEvent
@@ -161,6 +162,16 @@ class EmulatorViewModel @Inject constructor(
 
     private val _uiEvent = EventSharedFlow<EmulatorUiEvent>()
     val uiEvent = _uiEvent.asSharedFlow()
+
+    // A script can send several requests at once (in on_load, say), so none may be dropped. Each event is tagged with the session it came from,
+    // and events from a session that has ended (still buffered, or from its on_unload) are dropped. The state isn't checked: on_load events can
+    // arrive before it becomes RunningRom
+    private val _luaUiEvent = Channel<Pair<Int, LuaUiEvent>>(Channel.UNLIMITED)
+    val luaUiEvent = _luaUiEvent.receiveAsFlow()
+        .filter { (session, _) -> session == luaUiEventSession }
+        .map { it.second }
+    // Changed on the main thread whenever a session starts or stops, so nothing matches it while no session runs
+    private var luaUiEventSession = 0
 
     init {
         viewModelScope.launch {
@@ -253,8 +264,10 @@ class EmulatorViewModel @Inject constructor(
         startObservingLayoutForRom(rom)
         startRetroAchievementsSession(rom)
 
-        val cheats = getRomInfo(rom)?.let { getRomEnabledCheats(it) } ?: emptyList()
-        val result = emulatorManager.loadRom(rom, cheats)
+        val romInfo = getRomInfo(rom)
+        val cheats = romInfo?.let { getRomEnabledCheats(it) } ?: emptyList()
+        val luaScripts = if (emulatorSession.areLuaScriptsAllowed()) rom.config.mods.luaScripts.filter { it.enabled } else emptyList()
+        val result = emulatorManager.loadRom(rom, cheats, luaScripts, romInfo?.gameCode)
         when (result) {
             is RomLaunchResult.LaunchFailedRomNotFound,
             is RomLaunchResult.LaunchFailedRomNotSupported,
@@ -423,6 +436,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     private fun stopEmulator() {
+        luaUiEventSession++
         viewModelScope.launch {
             _achievementsEvent.emit(RAEventUi.Reset)
         }
@@ -434,6 +448,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     private fun stopEmulatorAndExit() {
+        luaUiEventSession++
         performanceLogger.stopSession()
         // Stop session jobs (RA heartbeat, play time) so they don't outlive the native instance
         sessionCoroutineScope.cancel()
@@ -485,6 +500,7 @@ class EmulatorViewModel @Inject constructor(
                             }
                         }
                     }
+                    RomPauseMenuOption.MODS -> _uiEvent.tryEmit(EmulatorUiEvent.ShowLuaScripts(emulatorManager.getLuaScripts()))
                     RomPauseMenuOption.VIEW_ACHIEVEMENTS -> _uiEvent.tryEmit(EmulatorUiEvent.ShowAchievementList)
                     RomPauseMenuOption.RESET -> resetEmulator()
                     RomPauseMenuOption.EXIT -> exitEmulator(force = false)
@@ -675,6 +691,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     private fun resetEmulatorState(newState: EmulatorState) {
+        luaUiEventSession++
         performanceLogger.stopSession()
         sessionCoroutineScope.notifyNewSessionStarted()
         emulatorSession.reset()
@@ -692,6 +709,10 @@ class EmulatorViewModel @Inject constructor(
                 when (it) {
                     is EmulatorEvent.RumbleStart -> _rumbleEvent.tryEmit(RumbleEvent.RumbleStart(it.duration))
                     EmulatorEvent.RumbleStop -> _rumbleEvent.tryEmit(RumbleEvent.RumbleStop)
+                    is EmulatorEvent.LuaScriptStopped -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ScriptStopped(it.scriptName, it.error))
+                    is EmulatorEvent.LuaSwapScreens -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.SwapScreens(it.swapped))
+                    is EmulatorEvent.LuaShowControls -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ShowControls(it.visible))
+                    is EmulatorEvent.LuaFastForward -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.FastForward(it.enabled))
                     is EmulatorEvent.Stop -> {
                         when (it.reason) {
                             EmulatorEvent.Stop.Reason.GBAModeNotSupported -> _toastEvent.tryEmit(ToastEvent.GbaModeNotSupported)
@@ -816,6 +837,20 @@ class EmulatorViewModel @Inject constructor(
 
     private fun getRomSaveStateSlots(rom: Rom): List<SaveStateSlot> {
         return saveStatesRepository.getRomSaveStates(rom)
+    }
+
+    /**
+     * Whether a Lua script is running, in which case controller sticks are forwarded to it. Cheap enough to call for every motion event
+     */
+    fun areLuaScriptsRunning(): Boolean {
+        return emulatorManager.areLuaScriptsRunning()
+    }
+
+    /**
+     * Switches a script off for this session only, from the pause menu. The ROM config keeps it enabled
+     */
+    fun disableLuaScript(scriptId: Int) {
+        emulatorManager.disableLuaScript(scriptId)
     }
 
     fun isSustainedPerformanceModeEnabled(): Boolean {
@@ -1050,6 +1085,8 @@ class EmulatorViewModel @Inject constructor(
             RomPauseMenuOption.REWIND -> settingsRepository.isRewindEnabled() && emulatorSession.areSaveStateLoadsAllowed()
             RomPauseMenuOption.LOAD_STATE -> emulatorSession.areSaveStateLoadsAllowed()
             RomPauseMenuOption.CHEATS -> emulatorSession.areCheatsEnabled()
+            // Only while this session loaded a script, even if they have all been switched off since
+            RomPauseMenuOption.MODS -> emulatorManager.getLuaScripts().isNotEmpty()
             RomPauseMenuOption.VIEW_ACHIEVEMENTS -> emulatorSession.areRetroAchievementsEnabled()
             else -> true
         }

@@ -19,6 +19,11 @@ public:
     void onLeaderboardAttemptCanceled(long leaderboardId) override;
     void onLeaderboardAttemptCompleted(long leaderboardId, int value, std::string formattedValue) override;
 
+    void onLuaScriptStopped(int scriptId, const std::string& error) override;
+    void onLuaSwapScreens(bool swapped) override;
+    void onLuaShowControls(bool visible) override;
+    void onLuaFastForward(bool enabled) override;
+
 private:
     // Event type constants
     static constexpr int EVENT_RUMBLE_START = 100;
@@ -33,6 +38,11 @@ private:
     static constexpr int EVENT_RA_LBOARD_ATTEMPT_UPDATED = 211;
     static constexpr int EVENT_RA_LBOARD_ATTEMPT_CANCELED = 212;
     static constexpr int EVENT_RA_LBOARD_ATTEMPT_COMPLETED = 213;
+
+    static constexpr int EVENT_LUA_SCRIPT_STOPPED = 300;
+    static constexpr int EVENT_LUA_SWAP_SCREENS = 301;
+    static constexpr int EVENT_LUA_SHOW_CONTROLS = 302;
+    static constexpr int EVENT_LUA_FAST_FORWARD = 303;
 };
 
 #endif // ANDROIDMELONEVENTMESSENGER_H

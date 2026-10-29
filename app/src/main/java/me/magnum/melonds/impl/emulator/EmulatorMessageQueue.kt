@@ -8,6 +8,7 @@ import android.os.ParcelFileDescriptor
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.CountDownLatch
 
 class EmulatorMessageQueue(private val eventHandler: EventHandler) {
 
@@ -21,7 +22,7 @@ class EmulatorMessageQueue(private val eventHandler: EventHandler) {
 
     companion object {
         private const val EVENT_SIZE_BYTES = 8 // 2 ints (type, data length)
-        private const val DATA_SIZE_BYTES = 128 // 128 bytes of arbitrary data
+        private const val DATA_SIZE_BYTES = 512 // Up to 512 bytes of arbitrary data. Must match kMaxDataLength in EmulatorMessageQueueJNI.cpp
 
         /**
          * Initialize the native message pipe and returns the file descriptor through which the messages will be sent.
@@ -46,39 +47,56 @@ class EmulatorMessageQueue(private val eventHandler: EventHandler) {
     private val eventBuffer = ByteBuffer.allocateDirect(EVENT_SIZE_BYTES).order(ByteOrder.nativeOrder())
     private val dataBuffer = ByteBuffer.allocateDirect(DATA_SIZE_BYTES).order(ByteOrder.nativeOrder())
 
+    /**
+     * Opens the pipe and starts reading events. Blocks until the pipe is open, so that events the emulator sends right after it starts (from a
+     * Lua script's on_load(), say) aren't dropped. Must not be called from the queue's own thread.
+     */
     fun start() {
-        handler.post {
+        val pipeReady = CountDownLatch(1)
+        val isPosted = handler.post {
+            try {
+                startOnQueueThread()
+            } finally {
+                pipeReady.countDown()
+            }
+        }
+
+        if (isPosted) {
+            pipeReady.await()
+        }
+    }
+
+    private fun startOnQueueThread() {
+        if (isRunning) {
+            return
+        }
+
+        val looper = Looper.myLooper() ?: throw IllegalStateException("Current thread does not have a Looper")
+
+        val readPipeFd = initMessagePipe()
+        if (readPipeFd < 0) {
+            throw RuntimeException("Failed to initialize native pipe")
+        }
+
+        val fileDescriptor = ParcelFileDescriptor.fromFd(readPipeFd)
+        if (fileDescriptor == null) {
+            throw RuntimeException("Failed to create ParcelFileDescriptor")
+        }
+
+        messagesFileDescriptor = fileDescriptor
+        isRunning = true
+        inputStream = FileInputStream(fileDescriptor.fileDescriptor)
+
+        looper.queue.addOnFileDescriptorEventListener(fileDescriptor.fileDescriptor, MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT) { _, _ ->
             if (isRunning) {
-                return@post
-            }
-
-            val looper = Looper.myLooper() ?: throw IllegalStateException("Current thread does not have a Looper")
-
-            val readPipeFd = initMessagePipe()
-            if (readPipeFd < 0) {
-                throw RuntimeException("Failed to initialize native pipe")
-            }
-
-            val fileDescriptor = ParcelFileDescriptor.fromFd(readPipeFd)
-            if (fileDescriptor == null) {
-                throw RuntimeException("Failed to create ParcelFileDescriptor")
-            }
-
-            messagesFileDescriptor = fileDescriptor
-            isRunning = true
-            inputStream = FileInputStream(fileDescriptor.fileDescriptor)
-
-            looper.queue.addOnFileDescriptorEventListener(fileDescriptor.fileDescriptor, MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT) { _, _ ->
-                if (isRunning) {
-                    try {
-                        readEvents()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
+                try {
+                    readEvents()
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-
-                MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT
             }
+
+            MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT
         }
     }
 

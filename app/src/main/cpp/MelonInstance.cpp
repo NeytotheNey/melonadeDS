@@ -34,6 +34,7 @@ namespace MelonDSAndroid
 
 const int kRewindBufferSize = 1024 * 1024 * 20; // Use 20MB per savestate
 const int kRewindScreenshotSize = 256 * 384 * 4;
+const u32 kUserTouchDown = 1u << 31;
 
 MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfiguration> configuration, std::unique_ptr<melonDS::NDSArgs> args, std::shared_ptr<Net> net, std::unique_ptr<ScreenshotRenderer> screenshotRenderer, int consoleType) :
     instanceId(instanceId),
@@ -104,6 +105,8 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
 
 MelonInstance::~MelonInstance()
 {
+    // Normally done in stop(). The scripts can't outlive the NDS, which their API (and their __gc metamethods) use
+    luaEngine.stop();
     frameQueue.clear();
     net->UnregisterInstance(instanceId);
     delete nds;
@@ -291,6 +294,7 @@ void MelonInstance::start()
     nds->Start();
 
     screenshotRenderer->init();
+    luaEngine.start(nds, MelonDSAndroid::eventMessenger);
 
     if (DebugLog::isEnabled()) [[unlikely]]
         DebugLog::logGameStart(*nds, "start", hasRomCrc32, romCrc32);
@@ -316,6 +320,8 @@ void MelonInstance::reset()
     rewindManager.Reset();
     retroAchievementsManager->Reset();
     nds->Start();
+    // The emulator thread is parked, so the scripts are reloaded before the next frame instead
+    luaEngine.notifyReset();
 
     if (DebugLog::isEnabled()) [[unlikely]]
         DebugLog::logGameStart(*nds, "reset", hasRomCrc32, romCrc32);
@@ -388,6 +394,9 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         nds->GPU.GetRenderer3D().SetOutputTexture(backBuffer, renderFrame->frameTexture);
     }
 
+    if (luaEngine.isActive() || isLuaInputActive) [[unlikely]]
+        runLuaFrame();
+
     u32 nLines = nds->RunFrame();
     retroAchievementsManager->FrameUpdate();
 
@@ -447,6 +456,8 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 
 void MelonInstance::stop()
 {
+    luaEngine.stop();
+
     // The RetroAchievements manager is kept until the instance is destroyed. Savestates and RetroAchievements calls on other threads use it
     // under presentationMutex, which the emulator thread doesn't hold here, so freeing it now could free it under them. The instance is
     // always destroyed right after stopping (it can't be started again), and the manager's teardown doesn't need the emulator thread
@@ -473,12 +484,17 @@ float MelonInstance::getMotionData(MotionQueryType type)
 
 void MelonInstance::touchScreen(u16 x, u16 y)
 {
-    nds->TouchScreen(x, y);
+    userTouch.store(kUserTouchDown | ((u32) (x & 0x7FFF) << 16) | y);
+    // While a script runs, the emulator thread applies the touch before each frame instead
+    if (!isLuaInputActive)
+        nds->TouchScreen(x, y);
 }
 
 void MelonInstance::releaseScreen()
 {
-    nds->ReleaseScreen();
+    userTouch.store(0);
+    if (!isLuaInputActive)
+        nds->ReleaseScreen();
 }
 
 void MelonInstance::pressKey(u32 key)
@@ -490,8 +506,9 @@ void MelonInstance::pressKey(u32 key)
     }
     else
     {
-        inputMask &= ~(1 << key);
-        nds->SetKeyMask(inputMask);
+        u32 newMask = inputMask.fetch_and(~(1u << key)) & ~(1u << key);
+        if (!isLuaInputActive)
+            nds->SetKeyMask(newMask);
     }
 }
 
@@ -504,8 +521,9 @@ void MelonInstance::releaseKey(u32 key)
     }
     else
     {
-        inputMask |= (1 << key);
-        nds->SetKeyMask(inputMask);
+        u32 newMask = inputMask.fetch_or(1u << key) | (1u << key);
+        if (!isLuaInputActive)
+            nds->SetKeyMask(newMask);
     }
 }
 
@@ -604,6 +622,8 @@ bool MelonInstance::loadState(Savestate* state)
     {
         setBatteryLevels();
         setDateTime();
+        // Loads happen on other threads, so the scripts hear about it before the next frame
+        luaEngine.notifyStateLoaded();
         return true;
     }
     else
@@ -791,6 +811,50 @@ void MelonInstance::syncDateTimeToDevice()
     const std::time_t kMinDriftSeconds = 5;
     if (deviceWallClock - dsWallClock >= kMinDriftSeconds)
         setDateTime();
+}
+
+void MelonInstance::runLuaFrame()
+{
+    if (luaEngine.isActive())
+    {
+        isLuaInputActive = true;
+
+        u32 touch = userTouch.load();
+        LuaUserInput userInput = {
+            .held = (~inputMask.load() & LuaKey::BUTTONS) | ((touch & kUserTouchDown) ? LuaKey::TOUCH : 0),
+            .touchX = (u16) ((touch >> 16) & 0x7FFF),
+            .touchY = (u16) (touch & 0xFFFF),
+        };
+        LuaInputOverride inputOverride = luaEngine.runFrame(frame, userInput);
+
+        // A script may have been switched off during the call. If none is left, the player's input is restored below
+        if (luaEngine.isActive())
+        {
+            u32 held = (userInput.held & ~inputOverride.release) | inputOverride.press;
+            nds->SetKeyMask(~held & LuaKey::BUTTONS);
+            if (held & LuaKey::TOUCH)
+            {
+                if (inputOverride.hasTouchPosition)
+                    nds->TouchScreen(inputOverride.touchX, inputOverride.touchY);
+                else
+                    nds->TouchScreen(userInput.touchX, userInput.touchY);
+            }
+            else
+            {
+                nds->ReleaseScreen();
+            }
+            return;
+        }
+    }
+
+    // No script left, so the UI thread applies the input again. Its last changes may have been skipped while the flag was set
+    isLuaInputActive = false;
+    nds->SetKeyMask(inputMask.load());
+    u32 touch = userTouch.load();
+    if (touch & kUserTouchDown)
+        nds->TouchScreen((touch >> 16) & 0x7FFF, touch & 0xFFFF);
+    else
+        nds->ReleaseScreen();
 }
 
 void MelonInstance::saveRewindState(RewindSaveState* rewindSaveState)

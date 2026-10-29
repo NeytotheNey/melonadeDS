@@ -28,6 +28,14 @@ target_include_directories(enet INTERFACE ${ANDROID-CPP}/enet/include)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/${CORE-LIB}/cmake")
 add_subdirectory(${CORE-LIB}/src/net ./net-utils)
 
+# Lua for per-game scripts. Only the library is built (no lua.c/luac.c), and the sources are kept unchanged, except for
+# lstrlib.c: the copy in lua/patched/ is built instead (see lua/LICENSE)
+file(GLOB LUA_SOURCES ${ANDROID-CPP}/lua/*.c)
+list(FILTER LUA_SOURCES EXCLUDE REGEX "/lstrlib\.c$")
+add_library(lua STATIC ${LUA_SOURCES} ${ANDROID-CPP}/lua/patched/lstrlib.c)
+target_compile_definitions(lua PRIVATE LUA_USE_POSIX)
+target_include_directories(lua PUBLIC ${ANDROID-CPP}/lua)
+
 add_library(
         melonDS-android-frontend
 
@@ -67,6 +75,8 @@ add_library(
         ${ANDROID-CPP}/renderer/FrameQueue.cpp
         ${ANDROID-CPP}/renderer/ScreenshotRenderer.cpp
         ${ANDROID-CPP}/retroachievements/RetroAchievementsManager.cpp
+        ${ANDROID-CPP}/scripting/LuaEngine.cpp
+        ${ANDROID-CPP}/scripting/LuaScriptingJNI.cpp
 )
 
 target_include_directories(melonDS-android-frontend PUBLIC
@@ -76,4 +86,4 @@ target_include_directories(melonDS-android-frontend PUBLIC
         ${FAAD2}/include
         ${RCHEEVOS}/include
 )
-target_link_libraries(melonDS-android-frontend android core net-utils oboe faad enet rcheevos EGL GLESv3)
+target_link_libraries(melonDS-android-frontend android core net-utils oboe faad enet rcheevos lua EGL GLESv3)

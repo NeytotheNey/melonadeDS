@@ -15,6 +15,7 @@
 #include "retroachievements/RetroAchievementsManager.h"
 #include "net/Net.h"
 #include "debug/DebugLog.h"
+#include "scripting/LuaEngine.h"
 
 using namespace melonDS;
 
@@ -83,12 +84,17 @@ public:
     void unloadRetroAchievementsData();
     std::string getRichPresenceStatus();
     std::vector<RetroAchievements::RARuntimeAchievement> getRuntimeAchievements();
+    // Must be called before the emulator thread starts. The scripts are loaded when the game starts
+    void setLuaScripts(std::vector<LuaScriptSource> scripts) { luaEngine.setScripts(std::move(scripts)); }
+    void disableLuaScript(int scriptId) { luaEngine.disableScript(scriptId); }
+    void updateLuaSticks(float leftX, float leftY, float rightX, float rightY) { luaEngine.updateSticks(leftX, leftY, rightX, rightY); }
 
 private:
     void updateRenderer();
     void setBatteryLevels();
     void setDateTime();
     void saveRewindState(RewindSaveState* rewindSaveState);
+    void runLuaFrame();
 
 private:
     int instanceId;
@@ -103,7 +109,13 @@ private:
     std::unique_ptr<SaveManager> ndsSave;
     std::unique_ptr<SaveManager> gbaSave;
     std::unique_ptr<SaveManager> firmwareSave;
-    u32 inputMask;
+    // Written by the UI thread, and read by the emulator thread while a Lua script changes the input
+    std::atomic<u32> inputMask;
+    // The player's touch: kUserTouchDown | x << 16 | y, or 0 when not touching
+    std::atomic<u32> userTouch = 0;
+    // While set, the emulator thread applies the input before each frame (the player's, as changed by the scripts) instead of the UI thread
+    std::atomic_bool isLuaInputActive = false;
+    LuaEngine luaEngine;
 
     std::shared_ptr<EmulatorConfiguration> currentConfiguration;
     FrameQueue frameQueue;

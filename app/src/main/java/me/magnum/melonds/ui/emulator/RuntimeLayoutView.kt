@@ -56,6 +56,10 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
         updateVisibility()
     }
 
+    fun isSoftInputVisible(): Boolean {
+        return isSoftInputVisible
+    }
+
     fun swapScreens() {
         areScreensSwapped = !areScreensSwapped
         updateScreenInputs()

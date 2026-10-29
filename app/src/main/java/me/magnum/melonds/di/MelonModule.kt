@@ -212,6 +212,12 @@ object MelonModule {
 
     @Provides
     @Singleton
+    fun provideLuaScriptStorage(@ApplicationContext context: Context): LuaScriptStorage {
+        return LuaScriptStorage(context)
+    }
+
+    @Provides
+    @Singleton
     fun provideRomDetailsUiMapper(@ApplicationContext context: Context, layoutsRepository: LayoutsRepository): RomDetailsUiMapper {
         return RomDetailsUiMapper(context, layoutsRepository)
     }

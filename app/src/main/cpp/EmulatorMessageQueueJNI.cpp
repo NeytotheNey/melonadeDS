@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <cstring>
 #include <Platform.h>
 
 // messagePipes[0] -> read
@@ -50,13 +51,26 @@ namespace MelonDSAndroid {
             return;
         }
 
+        // Must match DATA_SIZE_BYTES in EmulatorMessageQueue.kt
+        constexpr int kMaxDataLength = 512;
+        if (data == nullptr || dataLength < 0)
+            dataLength = 0;
+        if (dataLength > kMaxDataLength)
+        {
+            melonDS::Platform::Log(melonDS::Platform::LogLevel::Error, "Emulator event %d dropped: %d bytes of data is over the limit", type, dataLength);
+            return;
+        }
+
         struct {
             int type;
             int dataLength;
+            char data[kMaxDataLength];
         } event = { type, dataLength };
+        if (dataLength > 0)
+            memcpy(event.data, data, dataLength);
 
-        write(messagePipes[1], &event, sizeof(event));
-        if (data != nullptr)
-            write(messagePipes[1], data, dataLength);
+        // A single write (under PIPE_BUF bytes, so it's atomic), so that the reader never sees a header without its data, and events written
+        // from different threads can't interleave
+        write(messagePipes[1], &event, 2 * sizeof(int) + dataLength);
     }
 }

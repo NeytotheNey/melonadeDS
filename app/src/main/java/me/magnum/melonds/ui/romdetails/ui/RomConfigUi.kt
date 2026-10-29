@@ -6,31 +6,53 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.magnum.melonds.R
 import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.contracts.FilePickerContract
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.model.rom.config.RomConfig
+import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import me.magnum.melonds.domain.model.rom.config.RuntimeConsoleType
 import me.magnum.melonds.domain.model.rom.config.RuntimeMicSource
 import me.magnum.melonds.ui.common.MelonPreviewSet
 import me.magnum.melonds.ui.common.component.dialog.TextInputDialog
+import me.magnum.melonds.ui.common.component.text.CaptionText
 import me.magnum.melonds.ui.common.component.dialog.rememberTextInputDialogState
 import me.magnum.melonds.ui.common.preference.ActionLauncherItem
 import me.magnum.melonds.ui.common.preference.SingleChoiceItem
@@ -188,6 +210,149 @@ private fun Content(
                 )
             }
         }
+
+        ModsGroup(romConfig, onConfigUpdate)
+    }
+}
+
+@Composable
+private fun ModsGroup(
+    romConfig: RomConfigUiModel,
+    onConfigUpdate: (RomConfigUpdateEvent) -> Unit,
+) {
+    Column {
+        Text(
+            text = stringResource(id = R.string.label_rom_config_mods),
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+
+        // The widescreen row (Phase 2) goes here
+        LuaScriptsSection(romConfig, onConfigUpdate)
+    }
+}
+
+@Composable
+private fun LuaScriptsSection(
+    romConfig: RomConfigUiModel,
+    onConfigUpdate: (RomConfigUpdateEvent) -> Unit,
+) {
+    val luaScripts = romConfig.mods.luaScripts
+    val areScriptsBlocked = romConfig.luaScripts.areScriptsBlockedByHardcore
+    val isScriptFolderKnown = romConfig.luaScripts.isScriptFolderKnown
+    var scriptToDelete by rememberSaveable { mutableStateOf<String?>(null) }
+
+    if (areScriptsBlocked) {
+        CaptionText(
+            text = stringResource(id = R.string.lua_scripts_off_in_hardcore),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+    }
+
+    luaScripts.forEach { script ->
+        LuaScriptItem(
+            script = script,
+            isFileMissing = script.fileName in romConfig.luaScripts.missingScripts,
+            description = romConfig.luaScripts.descriptions[script.fileName],
+            isSwitchEnabled = !areScriptsBlocked,
+            isDeleteEnabled = isScriptFolderKnown,
+            onToggle = { isOn -> onConfigUpdate(RomConfigUpdateEvent.LuaScriptToggle(script.fileName, isOn)) },
+            onDelete = { scriptToDelete = script.fileName },
+        )
+    }
+
+    // .lua files often have no reliable MIME type, so every file is shown and the name is checked once one is picked
+    val scriptPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            onConfigUpdate(RomConfigUpdateEvent.LuaScriptAdd(uri, replace = false))
+        }
+    }
+    ActionLauncherItem(
+        name = stringResource(id = R.string.lua_script_add),
+        value = stringResource(id = R.string.lua_script_add_description),
+        enabled = isScriptFolderKnown,
+        onLaunchAction = {
+            scriptPickerLauncher.launch(arrayOf("*/*"))
+        },
+    )
+
+    scriptToDelete?.let { fileName ->
+        AlertDialog(
+            onDismissRequest = { scriptToDelete = null },
+            text = { Text(stringResource(id = R.string.lua_script_delete_confirmation, fileName)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scriptToDelete = null
+                        onConfigUpdate(RomConfigUpdateEvent.LuaScriptDelete(fileName))
+                    },
+                ) {
+                    Text(stringResource(id = R.string.delete).uppercase())
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { scriptToDelete = null }) {
+                    Text(stringResource(id = R.string.cancel).uppercase())
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun LuaScriptItem(
+    script: RomLuaScript,
+    isFileMissing: Boolean,
+    description: String?,
+    isSwitchEnabled: Boolean,
+    isDeleteEnabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .run {
+                if (isSwitchEnabled) {
+                    clickable { onToggle(!script.enabled) }.focusable()
+                } else {
+                    this
+                }
+            }
+            .heightIn(min = 64.dp)
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = script.fileName,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (isFileMissing) {
+                CaptionText(text = stringResource(id = R.string.lua_script_file_missing))
+            } else if (description != null) {
+                CaptionText(
+                    text = description,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        IconButton(onClick = onDelete, enabled = isDeleteEnabled) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = stringResource(id = R.string.delete),
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Switch(
+            checked = script.enabled,
+            onCheckedChange = null,
+            enabled = isSwitchEnabled,
+        )
     }
 }
 

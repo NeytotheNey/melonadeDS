@@ -71,6 +71,11 @@ class EmulatorSession {
         return !isRetroAchievementsHardcoreModeEnabled || !areRetroAchievementsEnabled
     }
 
+    fun areLuaScriptsAllowed(): Boolean {
+        // RA bans scripting in hardcore, so Lua scripts are fully off. Widescreen is still allowed
+        return !isRetroAchievementsHardcoreModeEnabled || !areRetroAchievementsEnabled
+    }
+
     fun currentSessionType(): SessionType? {
         return sessionType
     }

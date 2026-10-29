@@ -2,6 +2,7 @@ package me.magnum.melonds.impl.dtos.rom
 
 import com.google.gson.annotations.SerializedName
 import me.magnum.melonds.domain.model.rom.config.RomConfig
+import me.magnum.melonds.domain.model.rom.config.RomModsConfig
 import me.magnum.melonds.domain.model.rom.config.RuntimeConsoleType
 import me.magnum.melonds.domain.model.rom.config.RuntimeMicSource
 import java.util.UUID
@@ -17,6 +18,9 @@ data class RomConfigDto(
     val gbaSlotConfig: RomGbaSlotConfigDto,
     @SerializedName("customName")
     val customName: String? = null,
+    // Configs saved before mods existed have no "mods" entry. Gson leaves it null, which means all mods are off
+    @SerializedName("mods")
+    val mods: RomModsConfigDto? = null,
 ) {
 
     companion object {
@@ -27,6 +31,7 @@ data class RomConfigDto(
                 romConfig.layoutId?.toString(),
                 RomGbaSlotConfigDto.fromModel(romConfig.gbaSlotConfig),
                 romConfig.customName,
+                RomModsConfigDto.fromModel(romConfig.mods),
             )
         }
     }
@@ -38,6 +43,7 @@ data class RomConfigDto(
             layoutId?.let { UUID.fromString(it) },
             gbaSlotConfig.toModel(),
             customName = customName,
+            mods = mods?.toModel() ?: RomModsConfig(),
         )
     }
 }

@@ -13,6 +13,7 @@
 #include "retroachievements/RAAchievement.h"
 #include "retroachievements/RALeaderboard.h"
 #include "renderer/FrameQueue.h"
+#include "scripting/LuaEngine.h"
 #include "types.h"
 #include "../GPU.h"
 #include <android/asset_manager.h>
@@ -66,6 +67,15 @@ namespace MelonDSAndroid {
     extern void pressKey(u32 key);
     extern void releaseKey(u32 key);
     extern void updateMotionData(float ax, float ay, float az, float rx, float ry, float rz);
+    /**
+     * Gives the instance the game's Lua scripts. Must be called after setup() and before the emulator starts
+     */
+    extern void setLuaScripts(std::vector<LuaScriptSource> scripts);
+    /**
+     * Switches a Lua script off for the rest of the session. Any thread
+     */
+    extern void disableLuaScript(int scriptId);
+    extern void updateLuaSticks(float leftX, float leftY, float rightX, float rightY);
     extern void start();
     /**
      * Runs one frame. [presentDueTimeNs] is the vsync (CLOCK_MONOTONIC, ns) the frame is meant to be presented on, or 0 to present it as soon as

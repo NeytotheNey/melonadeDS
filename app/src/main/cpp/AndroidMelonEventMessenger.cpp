@@ -1,5 +1,7 @@
 #include "AndroidMelonEventMessenger.h"
 #include "EmulatorMessageQueueJNI.h"
+#include <algorithm>
+#include <cstring>
 
 void AndroidMelonEventMessenger::onRumbleStart(int durationMs)
 {
@@ -96,4 +98,42 @@ void AndroidMelonEventMessenger::onLeaderboardAttemptCompleted(long leaderboardI
     strncpy(data.formattedValue, formattedValue.c_str(), sizeof(data.formattedValue));
 
     MelonDSAndroid::fireEmulatorEvent(EVENT_RA_LBOARD_ATTEMPT_COMPLETED, sizeof(data), &data);
+}
+
+void AndroidMelonEventMessenger::onLuaScriptStopped(int scriptId, const std::string& error)
+{
+    // The error is cut short to fit the event's data, which is enough for a toast (the full error goes to the log). It's cut before a UTF-8
+    // continuation byte, so that no character is split
+    struct {
+        int32_t scriptId;
+        int32_t errorSize;
+        char error[504];
+    } data;
+    size_t errorSize = std::min(error.size(), sizeof(data.error));
+    while (errorSize > 0 && errorSize < error.size() && (error[errorSize] & 0xC0) == 0x80)
+        errorSize--;
+
+    data.scriptId = (int32_t) scriptId;
+    data.errorSize = (int32_t) errorSize;
+    memcpy(data.error, error.data(), errorSize);
+
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_SCRIPT_STOPPED, 2 * sizeof(int32_t) + errorSize, &data);
+}
+
+void AndroidMelonEventMessenger::onLuaSwapScreens(bool swapped)
+{
+    int32_t value = swapped ? 1 : 0;
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_SWAP_SCREENS, sizeof(value), &value);
+}
+
+void AndroidMelonEventMessenger::onLuaShowControls(bool visible)
+{
+    int32_t value = visible ? 1 : 0;
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_SHOW_CONTROLS, sizeof(value), &value);
+}
+
+void AndroidMelonEventMessenger::onLuaFastForward(bool enabled)
+{
+    int32_t value = enabled ? 1 : 0;
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_FAST_FORWARD, sizeof(value), &value);
 }

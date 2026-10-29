@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.view.Display
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SurfaceHolder
@@ -17,6 +18,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
+import android.widget.ArrayAdapter
+import android.widget.ListView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -60,6 +63,7 @@ import me.magnum.melonds.domain.model.ControllerConfiguration
 import me.magnum.melonds.domain.model.FpsCounterPosition
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.SaveStateSlot
+import me.magnum.melonds.domain.model.emulator.LuaScriptStatus
 import me.magnum.melonds.domain.model.layout.Insets
 import me.magnum.melonds.domain.model.layout.LayoutComponent
 import me.magnum.melonds.domain.model.layout.ScreenFold
@@ -98,6 +102,7 @@ import me.magnum.melonds.ui.emulator.model.RAEventUi
 import me.magnum.melonds.ui.emulator.model.RewindWindowState
 import me.magnum.melonds.ui.emulator.model.RumbleEvent
 import me.magnum.melonds.ui.emulator.model.RuntimeInputLayoutConfiguration
+import me.magnum.melonds.ui.emulator.model.LuaUiEvent
 import me.magnum.melonds.ui.emulator.model.ToastEvent
 import me.magnum.melonds.ui.emulator.render.ChoreographerFrameRenderer
 import me.magnum.melonds.ui.emulator.render.ChoreographerFrameRendererFactory
@@ -241,12 +246,33 @@ class EmulatorActivity : AppCompatActivity() {
             setFastForwardHoldActive(false)
         }
 
+        // The last fast-forward request from a Lua script in this run, if any
+        private var scriptFastForwardRequest: Boolean? = null
+
         /**
-         * Turns fast-forward off. Used when a new ROM or firmware starts, since the emulator starts without fast-forward.
+         * Sets the fast-forward toggle, for Lua scripts.
+         */
+        fun setFastForwardFromScript(enabled: Boolean) {
+            scriptFastForwardRequest = enabled
+            if (fastForwardEnabled != enabled) {
+                setFastForwardEnabled(enabled)
+            }
+        }
+
+        /**
+         * Forgets the last script request. Used when a new ROM or firmware is about to start.
+         */
+        fun clearScriptFastForwardRequest() {
+            scriptFastForwardRequest = null
+        }
+
+        /**
+         * Turns fast-forward off. Used when a ROM or firmware is running (also after the activity is recreated), since the emulator starts
+         * without fast-forward. A script's request from this run is applied again, since it can arrive (from on_load()) before this is called.
          */
         fun resetFastForward() {
             fastForwardHoldActive = false
-            setFastForwardEnabled(false)
+            setFastForwardEnabled(scriptFastForwardRequest ?: false)
         }
 
         /**
@@ -592,6 +618,29 @@ class EmulatorActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.CREATED) {
+                viewModel.luaUiEvent.collect {
+                    when (it) {
+                        is LuaUiEvent.ScriptStopped -> {
+                            val message = getString(R.string.lua_script_switched_off, it.scriptName, it.error)
+                            Toast.makeText(this@EmulatorActivity, message, Toast.LENGTH_LONG).show()
+                        }
+                        is LuaUiEvent.SwapScreens -> {
+                            if (binding.viewLayoutControls.areScreensSwapped() != it.swapped) {
+                                swapScreen()
+                            }
+                        }
+                        is LuaUiEvent.ShowControls -> {
+                            if (binding.viewLayoutControls.isSoftInputVisible() != it.visible) {
+                                frontendInputHandler.onSoftInputTogglePressed()
+                            }
+                        }
+                        is LuaUiEvent.FastForward -> frontendInputHandler.setFastForwardFromScript(it.enabled)
+                    }
+                }
+            }
+        }
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.CREATED) {
                 viewModel.uiEvent.collectLatest {
                     when (it) {
                         EmulatorUiEvent.CloseEmulator -> {
@@ -623,6 +672,7 @@ class EmulatorActivity : AppCompatActivity() {
                             activeOverlays.addActiveOverlay(EmulatorOverlay.ACHIEVEMENTS_DIALOG)
                             showAchievementList.value = true
                         }
+                        is EmulatorUiEvent.ShowLuaScripts -> showLuaScriptsDialog(it.scripts)
                         EmulatorUiEvent.ShowPendingSubmissionsDialog -> {
                             activeOverlays.addActiveOverlay(EmulatorOverlay.PENDING_SUBMISSION_CONFIRM_EXIT)
                             showPendingSubmissionsDialog.value = true
@@ -651,11 +701,13 @@ class EmulatorActivity : AppCompatActivity() {
                             binding.textLoading.isGone = true
                         }
                         is EmulatorState.ValidatingFirmware -> {
+                            frontendInputHandler.clearScriptFastForwardRequest()
                             showLoadingState()
                             emulatorMotionManager.stop()
                             emulatorLaunchValidatorDelegate.validateFirmware(it.consoleType)
                         }
                         is EmulatorState.ValidatingRom -> {
+                            frontendInputHandler.clearScriptFastForwardRequest()
                             showLoadingState()
                             emulatorMotionManager.stop()
                             emulatorLaunchValidatorDelegate.validateRom(it.rom)
@@ -1044,6 +1096,16 @@ class EmulatorActivity : AppCompatActivity() {
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        // Lua scripts can read the sticks. Only sent while one runs
+        if (event.isFromSource(InputDevice.SOURCE_CLASS_JOYSTICK) && viewModel.areLuaScriptsRunning()) {
+            MelonEmulator.updateLuaSticks(
+                event.getAxisValue(MotionEvent.AXIS_X),
+                event.getAxisValue(MotionEvent.AXIS_Y),
+                event.getAxisValue(MotionEvent.AXIS_Z),
+                event.getAxisValue(MotionEvent.AXIS_RZ),
+            )
+        }
+
         if (!activeOverlays.hasActiveOverlays() && nativeInputListener.onMotionEvent(event))
             return true
 
@@ -1095,6 +1157,57 @@ class EmulatorActivity : AppCompatActivity() {
                 viewModel.resumeEmulator()
             }
             .show()
+    }
+
+    /**
+     * Lists the session's scripts, ticked while they run. Unticking one switches it off until the game restarts, and one that is off can't be
+     * ticked again
+     */
+    private fun showLuaScriptsDialog(scripts: List<LuaScriptStatus>) {
+        val isRunning = BooleanArray(scripts.size) { scripts[it].isRunning }
+        val labels = MutableList(scripts.size) { getLuaScriptLabel(scripts[it], isRunning[it]) }
+        val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_multiple_choice, labels)
+
+        // The list's own checked state is set from isRunning after every tap, so a row never shows a state the script isn't in
+        val listView = ListView(this).apply {
+            choiceMode = ListView.CHOICE_MODE_MULTIPLE
+            this.adapter = adapter
+            isRunning.forEachIndexed { index, running -> setItemChecked(index, running) }
+            setOnItemClickListener { _, _, position, _ ->
+                if (isRunning[position]) {
+                    isRunning[position] = false
+                    viewModel.disableLuaScript(position)
+                    labels[position] = getLuaScriptLabel(scripts[position], false)
+                    adapter.notifyDataSetChanged()
+                }
+                setItemChecked(position, isRunning[position])
+            }
+        }
+
+        activeOverlays.addActiveOverlay(EmulatorOverlay.LUA_SCRIPTS_DIALOG)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.label_rom_config_mods)
+            .setView(listView)
+            .setPositiveButton(R.string.close) { dialog, _ ->
+                dialog.cancel()
+            }
+            .setOnDismissListener {
+                activeOverlays.removeActiveOverlay(EmulatorOverlay.LUA_SCRIPTS_DIALOG)
+            }
+            .setOnCancelListener {
+                viewModel.resumeEmulator()
+            }
+            .show()
+    }
+
+    private fun getLuaScriptLabel(script: LuaScriptStatus, isRunning: Boolean): String {
+        // The tick already shows that a script runs, so its description takes the second line when it has one
+        val state = when {
+            isRunning -> script.description ?: getString(R.string.lua_script_running)
+            script.lastError != null -> getString(R.string.lua_script_off_error, script.lastError)
+            else -> getString(R.string.lua_script_off_for_session)
+        }
+        return "${script.name}\n$state"
     }
 
     private fun showRomLoadErrorDialog() {

@@ -6,10 +6,12 @@ import me.magnum.melonds.domain.model.Cheat
 import me.magnum.melonds.domain.model.ConsoleType
 import me.magnum.melonds.domain.model.emulator.EmulatorEvent
 import me.magnum.melonds.domain.model.emulator.FirmwareLaunchResult
+import me.magnum.melonds.domain.model.emulator.LuaScriptStatus
 import me.magnum.melonds.domain.model.emulator.RomLaunchResult
 import me.magnum.melonds.domain.model.retroachievements.GameAchievementData
 import me.magnum.melonds.domain.model.retroachievements.RAEvent
 import me.magnum.melonds.domain.model.rom.Rom
+import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import me.magnum.melonds.ui.emulator.rewind.model.RewindSaveState
 import me.magnum.melonds.ui.emulator.rewind.model.RewindWindow
 
@@ -17,7 +19,26 @@ interface EmulatorManager {
 
     val emulatorEvents: Flow<EmulatorEvent>
 
-    suspend fun loadRom(rom: Rom, cheats: List<Cheat>): RomLaunchResult
+    /**
+     * @param luaScripts The enabled Lua scripts to run, read from the game's script folder. Empty when scripts aren't allowed
+     * @param gameCode The game code from the ROM header, which names the script folder (see LuaScriptStorage). Null if it couldn't be read
+     */
+    suspend fun loadRom(rom: Rom, cheats: List<Cheat>, luaScripts: List<RomLuaScript>, gameCode: String?): RomLaunchResult
+
+    /**
+     * Whether any Lua script sent at launch is still running (none has been switched off after an error). Safe to call from any thread
+     */
+    fun areLuaScriptsRunning(): Boolean
+
+    /**
+     * The Lua scripts loaded in this session, in the order sent at launch (their position is their ID). Empty if none was loaded
+     */
+    fun getLuaScripts(): List<LuaScriptStatus>
+
+    /**
+     * Switches a running Lua script off for the rest of this session. The ROM config isn't changed
+     */
+    fun disableLuaScript(scriptId: Int)
 
     suspend fun loadFirmware(consoleType: ConsoleType): FirmwareLaunchResult
 

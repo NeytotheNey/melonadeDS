@@ -3,6 +3,8 @@ package me.magnum.melonds.parcelables
 import android.os.Parcel
 import android.os.Parcelable
 import me.magnum.melonds.domain.model.rom.config.RomConfig
+import me.magnum.melonds.domain.model.rom.config.RomLuaScript
+import me.magnum.melonds.domain.model.rom.config.RomModsConfig
 import me.magnum.melonds.domain.model.rom.config.RuntimeConsoleType
 import me.magnum.melonds.domain.model.rom.config.RuntimeMicSource
 import me.magnum.melonds.extensions.parcelable
@@ -22,6 +24,12 @@ class RomConfigParcelable : Parcelable {
             layoutId = parcel.readString()?.let { UUID.fromString(it) },
             gbaSlotConfig = parcel.parcelable<RomGbaSlotConfigParcelable>()!!.gbaSlotConfig,
             customName = parcel.readString(),
+            mods = RomModsConfig(
+                wideViewWidth = parcel.readInt().takeIf { it > 0 },
+                luaScripts = List(parcel.readInt()) {
+                    RomLuaScript(fileName = parcel.readString()!!, enabled = parcel.readInt() != 0)
+                },
+            ),
         )
     }
 
@@ -31,6 +39,13 @@ class RomConfigParcelable : Parcelable {
         dest.writeString(romConfig.layoutId?.toString())
         dest.writeParcelable(RomGbaSlotConfigParcelable(romConfig.gbaSlotConfig), 0)
         dest.writeString(romConfig.customName)
+        // 0 means widescreen is off
+        dest.writeInt(romConfig.mods.wideViewWidth ?: 0)
+        dest.writeInt(romConfig.mods.luaScripts.size)
+        romConfig.mods.luaScripts.forEach {
+            dest.writeString(it.fileName)
+            dest.writeInt(if (it.enabled) 1 else 0)
+        }
     }
 
     override fun describeContents(): Int {
