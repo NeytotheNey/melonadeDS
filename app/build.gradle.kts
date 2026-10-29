@@ -66,10 +66,11 @@ android {
             applicationIdSuffix = ".dev"
             // Debug builds are used for on-device perf testing, so optimize native code but keep symbols.
             // -PnativeBuildType=Debug builds it at -O0 instead, to check optimization-dependent bugs.
+            // MELONADE_DEBUG_TOOLS turns on native debug-only tools, like the 2D frame hash log (MelonInstance.cpp).
             val nativeBuildType = providers.gradleProperty("nativeBuildType").getOrElse("RelWithDebInfo")
             externalNativeBuild {
                 cmake {
-                    arguments("-DCMAKE_BUILD_TYPE=$nativeBuildType")
+                    arguments("-DCMAKE_BUILD_TYPE=$nativeBuildType", "-DMELONADE_DEBUG_TOOLS=ON")
                 }
             }
         }

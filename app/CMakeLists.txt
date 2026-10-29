@@ -5,6 +5,11 @@ project(melonDS-android-frontend)
 add_compile_definitions(MELONDS_GL_HEADER=<GLES3/gl32.h>)
 add_compile_definitions(EGL_EGLEXT_PROTOTYPES)
 
+# Set by the debug build type in build.gradle.kts
+if(MELONADE_DEBUG_TOOLS)
+    add_compile_definitions(MELONADE_DEBUG_TOOLS)
+endif()
+
 set(BUILD_QT_SDL OFF)
 set(ENABLE_GDBSTUB OFF)
 

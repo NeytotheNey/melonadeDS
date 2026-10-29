@@ -20,6 +20,9 @@
 #include "Platform.h"
 #include "SDCardArgsBuilder.h"
 #include "debug/DebugLog.h"
+#ifdef MELONADE_DEBUG_TOOLS
+#include <sys/system_properties.h>
+#endif
 
 using namespace std;
 using namespace melonDS;
@@ -56,6 +59,13 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     {
         nds = new NDS(std::move(*args), this);
     }
+
+#ifdef MELONADE_DEBUG_TOOLS
+    // Debug builds only: `adb shell setprop debug.melonade.hash2d 1` before starting a game logs a checksum of the 2D output every frame
+    char hash2dProperty[PROP_VALUE_MAX] = {};
+    __system_property_get("debug.melonade.hash2d", hash2dProperty);
+    nds->GPU.Hash2DLogging = hash2dProperty[0] == '1';
+#endif
 
     if (configuration->userInternalFirmwareAndBios)
     {
