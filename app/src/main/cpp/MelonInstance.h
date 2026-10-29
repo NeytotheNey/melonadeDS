@@ -22,7 +22,7 @@ using namespace melonDS;
 namespace MelonDSAndroid
 {
 
-class MelonInstance
+class MelonInstance : public LuaSavestateHost
 {
 
 public:
@@ -85,7 +85,7 @@ public:
     std::string getRichPresenceStatus();
     std::vector<RetroAchievements::RARuntimeAchievement> getRuntimeAchievements();
     // Must be called before the emulator thread starts. The scripts are loaded when the game starts
-    void setLuaScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent) { luaEngine.setScripts(std::move(scripts), std::move(folderContent)); }
+    void setLuaScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent, bool areStateLoadsAllowed) { luaEngine.setScripts(std::move(scripts), std::move(folderContent), areStateLoadsAllowed); }
     void disableLuaScript(int scriptId) { luaEngine.disableScript(scriptId); }
     void enableLuaScript(int scriptId) { luaEngine.enableScript(scriptId); }
     void restartLuaScript(int scriptId, std::vector<LuaOptionValue> options) { luaEngine.restartScript(scriptId, std::move(options)); }
@@ -93,11 +93,17 @@ public:
     void flushLuaStorage() { luaEngine.flushStorage(); }
     void updateLuaSticks(float leftX, float leftY, float rightX, float rightY) { luaEngine.updateSticks(leftX, leftY, rightX, rightY); }
 
+    // LuaSavestateHost, for melon.state. Emulator thread, between frames
+    bool saveLuaState(std::vector<melonDS::u8>& data) override;
+    bool loadLuaState(const std::vector<melonDS::u8>& data) override;
+
 private:
     void updateRenderer();
     void setBatteryLevels();
     void setDateTime();
     void saveRewindState(RewindSaveState* rewindSaveState);
+    // loadState() without telling the scripts
+    bool restoreState(Savestate* state);
     // Whether LuaEngine::runFrame() ran, which LuaEngine::endFrame() must then follow
     bool runLuaFrame();
 

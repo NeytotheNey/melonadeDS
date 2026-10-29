@@ -83,9 +83,10 @@ object MelonEmulator {
     /**
      * Gives the emulator the game's Lua scripts, plus the [modules] they can `require` and the [images] they can load from the script folder,
      * shared by every script for the session. Must be called after [setupEmulator] and before [startEmulation]. The scripts are loaded once
-     * the game starts.
+     * the game starts. [areStateLoadsAllowed] is false when savestates can't be loaded (RetroAchievements hardcore), which `melon.state.load()`
+     * checks too.
      */
-    external fun setupLuaScripts(scripts: Array<LuaScriptSetup>, modules: Array<LuaScriptModule>, images: Array<LuaScriptImage>)
+    external fun setupLuaScripts(scripts: Array<LuaScriptSetup>, modules: Array<LuaScriptModule>, images: Array<LuaScriptImage>, areStateLoadsAllowed: Boolean)
 
     /**
      * Switches off the script at [scriptId] (its position in the list given to [setupLuaScripts]). Applied before the next frame runs

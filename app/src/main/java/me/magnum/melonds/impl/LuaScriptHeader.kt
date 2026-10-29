@@ -12,7 +12,9 @@ import me.magnum.melonds.domain.model.emulator.LuaScriptOption
  *   -- option: speed type=number min=1 max=10 step=1 default=5 label="Aim speed"
  *   -- option: hud type=toggle default=true label="Show HUD"
  *   -- option: mode type=choice values=easy,normal,hard default=normal label="Difficulty"
+ *   -- option: map_layout type=layout label="Layout while the map is open"
  *   ```
+ *   A layout option has no default: it starts as "Don't change".
  *   Lines that break the rules below are skipped and counted in [unreadableOptionCount].
  *
  * @param options The options that could be read, in the order they're declared
@@ -45,7 +47,7 @@ data class LuaScriptHeader(
 
         /**
          * How each option type is read: the attributes it takes besides [COMMON_ATTRIBUTES], and a parser that returns null if the line is
-         * bad. A new type (like Phase 10's `layout`) is one more entry here
+         * bad. A new type is one more entry here
          */
         private class OptionType(val attributes: Set<String>, val parse: (OptionLine) -> LuaScriptOption?)
 
@@ -53,6 +55,7 @@ data class LuaScriptHeader(
             "toggle" to OptionType(emptySet(), ::parseToggle),
             "number" to OptionType(setOf("min", "max", "step"), ::parseNumber),
             "choice" to OptionType(setOf("values"), ::parseChoice),
+            "layout" to OptionType(emptySet(), ::parseLayout),
         )
 
         /**
@@ -264,6 +267,14 @@ data class LuaScriptHeader(
                 return null
             }
             return LuaScriptOption.Choice(line.key, line.label, values, default)
+        }
+
+        private fun parseLayout(line: OptionLine): LuaScriptOption? {
+            // The player's layouts aren't known to the script, so there's nothing it could name as the default
+            if (line["default"] != null) {
+                return null
+            }
+            return LuaScriptOption.Layout(line.key, line.label)
         }
 
         private fun capDescription(text: String): String {

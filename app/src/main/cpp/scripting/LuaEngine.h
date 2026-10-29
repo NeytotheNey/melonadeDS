@@ -31,6 +31,9 @@ struct LuaOptionValue
         Integer,
         Number,
         String,
+        // A layout the player picked (or "Don't change"), which melon.screen.set_layout() names by its key. Scripts see [boolean]: whether
+        // the player picked one. The layout itself is only known to the app
+        Layout,
     };
 
     std::string key;
@@ -113,6 +116,25 @@ struct LuaInputOverride
 };
 
 /**
+ * Saves and loads the emulator's state for melon.state, so that LuaEngine never touches Savestate. Implemented by MelonInstance. Only called on
+ * the emulator thread, between frames
+ */
+class LuaSavestateHost
+{
+public:
+    virtual ~LuaSavestateHost() = default;
+    /**
+     * Saves the whole state into [data] (resized to the state's size). False if it couldn't, in which case [data] is left as it was
+     */
+    virtual bool saveLuaState(std::vector<melonDS::u8>& data) = 0;
+    /**
+     * Loads a state [saveLuaState] made. Backs up the current state first and goes back to it if the load fails, like a player's load.
+     * Returns whether the state was loaded
+     */
+    virtual bool loadLuaState(const std::vector<melonDS::u8>& data) = 0;
+};
+
+/**
  * Runs the game's Lua scripts (API v1, the `melon` module). Each script gets its own sandboxed Lua state, so one that fails can be switched off
  * without touching the others. A script that throws an error or runs for too long in a callback is switched off for the session, and the app
  * is told why. Scripts are told apart by their position in the list given to [setScripts] (their id).
@@ -129,7 +151,11 @@ struct LuaInputOverride
  * outside the Lua state, so it survives reloads, and is snapshotted into LuaStorage's outbox when it changed: on flush() (at the end of the
  * frame), every 600 frames, when the emulator pauses ([flushStorage]), when the script stops, and at [stop]. The app saves the snapshots.
  * melon.screen.* and melon.emu.* requests are sent to the app once the callback returns (the last value of each kind wins), and are ignored
- * during on_unload(). melon.draw.* calls are only recorded during on_frame() and on_frame_end() (they do nothing anywhere else,
+ * during on_unload(). melon.screen.set_layout(key) names one of the script's layout options, and the app works out which layout that is.
+ * melon.state.save/load/has(slot) use four savestate slots per script, kept in memory (outside the Lua state, so they survive reloads) until
+ * the script is switched off or the session ends, and never the player's slots. save() runs right away through the LuaSavestateHost, at most
+ * once every kStateSaveInterval frames per script. load() is queued and runs once every script's on_frame() has run: that frame's input
+ * changes are dropped, and on_state_loaded() runs before the next on_frame(). melon.draw.* calls are only recorded during on_frame() and on_frame_end() (they do nothing anywhere else,
  * on_state_loaded() included), and drawn into [getOverlay] once every script's on_frame_end() has run, in script order (each script's on_frame()
  * drawings, then its on_frame_end() ones). Each frame shows only what was drawn for it, and a script that stops during the frame shows nothing.
  *
@@ -145,11 +171,16 @@ public:
     LuaEngine();
     ~LuaEngine();
 
-    void setScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent);
     /**
-     * Loads the scripts given to [setScripts] and calls their on_load(game). Called once the game has started
+     * [areStateLoadsAllowed] is false when savestates can't be loaded in this session (RetroAchievements hardcore), so melon.state.load()
+     * refuses too. Scripts don't run in hardcore anyway, so this is only a second check
      */
-    void start(melonDS::NDS* nds, std::shared_ptr<MelonEventMessenger> eventMessenger);
+    void setScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent, bool areStateLoadsAllowed);
+    /**
+     * Loads the scripts given to [setScripts] and calls their on_load(game). Called once the game has started. [savestateHost] must outlive
+     * the scripts (until [stop])
+     */
+    void start(melonDS::NDS* nds, std::shared_ptr<MelonEventMessenger> eventMessenger, LuaSavestateHost* savestateHost);
     /**
      * Whether any script is still running, or the player switched one on or off since the last frame (which [runFrame] applies). While
      * neither is true, the emulator doesn't need to call [runFrame]
@@ -217,6 +248,8 @@ private:
     void switchOff(Script& script, const std::string& error);
     void closeScript(Script& script);
     void saveStorage(Script& script);
+    void freeStateSlots(Script& script);
+    void runPendingStateLoad();
     void rasterizeOverlay();
 
     static int setupScript(lua_State* L);
@@ -238,6 +271,10 @@ private:
     template <typename T, bool isArm9> static int luaMemWrite(lua_State* L);
     static int luaScreenSwap(lua_State* L);
     static int luaScreenShowControls(lua_State* L);
+    static int luaScreenSetLayout(lua_State* L);
+    static int luaStateSave(lua_State* L);
+    static int luaStateLoad(lua_State* L);
+    static int luaStateHas(lua_State* L);
     static int luaEmuFastForward(lua_State* L);
     static DrawCommand* addDrawCommand(lua_State* L, int64_t pixelCount, size_t textLength = 0);
     static int luaDrawPixel(lua_State* L);
@@ -270,6 +307,17 @@ private:
 
     melonDS::NDS* nds = nullptr;
     std::shared_ptr<MelonEventMessenger> eventMessenger;
+    LuaSavestateHost* savestateHost = nullptr;
+    bool areStateLoadsAllowed = true;
+    // Bytes held by every script's state slots together, capped at kMaxStateSlotMemory
+    size_t stateSlotMemory = 0;
+    // The load melon.state.load() queued, run once every script's on_frame() has run (the last one asked for wins). -1 when there's none
+    int pendingStateLoadScript = -1;
+    int pendingStateLoadSlot = 0;
+    // A script's load ran, so on_state_loaded() is due before the next on_frame()
+    bool isScriptStateLoaded = false;
+    // Counts runFrame() calls, for the save cooldown. melon.frame() can't be used, since it can stand still or go back (rewind)
+    int64_t framePass = 0;
     std::string gameCode;
     int currentFrame = 0;
     LuaUserInput currentUserInput;

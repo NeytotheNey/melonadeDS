@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -20,10 +22,14 @@ import kotlinx.coroutines.withContext
 import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.UriPermissionManager
 import me.magnum.melonds.common.romprocessors.RomFileProcessorFactory
+import me.magnum.melonds.domain.model.emulator.LuaLayoutChoice
+import me.magnum.melonds.domain.model.emulator.toLuaLayoutChoices
+import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.model.rom.config.RomConfig
 import me.magnum.melonds.domain.model.rom.config.RomGbaSlotConfig
 import me.magnum.melonds.domain.model.rom.config.RomLuaScript
+import me.magnum.melonds.domain.repositories.LayoutsRepository
 import me.magnum.melonds.domain.repositories.RetroAchievementsRepository
 import me.magnum.melonds.domain.repositories.RomsRepository
 import me.magnum.melonds.domain.repositories.SettingsRepository
@@ -51,6 +57,7 @@ class RomDetailsViewModel @Inject constructor(
     private val luaScriptStorage: LuaScriptStorage,
     private val luaScriptDataStore: LuaScriptDataStore,
     private val romFileProcessorFactory: RomFileProcessorFactory,
+    private val layoutsRepository: LayoutsRepository,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -85,7 +92,11 @@ class RomDetailsViewModel @Inject constructor(
     val romConfigUiState by lazy {
         val uiStateFlow = MutableStateFlow<RomConfigUiState>(RomConfigUiState.Loading)
         viewModelScope.launch {
-            combine(_romConfig, _luaScriptFolderState, _areLuaScriptsBlockedByHardcore, _luaScriptDataSizes) { romConfig, folderState, areLuaScriptsBlocked, dataSizes ->
+            // For the scripts' layout options. Null until read, so the rest doesn't wait for them
+            val luaLayoutChoices = layoutsRepository.getLayouts()
+                .map<List<LayoutConfiguration>, List<LuaLayoutChoice>?> { it.toLuaLayoutChoices() }
+                .onStart { emit(null) }
+            combine(_romConfig, _luaScriptFolderState, _areLuaScriptsBlockedByHardcore, _luaScriptDataSizes, luaLayoutChoices) { romConfig, folderState, areLuaScriptsBlocked, dataSizes, layouts ->
                 val romConfigUiModel = romDetailsUiMapper.mapRomConfigToUi(romConfig)
                 // What was read from the previous folder says nothing about the new one
                 val currentFolderState = folderState?.takeIf { it.folderUri == romConfig.mods.luaScriptFolder }
@@ -96,6 +107,7 @@ class RomDetailsViewModel @Inject constructor(
                         areScriptsBlockedByHardcore = areLuaScriptsBlocked,
                         headers = currentFolderState?.headers.orEmpty(),
                         dataSizes = dataSizes,
+                        layouts = layouts,
                     ),
                 )
             }.collect {

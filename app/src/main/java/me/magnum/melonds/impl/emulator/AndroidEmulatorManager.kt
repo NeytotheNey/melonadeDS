@@ -145,10 +145,16 @@ class AndroidEmulatorManager(
                 _emulatorEvents.tryEmit(EmulatorEvent.LuaFastForward(scriptId, data.getInt() != 0))
             }
             EmulatorEventType.EventLuaDataSaved -> luaDataScope.launch { saveLuaData() }
+            EmulatorEventType.EventLuaSetLayout -> {
+                val scriptId = data.getInt()
+                val key = String(ByteArray(data.getInt()).apply { data.get(this) })
+                _emulatorEvents.tryEmit(EmulatorEvent.LuaSetLayout(scriptId, key.ifEmpty { null }))
+            }
+            EmulatorEventType.EventLuaStateLoaded -> _emulatorEvents.tryEmit(EmulatorEvent.LuaStateLoaded)
         }
     }
 
-    override suspend fun loadRom(rom: Rom, cheats: List<Cheat>, luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?): RomLaunchResult {
+    override suspend fun loadRom(rom: Rom, cheats: List<Cheat>, luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?, areLuaStateLoadsAllowed: Boolean): RomLaunchResult {
         return withContext(Dispatchers.IO) {
             val fileRomDocument = DocumentFile.fromSingleUri(context, rom.uri) ?: return@withContext RomLaunchResult.LaunchFailedRomNotFound
             val fileRomProcessor = romFileProcessorFactory.getFileRomProcessorForDocument(fileRomDocument)
@@ -189,7 +195,7 @@ class AndroidEmulatorManager(
             } else {
                 messageQueue.start()
                 MelonEmulator.setupCheats(cheats.toTypedArray())
-                setupLuaScripts(luaScripts, luaScriptFolder) {
+                setupLuaScripts(luaScripts, luaScriptFolder, areLuaStateLoadsAllowed) {
                     LuaScriptDataStore.getGameKey(fileRomProcessor.getRomInfo(rom)?.gameCode, rom.uri.toString())
                 }
                 MelonEmulator.startEmulation()
@@ -401,7 +407,7 @@ class AndroidEmulatorManager(
      * Reads the enabled scripts from the game's linked folder (see [LuaScriptStorage]) and gives them to the emulator. A script that can't be
      * read is listed as switched off with the reason as its error, the same as a script that fails to load
      */
-    private fun setupLuaScripts(luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?, getDataGameKey: () -> String?) {
+    private fun setupLuaScripts(luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?, areStateLoadsAllowed: Boolean, getDataGameKey: () -> String?) {
         val enabledScripts = luaScripts.filter { it.enabled }
         if (enabledScripts.isEmpty()) {
             clearLuaScripts()
@@ -457,6 +463,7 @@ class AndroidEmulatorManager(
                 scripts = scriptSetups.toTypedArray(),
                 modules = folderContent?.modules.orEmpty().toTypedArray(),
                 images = folderContent?.images.orEmpty().toTypedArray(),
+                areStateLoadsAllowed = areStateLoadsAllowed,
             )
         }
         // Told like a script that fails to load, so the player sees why it isn't running

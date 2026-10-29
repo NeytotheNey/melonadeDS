@@ -8,6 +8,9 @@ sealed class EmulatorEvent {
     data class LuaSwapScreens(val scriptId: Int, val swapped: Boolean) : EmulatorEvent()
     data class LuaShowControls(val scriptId: Int, val visible: Boolean) : EmulatorEvent()
     data class LuaFastForward(val scriptId: Int, val enabled: Boolean) : EmulatorEvent()
+    // optionKey names one of the script's layout options, or is null for the player's layout
+    data class LuaSetLayout(val scriptId: Int, val optionKey: String?) : EmulatorEvent()
+    data object LuaStateLoaded : EmulatorEvent()
     data class Stop(val reason: Reason) : EmulatorEvent() {
         enum class Reason {
             GBAModeNotSupported,

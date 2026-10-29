@@ -22,8 +22,9 @@ interface EmulatorManager {
     /**
      * @param luaScripts The enabled Lua scripts to run, read from [luaScriptFolder]. Empty when scripts aren't allowed
      * @param luaScriptFolder The game's linked script folder. Null if none is linked
+     * @param areLuaStateLoadsAllowed Whether the scripts may load savestates (`melon.state.load()`). False in RetroAchievements hardcore
      */
-    suspend fun loadRom(rom: Rom, cheats: List<Cheat>, luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?): RomLaunchResult
+    suspend fun loadRom(rom: Rom, cheats: List<Cheat>, luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?, areLuaStateLoadsAllowed: Boolean): RomLaunchResult
 
     /**
      * Whether any Lua script sent at launch is still running (none has been switched off after an error). Safe to call from any thread

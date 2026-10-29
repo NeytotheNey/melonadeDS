@@ -29,6 +29,9 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
@@ -518,8 +521,10 @@ class EmulatorActivity : AppCompatActivity() {
                 }
 
                 luaScriptOptionsDialogState.value?.let { state ->
+                    val layouts by remember { viewModel.getLuaLayoutChoices() }.collectAsState(initial = null)
                     LuaScriptOptionsDialog(
                         state = state,
+                        layouts = layouts,
                         onSave = { values ->
                             viewModel.setLuaScriptOptions(state.scriptId, values)
                             closeLuaScriptOptionsDialog()

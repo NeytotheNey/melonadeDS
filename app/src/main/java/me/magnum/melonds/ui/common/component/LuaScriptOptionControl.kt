@@ -27,9 +27,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import me.magnum.melonds.R
+import me.magnum.melonds.domain.model.emulator.LuaLayoutChoice
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
 import me.magnum.melonds.ui.common.ProvideEnabledContentColor
 import me.magnum.melonds.ui.common.component.text.CaptionText
@@ -37,7 +40,8 @@ import kotlin.math.roundToInt
 
 /**
  * The control for one of a script's options: a switch, a slider or a dropdown. [value] is the option's value as text (as
- * LuaScriptOption.resolve() gives it), and [onValueChange] gets the new one. Sliders only report once they're let go
+ * LuaScriptOption.resolve() gives it), and [onValueChange] gets the new one. Sliders only report once they're let go. [layouts] are the
+ * player's layouts, which layout options offer (null while they're being read)
  */
 @Composable
 fun LuaScriptOptionControl(
@@ -47,11 +51,13 @@ fun LuaScriptOptionControl(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     horizontalPadding: Dp = 16.dp,
+    layouts: List<LuaLayoutChoice>? = null,
 ) {
     when (option) {
         is LuaScriptOption.Toggle -> ToggleControl(option, value == "true", enabled, horizontalPadding, modifier) { onValueChange(it.toString()) }
         is LuaScriptOption.Number -> NumberControl(option, value, enabled, horizontalPadding, modifier, onValueChange)
         is LuaScriptOption.Choice -> ChoiceControl(option, value, enabled, horizontalPadding, modifier, onValueChange)
+        is LuaScriptOption.Layout -> LayoutControl(option, value, layouts, enabled, horizontalPadding, modifier, onValueChange)
     }
 }
 
@@ -177,6 +183,85 @@ private fun ChoiceControl(
                 )
             }
         }
+    }
+}
+
+/**
+ * A dropdown with "Don't change" and the player's layouts. A layout that was deleted shows as not found until another is picked
+ */
+@Composable
+private fun LayoutControl(
+    option: LuaScriptOption.Layout,
+    value: String,
+    layouts: List<LuaLayoutChoice>?,
+    enabled: Boolean,
+    horizontalPadding: Dp,
+    modifier: Modifier,
+    onValueChange: (String) -> Unit,
+) {
+    var isMenuOpen by remember { mutableStateOf(false) }
+    val layoutId = LuaScriptOption.Layout.getLayoutId(value)
+    val selectedLabel = when {
+        layoutId == null -> stringResource(R.string.lua_script_option_layout_dont_change)
+        layouts == null -> ""
+        else -> layouts.firstOrNull { it.id == layoutId }?.let { getLayoutLabel(it) } ?: stringResource(R.string.lua_script_option_layout_missing)
+    }
+
+    Box(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = enabled && layouts != null) { isMenuOpen = true }
+                .focusable(enabled)
+                .heightIn(min = 56.dp)
+                .padding(horizontal = horizontalPadding, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ProvideEnabledContentColor(enabled) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(text = option.label, style = MaterialTheme.typography.bodyLarge)
+                    CaptionText(text = selectedLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Icon(imageVector = Icons.Default.ArrowDropDown, contentDescription = null)
+            }
+        }
+        DropdownMenu(
+            expanded = isMenuOpen,
+            onDismissRequest = { isMenuOpen = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.lua_script_option_layout_dont_change)) },
+                onClick = {
+                    isMenuOpen = false
+                    if (layoutId != null) {
+                        onValueChange(LuaScriptOption.Layout.DONT_CHANGE)
+                    }
+                },
+            )
+            layouts.orEmpty().forEach { layout ->
+                DropdownMenuItem(
+                    text = { Text(getLayoutLabel(layout), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    onClick = {
+                        isMenuOpen = false
+                        if (layout.id != layoutId) {
+                            onValueChange(layout.id.toString())
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The layout's name, or "Unnamed layout" (numbered when there are several) for one without
+ */
+@Composable
+private fun getLayoutLabel(layout: LuaLayoutChoice): String {
+    return when {
+        layout.name != null -> layout.name
+        layout.unnamedNumber > 0 -> stringResource(R.string.lua_script_option_layout_unnamed_numbered, layout.unnamedNumber)
+        else -> stringResource(R.string.lua_script_option_layout_unnamed)
     }
 }
 

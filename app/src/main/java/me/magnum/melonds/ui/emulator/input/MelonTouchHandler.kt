@@ -19,6 +19,9 @@ class MelonTouchHandler : IInputListener {
         if (key != Input.HINGE) {
             MelonEmulator.onInputUp(key)
         }
+        if (key == Input.TOUCHSCREEN) {
+            MelonEmulator.onScreenRelease()
+        }
     }
 
     override fun onTouch(point: Point) {

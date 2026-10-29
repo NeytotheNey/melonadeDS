@@ -67,4 +67,26 @@ class LuaScriptOptionTest {
 
         assertEquals(mapOf("hud" to "true", "speed" to "3", "mode" to "normal"), values)
     }
+
+    @Test
+    fun layoutValuesAreAUuidOrDontChange() {
+        val layout = LuaScriptOption.Layout("map", "Map")
+        val id = "123e4567-e89b-12d3-a456-426614174000"
+
+        assertEquals("", layout.resolve(null))
+        assertEquals("", layout.resolve("not a layout"))
+        assertEquals(id, layout.resolve(id))
+        // Kept in the canonical form
+        assertEquals(id, layout.resolve(id.uppercase()))
+    }
+
+    @Test
+    fun scriptsOnlySeeWhetherALayoutWasPicked() {
+        val layout = LuaScriptOption.Layout("map", "Map")
+
+        val picked = layout.toNativeValue("123e4567-e89b-12d3-a456-426614174000")
+        assertEquals(LuaScriptOptionValue.TYPE_LAYOUT, picked.type)
+        assertEquals(1L, picked.integer)
+        assertEquals(0L, layout.toNativeValue("").integer)
+    }
 }

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <string_view>
 #include <type_traits>
 #include "MelonLog.h"
@@ -55,6 +56,13 @@ static const lua_Integer kMaxImageOffset = 1 << 30;
 static const char* const kImageType = "melon.image";
 // melon.storage: changed data is snapshotted at least this often, in frames (about 10 seconds)
 static const int kStorageSaveInterval = 600;
+// melon.state: slots per script. A save copies the whole emulator state (a few MB on a DS, more on a DSi), which takes milliseconds, so each
+// script can only save once every kStateSaveInterval frames (half a second), and saves and loads are charged kStateWork steps (5% of a
+// callback's budget). Every script's slots together hold at most kMaxStateSlotMemory
+static const int kStateSlotCount = 4;
+static const int kStateSaveInterval = 30;
+static const lua_Integer kStateWork = 1'000'000;
+static const size_t kMaxStateSlotMemory = 64 * 1024 * 1024;
 
 // Registry keys (their addresses are): the modules a state has loaded, and the ones that are loading, in order. Not const, so that the compiler
 // can't merge them
@@ -137,6 +145,14 @@ struct LuaEngine::Script
     std::optional<bool> swapScreens;
     std::optional<bool> showControls;
     std::optional<bool> fastForward;
+    // melon.screen.set_layout(): the layout option's key, or an empty string for set_layout(nil)
+    std::optional<std::string> layoutKey;
+
+    // melon.state slots: whole savestates, empty when unused. Outside the Lua state, so they survive reloads (a reset). Freed when the
+    // script is switched off
+    std::vector<u8> stateSlots[kStateSlotCount];
+    // LuaEngine::framePass of the last save, for the cooldown
+    std::optional<int64_t> lastStateSaveFramePass;
 
     // melon.draw calls from the current frame: on_frame()'s, then on_frame_end()'s. Text goes into one string, which the commands point into,
     // of at most kMaxDrawTextBytes
@@ -478,16 +494,18 @@ LuaEngine::~LuaEngine()
         closeScript(*script);
 }
 
-void LuaEngine::setScripts(std::vector<LuaScriptSource> newScripts, std::shared_ptr<const LuaFolderContent> newFolderContent)
+void LuaEngine::setScripts(std::vector<LuaScriptSource> newScripts, std::shared_ptr<const LuaFolderContent> newFolderContent, bool newAreStateLoadsAllowed)
 {
     pendingScripts = std::move(newScripts);
     folderContent = std::move(newFolderContent);
+    areStateLoadsAllowed = newAreStateLoadsAllowed;
 }
 
-void LuaEngine::start(NDS* newNds, std::shared_ptr<MelonEventMessenger> newEventMessenger)
+void LuaEngine::start(NDS* newNds, std::shared_ptr<MelonEventMessenger> newEventMessenger, LuaSavestateHost* newSavestateHost)
 {
     nds = newNds;
     eventMessenger = std::move(newEventMessenger);
+    savestateHost = newSavestateHost;
 
     if (auto cart = nds->NDSCartSlot.GetCart())
         gameCode.assign(cart->GetHeader().GameCode, strnlen(cart->GetHeader().GameCode, 4));
@@ -519,20 +537,29 @@ LuaInputOverride LuaEngine::runFrame(int frame, const LuaUserInput& userInput)
 {
     currentFrame = frame;
     currentUserInput = userInput;
+    framePass++;
 
     // Before a pending reset, so a script the player switched off isn't loaded again
     if (isScriptSwitchPending.exchange(false, std::memory_order_acquire))
         applyPendingScriptSwitches();
 
+    // A script's load that is still queued (from on_frame_end(), say) mustn't undo the player's reset or load
     if (isResetPending.exchange(false, std::memory_order_relaxed))
+    {
+        pendingStateLoadScript = -1;
         reloadScripts();
+    }
 
     // Drawings only last one frame
     for (auto& script : scripts)
         clearDrawCommands(*script);
 
-    if (isStateLoadPending.exchange(false, std::memory_order_relaxed))
+    bool isPlayerStateLoad = isStateLoadPending.exchange(false, std::memory_order_relaxed);
+    if (isPlayerStateLoad)
+        pendingStateLoadScript = -1;
+    if (isPlayerStateLoad || isScriptStateLoaded)
     {
+        isScriptStateLoaded = false;
         for (auto& script : scripts)
             callCallback(*script, "on_state_loaded", nullptr, kCallbackInstructionLimit);
     }
@@ -562,7 +589,64 @@ LuaInputOverride LuaEngine::runFrame(int frame, const LuaUserInput& userInput)
         script->release = 0;
     }
 
+    // A load from melon.state.load(), now that every script's on_frame() has run. The input changes were made for the state before it, so
+    // the frame runs with the player's own input
+    if (pendingStateLoadScript >= 0)
+    {
+        runPendingStateLoad();
+        if (isScriptStateLoaded)
+            inputOverride = LuaInputOverride();
+    }
+
     return inputOverride;
+}
+
+void LuaEngine::runPendingStateLoad()
+{
+    int id = pendingStateLoadScript;
+    int slot = pendingStateLoadSlot;
+    pendingStateLoadScript = -1;
+
+    // The script may have been switched off since it asked, which also freed its slots
+    if (id < 0 || id >= (int) scripts.size() || !savestateHost || !areStateLoadsAllowed)
+        return;
+    Script& script = *scripts[id];
+    if (!script.L || script.stateSlots[slot].empty())
+        return;
+
+    bool isLoaded = false;
+    try
+    {
+        isLoaded = savestateHost->loadLuaState(script.stateSlots[slot]);
+    }
+    catch (const std::bad_alloc&)
+    {
+    }
+
+    if (!isLoaded)
+    {
+        // The host went back to the state from before the load
+        LOG_WARN(TAG, "%s: state %d couldn't be loaded", script.source.name.c_str(), slot + 1);
+        return;
+    }
+
+    isScriptStateLoaded = true;
+    if (eventMessenger)
+        eventMessenger->onLuaStateLoaded();
+    if (DebugLog::isEnabled()) [[unlikely]]
+        LOG_INFO(TAG, "%s: loaded state %d", script.source.name.c_str(), slot + 1);
+}
+
+void LuaEngine::freeStateSlots(Script& script)
+{
+    for (auto& slot : script.stateSlots)
+    {
+        stateSlotMemory -= slot.size();
+        std::vector<u8>().swap(slot);
+    }
+    script.lastStateSaveFramePass.reset();
+    if (pendingStateLoadScript == script.id)
+        pendingStateLoadScript = -1;
 }
 
 void LuaEngine::endFrame()
@@ -624,9 +708,13 @@ void LuaEngine::stop()
     {
         closeScript(*script);
         saveStorage(*script);
+        freeStateSlots(*script);
     }
     scripts.clear();
     framesSinceStorageSave = 0;
+    pendingStateLoadScript = -1;
+    isScriptStateLoaded = false;
+    framePass = 0;
     isUnloading = false;
     overlay.clear();
 
@@ -741,13 +829,21 @@ void LuaEngine::applyPendingScriptSwitches()
             callCallback(script, "on_unload", nullptr, kCallbackInstructionLimit);
             isUnloading = false;
             closeScript(script);
-            // A restart keeps the data in memory, so it only needs saving when the script stays off
+            // A restart keeps the data and the state slots in memory, so it only needs saving (and the slots freeing) when the script stays off
             if (!isRestart)
+            {
                 saveStorage(script);
+                freeStateSlots(script);
+            }
         }
 
         if (isRestart)
+        {
             script.source.options = std::move(scriptSwitch.options);
+            // The slots are kept, but a load the old run queued (from on_frame_end(), say) mustn't fire after the new run's first on_frame()
+            if (pendingStateLoadScript == script.id)
+                pendingStateLoadScript = -1;
+        }
 
         if (mustStart)
         {
@@ -818,11 +914,14 @@ void LuaEngine::sendRequests(Script& script)
             eventMessenger->onLuaShowControls(script.id, *script.showControls);
         if (script.fastForward)
             eventMessenger->onLuaFastForward(script.id, *script.fastForward);
+        if (script.layoutKey)
+            eventMessenger->onLuaSetLayout(script.id, *script.layoutKey);
     }
 
     script.swapScreens.reset();
     script.showControls.reset();
     script.fastForward.reset();
+    script.layoutKey.reset();
 }
 
 int LuaEngine::setupScript(lua_State* L)
@@ -915,6 +1014,13 @@ int LuaEngine::setupScript(lua_State* L)
     static const luaL_Reg screenFunctions[] = {
         { "swap", luaScreenSwap },
         { "show_controls", luaScreenShowControls },
+        { "set_layout", luaScreenSetLayout },
+        { nullptr, nullptr },
+    };
+    static const luaL_Reg stateFunctions[] = {
+        { "save", luaStateSave },
+        { "load", luaStateLoad },
+        { "has", luaStateHas },
         { nullptr, nullptr },
     };
     static const luaL_Reg drawFunctions[] = {
@@ -973,6 +1079,8 @@ int LuaEngine::setupScript(lua_State* L)
     lua_setfield(L, -2, "emu");
     luaL_newlib(L, storageFunctions);
     lua_setfield(L, -2, "storage");
+    luaL_newlib(L, stateFunctions);
+    lua_setfield(L, -2, "state");
     // A plain table of the option values the app sent, built again at each load
     lua_createtable(L, 0, (int) source.options.size());
     for (const LuaOptionValue& option : source.options)
@@ -980,6 +1088,7 @@ int LuaEngine::setupScript(lua_State* L)
         switch (option.type)
         {
             case LuaOptionValue::Type::Boolean:
+            case LuaOptionValue::Type::Layout:
                 lua_pushboolean(L, option.boolean);
                 break;
             case LuaOptionValue::Type::Integer:
@@ -1092,6 +1201,9 @@ void LuaEngine::switchOff(Script& script, const std::string& error)
 
     closeScript(script);
     saveStorage(script);
+    // An error in on_unload() comes during a stop, reset or switch, which decide about the slots themselves (a reset keeps them)
+    if (!isUnloading)
+        freeStateSlots(script);
 }
 
 void LuaEngine::closeScript(Script& script)
@@ -1099,6 +1211,7 @@ void LuaEngine::closeScript(Script& script)
     script.swapScreens.reset();
     script.showControls.reset();
     script.fastForward.reset();
+    script.layoutKey.reset();
     script.press = 0;
     script.release = 0;
     clearDrawCommands(script);
@@ -1280,6 +1393,148 @@ int LuaEngine::luaEmuFastForward(lua_State* L)
     if (!script.engine->isUnloading)
         script.fastForward = lua_toboolean(L, 1) != 0;
     return 0;
+}
+
+int LuaEngine::luaScreenSetLayout(lua_State* L)
+{
+    Script& script = getScript(L);
+    // nil goes back to the player's layout
+    if (lua_isnoneornil(L, 1))
+    {
+        if (!script.engine->isUnloading)
+            script.layoutKey = std::string();
+        return 0;
+    }
+
+    size_t keyLength;
+    const char* key = luaL_checklstring(L, 1, &keyLength);
+    std::string_view keyView(key, keyLength);
+    bool isLayoutOption = false;
+    for (const LuaOptionValue& option : script.source.options)
+    {
+        if (option.type == LuaOptionValue::Type::Layout && option.key == keyView)
+        {
+            isLayoutOption = true;
+            break;
+        }
+    }
+    // Option keys never hold a zero byte, so %s shows the whole key of any that could have matched
+    if (!isLayoutOption)
+        return luaL_error(L, "'%s' isn't one of this script's layout options (declare it with -- option: %s type=layout)", key, key);
+
+    if (!script.engine->isUnloading)
+        script.layoutKey = std::string(keyView);
+    return 0;
+}
+
+/**
+ * The slot (0 to kStateSlotCount - 1) of a melon.state call. A slot that isn't 1 to 4 is a mistake in the script, so it raises an error
+ */
+static int checkStateSlot(lua_State* L)
+{
+    lua_Integer slot = luaL_checkinteger(L, 1);
+    luaL_argcheck(L, slot >= 1 && slot <= kStateSlotCount, 1, "slot must be 1 to 4");
+    return (int) slot - 1;
+}
+
+/**
+ * false plus [error], what melon.state calls return when they can't do what was asked
+ */
+static int pushStateFailure(lua_State* L, const char* error)
+{
+    lua_pushboolean(L, 0);
+    lua_pushstring(L, error);
+    return 2;
+}
+
+int LuaEngine::luaStateSave(lua_State* L)
+{
+    int slot = checkStateSlot(L);
+    Script& script = getScript(L);
+    LuaEngine* engine = script.engine;
+
+    if (engine->isUnloading)
+        return pushStateFailure(L, "can't save a state while the script unloads");
+    if (!engine->savestateHost)
+        return pushStateFailure(L, "savestates aren't available");
+    if (script.lastStateSaveFramePass && engine->framePass - *script.lastStateSaveFramePass < kStateSaveInterval)
+        return pushStateFailure(L, "saved a state too recently (a script can save once every 30 frames)");
+
+    // Charged first: once the state is in the slot, nothing may fail. Lua errors are longjmps, which skip C++ destructors, so the block below
+    // keeps its C++ objects to itself and raises nothing
+    melonade_charge_work(L, kStateWork);
+    script.lastStateSaveFramePass = engine->framePass;
+
+    const char* error = nullptr;
+    {
+        std::vector<u8> data;
+        bool isSaved = false;
+        try
+        {
+            isSaved = engine->savestateHost->saveLuaState(data);
+        }
+        catch (const std::bad_alloc&)
+        {
+        }
+
+        std::vector<u8>& slotData = script.stateSlots[slot];
+        if (!isSaved)
+        {
+            error = "the state couldn't be saved";
+        }
+        else if (engine->stateSlotMemory - slotData.size() + data.size() > kMaxStateSlotMemory)
+        {
+            error = "not enough room for the state (the states of every script together are limited to 64 MB)";
+        }
+        else
+        {
+            engine->stateSlotMemory = engine->stateSlotMemory - slotData.size() + data.size();
+            // The old state goes with [data]
+            slotData.swap(data);
+        }
+    }
+
+    if (error)
+        return pushStateFailure(L, error);
+
+    if (DebugLog::isEnabled()) [[unlikely]]
+        LOG_INFO(TAG, "%s: saved state %d (%zu bytes)", script.source.name.c_str(), slot + 1, script.stateSlots[slot].size());
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+int LuaEngine::luaStateLoad(lua_State* L)
+{
+    int slot = checkStateSlot(L);
+    Script& script = getScript(L);
+    LuaEngine* engine = script.engine;
+
+    if (engine->isUnloading)
+        return pushStateFailure(L, "can't load a state while the script unloads");
+    if (!engine->areStateLoadsAllowed)
+        return pushStateFailure(L, "states can't be loaded in RetroAchievements hardcore mode");
+    if (!engine->savestateHost)
+        return pushStateFailure(L, "savestates aren't available");
+    if (script.stateSlots[slot].empty())
+    {
+        lua_pushboolean(L, 0);
+        lua_pushfstring(L, "slot %d is empty", slot + 1);
+        return 2;
+    }
+
+    // The load itself (with its backup) runs once every script's on_frame() has run. If several are asked for before then, the last one wins
+    melonade_charge_work(L, kStateWork);
+    engine->pendingStateLoadScript = script.id;
+    engine->pendingStateLoadSlot = slot;
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+int LuaEngine::luaStateHas(lua_State* L)
+{
+    int slot = checkStateSlot(L);
+    lua_pushboolean(L, !getScript(L).stateSlots[slot].empty());
+    return 1;
 }
 
 /**

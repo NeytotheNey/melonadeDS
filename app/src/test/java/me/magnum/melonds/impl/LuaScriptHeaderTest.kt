@@ -168,4 +168,36 @@ class LuaScriptHeaderTest {
         assertEquals(4, option.stepCount)
         assertEquals(2, option.decimals)
     }
+
+    @Test
+    fun layoutOptionsAreRead() {
+        val header = parse(
+            """
+            -- option: map_layout type=layout label="Layout while the map is open"
+            -- option: plain type=layout
+            """.trimIndent()
+        )
+
+        assertEquals(
+            listOf(
+                LuaScriptOption.Layout("map_layout", "Layout while the map is open"),
+                LuaScriptOption.Layout("plain", "plain"),
+            ),
+            header.options,
+        )
+        assertEquals(0, header.unreadableOptionCount)
+    }
+
+    @Test
+    fun layoutOptionsTakeNoDefaultOrOtherAttributes() {
+        val header = parse(
+            """
+            -- option: a type=layout default=00000000-0000-0000-0000-000000000000
+            -- option: b type=layout values=x
+            """.trimIndent()
+        )
+
+        assertEquals(emptyList<LuaScriptOption>(), header.options)
+        assertEquals(2, header.unreadableOptionCount)
+    }
 }

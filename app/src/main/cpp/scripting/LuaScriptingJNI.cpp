@@ -97,6 +97,10 @@ static std::vector<MelonDSAndroid::LuaOptionValue> getOptionValues(JNIEnv* env, 
                 option.type = MelonDSAndroid::LuaOptionValue::Type::Number;
                 option.number = env->GetDoubleField(optionObject, fields.number);
                 break;
+            case 4:
+                option.type = MelonDSAndroid::LuaOptionValue::Type::Layout;
+                option.boolean = env->GetLongField(optionObject, fields.integer) != 0;
+                break;
             default:
                 option.type = MelonDSAndroid::LuaOptionValue::Type::String;
                 option.string = getBytes(env, optionObject, fields.text).value_or("");
@@ -111,7 +115,7 @@ static std::vector<MelonDSAndroid::LuaOptionValue> getOptionValues(JNIEnv* env, 
 }
 
 JNIEXPORT void JNICALL
-Java_me_magnum_melonds_MelonEmulator_setupLuaScripts(JNIEnv* env, jobject thiz, jobjectArray scriptSetups, jobjectArray modules, jobjectArray images)
+Java_me_magnum_melonds_MelonEmulator_setupLuaScripts(JNIEnv* env, jobject thiz, jobjectArray scriptSetups, jobjectArray modules, jobjectArray images, jboolean areStateLoadsAllowed)
 {
     jclass setupClass = env->FindClass("me/magnum/melonds/domain/model/emulator/LuaScriptSetup");
     jfieldID setupNameField = env->GetFieldID(setupClass, "name", "Ljava/lang/String;");
@@ -205,7 +209,7 @@ Java_me_magnum_melonds_MelonEmulator_setupLuaScripts(JNIEnv* env, jobject thiz, 
             return;
     }
 
-    MelonDSAndroid::setLuaScripts(std::move(scripts), std::move(folderContent));
+    MelonDSAndroid::setLuaScripts(std::move(scripts), std::move(folderContent), areStateLoadsAllowed == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL

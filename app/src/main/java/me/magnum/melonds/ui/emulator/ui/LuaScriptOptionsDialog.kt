@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import me.magnum.melonds.R
+import me.magnum.melonds.domain.model.emulator.LuaLayoutChoice
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
 import me.magnum.melonds.ui.common.component.LuaScriptOptionControl
 import me.magnum.melonds.ui.common.component.dialog.BaseDialog
@@ -23,12 +24,14 @@ data class LuaScriptOptionsDialogState(
 )
 
 /**
- * The options of a running script, with the same controls as the Mods tab. Nothing changes until the player saves, which restarts the script
+ * The options of a running script, with the same controls as the Mods tab ([layouts] are the player's, for layout options, null while
+ * they're read). Nothing changes until the player saves, which restarts the script
  * with the new values
  */
 @Composable
 fun LuaScriptOptionsDialog(
     state: LuaScriptOptionsDialogState,
+    layouts: List<LuaLayoutChoice>?,
     onSave: (Map<String, String>) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -45,6 +48,7 @@ fun LuaScriptOptionsDialog(
                         value = values[option.key] ?: option.resolve(null),
                         onValueChange = { values[option.key] = it },
                         horizontalPadding = 24.dp,
+                        layouts = layouts,
                     )
                 }
             }

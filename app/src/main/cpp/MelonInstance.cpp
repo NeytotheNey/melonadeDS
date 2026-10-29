@@ -295,7 +295,7 @@ void MelonInstance::start()
     nds->Start();
 
     screenshotRenderer->init();
-    luaEngine.start(nds, MelonDSAndroid::eventMessenger);
+    luaEngine.start(nds, MelonDSAndroid::eventMessenger, this);
 
     if (DebugLog::isEnabled()) [[unlikely]]
         DebugLog::logGameStart(*nds, "start", hasRomCrc32, romCrc32);
@@ -639,21 +639,76 @@ bool MelonInstance::saveState(Savestate* state)
 
 bool MelonInstance::loadState(Savestate* state)
 {
+    if (!restoreState(state))
+        return false;
+
+    // Loads happen on other threads, so the scripts hear about it before the next frame
+    luaEngine.notifyStateLoaded();
+    return true;
+}
+
+bool MelonInstance::restoreState(Savestate* state)
+{
     if (!retroAchievementsManager->DoSavestate(state))
         return false;
 
-    if (nds->DoSavestate(state))
+    if (!nds->DoSavestate(state))
+        return false;
+
+    setBatteryLevels();
+    setDateTime();
+    return true;
+}
+
+bool MelonInstance::saveLuaState(std::vector<u8>& data)
+{
+    // Like a player's save. The buffer grows as needed, and only the part the state uses is kept
+    Savestate state;
+    if (state.Error)
+        return false;
+
+    if (!saveState(&state) || state.Error)
     {
-        setBatteryLevels();
-        setDateTime();
-        // Loads happen on other threads, so the scripts hear about it before the next frame
-        luaEngine.notifyStateLoaded();
-        return true;
-    }
-    else
-    {
+        Platform::Log(Platform::LogLevel::Error, "Failed to create a savestate for a Lua script\n");
         return false;
     }
+
+    const u8* buffer = static_cast<const u8*>(state.Buffer());
+    data.assign(buffer, buffer + state.Length());
+    return true;
+}
+
+bool MelonInstance::loadLuaState(const std::vector<u8>& data)
+{
+    // Like a player's load (MelonDS.cpp): back up first, and go back to the backup if the load fails. It runs on the emulator thread between
+    // frames, the same place as a rewind save, so the renderers resync the way they do after any load (the core resets the VRAM caches and
+    // restarts the software renderer's thread in DoSavestate)
+    std::unique_ptr<Savestate> backup = std::make_unique<Savestate>(Savestate::DEFAULT_SIZE);
+    if (backup->Error)
+    {
+        Platform::Log(Platform::LogLevel::Error, "Failed to allocate memory for state backup\n");
+        return false;
+    }
+
+    if (!saveState(backup.get()) || backup->Error)
+    {
+        Platform::Log(Platform::LogLevel::Error, "Failed to back up state, aborting a Lua script's load\n");
+        return false;
+    }
+
+    // Reading never writes to the buffer
+    Savestate state(const_cast<u8*>(data.data()), (u32) data.size(), false);
+    if (state.Error || !restoreState(&state) || state.Error)
+    {
+        Platform::Log(Platform::LogLevel::Error, "Failed to load a Lua script's state\n");
+        Savestate backupState(backup->Buffer(), backup->Length(), false);
+        if (backupState.Error || !restoreState(&backupState) || backupState.Error)
+            Platform::Log(Platform::LogLevel::Error, "Failed to load backup state\n");
+        return false;
+    }
+
+    // The scripts are told by LuaEngine, which asked for the load
+    return true;
 }
 
 RewindWindow MelonInstance::getRewindWindow()

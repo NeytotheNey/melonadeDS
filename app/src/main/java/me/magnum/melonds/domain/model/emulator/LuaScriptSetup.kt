@@ -32,6 +32,8 @@ class LuaScriptOptionValue(
         const val TYPE_INTEGER = 1
         const val TYPE_NUMBER = 2
         const val TYPE_STRING = 3
+        // A layout option: [integer] is 1 if the player picked a layout, 0 for "Don't change". Scripts see a boolean
+        const val TYPE_LAYOUT = 4
     }
 }
 

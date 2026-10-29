@@ -152,3 +152,25 @@ void AndroidMelonEventMessenger::onLuaStorageSaved()
 {
     MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_STORAGE_SAVED);
 }
+
+void AndroidMelonEventMessenger::onLuaSetLayout(int scriptId, const std::string& optionKey)
+{
+    // Option keys are at most 32 bytes (the app checks them), so the key always fits
+    struct {
+        int32_t scriptId;
+        int32_t keySize;
+        char key[32];
+    } data;
+    size_t keySize = std::min(optionKey.size(), sizeof(data.key));
+
+    data.scriptId = (int32_t) scriptId;
+    data.keySize = (int32_t) keySize;
+    memcpy(data.key, optionKey.data(), keySize);
+
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_SET_LAYOUT, 2 * sizeof(int32_t) + keySize, &data);
+}
+
+void AndroidMelonEventMessenger::onLuaStateLoaded()
+{
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_STATE_LOADED);
+}

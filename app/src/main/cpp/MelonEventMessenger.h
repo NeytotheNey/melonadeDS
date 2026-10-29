@@ -29,6 +29,10 @@ public:
     virtual void onLuaSwapScreens(int scriptId, bool swapped) = 0;
     virtual void onLuaShowControls(int scriptId, bool visible) = 0;
     virtual void onLuaFastForward(int scriptId, bool enabled) = 0;
+    // [optionKey] is one of the script's layout options, or empty to go back to the player's layout
+    virtual void onLuaSetLayout(int scriptId, const std::string& optionKey) = 0;
+    // A script loaded one of its savestates
+    virtual void onLuaStateLoaded() = 0;
     // Snapshots of the scripts' storage are waiting in LuaStorage's outbox. Only a wake-up, without data
     virtual void onLuaStorageSaved() = 0;
 };

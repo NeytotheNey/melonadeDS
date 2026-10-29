@@ -381,6 +381,10 @@
     </plurals>
     <string name="lua_script_options_button">Options…</string>
     <string name="lua_script_options_save">Save and restart</string>
+    <string name="lua_script_option_layout_dont_change">Don\'t change</string>
+    <string name="lua_script_option_layout_unnamed">Unnamed layout</string>
+    <string name="lua_script_option_layout_unnamed_numbered">Unnamed layout %1$d</string>
+    <string name="lua_script_option_layout_missing">Layout not found</string>
     <string name="lua_script_saved_data">Saved data: %1$d KB</string>
     <string name="lua_script_saved_data_clear">Clear</string>
     <string name="lua_script_saved_data_clear_title">Clear saved data?</string>

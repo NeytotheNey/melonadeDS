@@ -2,6 +2,7 @@ package me.magnum.melonds.domain.model.emulator
 
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToLong
@@ -127,6 +128,40 @@ sealed class LuaScriptOption {
 
         override fun toNativeValue(value: String): LuaScriptOptionValue {
             return LuaScriptOptionValue(key, LuaScriptOptionValue.TYPE_STRING, text = value.encodeToByteArray())
+        }
+    }
+
+    /**
+     * One of the player's layouts, which the script switches to with `melon.screen.set_layout(key)`. The value is the layout's UUID, or an
+     * empty string for "Don't change" (the default). Whether the layout still exists is only checked when the script asks for it, so a
+     * deleted layout's UUID can still be stored
+     */
+    data class Layout(override val key: String, override val label: String) : LuaScriptOption() {
+        override fun resolve(stored: String?): String {
+            return getLayoutId(stored)?.toString() ?: DONT_CHANGE
+        }
+
+        override fun toNativeValue(value: String): LuaScriptOptionValue {
+            // The script only learns whether a layout was picked: the UUID means nothing to it
+            return LuaScriptOptionValue(key, LuaScriptOptionValue.TYPE_LAYOUT, integer = if (getLayoutId(value) != null) 1 else 0)
+        }
+
+        companion object {
+            const val DONT_CHANGE = ""
+
+            /**
+             * The layout a value names, or null for "Don't change" (or anything that isn't a UUID)
+             */
+            fun getLayoutId(value: String?): UUID? {
+                if (value.isNullOrEmpty()) {
+                    return null
+                }
+                return try {
+                    UUID.fromString(value)
+                } catch (e: IllegalArgumentException) {
+                    null
+                }
+            }
         }
     }
 }

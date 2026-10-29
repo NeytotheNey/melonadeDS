@@ -236,10 +236,10 @@ namespace MelonDSAndroid
             instance->updateMotionData(ax, ay, az, rx, ry, rz);
     }
 
-    void setLuaScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent)
+    void setLuaScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent, bool areStateLoadsAllowed)
     {
         if (instance)
-            instance->setLuaScripts(std::move(scripts), std::move(folderContent));
+            instance->setLuaScripts(std::move(scripts), std::move(folderContent), areStateLoadsAllowed);
     }
 
     void disableLuaScript(int scriptId)

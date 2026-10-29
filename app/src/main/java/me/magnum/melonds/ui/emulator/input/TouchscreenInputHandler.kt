@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.view.MotionEvent
 import android.view.MotionEvent.PointerCoords
 import android.view.View
-import me.magnum.melonds.MelonEmulator.onScreenRelease
 import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.Point
 
@@ -21,9 +20,9 @@ class TouchscreenInputHandler(inputListener: IInputListener) : BaseInputHandler(
             MotionEvent.ACTION_MOVE -> {
                 inputListener.onTouch(normalizeTouchCoordinates(event, v.width, v.height))
             }
-            MotionEvent.ACTION_UP -> {
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                // The listener lets go of the screen too, so a release a layout change holds back doesn't let go of it
                 inputListener.onKeyReleased(Input.TOUCHSCREEN)
-                onScreenRelease()
             }
         }
         return true

@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import me.magnum.melonds.R
 import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.contracts.DirectoryPickerContract
+import me.magnum.melonds.domain.model.emulator.LuaLayoutChoice
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
 import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import me.magnum.melonds.domain.model.rom.config.RomModsConfig
@@ -153,6 +154,7 @@ private fun LuaScriptsSection(
             LuaScriptOptionsSection(
                 script = script,
                 header = header,
+                layouts = scriptsUiModel.layouts,
                 onOptionChange = { key, value -> onConfigUpdate(RomConfigUpdateEvent.LuaScriptOptionUpdate(script.fileName, key, value)) },
             )
         }
@@ -173,6 +175,7 @@ private fun LuaScriptsSection(
 private fun LuaScriptOptionsSection(
     script: RomLuaScript,
     header: LuaScriptHeader,
+    layouts: List<LuaLayoutChoice>?,
     onOptionChange: (key: String, value: String) -> Unit,
 ) {
     var isExpanded by rememberSaveable(script.fileName) { mutableStateOf(false) }
@@ -206,6 +209,7 @@ private fun LuaScriptOptionsSection(
                 value = option.resolve(script.options[option.key]),
                 onValueChange = { onOptionChange(option.key, it) },
                 modifier = Modifier.padding(start = 16.dp),
+                layouts = layouts,
             )
         }
         if (header.unreadableOptionCount > 0) {
@@ -374,6 +378,7 @@ private fun PreviewRomModsUi() {
                                     LuaScriptOption.Number("speed", "Aim speed", min = 1.0, max = 10.0, step = 1.0, default = 5.0, decimals = 0),
                                     LuaScriptOption.Toggle("hud", "Show HUD", default = true),
                                     LuaScriptOption.Choice("mode", "Difficulty", listOf("easy", "normal", "hard"), default = "normal"),
+                                    LuaScriptOption.Layout("map_layout", "Layout while the map is open"),
                                 ),
                                 unreadableOptionCount = 1,
                             ),

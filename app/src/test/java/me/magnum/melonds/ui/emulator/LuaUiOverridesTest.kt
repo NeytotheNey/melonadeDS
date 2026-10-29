@@ -1,9 +1,14 @@
 package me.magnum.melonds.ui.emulator
 
+import me.magnum.melonds.domain.model.emulator.LuaScriptOption
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.UUID
 
 class LuaUiOverridesTest {
 
@@ -156,5 +161,132 @@ class LuaUiOverridesTest {
         assertEquals(mapOf(swap to false, fastForward to false), overrides.onSessionEnded())
         assertNull(overrides.getScriptValue(fastForward))
         assertTrue(overrides.onSessionEnded().isEmpty())
+    }
+
+    private val layoutA = UUID.fromString("00000000-0000-0000-0000-00000000000a")
+    private val layoutB = UUID.fromString("00000000-0000-0000-0000-00000000000b")
+    private val requestA = LuaLayoutRequest.Layout(layoutA)
+    private val requestB = LuaLayoutRequest.Layout(layoutB)
+
+    @Test
+    fun theNewestLayoutRequestWinsAndStoppingFallsBack() {
+        val requests = LuaLayoutRequests()
+        assertEquals(layoutA, requests.onScriptRequest(0, requestA))
+        assertEquals(layoutB, requests.onScriptRequest(1, requestB))
+
+        assertEquals(layoutA, requests.onScriptStopped(1))
+        // No baseline: the player's layout (null) once no script holds one
+        assertNull(requests.onScriptStopped(0))
+    }
+
+    @Test
+    fun aPlayerLayoutRequestDropsOnlyThatScriptsRequest() {
+        val requests = LuaLayoutRequests()
+        requests.onScriptRequest(0, requestA)
+        requests.onScriptRequest(1, requestB)
+
+        assertEquals(layoutA, requests.onScriptRequest(1, LuaLayoutRequest.PlayerLayout))
+        assertNull(requests.onScriptRequest(0, LuaLayoutRequest.PlayerLayout))
+    }
+
+    @Test
+    fun aRequestForNothingKeepsTheScriptsEarlierRequest() {
+        val requests = LuaLayoutRequests()
+        requests.onScriptRequest(0, requestA)
+        requests.onScriptRequest(1, requestB)
+
+        assertEquals(layoutB, requests.onScriptRequest(1, LuaLayoutRequest.None))
+        // It doesn't make script 0's request the most recent either
+        assertEquals(layoutB, requests.onScriptRequest(0, LuaLayoutRequest.None))
+        assertEquals(layoutA, requests.onScriptStopped(1))
+        // And it doesn't add one for a script that had none
+        assertNull(requests.onScriptStopped(0))
+        assertNull(requests.onScriptRequest(2, LuaLayoutRequest.None))
+    }
+
+    @Test
+    fun aRepeatedLayoutRequestBecomesTheMostRecent() {
+        val requests = LuaLayoutRequests()
+        requests.onScriptRequest(0, requestA)
+        requests.onScriptRequest(1, requestB)
+        requests.onScriptRequest(0, requestA)
+
+        assertEquals(layoutA, requests.onScriptStopped(2))
+        assertEquals(layoutB, requests.onScriptStopped(0))
+    }
+
+    @Test
+    fun thePlayerPickingALayoutDropsEveryRequest() {
+        val requests = LuaLayoutRequests()
+        requests.onScriptRequest(0, requestA)
+
+        assertNull(requests.onPlayerChanged())
+        assertNull(requests.layoutId)
+        // A later request applies again
+        assertEquals(layoutB, requests.onScriptRequest(0, requestB))
+    }
+
+    @Test
+    fun aLateLayoutRequestFromAStoppedScriptIsIgnoredUntilItStartsAgain() {
+        val requests = LuaLayoutRequests()
+        requests.onScriptStopped(0)
+        assertNull(requests.onScriptRequest(0, requestA))
+
+        requests.onScriptStarted(0)
+        assertEquals(layoutA, requests.onScriptRequest(0, requestA))
+    }
+
+    @Test
+    fun sessionEndForgetsLayoutRequestsAndStoppedScripts() {
+        val requests = LuaLayoutRequests()
+        requests.onScriptRequest(0, requestA)
+        requests.onScriptStopped(1)
+
+        assertNull(requests.onSessionEnded())
+        assertEquals(layoutB, requests.onScriptRequest(1, requestB))
+    }
+
+    @Test
+    fun aLayoutRequestIsResolvedFromTheScriptsOptions() {
+        val options = listOf(
+            LuaScriptOption.Layout("map", "Map"),
+            LuaScriptOption.Layout("unset", "Unset"),
+            LuaScriptOption.Layout("deleted", "Deleted"),
+            LuaScriptOption.Toggle("hud", "HUD", default = true),
+        )
+        val values = mapOf("map" to layoutA.toString(), "unset" to "", "deleted" to layoutB.toString(), "hud" to "true")
+        val layoutExists = { id: UUID -> id == layoutA }
+
+        assertEquals(requestA, getLuaLayoutRequest(options, values, "map", layoutExists))
+        assertEquals(LuaLayoutRequest.PlayerLayout, getLuaLayoutRequest(options, values, null, layoutExists))
+        // "Don't change", a deleted layout, a key that isn't a layout option, and an unknown key ask for nothing
+        assertEquals(LuaLayoutRequest.None, getLuaLayoutRequest(options, values, "unset", layoutExists))
+        assertEquals(LuaLayoutRequest.None, getLuaLayoutRequest(options, values, "deleted", layoutExists))
+        assertEquals(LuaLayoutRequest.None, getLuaLayoutRequest(options, values, "hud", layoutExists))
+        assertEquals(LuaLayoutRequest.None, getLuaLayoutRequest(options, values, "gone", layoutExists))
+        // A value that was never stored resolves to "Don't change"
+        assertEquals(LuaLayoutRequest.None, getLuaLayoutRequest(options, emptyMap(), "map", layoutExists))
+    }
+
+    private fun countPlayerLayoutPicks(romLayout: List<String>?, selectedGlobalLayoutIds: List<UUID>): Int {
+        return runBlocking {
+            getPlayerLayoutPicks(romLayout?.asFlow(), selectedGlobalLayoutIds.asFlow()).toList().size
+        }
+    }
+
+    @Test
+    fun changingTheGlobalLayoutIsAPickWhenTheRomUsesIt() {
+        // The first value is the one the session started with, and the same id again (an edit) isn't a pick
+        assertEquals(0, countPlayerLayoutPicks(null, listOf(layoutA)))
+        assertEquals(1, countPlayerLayoutPicks(null, listOf(layoutA, layoutA, layoutB)))
+        assertEquals(2, countPlayerLayoutPicks(null, listOf(layoutA, layoutB, layoutA)))
+    }
+
+    @Test
+    fun theRomsOwnLayoutBeingDeletedIsNotAPick() {
+        // The ROM's layout was edited, then deleted (its flow completes), so the global one takes over without the player picking it
+        assertEquals(0, countPlayerLayoutPicks(listOf("rom layout", "rom layout edited"), listOf(layoutA)))
+        // From then on, the global one is the player's, and changing it is a pick
+        assertEquals(1, countPlayerLayoutPicks(listOf("rom layout"), listOf(layoutA, layoutB)))
     }
 }

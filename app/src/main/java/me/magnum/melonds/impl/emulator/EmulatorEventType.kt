@@ -108,4 +108,17 @@ enum class EmulatorEventType(val event: Int) {
      * Snapshots of the Lua scripts' storage are waiting to be saved (see MelonEmulator.drainLuaData). No data.
      */
     EventLuaDataSaved(304),
+
+    /**
+     * A Lua script wants the layout one of its layout options names, or the player's layout back. Data:
+     * * script ID (`i32`)
+     * * option key size (`i32`), 0 for the player's layout
+     * * option key (`u8[]`, at most 32 bytes)
+     */
+    EventLuaSetLayout(305),
+
+    /**
+     * A Lua script loaded one of its savestates. No data.
+     */
+    EventLuaStateLoaded(306),
 }

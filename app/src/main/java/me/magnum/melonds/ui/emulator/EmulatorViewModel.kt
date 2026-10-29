@@ -49,7 +49,9 @@ import me.magnum.melonds.domain.model.SaveStateSlot
 import me.magnum.melonds.domain.model.emulator.EmulatorEvent
 import me.magnum.melonds.domain.model.emulator.EmulatorSessionUpdateAction
 import me.magnum.melonds.domain.model.emulator.FirmwareLaunchResult
+import me.magnum.melonds.domain.model.emulator.LuaLayoutChoice
 import me.magnum.melonds.domain.model.emulator.RomLaunchResult
+import me.magnum.melonds.domain.model.emulator.toLuaLayoutChoices
 import me.magnum.melonds.domain.model.layout.BackgroundMode
 import me.magnum.melonds.domain.model.layout.Insets
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
@@ -184,6 +186,13 @@ class EmulatorViewModel @Inject constructor(
      */
     val luaUiOverrides = LuaUiOverrides()
 
+    // The layout the scripts asked for with melon.screen.set_layout(), or null for the player's. Unlike the settings in [luaUiOverrides], it's
+    // worked out here as the events are sent (in the same order), since the layout flow is here too. Main thread only
+    private val luaLayoutRequests = LuaLayoutRequests()
+    private val _luaLayoutId = MutableStateFlow<UUID?>(null)
+    // The ids of the player's layouts, or null until they're read. Main thread only
+    private var luaExistingLayoutIds: Set<UUID>? = null
+
     init {
         viewModelScope.launch {
             _layout.filterNotNull().collect {
@@ -279,7 +288,7 @@ class EmulatorViewModel @Inject constructor(
         val cheats = romInfo?.let { getRomEnabledCheats(it) } ?: emptyList()
         val syncedLuaScripts = getSyncedLuaScripts(rom)
         val luaScripts = if (emulatorSession.areLuaScriptsAllowed()) syncedLuaScripts.filter { it.enabled } else emptyList()
-        val result = emulatorManager.loadRom(rom, cheats, luaScripts, rom.config.mods.luaScriptFolder)
+        val result = emulatorManager.loadRom(rom, cheats, luaScripts, rom.config.mods.luaScriptFolder, emulatorSession.areSaveStateLoadsAllowed())
         when (result) {
             is RomLaunchResult.LaunchFailedRomNotFound,
             is RomLaunchResult.LaunchFailedRomNotSupported,
@@ -721,10 +730,13 @@ class EmulatorViewModel @Inject constructor(
                 when (it) {
                     is EmulatorEvent.RumbleStart -> _rumbleEvent.tryEmit(RumbleEvent.RumbleStart(it.duration))
                     EmulatorEvent.RumbleStop -> _rumbleEvent.tryEmit(RumbleEvent.RumbleStop)
-                    is EmulatorEvent.LuaScriptStopped -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ScriptStopped(it.scriptId, it.scriptName, it.error))
-                    is EmulatorEvent.LuaSwapScreens -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.Request(LuaUiSetting.SWAP_SCREENS, it.scriptId, it.swapped))
-                    is EmulatorEvent.LuaShowControls -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.Request(LuaUiSetting.SHOW_CONTROLS, it.scriptId, it.visible))
-                    is EmulatorEvent.LuaFastForward -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.Request(LuaUiSetting.FAST_FORWARD, it.scriptId, it.enabled))
+                    is EmulatorEvent.LuaScriptStopped -> sendLuaUiEvent(LuaUiEvent.ScriptStopped(it.scriptId, it.scriptName, it.error))
+                    is EmulatorEvent.LuaSwapScreens -> sendLuaUiEvent(LuaUiEvent.Request(LuaUiSetting.SWAP_SCREENS, it.scriptId, it.swapped))
+                    is EmulatorEvent.LuaShowControls -> sendLuaUiEvent(LuaUiEvent.Request(LuaUiSetting.SHOW_CONTROLS, it.scriptId, it.visible))
+                    is EmulatorEvent.LuaFastForward -> sendLuaUiEvent(LuaUiEvent.Request(LuaUiSetting.FAST_FORWARD, it.scriptId, it.enabled))
+                    is EmulatorEvent.LuaSetLayout -> onLuaLayoutRequest(it.scriptId, it.optionKey)
+                    // Like after the player's load, the achievements' primed and progress indicators start over
+                    EmulatorEvent.LuaStateLoaded -> _achievementsEvent.tryEmit(RAEventUi.Reset)
                     is EmulatorEvent.Stop -> {
                         when (it.reason) {
                             EmulatorEvent.Stop.Reason.GBAModeNotSupported -> _toastEvent.tryEmit(ToastEvent.GbaModeNotSupported)
@@ -783,7 +795,7 @@ class EmulatorViewModel @Inject constructor(
 
     private fun startObservingLayoutForRom(rom: Rom) {
         val romLayoutId = rom.config.layoutId
-        val layoutFlow = if (romLayoutId == null) {
+        val playerLayoutFlow = if (romLayoutId == null) {
             getGlobalLayoutFlow()
         } else {
             // Load and observe ROM layout but switch to global layout if the ROM layout stops existing
@@ -791,6 +803,37 @@ class EmulatorViewModel @Inject constructor(
                 .onCompletion {
                     emitAll(getGlobalLayoutFlow())
                 }
+        }
+
+        // The player picking another layout by hand (in the settings, from the pause menu) wins over the scripts, like a screen swap does.
+        // A layout being edited or deleted isn't a pick
+        val romLayoutFlow = romLayoutId?.let { layoutsRepository.observeLayout(it) }
+        sessionCoroutineScope.launch {
+            getPlayerLayoutPicks(romLayoutFlow, settingsRepository.observeSelectedLayoutId()).collect {
+                _luaLayoutId.value = luaLayoutRequests.onPlayerChanged()
+            }
+        }
+
+        // The layouts that exist, so a script asking for a deleted one changes nothing
+        luaExistingLayoutIds = null
+        sessionCoroutineScope.launch {
+            layoutsRepository.getLayouts().collect { layouts ->
+                luaExistingLayoutIds = layouts.mapNotNull { it.id }.toSet()
+            }
+        }
+
+        // A script's layout while one holds it. If it doesn't exist (anymore), the player's layout is shown
+        val layoutFlow = _luaLayoutId.flatMapLatest { scriptLayoutId ->
+            if (scriptLayoutId == null) {
+                playerLayoutFlow
+            } else {
+                layoutsRepository.observeLayout(scriptLayoutId)
+                    .onCompletion { cause ->
+                        if (cause == null) {
+                            emitAll(playerLayoutFlow)
+                        }
+                    }
+            }
         }
 
         sessionCoroutineScope.launch {
@@ -881,7 +924,7 @@ class EmulatorViewModel @Inject constructor(
         emulatorManager.disableLuaScript(scriptId)
         // Native doesn't send a stop event for this one, so the screen is told here to undo what the script changed
         val scriptName = emulatorManager.getLuaScripts().getOrNull(scriptId)?.name ?: return
-        _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ScriptStopped(scriptId, scriptName, error = null))
+        sendLuaUiEvent(LuaUiEvent.ScriptStopped(scriptId, scriptName, error = null))
     }
 
     /**
@@ -893,7 +936,7 @@ class EmulatorViewModel @Inject constructor(
             return false
         }
         // Sent before anything the script asks for in on_load(), which only runs once the emulator resumes
-        _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ScriptStarted(scriptId))
+        sendLuaUiEvent(LuaUiEvent.ScriptStarted(scriptId))
         return true
     }
 
@@ -909,9 +952,9 @@ class EmulatorViewModel @Inject constructor(
         }
         // Native sends no stop event for a restart, so what the script changed is undone here, as if it was switched off and on again
         if (wasRunning) {
-            _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ScriptStopped(scriptId, script.name, error = null))
+            sendLuaUiEvent(LuaUiEvent.ScriptStopped(scriptId, script.name, error = null))
         }
-        _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ScriptStarted(scriptId))
+        sendLuaUiEvent(LuaUiEvent.ScriptStarted(scriptId))
 
         val rom = (_emulatorState.value as? EmulatorState.RunningRom)?.rom ?: return true
         val savedValues = emulatorManager.getLuaScripts().getOrNull(scriptId)?.optionValues ?: optionValues
@@ -934,7 +977,40 @@ class EmulatorViewModel @Inject constructor(
      */
     private fun endLuaUiSession() {
         luaUiEventSession++
-        _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.SessionEnded)
+        sendLuaUiEvent(LuaUiEvent.SessionEnded)
+    }
+
+    /**
+     * Sends a Lua UI event to the screen, tagged with the current session, and keeps the scripts' layout request up to date with it
+     */
+    private fun sendLuaUiEvent(event: LuaUiEvent) {
+        when (event) {
+            is LuaUiEvent.ScriptStopped -> _luaLayoutId.value = luaLayoutRequests.onScriptStopped(event.scriptId)
+            is LuaUiEvent.ScriptStarted -> luaLayoutRequests.onScriptStarted(event.scriptId)
+            LuaUiEvent.SessionEnded -> _luaLayoutId.value = luaLayoutRequests.onSessionEnded()
+            is LuaUiEvent.Request -> { }
+        }
+        _luaUiEvent.trySend(luaUiEventSession to event)
+    }
+
+    /**
+     * A script asked for the layout its option [optionKey] names, or for the player's layout back (null). Resolved with the option values the
+     * script runs with
+     */
+    private fun onLuaLayoutRequest(scriptId: Int, optionKey: String?) {
+        val script = emulatorManager.getLuaScripts().getOrNull(scriptId) ?: return
+        // Until the layouts are read, every layout is taken to exist. One that doesn't is found missing when it's shown, and the player's
+        // layout is shown instead
+        val existingLayoutIds = luaExistingLayoutIds
+        val request = getLuaLayoutRequest(script.options, script.optionValues, optionKey) { existingLayoutIds?.contains(it) ?: true }
+        _luaLayoutId.value = luaLayoutRequests.onScriptRequest(scriptId, request)
+    }
+
+    /**
+     * The player's layouts, for the layout options in the pause menu's script options dialog
+     */
+    fun getLuaLayoutChoices(): Flow<List<LuaLayoutChoice>> {
+        return layoutsRepository.getLayouts().map { it.toLuaLayoutChoices() }
     }
 
     fun isSustainedPerformanceModeEnabled(): Boolean {
