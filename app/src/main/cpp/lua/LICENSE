@@ -1,0 +1,11 @@
+Lua 5.4.9, from https://www.lua.org/ftp/lua-5.4.9.tar.gz (the library files in src/, without lua.c, luac.c
+and the Makefile). The files here are unchanged, so they can be replaced with a newer release as-is. The sandbox
+(which libraries are opened, no file access, text chunks only, capped string.rep and table.move/insert/remove/sort, and the work budget) lives
+in ../scripting/LuaEngine.cpp.
+
+One file is patched: patched/lstrlib.c is a copy of lstrlib.c that is built instead of it. It charges the work
+done by pattern matching and plain searches (match steps, class bytes scanned, candidate positions) to the
+running script's work budget through melonade_charge_work() (MELONADE_CHARGE), which raises an error once the
+budget is gone, so that big searches and backtracking patterns can't hang the emulator thread. lmemfind() also
+takes the lua_State for that. Every change is marked "melonade". When upgrading Lua, copy the new lstrlib.c into
+patched/ and redo those changes.
