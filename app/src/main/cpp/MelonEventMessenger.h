@@ -29,6 +29,8 @@ public:
     virtual void onLuaSwapScreens(int scriptId, bool swapped) = 0;
     virtual void onLuaShowControls(int scriptId, bool visible) = 0;
     virtual void onLuaFastForward(int scriptId, bool enabled) = 0;
+    // Snapshots of the scripts' storage are waiting in LuaStorage's outbox. Only a wake-up, without data
+    virtual void onLuaStorageSaved() = 0;
 };
 
 }

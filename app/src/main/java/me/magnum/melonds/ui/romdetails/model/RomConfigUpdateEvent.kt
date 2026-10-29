@@ -19,4 +19,12 @@ sealed class RomConfigUpdateEvent {
      * Links a picked folder as the game's script folder, or unlinks it if [folderUri] is null
      */
     data class LuaScriptFolderUpdate(val folderUri: Uri?) : RomConfigUpdateEvent()
+    /**
+     * A new [value] for the option [key] of the script [fileName], as LuaScriptOption.resolve() gives it
+     */
+    data class LuaScriptOptionUpdate(val fileName: String, val key: String, val value: String) : RomConfigUpdateEvent()
+    /**
+     * Deletes what the script [fileName] saved with melon.storage for this game
+     */
+    data class LuaScriptDataClear(val fileName: String) : RomConfigUpdateEvent()
 }

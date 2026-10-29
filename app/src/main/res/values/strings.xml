@@ -374,6 +374,17 @@
     <string name="lua_script_running">Running</string>
     <string name="lua_script_off_error">Switched off: %1$s</string>
     <string name="lua_script_off">Switched off</string>
+    <string name="lua_script_options">Options</string>
+    <plurals name="lua_script_options_unreadable">
+        <item quantity="one">%1$d option line couldn\'t be read</item>
+        <item quantity="other">%1$d option lines couldn\'t be read</item>
+    </plurals>
+    <string name="lua_script_options_button">Options…</string>
+    <string name="lua_script_options_save">Save and restart</string>
+    <string name="lua_script_saved_data">Saved data: %1$d KB</string>
+    <string name="lua_script_saved_data_clear">Clear</string>
+    <string name="lua_script_saved_data_clear_title">Clear saved data?</string>
+    <string name="lua_script_saved_data_clear_message">What %1$s saved for this game is deleted. This can\'t be undone.</string>
     <string name="rom_details_configuration_tab">Configuration</string>
     <string name="rom_details_mods_tab">Mods</string>
     <string name="retro_achievements_tab">Retro&#8203;Achievements</string> <!-- Keep zero-width space to allow line breaks in the middle of the word -->

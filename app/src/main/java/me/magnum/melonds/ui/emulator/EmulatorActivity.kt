@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.view.Display
+import android.view.Gravity
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -18,8 +19,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
-import android.widget.ArrayAdapter
-import android.widget.ListView
+import android.widget.CheckedTextView
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,6 +50,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.squareup.picasso.Picasso
 import dagger.hilt.android.AndroidEntryPoint
@@ -103,6 +106,8 @@ import me.magnum.melonds.ui.emulator.model.RewindWindowState
 import me.magnum.melonds.ui.emulator.model.RumbleEvent
 import me.magnum.melonds.ui.emulator.model.RuntimeInputLayoutConfiguration
 import me.magnum.melonds.ui.emulator.model.LuaUiEvent
+import me.magnum.melonds.ui.emulator.ui.LuaScriptOptionsDialog
+import me.magnum.melonds.ui.emulator.ui.LuaScriptOptionsDialogState
 import me.magnum.melonds.ui.emulator.model.ToastEvent
 import me.magnum.melonds.ui.emulator.render.ChoreographerFrameRenderer
 import me.magnum.melonds.ui.emulator.render.ChoreographerFrameRendererFactory
@@ -362,6 +367,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     private val rewindWindowState = mutableStateOf<RewindWindowState>(RewindWindowState.Hidden)
     private val showAchievementList = mutableStateOf(false)
+    private val luaScriptOptionsDialogState = mutableStateOf<LuaScriptOptionsDialogState?>(null)
     private val showPendingSubmissionsDialog = mutableStateOf(false)
 
     private val activeOverlays = EmulatorOverlayTracker(
@@ -508,6 +514,17 @@ class EmulatorActivity : AppCompatActivity() {
                             viewModel.resumeEmulator()
                             showAchievementList.value = false
                         }
+                    )
+                }
+
+                luaScriptOptionsDialogState.value?.let { state ->
+                    LuaScriptOptionsDialog(
+                        state = state,
+                        onSave = { values ->
+                            viewModel.setLuaScriptOptions(state.scriptId, values)
+                            closeLuaScriptOptionsDialog()
+                        },
+                        onDismiss = ::closeLuaScriptOptionsDialog,
                     )
                 }
 
@@ -1198,21 +1215,33 @@ class EmulatorActivity : AppCompatActivity() {
 
     /**
      * Lists the session's scripts, ticked while they run. Unticking one switches it off and ticking it switches it back on, for this session
-     * only
+     * only. A running script with options has an "Options…" button, which opens [LuaScriptOptionsDialog] in place of this dialog
      */
     private fun showLuaScriptsDialog(scripts: List<LuaScriptStatus>) {
         val isRunning = BooleanArray(scripts.size) { scripts[it].isRunning }
         // Cleared when a script is switched back on, like the session's own copy
         val lastErrors = MutableList(scripts.size) { scripts[it].lastError }
-        val labels = MutableList(scripts.size) { getLuaScriptLabel(scripts[it], isRunning[it], lastErrors[it]) }
-        val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_multiple_choice, labels)
+        var dialog: AlertDialog? = null
 
-        // The list's own checked state is set from isRunning after every tap, so a row never shows a state the script isn't in
-        val listView = ListView(this).apply {
-            choiceMode = ListView.CHOICE_MODE_MULTIPLE
-            this.adapter = adapter
-            isRunning.forEachIndexed { index, running -> setItemChecked(index, running) }
-            setOnItemClickListener { _, _, position, _ ->
+        val rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        scripts.forEachIndexed { position, script ->
+            // The checkbox row the old list used, with the options button next to it
+            val checkedTextView = layoutInflater.inflate(android.R.layout.simple_list_item_multiple_choice, rows, false) as CheckedTextView
+            // A list gave its rows a touch ripple, which plain views don't have
+            val rippleBackground = android.util.TypedValue()
+            theme.resolveAttribute(android.R.attr.selectableItemBackground, rippleBackground, true)
+            checkedTextView.setBackgroundResource(rippleBackground.resourceId)
+            val optionsButton = MaterialButton(this, null, androidx.appcompat.R.attr.borderlessButtonStyle).apply {
+                text = getString(R.string.lua_script_options_button)
+            }
+
+            fun updateRow() {
+                checkedTextView.text = getLuaScriptLabel(script, isRunning[position], lastErrors[position])
+                checkedTextView.isChecked = isRunning[position]
+                optionsButton.isVisible = isRunning[position] && script.options.isNotEmpty()
+            }
+
+            checkedTextView.setOnClickListener {
                 if (isRunning[position]) {
                     viewModel.disableLuaScript(position)
                     isRunning[position] = false
@@ -1221,16 +1250,30 @@ class EmulatorActivity : AppCompatActivity() {
                     isRunning[position] = true
                     lastErrors[position] = null
                 }
-                labels[position] = getLuaScriptLabel(scripts[position], isRunning[position], lastErrors[position])
-                adapter.notifyDataSetChanged()
-                setItemChecked(position, isRunning[position])
+                updateRow()
             }
+            optionsButton.setOnClickListener {
+                // Added before this dialog goes, so the emulator stays paused in between
+                activeOverlays.addActiveOverlay(EmulatorOverlay.LUA_SCRIPT_OPTIONS_DIALOG)
+                luaScriptOptionsDialogState.value = LuaScriptOptionsDialogState(position, script.name, script.options, script.optionValues)
+                // Dismissed rather than cancelled, so the emulator doesn't resume
+                dialog?.dismiss()
+            }
+            updateRow()
+
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(checkedTextView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(optionsButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            }
+            rows.addView(row)
         }
 
         activeOverlays.addActiveOverlay(EmulatorOverlay.LUA_SCRIPTS_DIALOG)
-        MaterialAlertDialogBuilder(this)
+        dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.label_rom_config_mods)
-            .setView(listView)
+            .setView(ScrollView(this).apply { addView(rows) })
             .setPositiveButton(R.string.close) { dialog, _ ->
                 dialog.cancel()
             }
@@ -1241,6 +1284,12 @@ class EmulatorActivity : AppCompatActivity() {
                 viewModel.resumeEmulator()
             }
             .show()
+    }
+
+    private fun closeLuaScriptOptionsDialog() {
+        luaScriptOptionsDialogState.value = null
+        activeOverlays.removeActiveOverlay(EmulatorOverlay.LUA_SCRIPT_OPTIONS_DIALOG)
+        viewModel.resumeEmulator()
     }
 
     private fun getLuaScriptLabel(script: LuaScriptStatus, isRunning: Boolean, lastError: String?): String {

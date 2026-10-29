@@ -1,13 +1,48 @@
 package me.magnum.melonds.domain.model.emulator
 
 /**
- * A script sent to the emulator at launch. Read by native code, so the fields can't be renamed. Later phases add fields here (storage,
- * options)
+ * A script sent to the emulator at launch. Read by native code, so the fields can't be renamed.
+ *
+ * @param savedData The script's melon.storage as native saved it last time, or null if it has none
+ * @param dataGameKey Where the script's data is kept (see LuaScriptDataStore). Native sends it back with each storage snapshot
+ * @param options The values of the options the script declares, checked against the declarations
  */
 class LuaScriptSetup(
     val name: String,
     // Bytes, since modified UTF-8 can't carry everything a Lua file may contain
     val source: ByteArray,
+    val savedData: ByteArray?,
+    val dataGameKey: String,
+    val options: Array<LuaScriptOptionValue>,
+)
+
+/**
+ * One value of `melon.options`, typed the way the script sees it. Read by native code: [type] is one of the constants below. Booleans and
+ * integers are in [integer], numbers in [number], and strings in [text] as UTF-8
+ */
+class LuaScriptOptionValue(
+    val key: String,
+    val type: Int,
+    val integer: Long = 0,
+    val number: Double = 0.0,
+    val text: ByteArray? = null,
+) {
+    companion object {
+        const val TYPE_BOOLEAN = 0
+        const val TYPE_INTEGER = 1
+        const val TYPE_NUMBER = 2
+        const val TYPE_STRING = 3
+    }
+}
+
+/**
+ * A snapshot of a script's melon.storage that native wants saved. [data] is empty when the storage is, in which case the file can go. Made
+ * by native code
+ */
+class LuaScriptDataSnapshot(
+    val gameKey: String,
+    val scriptName: String,
+    val data: ByteArray,
 )
 
 /**

@@ -147,3 +147,8 @@ void AndroidMelonEventMessenger::onLuaFastForward(int scriptId, bool enabled)
     LuaRequestData data { scriptId, enabled ? 1 : 0 };
     MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_FAST_FORWARD, sizeof(data), &data);
 }
+
+void AndroidMelonEventMessenger::onLuaStorageSaved()
+{
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_STORAGE_SAVED);
+}

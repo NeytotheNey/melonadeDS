@@ -898,6 +898,38 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
+     * Gives a script new option values from the pause menu: they're saved to the ROM config, and the script restarts with them (or starts, if
+     * it was off). Returns false if the script can't run
+     */
+    fun setLuaScriptOptions(scriptId: Int, optionValues: Map<String, String>): Boolean {
+        val script = emulatorManager.getLuaScripts().getOrNull(scriptId) ?: return false
+        val wasRunning = script.isRunning
+        if (!emulatorManager.restartLuaScript(scriptId, optionValues)) {
+            return false
+        }
+        // Native sends no stop event for a restart, so what the script changed is undone here, as if it was switched off and on again
+        if (wasRunning) {
+            _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ScriptStopped(scriptId, script.name, error = null))
+        }
+        _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ScriptStarted(scriptId))
+
+        val rom = (_emulatorState.value as? EmulatorState.RunningRom)?.rom ?: return true
+        val savedValues = emulatorManager.getLuaScripts().getOrNull(scriptId)?.optionValues ?: optionValues
+        viewModelScope.launch {
+            // The config may have changed since launch (the script list is synced then), so the newest one is updated
+            val currentRom = romsRepository.getRomAtUri(rom.uri) ?: rom
+            val mods = currentRom.config.mods
+            val luaScripts = mods.luaScripts.map {
+                if (it.fileName == script.name) it.copy(options = it.options + savedValues) else it
+            }
+            if (luaScripts != mods.luaScripts) {
+                romsRepository.updateRomConfig(currentRom, currentRom.config.copy(mods = mods.copy(luaScripts = luaScripts)))
+            }
+        }
+        return true
+    }
+
+    /**
      * Ends the current session's Lua UI events. Anything still queued from it is dropped, and the screen puts back what its scripts changed
      */
     private fun endLuaUiSession() {

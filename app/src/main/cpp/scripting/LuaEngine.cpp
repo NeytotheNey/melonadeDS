@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <string_view>
 #include <type_traits>
 #include "MelonLog.h"
 #include "lua.hpp"
@@ -52,6 +53,8 @@ static const double kMaxCoordinate = (double) (1ll << 40);
 static const lua_Integer kMaxImageSide = 1024;
 static const lua_Integer kMaxImageOffset = 1 << 30;
 static const char* const kImageType = "melon.image";
+// melon.storage: changed data is snapshotted at least this often, in frames (about 10 seconds)
+static const int kStorageSaveInterval = 600;
 
 // Registry keys (their addresses are): the modules a state has loaded, and the ones that are loading, in order. Not const, so that the compiler
 // can't merge them
@@ -142,6 +145,9 @@ struct LuaEngine::Script
     // The images drawn this frame, in a registry table (its reference), so that they can't be collected before they're drawn
     int drawnImagesRef = LUA_NOREF;
     int drawnImageCount = 0;
+
+    // melon.storage. Outside the Lua state, so that it survives reloads
+    LuaStorage::Store storage;
 };
 
 static void clearDrawCommands(LuaEngine::Script& script)
@@ -497,6 +503,10 @@ void LuaEngine::start(NDS* newNds, std::shared_ptr<MelonEventMessenger> newEvent
             chunkNameLength--;
         script->chunkName = "=" + source.name.substr(0, chunkNameLength);
         script->source = std::move(source);
+        // A corrupt blob starts empty, and the file is only replaced once the script writes something
+        if (!LuaStorage::decodeBlob(script->source.savedData, script->storage))
+            LOG_WARN(TAG, "%s: its saved data couldn't be read, so it starts empty", script->source.name.c_str());
+        std::string().swap(script->source.savedData);
         Script& loadedScript = *scripts.emplace_back(std::move(script));
 
         if (loadScript(loadedScript))
@@ -566,6 +576,42 @@ void LuaEngine::endFrame()
 
     // Also when every script has stopped, so that their last drawings go away
     rasterizeOverlay();
+
+    // Storage is never saved every frame: only when a script asks with flush(), or now and then
+    bool isStorageSaveDue = ++framesSinceStorageSave >= kStorageSaveInterval;
+    if (isStorageSaveDue)
+        framesSinceStorageSave = 0;
+    for (auto& script : scripts)
+    {
+        if (isStorageSaveDue || script->storage.isFlushRequested)
+            saveStorage(*script);
+    }
+}
+
+void LuaEngine::flushStorage()
+{
+    for (auto& script : scripts)
+        saveStorage(*script);
+}
+
+void LuaEngine::saveStorage(Script& script)
+{
+    script.storage.isFlushRequested = false;
+    if (!script.storage.isDirty)
+        return;
+
+    script.storage.isDirty = false;
+    // Without a place to save it (no game key), the data only lasts for the session
+    if (script.source.dataGameKey.empty())
+        return;
+
+    bool wasOutboxEmpty = LuaStorage::pushSnapshot({ script.source.dataGameKey, script.source.name, LuaStorage::encodeBlob(script.storage) });
+    // Only a wake-up: the app drains the outbox itself. While it isn't empty, the app has already been woken up
+    if (wasOutboxEmpty && eventMessenger)
+        eventMessenger->onLuaStorageSaved();
+
+    if (DebugLog::isEnabled()) [[unlikely]]
+        LOG_INFO(TAG, "%s: storage saved (%zu bytes)", script.source.name.c_str(), script.storage.size);
 }
 
 void LuaEngine::stop()
@@ -575,8 +621,12 @@ void LuaEngine::stop()
         callCallback(*script, "on_unload", nullptr, kCallbackInstructionLimit);
 
     for (auto& script : scripts)
+    {
         closeScript(*script);
+        saveStorage(*script);
+    }
     scripts.clear();
+    framesSinceStorageSave = 0;
     isUnloading = false;
     overlay.clear();
 
@@ -589,14 +639,21 @@ void LuaEngine::stop()
 void LuaEngine::disableScript(int id)
 {
     std::lock_guard lock(pendingScriptSwitchMutex);
-    pendingScriptSwitches.push_back({ id, false });
+    pendingScriptSwitches.push_back({ id, ScriptSwitch::Action::Disable });
     isScriptSwitchPending.store(true, std::memory_order_release);
 }
 
 void LuaEngine::enableScript(int id)
 {
     std::lock_guard lock(pendingScriptSwitchMutex);
-    pendingScriptSwitches.push_back({ id, true });
+    pendingScriptSwitches.push_back({ id, ScriptSwitch::Action::Enable });
+    isScriptSwitchPending.store(true, std::memory_order_release);
+}
+
+void LuaEngine::restartScript(int id, std::vector<LuaOptionValue> options)
+{
+    std::lock_guard lock(pendingScriptSwitchMutex);
+    pendingScriptSwitches.push_back({ id, ScriptSwitch::Action::Restart, std::move(options) });
     isScriptSwitchPending.store(true, std::memory_order_release);
 }
 
@@ -664,35 +721,44 @@ void LuaEngine::applyPendingScriptSwitches()
     }
 
     // In order, so a quick off-on-off ends up off
-    for (const ScriptSwitch& scriptSwitch : switches)
+    for (ScriptSwitch& scriptSwitch : switches)
     {
-        // Ids are positions in [scripts]. Switching off one that is already off (after an error, say), or on one that runs, does nothing
+        // Ids are positions in [scripts]. Switching off one that is already off (after an error, say), or on one that runs, does nothing.
+        // A restart stops the script if it runs, then starts it
         if (scriptSwitch.id < 0 || scriptSwitch.id >= (int) scripts.size())
             continue;
 
         Script& script = *scripts[scriptSwitch.id];
         bool isRunning = script.L != nullptr;
-        if (scriptSwitch.enable == isRunning)
-            continue;
+        bool isRestart = scriptSwitch.action == ScriptSwitch::Action::Restart;
+        bool mustStop = isRunning && scriptSwitch.action != ScriptSwitch::Action::Enable;
+        bool mustStart = isRestart || (scriptSwitch.action == ScriptSwitch::Action::Enable && !isRunning);
 
-        if (scriptSwitch.enable)
-        {
-            // Like the reset reload. A load or on_load() error switches it off again and tells the app
-            script.hasTouchPosition = false;
-            if (loadScript(script))
-                callCallback(script, "on_load", gameCode.c_str(), kLoadInstructionLimit);
-        }
-        else
+        if (mustStop)
         {
             // Like when the emulator stops: requests to the app are ignored, and an error is only logged
             isUnloading = true;
             callCallback(script, "on_unload", nullptr, kCallbackInstructionLimit);
             isUnloading = false;
             closeScript(script);
+            // A restart keeps the data in memory, so it only needs saving when the script stays off
+            if (!isRestart)
+                saveStorage(script);
         }
 
-        if (DebugLog::isEnabled()) [[unlikely]]
-            LOG_INFO(TAG, "%s: switched %s by the player", script.source.name.c_str(), scriptSwitch.enable ? "on" : "off");
+        if (isRestart)
+            script.source.options = std::move(scriptSwitch.options);
+
+        if (mustStart)
+        {
+            // Like the reset reload. A load or on_load() error switches it off again and tells the app
+            script.hasTouchPosition = false;
+            if (loadScript(script))
+                callCallback(script, "on_load", gameCode.c_str(), kLoadInstructionLimit);
+        }
+
+        if ((mustStop || mustStart) && DebugLog::isEnabled()) [[unlikely]]
+            LOG_INFO(TAG, "%s: %s by the player", script.source.name.c_str(), isRestart ? "restarted with new options" : (mustStart ? "switched on" : "switched off"));
     }
 }
 
@@ -873,6 +939,15 @@ int LuaEngine::setupScript(lua_State* L)
         { "fast_forward", luaEmuFastForward },
         { nullptr, nullptr },
     };
+    static const luaL_Reg storageFunctions[] = {
+        { "get", luaStorageGet },
+        { "set", luaStorageSet },
+        { "keys", luaStorageKeys },
+        { "clear", luaStorageClear },
+        { "flush", luaStorageFlush },
+        { "size", luaStorageSize },
+        { nullptr, nullptr },
+    };
     static const struct { const char* name; u32 value; } keys[] = {
         { "A", 1 << 0 }, { "B", 1 << 1 }, { "SELECT", 1 << 2 }, { "START", 1 << 3 }, { "RIGHT", 1 << 4 }, { "LEFT", 1 << 5 },
         { "UP", 1 << 6 }, { "DOWN", 1 << 7 }, { "R", 1 << 8 }, { "L", 1 << 9 }, { "X", 1 << 10 }, { "Y", 1 << 11 },
@@ -896,6 +971,30 @@ int LuaEngine::setupScript(lua_State* L)
     lua_setfield(L, -2, "image");
     luaL_newlib(L, emuFunctions);
     lua_setfield(L, -2, "emu");
+    luaL_newlib(L, storageFunctions);
+    lua_setfield(L, -2, "storage");
+    // A plain table of the option values the app sent, built again at each load
+    lua_createtable(L, 0, (int) source.options.size());
+    for (const LuaOptionValue& option : source.options)
+    {
+        switch (option.type)
+        {
+            case LuaOptionValue::Type::Boolean:
+                lua_pushboolean(L, option.boolean);
+                break;
+            case LuaOptionValue::Type::Integer:
+                lua_pushinteger(L, (lua_Integer) option.integer);
+                break;
+            case LuaOptionValue::Type::Number:
+                lua_pushnumber(L, (lua_Number) option.number);
+                break;
+            case LuaOptionValue::Type::String:
+                lua_pushlstring(L, option.string.data(), option.string.size());
+                break;
+        }
+        lua_setfield(L, -2, option.key.c_str());
+    }
+    lua_setfield(L, -2, "options");
     lua_createtable(L, 0, sizeof(keys) / sizeof(keys[0]));
     for (const auto& key : keys)
     {
@@ -992,6 +1091,7 @@ void LuaEngine::switchOff(Script& script, const std::string& error)
         eventMessenger->onLuaScriptStopped(script.id, error.substr(0, error.find('\n')));
 
     closeScript(script);
+    saveStorage(script);
 }
 
 void LuaEngine::closeScript(Script& script)
@@ -1674,6 +1774,141 @@ int LuaEngine::luaImageSize(lua_State* L)
     auto* image = static_cast<const LuaImage*>(luaL_checkudata(L, 1, kImageType));
     lua_pushinteger(L, image->width);
     lua_pushinteger(L, image->height);
+    return 2;
+}
+
+/**
+ * The key at index 1. Only real strings: numbers aren't turned into keys
+ */
+static std::string_view checkStorageKey(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TSTRING);
+    size_t length;
+    const char* key = lua_tolstring(L, 1, &length);
+    if (length > LuaStorage::kMaxKeyLength)
+        luaL_error(L, "storage keys are limited to 256 bytes");
+    return { key, length };
+}
+
+static size_t getStorageEntrySize(std::string_view key, std::string_view value)
+{
+    return LuaStorage::kBlobEntryOverhead + key.size() + value.size();
+}
+
+// Lua errors are longjmps, which skip C++ destructors, so these functions keep no C++ object with memory of its own across a call that can
+// raise one: encoding goes into the store's scratch string, and the error is raised once nothing is left to clean up
+
+int LuaEngine::luaStorageGet(lua_State* L)
+{
+    std::string_view key = checkStorageKey(L);
+    LuaStorage::Store& store = getScript(L).storage;
+    auto entry = store.entries.find(key);
+    if (entry == store.entries.end())
+    {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    // A fresh copy each time, so changing it doesn't change what's stored
+    melonade_charge_work(L, (lua_Integer) entry->second.size() + 1);
+    LuaStorage::pushValue(L, entry->second);
+    return 1;
+}
+
+int LuaEngine::luaStorageSet(lua_State* L)
+{
+    std::string_view key = checkStorageKey(L);
+    LuaStorage::Store& store = getScript(L).storage;
+    auto entry = store.entries.find(key);
+
+    if (lua_isnoneornil(L, 2))
+    {
+        if (entry != store.entries.end())
+        {
+            store.size -= getStorageEntrySize(entry->first, entry->second);
+            store.entries.erase(entry);
+            store.isDirty = true;
+        }
+        return 0;
+    }
+
+    // The room left for the value once the key's old value is gone
+    size_t sizeWithoutEntry = store.size - (entry != store.entries.end() ? getStorageEntrySize(entry->first, entry->second) : 0);
+    size_t sizeWithEmptyEntry = sizeWithoutEntry + getStorageEntrySize(key, {});
+    size_t limit = sizeWithEmptyEntry < LuaStorage::kMaxSize ? LuaStorage::kMaxSize - sizeWithEmptyEntry : 0;
+
+    int badType = 0;
+    LuaStorage::EncodeError error = LuaStorage::encodeValue(L, 2, store.scratch, limit, badType);
+    size_t encodedSize = store.scratch.size();
+    if (error != LuaStorage::EncodeError::None)
+        store.scratch.clear();
+
+    // Charged before the value is kept. If the budget runs out here, the storage stays as it was
+    melonade_charge_work(L, (lua_Integer) encodedSize + 1);
+    if (error == LuaStorage::EncodeError::ValueType)
+        return luaL_error(L, LuaStorage::getErrorMessage(error), lua_typename(L, badType));
+    if (error != LuaStorage::EncodeError::None)
+        return luaL_error(L, "%s", LuaStorage::getErrorMessage(error));
+
+    if (entry != store.entries.end())
+    {
+        store.size -= getStorageEntrySize(entry->first, entry->second);
+        entry->second.swap(store.scratch);
+        store.size += getStorageEntrySize(entry->first, entry->second);
+    }
+    else
+    {
+        store.size += getStorageEntrySize(key, store.scratch);
+        store.entries.emplace(std::string(key), std::move(store.scratch));
+    }
+    store.scratch.clear();
+    // Don't keep a big buffer around for one big value
+    if (store.scratch.capacity() > 16 * 1024)
+        std::string().swap(store.scratch);
+    store.isDirty = true;
+    return 0;
+}
+
+int LuaEngine::luaStorageKeys(lua_State* L)
+{
+    LuaStorage::Store& store = getScript(L).storage;
+    lua_Integer work = (lua_Integer) store.entries.size() + 1;
+    for (const auto& entry : store.entries)
+        work += (lua_Integer) entry.first.size();
+    melonade_charge_work(L, work);
+
+    // In key order
+    lua_createtable(L, (int) store.entries.size(), 0);
+    lua_Integer index = 1;
+    for (const auto& entry : store.entries)
+    {
+        lua_pushlstring(L, entry.first.data(), entry.first.size());
+        lua_rawseti(L, -2, index++);
+    }
+    return 1;
+}
+
+int LuaEngine::luaStorageClear(lua_State* L)
+{
+    LuaStorage::Store& store = getScript(L).storage;
+    store.clear();
+    // Also when it was empty already: data that couldn't be read is replaced too
+    store.isDirty = true;
+    return 0;
+}
+
+int LuaEngine::luaStorageFlush(lua_State* L)
+{
+    // Saved at the end of the frame, if anything changed
+    getScript(L).storage.isFlushRequested = true;
+    return 0;
+}
+
+int LuaEngine::luaStorageSize(lua_State* L)
+{
+    const LuaStorage::Store& store = getScript(L).storage;
+    lua_pushinteger(L, store.entries.empty() ? 0 : (lua_Integer) store.size);
+    lua_pushinteger(L, (lua_Integer) LuaStorage::kMaxSize);
     return 2;
 }
 

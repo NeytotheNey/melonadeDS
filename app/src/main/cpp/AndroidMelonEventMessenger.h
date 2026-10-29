@@ -23,6 +23,7 @@ public:
     void onLuaSwapScreens(int scriptId, bool swapped) override;
     void onLuaShowControls(int scriptId, bool visible) override;
     void onLuaFastForward(int scriptId, bool enabled) override;
+    void onLuaStorageSaved() override;
 
 private:
     // Event type constants
@@ -43,6 +44,7 @@ private:
     static constexpr int EVENT_LUA_SWAP_SCREENS = 301;
     static constexpr int EVENT_LUA_SHOW_CONTROLS = 302;
     static constexpr int EVENT_LUA_FAST_FORWARD = 303;
+    static constexpr int EVENT_LUA_STORAGE_SAVED = 304;
 };
 
 #endif // ANDROIDMELONEVENTMESSENGER_H

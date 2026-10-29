@@ -3,11 +3,14 @@ package me.magnum.melonds.impl.emulator
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.R
@@ -20,9 +23,12 @@ import me.magnum.melonds.domain.model.EmulatorConfiguration
 import me.magnum.melonds.domain.model.MicSource
 import me.magnum.melonds.domain.model.emulator.EmulatorEvent
 import me.magnum.melonds.domain.model.emulator.FirmwareLaunchResult
+import me.magnum.melonds.domain.model.emulator.LuaScriptOption
+import me.magnum.melonds.domain.model.emulator.LuaScriptOptionValue
 import me.magnum.melonds.domain.model.emulator.LuaScriptSetup
 import me.magnum.melonds.domain.model.emulator.LuaScriptStatus
 import me.magnum.melonds.domain.model.emulator.RomLaunchResult
+import me.magnum.melonds.domain.model.emulator.resolveValues
 import me.magnum.melonds.domain.model.retroachievements.GameAchievementData
 import me.magnum.melonds.domain.model.retroachievements.RAEvent
 import me.magnum.melonds.domain.model.rom.Rom
@@ -32,6 +38,8 @@ import me.magnum.melonds.domain.model.rom.config.RuntimeConsoleType
 import me.magnum.melonds.domain.model.rom.config.RuntimeEnum
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.domain.services.EmulatorManager
+import me.magnum.melonds.impl.LuaScriptDataStore
+import me.magnum.melonds.impl.LuaScriptHeader
 import me.magnum.melonds.impl.LuaScriptStorage
 import me.magnum.melonds.impl.camera.DSiCameraSourceMultiplexer
 import me.magnum.melonds.impl.debug.DebugLog
@@ -47,6 +55,7 @@ class AndroidEmulatorManager(
     private val permissionHandler: PermissionHandler,
     private val cameraManager: DSiCameraSourceMultiplexer,
     private val luaScriptStorage: LuaScriptStorage,
+    private val luaScriptDataStore: LuaScriptDataStore,
 ) : EmulatorManager {
 
     private val _emulatorEvents = MutableSharedFlow<EmulatorEvent>(extraBufferCapacity = Int.MAX_VALUE)
@@ -70,7 +79,14 @@ class AndroidEmulatorManager(
     private var luaScriptErrors = emptyMap<Int, String>()
     // From each script's header, read from the source sent at launch, so it matches the script that is running
     @Volatile
-    private var luaScriptDescriptions = emptyList<String?>()
+    private var luaScriptHeaders = emptyList<LuaScriptHeader?>()
+    // The option values each script runs with: set at launch and changed by restartLuaScript()
+    @Volatile
+    private var luaScriptOptionValues = emptyList<Map<String, String>>()
+
+    // Writes the scripts' storage snapshots. Snapshots are drained and written under luaDataLock, so an older one can't overwrite a newer one
+    private val luaDataScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val luaDataLock = Any()
 
     private val messageQueue = EmulatorMessageQueue { type, data ->
         when (type) {
@@ -128,6 +144,7 @@ class AndroidEmulatorManager(
                 val scriptId = data.getInt()
                 _emulatorEvents.tryEmit(EmulatorEvent.LuaFastForward(scriptId, data.getInt() != 0))
             }
+            EmulatorEventType.EventLuaDataSaved -> luaDataScope.launch { saveLuaData() }
         }
     }
 
@@ -172,7 +189,9 @@ class AndroidEmulatorManager(
             } else {
                 messageQueue.start()
                 MelonEmulator.setupCheats(cheats.toTypedArray())
-                setupLuaScripts(luaScripts, luaScriptFolder)
+                setupLuaScripts(luaScripts, luaScriptFolder) {
+                    LuaScriptDataStore.getGameKey(fileRomProcessor.getRomInfo(rom)?.gameCode, rom.uri.toString())
+                }
                 MelonEmulator.startEmulation()
 
                 RomLaunchResult.LaunchSuccessful(loadResult != MelonEmulator.LoadResult.SUCCESS_GBA_FAILED)
@@ -225,9 +244,11 @@ class AndroidEmulatorManager(
             return luaScriptNames.mapIndexed { id, name ->
                 LuaScriptStatus(
                     name = name,
-                    description = luaScriptDescriptions.getOrNull(id),
+                    description = luaScriptHeaders.getOrNull(id)?.description,
                     isRunning = id in runningLuaScripts,
                     lastError = luaScriptErrors[id],
+                    options = luaScriptHeaders.getOrNull(id)?.options.orEmpty(),
+                    optionValues = luaScriptOptionValues.getOrNull(id).orEmpty(),
                 )
             }
         }
@@ -256,6 +277,24 @@ class AndroidEmulatorManager(
         }
         DebugLog.event { "Lua script ${luaScriptNames.getOrNull(scriptId)} switched on by the player" }
         MelonEmulator.enableLuaScript(scriptId)
+        return true
+    }
+
+    override fun restartLuaScript(scriptId: Int, optionValues: Map<String, String>): Boolean {
+        val nativeOptions = synchronized(luaScriptsLock) {
+            if (scriptId !in 0 until loadedLuaScriptCount) {
+                return false
+            }
+            val options = luaScriptHeaders.getOrNull(scriptId)?.options.orEmpty()
+            val resolvedValues = options.resolveValues(optionValues)
+            luaScriptOptionValues = luaScriptOptionValues.mapIndexed { id, values -> if (id == scriptId) resolvedValues else values }
+            // If loading it fails, the stop event switches it off again with the new error
+            runningLuaScripts = runningLuaScripts + scriptId
+            luaScriptErrors = luaScriptErrors - scriptId
+            getNativeOptionValues(options, resolvedValues)
+        }
+        DebugLog.event { "Lua script ${luaScriptNames.getOrNull(scriptId)} restarted with new options by the player" }
+        MelonEmulator.restartLuaScript(scriptId, nativeOptions)
         return true
     }
 
@@ -333,6 +372,9 @@ class AndroidEmulatorManager(
     override fun stopEmulator() {
         DebugLog.event { "Stop" }
         MelonEmulator.stopEmulation()
+        // The scripts' last storage snapshots were made as the emulator stopped. They're written before this returns (they're small), so the
+        // ROM details screen shown next sees the newest data, and a Clear there can't be undone by a late write
+        saveLuaData()
         clearLuaScripts()
         cameraManager.stopCurrentCameraSource()
         messageQueue.stop()
@@ -359,7 +401,7 @@ class AndroidEmulatorManager(
      * Reads the enabled scripts from the game's linked folder (see [LuaScriptStorage]) and gives them to the emulator. A script that can't be
      * read is listed as switched off with the reason as its error, the same as a script that fails to load
      */
-    private fun setupLuaScripts(luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?) {
+    private fun setupLuaScripts(luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?, getDataGameKey: () -> String?) {
         val enabledScripts = luaScripts.filter { it.enabled }
         if (enabledScripts.isEmpty()) {
             clearLuaScripts()
@@ -378,9 +420,20 @@ class AndroidEmulatorManager(
             loadedLuaScriptCount = loadedScripts.size
             runningLuaScripts = loadedScripts.indices.toSet()
             luaScriptErrors = failedScripts.withIndex().associate { (index, script) -> loadedScripts.size + index to script.second }
-            luaScriptDescriptions = loadedScripts.map { luaScriptStorage.parseDescription(it.second) } + failedScripts.map { null }
+            luaScriptHeaders = loadedScripts.map { LuaScriptHeader.parse(it.second) } + failedScripts.map { null }
+            // Declarations are read from the source being sent, so they match the script that runs
+            luaScriptOptionValues = loadedScripts.mapIndexed { id, (fileName, _) ->
+                val storedValues = enabledScripts.firstOrNull { it.fileName == fileName }?.options.orEmpty()
+                luaScriptHeaders[id]?.options.orEmpty().resolveValues(storedValues)
+            } + failedScripts.map { emptyMap() }
         }
         if (loadedScripts.isNotEmpty()) {
+            // Anything left from the last session is written first, so the data read below is the newest
+            saveLuaData()
+            // Null if the ROM's header couldn't be read. The scripts then start with no data and keep it for the session only (native doesn't
+            // save without a key), rather than loading and saving under a guessed key
+            val dataGameKey = getDataGameKey()
+            luaScriptDataStore.setSessionGameKey(dataGameKey)
             // Modules and images come from the whole folder tree. Without them the scripts still run, and require() or image.load() say
             // what's missing
             val folderContent = luaScriptFolder?.let { luaScriptStorage.readFolderContent(it) }
@@ -389,8 +442,19 @@ class AndroidEmulatorManager(
                 val images = folderContent?.images.orEmpty()
                 "Lua folder content: ${modules.count { it.source != null }} of ${modules.size} modules, ${images.count { it.pixels != null }} of ${images.size} images"
             }
+            val headers = luaScriptHeaders
+            val optionValues = luaScriptOptionValues
+            val scriptSetups = loadedScripts.mapIndexed { id, (fileName, source) ->
+                LuaScriptSetup(
+                    name = fileName,
+                    source = source,
+                    savedData = dataGameKey?.let { luaScriptDataStore.read(it, fileName) },
+                    dataGameKey = dataGameKey.orEmpty(),
+                    options = getNativeOptionValues(headers[id]?.options.orEmpty(), optionValues[id]),
+                )
+            }
             MelonEmulator.setupLuaScripts(
-                scripts = loadedScripts.map { LuaScriptSetup(it.first, it.second) }.toTypedArray(),
+                scripts = scriptSetups.toTypedArray(),
                 modules = folderContent?.modules.orEmpty().toTypedArray(),
                 images = folderContent?.images.orEmpty().toTypedArray(),
             )
@@ -398,6 +462,32 @@ class AndroidEmulatorManager(
         // Told like a script that fails to load, so the player sees why it isn't running
         failedScripts.forEachIndexed { index, (fileName, error) ->
             _emulatorEvents.tryEmit(EmulatorEvent.LuaScriptStopped(loadedScripts.size + index, fileName, error))
+        }
+    }
+
+    private fun getNativeOptionValues(options: List<LuaScriptOption>, values: Map<String, String>): Array<LuaScriptOptionValue> {
+        return options.map { it.toNativeValue(values[it.key] ?: it.resolve(null)) }.toTypedArray()
+    }
+
+    /**
+     * Writes the storage snapshots native has waiting. Called on an IO thread when native says there are some, after the emulator stopped,
+     * and before a launch reads the saved data
+     */
+    private fun saveLuaData() {
+        synchronized(luaDataLock) {
+            val snapshots = try {
+                MelonEmulator.drainLuaData()
+            } catch (e: OutOfMemoryError) {
+                // Native put the snapshots back, so the next drain tries again
+                DebugLog.event { "Lua storage not saved: out of memory" }
+                null
+            } ?: return
+            snapshots.forEach {
+                luaScriptDataStore.write(it.gameKey, it.scriptName, it.data)
+            }
+            if (snapshots.isNotEmpty()) {
+                DebugLog.event { "Lua storage saved for ${snapshots.size} script(s)" }
+            }
         }
     }
 
@@ -418,8 +508,10 @@ class AndroidEmulatorManager(
             loadedLuaScriptCount = 0
             runningLuaScripts = emptySet()
             luaScriptErrors = emptyMap()
-            luaScriptDescriptions = emptyList()
+            luaScriptHeaders = emptyList()
+            luaScriptOptionValues = emptyList()
         }
+        luaScriptDataStore.setSessionGameKey(null)
     }
 
     private suspend fun getRomEmulatorConfiguration(rom: Rom): EmulatorConfiguration {

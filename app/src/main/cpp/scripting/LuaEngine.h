@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 #include "LuaDraw.h"
+#include "LuaStorage.h"
 #include "MelonEventMessenger.h"
 #include "NDS.h"
 
@@ -19,10 +20,36 @@ typedef int (*lua_CFunction)(lua_State* L);
 namespace MelonDSAndroid
 {
 
+/**
+ * A value of one of the script's options (melon.options), already checked against its declaration by the app
+ */
+struct LuaOptionValue
+{
+    enum class Type
+    {
+        Boolean,
+        Integer,
+        Number,
+        String,
+    };
+
+    std::string key;
+    Type type = Type::Boolean;
+    bool boolean = false;
+    int64_t integer = 0;
+    double number = 0.0;
+    std::string string;
+};
+
 struct LuaScriptSource
 {
     std::string name;
     std::string source;
+    // The script's saved melon.storage blob (see LuaStorage::decodeBlob()), empty if it has none. Dropped once it's decoded
+    std::string savedData;
+    // Where the app keeps the script's data, sent back with each snapshot. Empty: storage isn't saved
+    std::string dataGameKey;
+    std::vector<LuaOptionValue> options;
 };
 
 /**
@@ -98,13 +125,16 @@ struct LuaInputOverride
  * until clear_touch(), and moves the touch (the player's, or one pressed with KEY.TOUCH). held() and touch() are the player's own input.
  * require(name) loads a module from the script folder's subfolders (see LuaFolderContent), once per state. melon.image.load(path) gives an
  * image from the folder, and melon.image.new(w, h, argb) one made from a string.
+ * melon.options holds the script's option values, built at each load. melon.storage keeps data between sessions (see LuaStorage). It lives
+ * outside the Lua state, so it survives reloads, and is snapshotted into LuaStorage's outbox when it changed: on flush() (at the end of the
+ * frame), every 600 frames, when the emulator pauses ([flushStorage]), when the script stops, and at [stop]. The app saves the snapshots.
  * melon.screen.* and melon.emu.* requests are sent to the app once the callback returns (the last value of each kind wins), and are ignored
  * during on_unload(). melon.draw.* calls are only recorded during on_frame() and on_frame_end() (they do nothing anywhere else,
  * on_state_loaded() included), and drawn into [getOverlay] once every script's on_frame_end() has run, in script order (each script's on_frame()
  * drawings, then its on_frame_end() ones). Each frame shows only what was drawn for it, and a script that stops during the frame shows nothing.
  *
  * Everything runs on the emulator thread, except [setScripts] (before the emulator thread starts), [notifyStateLoaded], [notifyReset],
- * [disableScript], [enableScript] and [updateSticks] (any thread).
+ * [disableScript], [enableScript], [restartScript] and [updateSticks] (any thread).
  */
 class LuaEngine
 {
@@ -159,6 +189,16 @@ public:
      */
     void enableScript(int id);
     /**
+     * Restarts a script with new option values: on_unload() if it runs, then a fresh state, its main chunk and on_load(game), like
+     * [enableScript]. Queued like [disableScript], in the same queue. Also starts a stopped script
+     */
+    void restartScript(int id, std::vector<LuaOptionValue> options);
+    /**
+     * Snapshots the storage of every script whose storage changed since its last snapshot. Called on the emulator thread when it parks for
+     * a pause
+     */
+    void flushStorage();
+    /**
      * Controller sticks from the app, from -1 to 1 (down and right are positive). Only sent while a script runs
      */
     void updateSticks(float leftX, float leftY, float rightX, float rightY);
@@ -176,6 +216,7 @@ private:
     void sendRequests(Script& script);
     void switchOff(Script& script, const std::string& error);
     void closeScript(Script& script);
+    void saveStorage(Script& script);
     void rasterizeOverlay();
 
     static int setupScript(lua_State* L);
@@ -209,6 +250,12 @@ private:
     static int luaImageLoad(lua_State* L);
     static int luaImageNew(lua_State* L);
     static int luaImageSize(lua_State* L);
+    static int luaStorageGet(lua_State* L);
+    static int luaStorageSet(lua_State* L);
+    static int luaStorageKeys(lua_State* L);
+    static int luaStorageClear(lua_State* L);
+    static int luaStorageFlush(lua_State* L);
+    static int luaStorageSize(lua_State* L);
 
     std::vector<LuaScriptSource> pendingScripts;
     // Outlives every script's state, which may point into its images
@@ -226,14 +273,25 @@ private:
     std::string gameCode;
     int currentFrame = 0;
     LuaUserInput currentUserInput;
+    // Frames since changed storage was last snapshotted on a timer
+    int framesSinceStorageSave = 0;
 
     std::atomic_bool isStateLoadPending = false;
     std::atomic_bool isResetPending = false;
-    // From disableScript() and enableScript(), applied in the order they were asked for. The flag saves locking the mutex every frame
+    // From disableScript(), enableScript() and restartScript(), applied in the order they were asked for. The flag saves locking the mutex every frame
     struct ScriptSwitch
     {
+        enum class Action
+        {
+            Disable,
+            Enable,
+            Restart,
+        };
+
         int id;
-        bool enable;
+        Action action;
+        // For Restart
+        std::vector<LuaOptionValue> options;
     };
     std::mutex pendingScriptSwitchMutex;
     std::vector<ScriptSwitch> pendingScriptSwitches;

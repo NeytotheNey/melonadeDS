@@ -5,8 +5,10 @@ import me.magnum.melonds.common.camera.DSiCameraSource
 import me.magnum.melonds.domain.model.Cheat
 import me.magnum.melonds.domain.model.EmulatorConfiguration
 import me.magnum.melonds.domain.model.Input
+import me.magnum.melonds.domain.model.emulator.LuaScriptDataSnapshot
 import me.magnum.melonds.domain.model.emulator.LuaScriptImage
 import me.magnum.melonds.domain.model.emulator.LuaScriptModule
+import me.magnum.melonds.domain.model.emulator.LuaScriptOptionValue
 import me.magnum.melonds.domain.model.emulator.LuaScriptSetup
 import me.magnum.melonds.domain.model.retroachievements.RASimpleAchievement
 import me.magnum.melonds.domain.model.retroachievements.RASimpleLeaderboard
@@ -95,6 +97,18 @@ object MelonEmulator {
      * Applied before the next frame runs, in order with [disableLuaScript]
      */
     external fun enableLuaScript(scriptId: Int)
+
+    /**
+     * Restarts the script at [scriptId] with new [options] (`on_unload()` if it runs, then a fresh load and `on_load()`), or starts it if it
+     * was off. Its storage is kept. Applied before the next frame runs, in order with [disableLuaScript] and [enableLuaScript]
+     */
+    external fun restartLuaScript(scriptId: Int, options: Array<LuaScriptOptionValue>)
+
+    /**
+     * Takes the scripts' storage snapshots that are waiting to be saved. They're kept outside the emulator, so this also works after
+     * [stopEmulation]. Can return null if the JVM ran out of memory
+     */
+    external fun drainLuaData(): Array<LuaScriptDataSnapshot>?
 
     /**
      * Controller sticks for Lua scripts, from -1 to 1 (down and right are positive). Only needed while a script runs.

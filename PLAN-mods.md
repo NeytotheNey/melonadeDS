@@ -260,6 +260,14 @@ Facts from the code these rest on: draw commands are recorded in `on_frame` and 
 - Stored in RomConfig as `RomLuaScript.options: Map<String, String>` (DTO, parcelable, kept by `LuaScriptFolderSync`). At launch, declarations are parsed from the source being sent; a missing or invalid stored value falls back to the default. In Lua, `melon.options` is a plain table built at each load with typed values (boolean, integer when integral, number, string); undeclared keys are nil.
 - UI: an expandable options section under each script in the Mods tab (switch, slider, dropdown). The pause menu's Mods dialog gets "Options…" per running script: it saves to the ROM config and restarts that script with the new values (the off/on path plus an options payload).
 
+**Done (2026-10-29).** Checked on the emulator (option controls in the Mods tab and the pause menu, the storage launch count across relaunches, a force-stop while paused, Clear, reset); not yet on the phone. What differs from the plan above, or wasn't in it:
+- Storage keys must be real strings. An empty store deletes its file, and a data file over 256 KB is ignored. If the ROM header can't be read, storage is session-only (nothing loaded or saved) rather than falling back to a guessed key.
+- The final drain runs before `stopEmulator()` returns, and a snapshot that can't be handed over JNI goes back into the outbox. Clear is ignored for the game that's running.
+- Option `step` defaults to 1, and `default` to min, false or the first choice. An off-step number default snaps to the nearest step, and an unknown attribute makes the line unreadable.
+- The pause-menu Mods dialog is built from rows so each running script has its own "Options…" button.
+- ROM details re-reads the ROM's config when it resumes, so values changed in the pause menu aren't overwritten by its old copy.
+- The native codec has a host test (`app/src/test/cpp/LuaStorageTest.cpp`, built by hand with MinGW; the command is at the top of the file). It isn't wired into Gradle.
+
 ### Phase 10: emulator control (`set_layout`, savestates)
 
 - Layouts become an option type: `-- option: map_layout type=layout label="Layout while the map is open"`. The Mods tab shows "Don't change" plus the player's layouts and stores the UUID. `melon.screen.set_layout("map_layout")` names that option; `set_layout(nil)` goes back to the player's layout. Native sends `(script, key)`; Kotlin resolves the UUID. `LuaUiOverrides.kt` gets a layout request (newest from a running script wins, dropped when it stops; no baseline needed, the ROM's layout is the fallback). A deleted layout or "Don't change" does nothing.

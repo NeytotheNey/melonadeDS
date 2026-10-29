@@ -60,4 +60,13 @@ class LuaScriptFolderSyncTest {
 
         assertEquals(listOf(RomLuaScript("aim.lua", enabled = false)), synced)
     }
+
+    @Test
+    fun optionsAreKeptWhenSyncing() {
+        val scripts = listOf(RomLuaScript("aim.lua", enabled = true, options = mapOf("speed" to "7")))
+
+        val synced = LuaScriptFolderSync.sync(scripts, hasFolder = true, folderScriptNames = listOf("aim.lua", "turbo.lua"))
+
+        assertEquals(listOf(RomLuaScript("aim.lua", enabled = true, options = mapOf("speed" to "7")), RomLuaScript("turbo.lua", enabled = false)), synced)
+    }
 }

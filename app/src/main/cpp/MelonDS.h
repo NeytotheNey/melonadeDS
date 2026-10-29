@@ -79,6 +79,14 @@ namespace MelonDSAndroid {
      * Switches a stopped Lua script back on. Any thread
      */
     extern void enableLuaScript(int scriptId);
+    /**
+     * Restarts a Lua script with new option values (it's started if it was off). Any thread
+     */
+    extern void restartLuaScript(int scriptId, std::vector<LuaOptionValue> options);
+    /**
+     * Snapshots the Lua scripts' changed storage, for the app to save. Only on the emulator thread, between frames
+     */
+    extern void flushLuaStorage();
     extern void updateLuaSticks(float leftX, float leftY, float rightX, float rightY);
     extern void start();
     /**

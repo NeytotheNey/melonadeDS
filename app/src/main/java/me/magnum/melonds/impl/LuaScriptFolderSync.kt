@@ -13,8 +13,8 @@ object LuaScriptFolderSync {
     /**
      * Returns [scripts] brought in step with the folder. With no folder linked the list is empty. When the folder can't be read
      * ([folderScriptNames] is null) the list is kept as it is, so a lost permission or a removed card doesn't lose the switches. Otherwise
-     * the list is the folder's scripts sorted by name: a script that was already in the list keeps its switch, a new one starts switched
-     * off, and one that is gone from the folder is dropped.
+     * the list is the folder's scripts sorted by name: a script that was already in the list keeps its switch and its options, a new one
+     * starts switched off with no options set, and one that is gone from the folder is dropped.
      *
      * @param folderScriptNames The names of the `.lua` files at the top of the folder, or null if it couldn't be read
      */
@@ -26,8 +26,8 @@ object LuaScriptFolderSync {
             return scripts
         }
 
-        val enabledScripts = scripts.filter { it.enabled }.map { it.fileName }.toSet()
+        val knownScripts = scripts.associateBy { it.fileName }
         // Some providers can list two documents with the same name. Scripts are known by name, so they're one entry
-        return folderScriptNames.distinct().sortedWith(NAME_ORDER).map { RomLuaScript(fileName = it, enabled = it in enabledScripts) }
+        return folderScriptNames.distinct().sortedWith(NAME_ORDER).map { knownScripts[it] ?: RomLuaScript(fileName = it, enabled = false) }
     }
 }

@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.UriPermissionManager
+import me.magnum.melonds.common.romprocessors.RomFileProcessorFactory
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.model.rom.config.RomConfig
 import me.magnum.melonds.domain.model.rom.config.RomGbaSlotConfig
@@ -26,7 +27,9 @@ import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import me.magnum.melonds.domain.repositories.RetroAchievementsRepository
 import me.magnum.melonds.domain.repositories.RomsRepository
 import me.magnum.melonds.domain.repositories.SettingsRepository
+import me.magnum.melonds.impl.LuaScriptDataStore
 import me.magnum.melonds.impl.LuaScriptFolderSync
+import me.magnum.melonds.impl.LuaScriptHeader
 import me.magnum.melonds.impl.LuaScriptStorage
 import me.magnum.melonds.impl.RomIconProvider
 import me.magnum.melonds.parcelables.RomParcelable
@@ -46,6 +49,8 @@ class RomDetailsViewModel @Inject constructor(
     private val uriPermissionManager: UriPermissionManager,
     private val retroAchievementsRepository: RetroAchievementsRepository,
     private val luaScriptStorage: LuaScriptStorage,
+    private val luaScriptDataStore: LuaScriptDataStore,
+    private val romFileProcessorFactory: RomFileProcessorFactory,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -59,6 +64,12 @@ class RomDetailsViewModel @Inject constructor(
     // Same rule as EmulatorSession: hardcore only applies while logged in to RetroAchievements
     private val _areLuaScriptsBlockedByHardcore = MutableStateFlow(false)
     private var luaScriptSyncJob: Job? = null
+    private var romReloadJob: Job? = null
+    // How much each script has saved with melon.storage, by file name
+    private val _luaScriptDataSizes = MutableStateFlow<Map<String, Long>>(emptyMap())
+    // Where the game's script data is kept (see LuaScriptDataStore.getGameKey). Read from the ROM's header the first time it's needed, and
+    // again next time if the header couldn't be read
+    private var luaDataGameKey: String? = null
 
     // Buffered until the screen collects it, since a picker result can arrive before that (after the process was killed, for example)
     private val _luaScriptEvent = Channel<LuaScriptEvent>(Channel.UNLIMITED)
@@ -67,14 +78,14 @@ class RomDetailsViewModel @Inject constructor(
     /**
      * @param folderUri The folder that was read. The rest only applies while the ROM is still linked to it
      * @param isReadable False if the folder couldn't be read, in which case the script list was kept as it was
-     * @param descriptions Each script's description from its header, by file name
+     * @param headers Each script's header, by file name
      */
-    private data class LuaScriptFolderState(val folderUri: Uri, val isReadable: Boolean, val descriptions: Map<String, String>)
+    private data class LuaScriptFolderState(val folderUri: Uri, val isReadable: Boolean, val headers: Map<String, LuaScriptHeader>)
 
     val romConfigUiState by lazy {
         val uiStateFlow = MutableStateFlow<RomConfigUiState>(RomConfigUiState.Loading)
         viewModelScope.launch {
-            combine(_romConfig, _luaScriptFolderState, _areLuaScriptsBlockedByHardcore) { romConfig, folderState, areLuaScriptsBlocked ->
+            combine(_romConfig, _luaScriptFolderState, _areLuaScriptsBlockedByHardcore, _luaScriptDataSizes) { romConfig, folderState, areLuaScriptsBlocked, dataSizes ->
                 val romConfigUiModel = romDetailsUiMapper.mapRomConfigToUi(romConfig)
                 // What was read from the previous folder says nothing about the new one
                 val currentFolderState = folderState?.takeIf { it.folderUri == romConfig.mods.luaScriptFolder }
@@ -83,7 +94,8 @@ class RomDetailsViewModel @Inject constructor(
                         isFolderMissing = currentFolderState?.isReadable == false,
                         isFolderEmpty = currentFolderState?.isReadable == true && romConfig.mods.luaScripts.isEmpty(),
                         areScriptsBlockedByHardcore = areLuaScriptsBlocked,
-                        descriptions = currentFolderState?.descriptions.orEmpty(),
+                        headers = currentFolderState?.headers.orEmpty(),
+                        dataSizes = dataSizes,
                     ),
                 )
             }.collect {
@@ -139,13 +151,45 @@ class RomDetailsViewModel @Inject constructor(
             is RomConfigUpdateEvent.LuaScriptToggle -> currentRomConfig.withLuaScripts { luaScripts ->
                 luaScripts.map { if (it.fileName == event.fileName) it.copy(enabled = event.enabled) else it }
             }
+            is RomConfigUpdateEvent.LuaScriptOptionUpdate -> currentRomConfig.withLuaScripts { luaScripts ->
+                luaScripts.map { if (it.fileName == event.fileName) it.copy(options = it.options + (event.key to event.value)) else it }
+            }
             is RomConfigUpdateEvent.LuaScriptFolderUpdate -> {
                 updateLuaScriptFolder(event.folderUri)
+                null
+            }
+            is RomConfigUpdateEvent.LuaScriptDataClear -> {
+                clearLuaScriptData(event.fileName)
                 null
             }
         }
 
         newRomConfig?.let { applyRomConfig(it) }
+    }
+
+    /**
+     * Reads the ROM again from the repository. Called whenever the screen resumes: the emulator runs on top of this screen and can change the
+     * config meanwhile (the pause menu saves script options), and without this the next change made here would write the old config back
+     */
+    fun reloadRom() {
+        romReloadJob?.cancel()
+        romReloadJob = viewModelScope.launch {
+            val romUri = _rom.value.uri
+            val repositoryRom = try {
+                romsRepository.getRoms().first().find { it.uri == romUri }
+            } catch (e: Exception) {
+                null
+            } ?: return@launch
+
+            // A copy, since the repository changes its ROMs in place. Changes made here are saved to the repository right away, so its config
+            // is never older than this one
+            val reloadedRom = repositoryRom.copy()
+            if (reloadedRom != _rom.value) {
+                _rom.value = reloadedRom
+                _romConfig.value = reloadedRom.config
+                savedStateHandle[RomDetailsActivity.KEY_ROM] = RomParcelable(reloadedRom)
+            }
+        }
     }
 
     suspend fun getRomIcon(rom: Rom): RomIcon {
@@ -155,19 +199,23 @@ class RomDetailsViewModel @Inject constructor(
     }
 
     /**
-     * Brings the script list in step with the linked folder (see [LuaScriptFolderSync]) and reads the scripts' descriptions. Called when the
-     * Mods tab is shown and when the screen resumes, so files added to or removed from the folder outside the app show up
+     * Brings the script list in step with the linked folder (see [LuaScriptFolderSync]), and reads the scripts' headers and how much data
+     * they saved. Called when the Mods tab is shown and when the screen resumes, so files added to or removed from the folder outside the app
+     * show up
      */
     fun syncLuaScripts() {
         luaScriptSyncJob?.cancel()
+        val pendingRomReload = romReloadJob
         luaScriptSyncJob = viewModelScope.launch {
+            // Synced against the newest config, or the sync would save the old one back
+            pendingRomReload?.join()
             val folderUri = _romConfig.value.mods.luaScriptFolder
-            val (scriptFiles, descriptions) = withContext(Dispatchers.IO) {
+            val (scriptFiles, headers) = withContext(Dispatchers.IO) {
                 val scriptFiles = folderUri?.let { luaScriptStorage.listScripts(it) }
-                val descriptions = scriptFiles.orEmpty().mapNotNull { scriptFile ->
-                    luaScriptStorage.readDescription(scriptFile)?.let { scriptFile.name to it }
+                val headers = scriptFiles.orEmpty().mapNotNull { scriptFile ->
+                    luaScriptStorage.readHeader(scriptFile)?.let { scriptFile.name to it }
                 }.toMap()
-                scriptFiles to descriptions
+                scriptFiles to headers
             }
 
             // Applied to the config as it is now, so switches flipped while the folder was read are kept. If the folder was changed in the
@@ -180,14 +228,48 @@ class RomDetailsViewModel @Inject constructor(
             if (syncedScripts != romConfig.mods.luaScripts) {
                 applyRomConfig(romConfig.withLuaScripts { syncedScripts })
             }
-            // When the folder can't be read, the descriptions read from it before are kept for as long as the screen is open
-            val shownDescriptions = if (scriptFiles == null) {
-                _luaScriptFolderState.value?.takeIf { it.folderUri == folderUri }?.descriptions.orEmpty()
+            // When the folder can't be read, the headers read from it before are kept for as long as the screen is open
+            val shownHeaders = if (scriptFiles == null) {
+                _luaScriptFolderState.value?.takeIf { it.folderUri == folderUri }?.headers.orEmpty()
             } else {
-                descriptions
+                headers
             }
-            _luaScriptFolderState.value = folderUri?.let { LuaScriptFolderState(it, isReadable = scriptFiles != null, descriptions = shownDescriptions) }
+            _luaScriptFolderState.value = folderUri?.let { LuaScriptFolderState(it, isReadable = scriptFiles != null, headers = shownHeaders) }
+            refreshLuaScriptDataSizes()
         }
+    }
+
+    private suspend fun refreshLuaScriptDataSizes() {
+        val scriptNames = _romConfig.value.mods.luaScripts.map { it.fileName }
+        _luaScriptDataSizes.value = withContext(Dispatchers.IO) {
+            // Without a key nothing is shown, rather than the data of a guessed one
+            val gameKey = getLuaDataGameKey() ?: return@withContext emptyMap()
+            scriptNames.associateWith { luaScriptDataStore.getSize(gameKey, it) }.filterValues { it > 0 }
+        }
+    }
+
+    private fun clearLuaScriptData(fileName: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                getLuaDataGameKey()?.let { luaScriptDataStore.delete(it, fileName) }
+            }
+            refreshLuaScriptDataSizes()
+        }
+    }
+
+    /**
+     * Same key as the emulator uses, or null if the ROM's header can't be read (the emulator then keeps the data for the session only). Reads
+     * the header, so only on an IO thread
+     */
+    private fun getLuaDataGameKey(): String? {
+        luaDataGameKey?.let { return it }
+        val rom = _rom.value
+        val gameCode = try {
+            romFileProcessorFactory.getFileRomProcessorForDocument(rom.uri)?.getRomInfo(rom)?.gameCode
+        } catch (e: Exception) {
+            null
+        }
+        return LuaScriptDataStore.getGameKey(gameCode, rom.uri.toString())?.also { luaDataGameKey = it }
     }
 
     private fun updateLuaScriptFolder(newFolderUri: Uri?) {

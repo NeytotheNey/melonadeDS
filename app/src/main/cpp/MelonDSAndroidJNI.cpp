@@ -956,6 +956,13 @@ void* emulate(void*)
     for (;;)
     {
         pthread_mutex_lock(&emuThreadMutex);
+        if (paused && !stop) {
+            // Changed Lua storage is snapshotted for the app to save, since the app may be killed while paused. Outside the mutex, so that
+            // a resume doesn't wait for it
+            pthread_mutex_unlock(&emuThreadMutex);
+            MelonDSAndroid::flushLuaStorage();
+            pthread_mutex_lock(&emuThreadMutex);
+        }
         if (paused) {
             isThreadReallyPaused = true;
             while (paused && !stop)

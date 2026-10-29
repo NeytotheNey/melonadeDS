@@ -78,6 +78,7 @@ add_library(
         ${ANDROID-CPP}/scripting/LuaDraw.cpp
         ${ANDROID-CPP}/scripting/LuaEngine.cpp
         ${ANDROID-CPP}/scripting/LuaScriptingJNI.cpp
+        ${ANDROID-CPP}/scripting/LuaStorage.cpp
 )
 
 target_include_directories(melonDS-android-frontend PUBLIC

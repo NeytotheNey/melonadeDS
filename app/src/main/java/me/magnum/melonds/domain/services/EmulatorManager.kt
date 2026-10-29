@@ -47,6 +47,13 @@ interface EmulatorManager {
      */
     fun enableLuaScript(scriptId: Int): Boolean
 
+    /**
+     * Restarts a Lua script with new option values (by key, as text), or starts it if it was off. Values are checked against the script's
+     * declarations, and bad ones fall back to the default. The ROM config isn't changed here. Returns false if there is no such script or it
+     * couldn't be read at launch
+     */
+    fun restartLuaScript(scriptId: Int, optionValues: Map<String, String>): Boolean
+
     suspend fun loadFirmware(consoleType: ConsoleType): FirmwareLaunchResult
 
     suspend fun updateRomEmulatorConfiguration(rom: Rom)

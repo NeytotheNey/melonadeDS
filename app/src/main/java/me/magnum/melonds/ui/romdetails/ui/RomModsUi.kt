@@ -15,24 +15,36 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.magnum.melonds.R
 import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.contracts.DirectoryPickerContract
+import me.magnum.melonds.domain.model.emulator.LuaScriptOption
 import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import me.magnum.melonds.domain.model.rom.config.RomModsConfig
+import me.magnum.melonds.impl.LuaScriptHeader
 import me.magnum.melonds.ui.common.MelonPreviewSet
+import me.magnum.melonds.ui.common.component.LuaScriptOptionControl
 import me.magnum.melonds.ui.common.component.text.CaptionText
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiModel
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiState
@@ -130,11 +142,127 @@ private fun LuaScriptsSection(
     }
 
     luaScripts.forEach { script ->
+        val header = scriptsUiModel.headers[script.fileName]
         LuaScriptItem(
             script = script,
-            description = scriptsUiModel.descriptions[script.fileName],
+            description = header?.description,
             isSwitchEnabled = !areScriptsBlocked,
             onToggle = { isOn -> onConfigUpdate(RomConfigUpdateEvent.LuaScriptToggle(script.fileName, isOn)) },
+        )
+        if (header != null && (header.options.isNotEmpty() || header.unreadableOptionCount > 0)) {
+            LuaScriptOptionsSection(
+                script = script,
+                header = header,
+                onOptionChange = { key, value -> onConfigUpdate(RomConfigUpdateEvent.LuaScriptOptionUpdate(script.fileName, key, value)) },
+            )
+        }
+        scriptsUiModel.dataSizes[script.fileName]?.let { dataSize ->
+            LuaScriptDataItem(
+                scriptName = script.fileName,
+                dataSize = dataSize,
+                onClear = { onConfigUpdate(RomConfigUpdateEvent.LuaScriptDataClear(script.fileName)) },
+            )
+        }
+    }
+}
+
+/**
+ * The script's options, folded away until the player opens them
+ */
+@Composable
+private fun LuaScriptOptionsSection(
+    script: RomLuaScript,
+    header: LuaScriptHeader,
+    onOptionChange: (key: String, value: String) -> Unit,
+) {
+    var isExpanded by rememberSaveable(script.fileName) { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { isExpanded = !isExpanded }
+            .focusable()
+            .heightIn(min = 48.dp)
+            .padding(start = 32.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(id = R.string.lua_script_options),
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Icon(
+            imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+        )
+    }
+
+    if (isExpanded) {
+        header.options.forEach { option ->
+            LuaScriptOptionControl(
+                option = option,
+                value = option.resolve(script.options[option.key]),
+                onValueChange = { onOptionChange(option.key, it) },
+                modifier = Modifier.padding(start = 16.dp),
+            )
+        }
+        if (header.unreadableOptionCount > 0) {
+            CaptionText(
+                text = pluralStringResource(id = R.plurals.lua_script_options_unreadable, count = header.unreadableOptionCount, header.unreadableOptionCount),
+                modifier = Modifier.padding(start = 32.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun LuaScriptDataItem(
+    scriptName: String,
+    dataSize: Long,
+    onClear: () -> Unit,
+) {
+    var isConfirmationShown by rememberSaveable(scriptName) { mutableStateOf(false) }
+    // Rounded up, so a few bytes don't show as 0 KB
+    val sizeInKb = (dataSize + 1023) / 1024
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .padding(start = 32.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CaptionText(
+            text = stringResource(id = R.string.lua_script_saved_data, sizeInKb),
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = { isConfirmationShown = true }) {
+            Text(text = stringResource(id = R.string.lua_script_saved_data_clear))
+        }
+    }
+
+    if (isConfirmationShown) {
+        AlertDialog(
+            onDismissRequest = { isConfirmationShown = false },
+            title = { Text(text = stringResource(id = R.string.lua_script_saved_data_clear_title)) },
+            text = { Text(text = stringResource(id = R.string.lua_script_saved_data_clear_message, scriptName)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        isConfirmationShown = false
+                        onClear()
+                    },
+                ) {
+                    Text(text = stringResource(id = R.string.lua_script_saved_data_clear))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { isConfirmationShown = false }) {
+                    Text(text = stringResource(id = R.string.cancel))
+                }
+            },
         )
     }
 }
@@ -233,13 +361,24 @@ private fun PreviewRomModsUi() {
                 RomConfigUiModel(
                     mods = RomModsConfig(
                         luaScripts = listOf(
-                            RomLuaScript(fileName = "aim.lua", enabled = true),
+                            RomLuaScript(fileName = "aim.lua", enabled = true, options = mapOf("speed" to "7")),
                             RomLuaScript(fileName = "turbo.lua", enabled = false),
                         ),
                     ),
                     luaScripts = RomLuaScriptsUiModel(
                         folderPath = "/storage/emulated/0/Scripts/Hunters",
-                        descriptions = mapOf("aim.lua" to "Aim with the right stick"),
+                        headers = mapOf(
+                            "aim.lua" to LuaScriptHeader(
+                                description = "Aim with the right stick",
+                                options = listOf(
+                                    LuaScriptOption.Number("speed", "Aim speed", min = 1.0, max = 10.0, step = 1.0, default = 5.0, decimals = 0),
+                                    LuaScriptOption.Toggle("hud", "Show HUD", default = true),
+                                    LuaScriptOption.Choice("mode", "Difficulty", listOf("easy", "normal", "hard"), default = "normal"),
+                                ),
+                                unreadableOptionCount = 1,
+                            ),
+                        ),
+                        dataSizes = mapOf("aim.lua" to 3000L),
                     ),
                 ),
             ),

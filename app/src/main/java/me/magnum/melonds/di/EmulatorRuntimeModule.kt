@@ -19,6 +19,7 @@ import me.magnum.melonds.common.uridelegates.UriHandler
 import me.magnum.melonds.domain.model.camera.DSiCameraSourceType
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.domain.services.EmulatorManager
+import me.magnum.melonds.impl.LuaScriptDataStore
 import me.magnum.melonds.impl.LuaScriptStorage
 import me.magnum.melonds.impl.camera.DSiCameraSourceMultiplexer
 import me.magnum.melonds.impl.camera.PhysicalDSiCameraSource
@@ -119,6 +120,7 @@ object EmulatorRuntimeModule {
         permissionHandler: PermissionHandler,
         cameraManagerMultiplexer: DSiCameraSourceMultiplexer,
         luaScriptStorage: LuaScriptStorage,
+        luaScriptDataStore: LuaScriptDataStore,
     ): EmulatorManager {
         return AndroidEmulatorManager(
             context,
@@ -129,6 +131,7 @@ object EmulatorRuntimeModule {
             permissionHandler,
             cameraManagerMultiplexer,
             luaScriptStorage,
+            luaScriptDataStore,
         )
     }
 

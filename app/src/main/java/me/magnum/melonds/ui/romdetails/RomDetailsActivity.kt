@@ -101,9 +101,10 @@ class RomDetailsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // The hardcore setting may have changed while this screen was in the background, and files may have been added to or removed from
-        // the script folder
+        // The hardcore setting may have changed while this screen was in the background, the emulator may have changed the ROM's config, and
+        // files may have been added to or removed from the script folder
         romDetailsViewModel.refreshLuaScriptsHardcoreState()
+        romDetailsViewModel.reloadRom()
         romDetailsViewModel.syncLuaScripts()
     }
 

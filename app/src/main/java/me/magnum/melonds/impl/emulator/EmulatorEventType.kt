@@ -103,4 +103,9 @@ enum class EmulatorEventType(val event: Int) {
      * * enabled (`i32`, 0 or 1)
      */
     EventLuaFastForward(303),
+
+    /**
+     * Snapshots of the Lua scripts' storage are waiting to be saved (see MelonEmulator.drainLuaData). No data.
+     */
+    EventLuaDataSaved(304),
 }

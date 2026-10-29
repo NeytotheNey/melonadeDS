@@ -88,6 +88,9 @@ public:
     void setLuaScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent) { luaEngine.setScripts(std::move(scripts), std::move(folderContent)); }
     void disableLuaScript(int scriptId) { luaEngine.disableScript(scriptId); }
     void enableLuaScript(int scriptId) { luaEngine.enableScript(scriptId); }
+    void restartLuaScript(int scriptId, std::vector<LuaOptionValue> options) { luaEngine.restartScript(scriptId, std::move(options)); }
+    // Emulator thread, between frames
+    void flushLuaStorage() { luaEngine.flushStorage(); }
     void updateLuaSticks(float leftX, float leftY, float rightX, float rightY) { luaEngine.updateSticks(leftX, leftY, rightX, rightY); }
 
 private:

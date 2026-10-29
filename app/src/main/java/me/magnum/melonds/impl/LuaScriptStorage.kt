@@ -223,87 +223,15 @@ class LuaScriptStorage(private val context: Context) {
     }
 
     /**
-     * The script's description from its header (see [parseDescription]), or null if it has none or can't be read. Only the start of the
-     * file is read
+     * The script's header (see [LuaScriptHeader]), or null if the file can't be read. Only the start of the file is read
      */
-    fun readDescription(scriptFile: ScriptFile): String? {
+    fun readHeader(scriptFile: ScriptFile): LuaScriptHeader? {
         return try {
-            context.contentResolver.openInputStream(scriptFile.uri)?.use { parseDescription(readAtMost(it, DESCRIPTION_READ_LIMIT)) }
+            // One byte more than the header limit, so the parser knows the file goes on
+            context.contentResolver.openInputStream(scriptFile.uri)?.use { LuaScriptHeader.parse(readAtMost(it, LuaScriptHeader.READ_LIMIT + 1)) }
         } catch (e: Exception) {
             null
         }
-    }
-
-    /**
-     * Finds a script's description in its leading comment block (the comments before any code, after an optional `#!` line). A
-     * `-- description: <text>` line wins, otherwise the block's first non-empty line is used. No Lua runs here. Returns null without a
-     * leading comment
-     */
-    fun parseDescription(source: ByteArray): String? {
-        val lines = source.copyOf(minOf(source.size, DESCRIPTION_READ_LIMIT)).decodeToString().removePrefix("﻿").lines()
-        var firstLine: String? = null
-        var isInBlockComment = false
-
-        for ((index, rawLine) in lines.withIndex()) {
-            val line = rawLine.trim()
-            val text = when {
-                isInBlockComment -> {
-                    val closerIndex = BLOCK_COMMENT_CLOSER.find(line)?.range?.first
-                    if (closerIndex != null) {
-                        isInBlockComment = false
-                    }
-                    if (closerIndex != null) line.substring(0, closerIndex) else line
-                }
-                index == 0 && line.startsWith("#!") -> continue
-                line.isEmpty() -> continue
-                line.startsWith("--") -> {
-                    val opener = BLOCK_COMMENT_OPENER.find(line)
-                    if (opener != null) {
-                        val rest = line.substring(opener.range.last + 1)
-                        val closerIndex = BLOCK_COMMENT_CLOSER.find(rest)?.range?.first
-                        isInBlockComment = closerIndex == null
-                        if (closerIndex != null) rest.substring(0, closerIndex) else rest
-                    } else {
-                        // Also turns separator lines like "------" into nothing
-                        line.trimStart('-')
-                    }
-                }
-                // Code: the leading comment block is over
-                else -> break
-            }.trim()
-
-            if (text.isEmpty()) {
-                continue
-            }
-            val descriptionMatch = DESCRIPTION_KEY.matchEntire(text)
-            if (descriptionMatch != null) {
-                // An empty description line is skipped, and is never used as the fallback either
-                val description = descriptionMatch.groupValues[1].trim()
-                if (description.isNotEmpty()) {
-                    return capDescription(description)
-                }
-                continue
-            }
-            // Banner lines like "-- ==========" have no letters or digits, so they aren't a description
-            if (firstLine == null && text.any { it.isLetterOrDigit() }) {
-                firstLine = text
-            }
-        }
-
-        return firstLine?.let { capDescription(it) }
-    }
-
-    private fun capDescription(text: String): String {
-        if (text.length <= MAX_DESCRIPTION_LENGTH) {
-            return text
-        }
-
-        var cut = MAX_DESCRIPTION_LENGTH - 1
-        // Don't split a surrogate pair
-        if (Character.isHighSurrogate(text[cut - 1]) && Character.isLowSurrogate(text[cut])) {
-            cut--
-        }
-        return text.take(cut).trimEnd() + "…"
     }
 
     /**
@@ -335,12 +263,5 @@ class LuaScriptStorage(private val context: Context) {
         private const val OLD_SCRIPTS_FOLDER = "scripts"
         private const val LUA_EXTENSION = ".lua"
         const val MAX_SCRIPT_SIZE = 1024 * 1024
-
-        // Script headers
-        private const val DESCRIPTION_READ_LIMIT = 4 * 1024
-        private const val MAX_DESCRIPTION_LENGTH = 120
-        private val DESCRIPTION_KEY = Regex("description\\s*:\\s*(.*)", RegexOption.IGNORE_CASE)
-        private val BLOCK_COMMENT_OPENER = Regex("^--\\[=*\\[")
-        private val BLOCK_COMMENT_CLOSER = Regex("]=*]")
     }
 }

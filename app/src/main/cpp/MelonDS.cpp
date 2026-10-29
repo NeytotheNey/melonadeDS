@@ -254,6 +254,18 @@ namespace MelonDSAndroid
             instance->enableLuaScript(scriptId);
     }
 
+    void restartLuaScript(int scriptId, std::vector<LuaOptionValue> options)
+    {
+        if (instance)
+            instance->restartLuaScript(scriptId, std::move(options));
+    }
+
+    void flushLuaStorage()
+    {
+        if (instance)
+            instance->flushLuaStorage();
+    }
+
     void updateLuaSticks(float leftX, float leftY, float rightX, float rightY)
     {
         if (instance)

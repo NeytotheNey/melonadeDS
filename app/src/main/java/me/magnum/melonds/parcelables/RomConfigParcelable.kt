@@ -29,7 +29,11 @@ class RomConfigParcelable : Parcelable {
                 wideViewWidth = parcel.readInt().takeIf { it > 0 },
                 luaScriptFolder = parcel.readString()?.toUri(),
                 luaScripts = List(parcel.readInt()) {
-                    RomLuaScript(fileName = parcel.readString()!!, enabled = parcel.readInt() != 0)
+                    RomLuaScript(
+                        fileName = parcel.readString()!!,
+                        enabled = parcel.readInt() != 0,
+                        options = List(parcel.readInt()) { parcel.readString()!! to parcel.readString()!! }.toMap(),
+                    )
                 },
             ),
         )
@@ -48,6 +52,11 @@ class RomConfigParcelable : Parcelable {
         romConfig.mods.luaScripts.forEach {
             dest.writeString(it.fileName)
             dest.writeInt(if (it.enabled) 1 else 0)
+            dest.writeInt(it.options.size)
+            it.options.forEach { (key, value) ->
+                dest.writeString(key)
+                dest.writeString(value)
+            }
         }
     }
 
