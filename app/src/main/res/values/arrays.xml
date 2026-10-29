@@ -101,6 +101,8 @@
         <item>indigo</item>
         <item>outline</item>
         <item>soft_tint</item>
+        <item>pixel_8</item>
+        <item>pixel_16</item>
     </string-array>
 
     <string-array name="soft_input_behaviour">
