@@ -123,7 +123,7 @@ class FrameRenderCoordinator {
         private var pendingVsyncTimeNanos = 0L
 
         private val frameRenderCallback = object : FrameRenderCallback {
-            override fun renderFrame(isValidFrame: Boolean, frameTextureId: Int, frameTextureWidth: Int, frameTextureHeight: Int, frameSequence: Long) {
+            override fun renderFrame(isValidFrame: Boolean, frameTextureId: Int, frameTextureWidth: Int, frameTextureHeight: Int, overlayTextureId: Int, overlayScreens: Int, frameSequence: Long) {
                 val renderStart = System.nanoTime()
 
                 presentFrameWrapper.apply {
@@ -131,6 +131,8 @@ class FrameRenderCoordinator {
                     this.textureId = frameTextureId
                     this.textureWidth = frameTextureWidth
                     this.textureHeight = frameTextureHeight
+                    this.overlayTextureId = overlayTextureId
+                    this.overlayScreens = overlayScreens
                     this.frameSequence = frameSequence
                 }
 

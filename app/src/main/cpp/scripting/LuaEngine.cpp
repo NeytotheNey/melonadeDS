@@ -1,5 +1,6 @@
 #include "LuaEngine.h"
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <type_traits>
@@ -33,6 +34,47 @@ static const size_t kMemoryLimit = 32 * 1024 * 1024;
 static const lua_Integer kMaxTableLoop = 1 << 22;
 static const char* const kInstructionLimitError = "ran for too long (over the instruction limit)";
 static const char* const kWorkLimitError = "did too much work in one call (over the work limit)";
+// melon.draw: each recorded call costs this much work, plus a step per pixel it draws (after clipping) and, for text, per byte. A callback's
+// budget covers about 100 draws of a whole screen
+static const lua_Integer kDrawCallCost = 32;
+static const size_t kMaxDrawCommands = 4096;
+static const char* const kDrawLimitError = "drew too much in one frame (over 4096 draw calls)";
+// Text a script can draw in one frame. It's kept outside the Lua memory limit, so it has a cap of its own
+static const size_t kMaxDrawTextBytes = 64 * 1024;
+static const char* const kDrawTextLimitError = "drew too much text in one frame (over 64 KB)";
+// Coordinates are capped this far out, in overlay pixels, so that clipping and pixel counts can't overflow. Only a line with an end further out
+// than that could change (its slope), and it would be over a billion screens away
+static const double kMaxCoordinate = (double) (1ll << 40);
+
+/**
+ * A recorded melon.draw call, drawn once every script's on_frame() has run
+ */
+struct LuaEngine::DrawCommand
+{
+    enum class Type : u8
+    {
+        // A filled rectangle, clipped to the screen
+        Rect,
+        // A rectangle outline. Its sides are capped to just outside the screen, which draws the same as the full rectangle
+        Outline,
+        // A line clipped by LuaOverlay::clipLine()
+        Line,
+        // Text with its top left at (x0, y0), stored in Script::drawText
+        Text,
+    };
+
+    Type type;
+    LuaOverlay::Screen screen;
+    int x0;
+    int y0;
+    int x1;
+    int y1;
+    // Premultiplied
+    u32 color;
+    u32 background;
+    size_t textOffset;
+    size_t textLength;
+};
 
 struct LuaEngine::Script
 {
@@ -59,7 +101,17 @@ struct LuaEngine::Script
     std::optional<bool> swapScreens;
     std::optional<bool> showControls;
     std::optional<bool> fastForward;
+
+    // melon.draw calls from the current frame. Text goes into one string, which the commands point into, of at most kMaxDrawTextBytes
+    std::vector<DrawCommand> drawCommands;
+    std::string drawText;
 };
+
+static void clearDrawCommands(LuaEngine::Script& script)
+{
+    script.drawCommands.clear();
+    script.drawText.clear();
+}
 
 static LuaEngine::Script& getScript(lua_State* L)
 {
@@ -409,14 +461,24 @@ LuaInputOverride LuaEngine::runFrame(int frame, const LuaUserInput& userInput)
     if (isResetPending.exchange(false, std::memory_order_relaxed))
         reloadScripts();
 
+    // Drawings only last one frame
+    for (auto& script : scripts)
+        clearDrawCommands(*script);
+
     if (isStateLoadPending.exchange(false, std::memory_order_relaxed))
     {
         for (auto& script : scripts)
             callCallback(*script, "on_state_loaded", nullptr, kCallbackInstructionLimit);
     }
 
+    // Only on_frame() draws, so that a frame's drawings come from one call per script
+    isDrawingAllowed = true;
     for (auto& script : scripts)
         callCallback(*script, "on_frame", nullptr, kCallbackInstructionLimit);
+    isDrawingAllowed = false;
+
+    // Also when every script has stopped, so that their last drawings go away
+    rasterizeOverlay();
 
     // Scripts that were switched off don't count anymore
     LuaInputOverride inputOverride;
@@ -450,6 +512,7 @@ void LuaEngine::stop()
         closeScript(*script);
     scripts.clear();
     isUnloading = false;
+    overlay.clear();
 
     // The ids belong to this session's scripts
     std::lock_guard lock(pendingScriptSwitchMutex);
@@ -712,6 +775,13 @@ int LuaEngine::setupScript(lua_State* L)
         { "show_controls", luaScreenShowControls },
         { nullptr, nullptr },
     };
+    static const luaL_Reg drawFunctions[] = {
+        { "pixel", luaDrawPixel },
+        { "line", luaDrawLine },
+        { "rect", luaDrawRect },
+        { "text", luaDrawText },
+        { nullptr, nullptr },
+    };
     static const luaL_Reg emuFunctions[] = {
         { "fast_forward", luaEmuFastForward },
         { nullptr, nullptr },
@@ -733,6 +803,8 @@ int LuaEngine::setupScript(lua_State* L)
     lua_setfield(L, -2, "mem");
     luaL_newlib(L, screenFunctions);
     lua_setfield(L, -2, "screen");
+    luaL_newlib(L, drawFunctions);
+    lua_setfield(L, -2, "draw");
     luaL_newlib(L, emuFunctions);
     lua_setfield(L, -2, "emu");
     lua_createtable(L, 0, sizeof(keys) / sizeof(keys[0]));
@@ -772,6 +844,41 @@ int LuaEngine::runCallback(lua_State* L)
     return 0;
 }
 
+void LuaEngine::rasterizeOverlay()
+{
+    overlay.clear();
+    for (auto& script : scripts)
+    {
+        // Scripts that stopped during the frame have no commands left
+        if (!script->L)
+            continue;
+
+        for (const DrawCommand& command : script->drawCommands)
+        {
+            switch (command.type)
+            {
+                case DrawCommand::Type::Rect:
+                    overlay.fillRect(command.screen, { command.x0, command.y0, command.x1, command.y1 }, command.color);
+                    break;
+                case DrawCommand::Type::Outline:
+                {
+                    LuaOverlay::Rect sides[4];
+                    LuaOverlay::getOutlineSides({ command.x0, command.y0, command.x1, command.y1 }, sides);
+                    for (const LuaOverlay::Rect& side : sides)
+                        overlay.fillRect(command.screen, side, command.color);
+                    break;
+                }
+                case DrawCommand::Type::Line:
+                    overlay.drawLine(command.screen, command.x0, command.y0, command.x1, command.y1, command.color);
+                    break;
+                case DrawCommand::Type::Text:
+                    overlay.drawText(command.screen, command.x0, command.y0, script->drawText.data() + command.textOffset, command.textLength, command.color, command.background);
+                    break;
+            }
+        }
+    }
+}
+
 void LuaEngine::switchOff(Script& script, const std::string& error)
 {
     LOG_WARN(TAG, "%s was switched off: %s", script.source.name.c_str(), error.c_str());
@@ -791,6 +898,7 @@ void LuaEngine::closeScript(Script& script)
     script.fastForward.reset();
     script.press = 0;
     script.release = 0;
+    clearDrawCommands(script);
 
     if (!script.L)
         return;
@@ -969,6 +1077,180 @@ int LuaEngine::luaEmuFastForward(lua_State* L)
     if (!script.engine->isUnloading)
         script.fastForward = lua_toboolean(L, 1) != 0;
     return 0;
+}
+
+/**
+ * A coordinate in DS pixels as overlay pixels, rounded to the nearest half DS pixel. [argument] is the one an error points at
+ */
+static int64_t toOverlayCoordinate(lua_State* L, lua_Number value, int argument)
+{
+    if (std::isnan(value))
+        luaL_argerror(L, argument, "number expected, got NaN");
+    return (int64_t) std::floor(std::clamp<lua_Number>(value * LuaOverlay::kScale, -kMaxCoordinate, kMaxCoordinate) + 0.5);
+}
+
+static int64_t checkCoordinate(lua_State* L, int argument)
+{
+    return toOverlayCoordinate(L, luaL_checknumber(L, argument), argument);
+}
+
+static LuaOverlay::Screen checkScreen(lua_State* L, int argument)
+{
+    static const char* const screenNames[] = { "top", "bottom", nullptr };
+    return luaL_checkoption(L, argument, nullptr, screenNames) == 0 ? LuaOverlay::Top : LuaOverlay::Bottom;
+}
+
+/**
+ * 0xAARRGGBB, masked to 32 bits (so -1 is opaque white), premultiplied. There's no default alpha: 0xFF0000 is transparent
+ */
+static u32 checkColor(lua_State* L, int argument)
+{
+    return premultiplyColor((u32) luaL_checkinteger(L, argument));
+}
+
+/**
+ * Adds a draw command for the running script and charges its work. Returns null when there's nothing to draw: outside on_frame(), or when
+ * none of it can be seen ([pixelCount] is 0). Raises an error once the script has drawn too much this frame: too many calls, or more than
+ * kMaxDrawTextBytes of text once [textLength] more is added
+ */
+LuaEngine::DrawCommand* LuaEngine::addDrawCommand(lua_State* L, int64_t pixelCount, size_t textLength)
+{
+    Script& script = getScript(L);
+    if (!script.engine->isDrawingAllowed || pixelCount == 0)
+        return nullptr;
+
+    if (script.drawCommands.size() >= kMaxDrawCommands)
+    {
+        failRestOfCall(script, kDrawLimitError);
+        luaL_error(L, "%s", script.limitError);
+    }
+    if (textLength > kMaxDrawTextBytes - script.drawText.size())
+    {
+        failRestOfCall(script, kDrawTextLimitError);
+        luaL_error(L, "%s", script.limitError);
+    }
+
+    melonade_charge_work(L, kDrawCallCost + pixelCount);
+    return &script.drawCommands.emplace_back();
+}
+
+int LuaEngine::luaDrawPixel(lua_State* L)
+{
+    LuaOverlay::Screen screen = checkScreen(L, 1);
+    int64_t x = checkCoordinate(L, 2);
+    int64_t y = checkCoordinate(L, 3);
+    u32 color = checkColor(L, 4);
+
+    LuaOverlay::Rect rect = LuaOverlay::clipToScreen({ x, y, x + LuaOverlay::kScale, y + LuaOverlay::kScale });
+    if (color == 0 || rect.isEmpty())
+        return 0;
+
+    if (DrawCommand* command = addDrawCommand(L, (rect.x1 - rect.x0) * (rect.y1 - rect.y0)))
+        *command = { DrawCommand::Type::Rect, screen, (int) rect.x0, (int) rect.y0, (int) rect.x1, (int) rect.y1, color };
+    return 0;
+}
+
+int LuaEngine::luaDrawLine(lua_State* L)
+{
+    LuaOverlay::Screen screen = checkScreen(L, 1);
+    int64_t x0 = checkCoordinate(L, 2);
+    int64_t y0 = checkCoordinate(L, 3);
+    int64_t x1 = checkCoordinate(L, 4);
+    int64_t y1 = checkCoordinate(L, 5);
+    u32 color = checkColor(L, 6);
+
+    if (color == 0 || !LuaOverlay::clipLine(x0, y0, x1, y1))
+        return 0;
+
+    if (DrawCommand* command = addDrawCommand(L, LuaOverlay::linePixelCount(x0, y0, x1, y1)))
+        *command = { DrawCommand::Type::Line, screen, (int) x0, (int) y0, (int) x1, (int) y1, color };
+    return 0;
+}
+
+int LuaEngine::luaDrawRect(lua_State* L)
+{
+    LuaOverlay::Screen screen = checkScreen(L, 1);
+    lua_Number x = luaL_checknumber(L, 2);
+    lua_Number y = luaL_checknumber(L, 3);
+    lua_Number width = luaL_checknumber(L, 4);
+    lua_Number height = luaL_checknumber(L, 5);
+    u32 color = checkColor(L, 6);
+    bool isFilled = lua_toboolean(L, 7) != 0;
+
+    // The far edges are rounded on their own, so that rectangles side by side meet. A width or height of 0 or less draws nothing
+    LuaOverlay::Rect rect = {
+        toOverlayCoordinate(L, x, 2),
+        toOverlayCoordinate(L, y, 3),
+        toOverlayCoordinate(L, x + width, 4),
+        toOverlayCoordinate(L, y + height, 5),
+    };
+    if (color == 0 || rect.isEmpty())
+        return 0;
+
+    if (isFilled)
+    {
+        LuaOverlay::Rect clipped = LuaOverlay::clipToScreen(rect);
+        if (DrawCommand* command = addDrawCommand(L, LuaOverlay::clippedArea(rect)))
+            *command = { DrawCommand::Type::Rect, screen, (int) clipped.x0, (int) clipped.y0, (int) clipped.x1, (int) clipped.y1, color };
+    }
+    else
+    {
+        LuaOverlay::Rect sides[4];
+        LuaOverlay::getOutlineSides(rect, sides);
+        int64_t pixelCount = 0;
+        for (const LuaOverlay::Rect& side : sides)
+            pixelCount += LuaOverlay::clippedArea(side);
+
+        // Capped to just outside the screen: the sides that can be seen stay where they are
+        const int64_t margin = LuaOverlay::kScale;
+        if (DrawCommand* command = addDrawCommand(L, pixelCount))
+        {
+            *command = {
+                DrawCommand::Type::Outline, screen,
+                (int) std::clamp<int64_t>(rect.x0, -margin, LuaOverlay::kScreenWidth + margin),
+                (int) std::clamp<int64_t>(rect.y0, -margin, LuaOverlay::kScreenHeight + margin),
+                (int) std::clamp<int64_t>(rect.x1, -margin, LuaOverlay::kScreenWidth + margin),
+                (int) std::clamp<int64_t>(rect.y1, -margin, LuaOverlay::kScreenHeight + margin),
+                color,
+            };
+        }
+    }
+    return 0;
+}
+
+int LuaEngine::luaDrawText(lua_State* L)
+{
+    LuaOverlay::Screen screen = checkScreen(L, 1);
+    int64_t x = checkCoordinate(L, 2);
+    int64_t y = checkCoordinate(L, 3);
+    size_t length;
+    const char* text = luaL_checklstring(L, 4, &length);
+    u32 color = checkColor(L, 5);
+    u32 background = lua_isnoneornil(L, 6) ? 0 : checkColor(L, 6);
+
+    // Laying the text out goes through every byte, even where nothing is drawn
+    melonade_charge_work(L, (lua_Integer) length);
+    LuaOverlay::TextSize size = LuaOverlay::measureText(text, length);
+
+    if (color != 0 || background != 0)
+    {
+        // The box's area covers the glyphs as well as the background. Text whose box can be seen starts at an int: strings are at most a few
+        // tens of MB (the memory limit), and glyphs are at most 14 pixels wide
+        LuaOverlay::Rect box = { x, y, x + size.width, y + size.lineCount * LuaOverlay::kLineHeight };
+        if (DrawCommand* command = addDrawCommand(L, LuaOverlay::clippedArea(box), length))
+        {
+            Script& script = getScript(L);
+            *command = { DrawCommand::Type::Text, screen, (int) x, (int) y, 0, 0, color, background, script.drawText.size(), length };
+            script.drawText.append(text, length);
+        }
+    }
+
+    // In DS pixels
+    if (size.width % LuaOverlay::kScale == 0)
+        lua_pushinteger(L, size.width / LuaOverlay::kScale);
+    else
+        lua_pushnumber(L, (lua_Number) size.width / LuaOverlay::kScale);
+    return 1;
 }
 
 }

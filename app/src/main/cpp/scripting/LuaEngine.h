@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include "LuaDraw.h"
 #include "MelonEventMessenger.h"
 #include "NDS.h"
 
@@ -66,7 +67,9 @@ struct LuaInputOverride
  * melon.input.press()/release() only last for the next frame, so on_frame() calls them every frame. melon.input.set_touch() keeps its position
  * until clear_touch(), and moves the touch (the player's, or one pressed with KEY.TOUCH). held() and touch() are the player's own input.
  * melon.screen.* and melon.emu.* requests are sent to the app once the callback returns (the last value of each kind wins), and are ignored
- * during on_unload().
+ * during on_unload(). melon.draw.* calls are only recorded during on_frame() (they do nothing anywhere else, on_state_loaded() included), and
+ * drawn into [getOverlay] once every script's on_frame() has run, in script order. Each frame shows only what was drawn for it, and a script that
+ * stops during the frame shows nothing.
  *
  * Everything runs on the emulator thread, except [setScripts] (before the emulator thread starts), [notifyStateLoaded], [notifyReset],
  * [disableScript], [enableScript] and [updateSticks] (any thread).
@@ -75,6 +78,7 @@ class LuaEngine
 {
 public:
     struct Script;
+    struct DrawCommand;
 
     LuaEngine();
     ~LuaEngine();
@@ -121,6 +125,10 @@ public:
      * Controller sticks from the app, from -1 to 1 (down and right are positive). Only sent while a script runs
      */
     void updateSticks(float leftX, float leftY, float rightX, float rightY);
+    /**
+     * What the scripts drew for the frame [runFrame] was last called for. Empty while no script runs
+     */
+    const LuaOverlay& getOverlay() const { return overlay; }
 
 private:
     bool loadScript(Script& script);
@@ -131,6 +139,7 @@ private:
     void sendRequests(Script& script);
     void switchOff(Script& script, const std::string& error);
     void closeScript(Script& script);
+    void rasterizeOverlay();
 
     static int setupScript(lua_State* L);
     static int runCallback(lua_State* L);
@@ -152,12 +161,20 @@ private:
     static int luaScreenSwap(lua_State* L);
     static int luaScreenShowControls(lua_State* L);
     static int luaEmuFastForward(lua_State* L);
+    static DrawCommand* addDrawCommand(lua_State* L, int64_t pixelCount, size_t textLength = 0);
+    static int luaDrawPixel(lua_State* L);
+    static int luaDrawLine(lua_State* L);
+    static int luaDrawRect(lua_State* L);
+    static int luaDrawText(lua_State* L);
 
     std::vector<LuaScriptSource> pendingScripts;
     std::vector<std::unique_ptr<Script>> scripts;
     int activeScriptCount = 0;
     // Set while on_unload() runs: requests to the app are ignored, and errors are only logged
     bool isUnloading = false;
+    // Set while on_frame() runs, the only callback whose draw calls are recorded
+    bool isDrawingAllowed = false;
+    LuaOverlay overlay;
 
     melonDS::NDS* nds = nullptr;
     std::shared_ptr<MelonEventMessenger> eventMessenger;

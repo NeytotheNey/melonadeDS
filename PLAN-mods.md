@@ -145,9 +145,52 @@ Phone check: a test script of our own (for example dual-analog aim in Metroid Pr
 - Pause menu → Mods lists every script loaded this session with its description, or its error, or "Switched off". Ticking and unticking both work, for the rest of the session only, and never change the ROM config. Switching back on reloads the script (a fresh state, then `on_load`). Requests are applied on the emulator thread in the order they were made.
 - When a script stops (an error, the Mods dialog, or the end of the session), the screen swap, controls and fast-forward it set go back to the player's values (`ui/emulator/LuaUiOverrides.kt`, with unit tests). Per setting: the baseline is the player's value before the first request, the newest request from a script that's still running wins, and a change the player makes by hand clears the requests and becomes the new baseline. Fast-forward's baseline is off at the start of every session.
 
+## Phase 5: drawing API (`melon.draw`)
+
+Decided 2026-10-29: a 2× overlay buffer and auto-clear every frame.
+
+How it fits the pipeline: the emulator thread renders into `Frame.frameTexture` (`renderer/FrameQueue.cpp`, 256·s × 386·s with the bottom screen at row 194·s), runs `runLuaFrame()` just before `nds->RunFrame()`, then fences and queues the frame. `FrameRenderThread` presents it through `MelonDSAndroidJNI.cpp` → `FrameRenderCallback.renderFrame` → `DSRenderer.drawFrame`, which draws both screen quads with the filter shader.
+
+Where it lives:
+- Each `Frame` gets its own overlay texture, uploaded on the emulator thread before the frame's `renderFence`. It rides the same fences and queue slot as the game image, so it can't lag or tear against it, and it holds through fast-forward, pause and repeated frames.
+- The overlay texture has the frame texture's layout at 2×: 512 × 772, top screen in rows 0..383, bottom screen from row 388. So it reuses the screen quads and UVs as they are and follows layouts, swap and screen alpha for free.
+- `DSRenderer` draws it in its own pass with a passthrough shader (NEAREST, premultiplied alpha, multiplied by the screen's alpha), so filters and the DS colour shader never touch it. Draw order is interleaved: under-screen, its overlay, over-screen, its overlay.
+- Created lazily the first time a frame has drawings. Per-frame flags say which screens have content; frames are recycled, so the flags are reset every frame. No drawings means no upload and no extra draw. Upload only the row range that has content now or had it the last time this texture was used.
+- Screenshots and rewind thumbnails leave the overlay out.
+
+API (module `melon.draw`):
+- `pixel(screen, x, y, color)`, `line(screen, x1, y1, x2, y2, color)`, `rect(screen, x, y, w, h, color[, filled])`, `text(screen, x, y, str, color[, bg])`. `text` returns its width in DS pixels, and `\n` starts a new line.
+- `screen` is `"top"` or `"bottom"`, meaning the DS screen, so swap moves the drawings with it.
+- Coordinates are DS pixels (256×192). Fractions are allowed and land on the nearest half pixel, which is what the 2× buffer buys for shapes. Shapes are one DS pixel thick. Anything off-screen is clipped.
+- Text uses melonDS's own OSD font (`melonDS-android-lib/src/frontend/qt_sdl/font.h`, GPL like us, already in the tree), drawn at the 2× resolution, so a line is 6 DS pixels tall. Characters outside ASCII draw as `?`, one per UTF-8 code point.
+- Colours are `0xAARRGGBB` integers masked to 32 bits (so -1 is opaque white). `0xFF0000` has alpha 0 and draws nothing; the docs say so, and there's no "missing alpha means opaque" rule.
+- Auto-clear: each frame shows only what was drawn in that frame's `on_frame`. Draw calls anywhere else (main chunk, `on_load`, `on_state_loaded`) do nothing, so a HUD drawn from both can't show twice on a state-load frame. No `clear()`.
+
+Budget and safety:
+- Draw calls only record commands into a per-script list (text goes into a per-script string store). After all callbacks have run, the engine rasterises the lists of scripts still running into the shared buffer, in script order (later scripts on top). A script that errors or is switched off mid-frame shows nothing that frame.
+- Each recorded command is charged against the work budget: a base cost plus its pixel count after clipping (at 2×). Cap of 4096 commands per script per frame; going over raises the usual limit error. Clip in 64-bit before computing areas.
+- Stop, error, the Mods dialog, reset and the last script stopping all just mean the next frame has no drawings, so `LuaUiOverrides.kt` doesn't change. While paused, the frame on screen keeps its overlay.
+- Savestates and rewind don't store the overlay; the next callbacks redraw it. Hardcore runs no scripts, so nothing is drawn.
+- The buffer and the upload stay on the emulator thread: no new locks.
+
+Steps:
+- Native: `scripting/LuaEngine.{h,cpp}` (recording, the `melon.draw` table, charging, `rasterizeOverlay`), a new `scripting/LuaDraw.{h,cpp}` (clipped pixel, line, rect, text, premultiplied source-over), `renderer/FrameQueue.{h,cpp}` (overlay texture and flags per frame, lazy creation, deleted in `clear()`), `MelonInstance.cpp` `runFrame()` (rasterise only while scripts are active, upload before the fence), and the JNI callback in `MelonDSAndroidJNI.cpp` (passes the overlay texture and screen flags).
+- App: `FrameRenderCallback.kt`, `PresentFrameWrapper.kt` and `FrameRenderCoordinator.kt` carry the new fields; an overlay shader in `common/opengl/ShaderProgramSource.kt`; `DSRenderer.kt` splits its draw call per screen and interleaves the overlay. `ExternalPresentation`'s renderer gets it too.
+- Test scripts: one that draws every primitive on both screens (edges, negative and huge values, fractions, text with `\n` and non-ASCII), and a runaway fill loop that must hit the work limit.
+
+Phone check: a HUD script (text with a background, plus a rect) on both screens follows swap and an overlapping custom layout, doesn't lag the game during fast camera moves, isn't changed by the CRT/xBR filters, and vanishes when switched off in Mods. Savestate, rewind and reset redraw cleanly, the external display shows it, and frame time with no script is unchanged.
+
+**Done (2026-10-29).** Checked on the phone (OpenGL 4x with the LCD filter: drawings on both screens, filter left off them, self-test passes, no visible frame-time cost) and on the emulator (Mods switch, savestate, reset, the limit scripts). What differs from the plan above, or wasn't in it:
+- Text lines are 7 DS pixels apart. `text`'s background is one box around all lines.
+- A rect with zero or negative width or height draws nothing. Outlines sit inside the rect, and lines include both end pixels. Draws that land fully off-screen aren't recorded and don't count towards the 4096.
+- Each command costs 32 work steps plus 1 per pixel (at 2×) and 1 per byte of text. Text is capped at 64 KB per script per frame, since it's stored outside the Lua memory cap.
+- A frame's overlay texture is zero-filled once when it's created. The overlay shader is built with the other shaders.
+- The app's FPS counter sits over the top-left corner of the top screen, so scripts should keep their HUD out of there.
+
+Left for later: `image` (from a string of ARGB bytes, or PNG once `melon.storage` exists), a text size option, circles, a hook after `RunFrame`, the overlay in screenshots as an option, and overlay UVs for WideMelon's wider top screen.
+
 ## Later (not planned in detail)
 
-- Drawing API (`melon.draw.text/rect/line/image`) into an RGBA overlay texture composited by `DSRenderer`. This is the biggest gap in DraStic's API. Next up.
 - `melon.screen.set_layout`, once layouts have a name or slot a script can refer to.
 - `melon.storage`, for scripts that need to save data, limited to the game's own script folder. Scripts have no file access at all for now.
 - Per-script options declared by the script (sliders/toggles shown in the Mods screen).

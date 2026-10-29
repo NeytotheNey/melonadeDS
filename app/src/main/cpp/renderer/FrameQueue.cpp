@@ -1,4 +1,5 @@
 #include "FrameQueue.h"
+#include <algorithm>
 #include <Platform.h>
 
 FrameQueue::FrameQueue()
@@ -122,6 +123,55 @@ void FrameQueue::validateRenderFrame(Frame* frame, int requiredWidth, int requir
     }
 }
 
+void FrameQueue::updateOverlay(Frame* frame, const u32* pixels, int width, int height, const TextureRows rows[2])
+{
+    if (!frame->overlayTexture)
+    {
+        // A frame without the texture has no old drawings to clear either
+        if (rows[0].isEmpty() && rows[1].isEmpty())
+            return;
+
+        // The whole overlay, which is empty outside the drawings, so the rest of the texture is cleared too
+        glGenTextures(1, &frame->overlayTexture);
+        glBindTexture(GL_TEXTURE_2D, frame->overlayTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        frame->overlayRows[0] = rows[0];
+        frame->overlayRows[1] = rows[1];
+        return;
+    }
+
+    bool isBound = false;
+    for (int screen = 0; screen < 2; screen++)
+    {
+        // Old drawings outside the new ones are overwritten with the overlay's empty rows
+        const TextureRows& oldRows = frame->overlayRows[screen];
+        TextureRows uploadRows = rows[screen];
+        if (uploadRows.isEmpty())
+            uploadRows = oldRows;
+        else if (!oldRows.isEmpty())
+            uploadRows = { std::min(oldRows.start, uploadRows.start), std::max(oldRows.end, uploadRows.end) };
+
+        if (!uploadRows.isEmpty())
+        {
+            if (!isBound)
+            {
+                glBindTexture(GL_TEXTURE_2D, frame->overlayTexture);
+                isBound = true;
+            }
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, uploadRows.start, width, uploadRows.end - uploadRows.start, GL_RGBA, GL_UNSIGNED_BYTE, pixels + (size_t) uploadRows.start * width);
+        }
+        frame->overlayRows[screen] = rows[screen];
+    }
+
+    if (isBound)
+        glBindTexture(GL_TEXTURE_2D, 0);
+}
+
 void FrameQueue::pushRenderedFrame(Frame* frame, int64_t presentDueTimeNs)
 {
     std::unique_lock lock(frameLock);
@@ -159,11 +209,16 @@ void FrameQueue::clear()
     // Must be called with the emulator's GL context current, or the textures are not deleted
     for (auto& frame : frames) {
         glDeleteTextures(1, &frame.frameTexture);
+        if (frame.overlayTexture)
+            glDeleteTextures(1, &frame.overlayTexture);
         if (frame.renderFence)
             eglDestroySyncKHR(display, frame.renderFence);
         if (frame.presentFence)
             eglDestroySyncKHR(display, frame.presentFence);
         frame.frameTexture = 0;
+        frame.overlayTexture = 0;
+        frame.overlayRows[0] = {};
+        frame.overlayRows[1] = {};
         frame.width = 0;
         frame.height = 0;
         frame.renderFence = 0;

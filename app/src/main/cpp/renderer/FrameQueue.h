@@ -16,10 +16,23 @@ using namespace melonDS;
 // 9 frames should allow the emulator to run up 8x speed. This includes 8 frames ready to present, plus one frame currently being rendered to.
 constexpr std::size_t FRAME_QUEUE_SIZE = 9;
 
+// Rows [start, end) of a texture. Empty when start >= end
+struct TextureRows {
+    int start{};
+    int end{};
+
+    bool isEmpty() const { return start >= end; }
+};
+
 struct Frame {
     GLuint frameTexture{};
     u32 width{};
     u32 height{};
+    // Lua drawings for this frame (scripting/LuaDraw.h), in the frame texture's layout at 2x and premultiplied. Only created once a frame has
+    // drawings, and kept when the frame is reused
+    GLuint overlayTexture{};
+    // Rows of the overlay texture with drawings, for the top and the bottom screen. A screen with no rows has no drawings in this frame
+    TextureRows overlayRows[2]{};
     EGLSyncKHR renderFence{};
     EGLSyncKHR presentFence{};
     // Increases every time a frame is pushed for presentation. Allows the presenter to tell new frames from repeated ones and detect skipped frames
@@ -42,6 +55,12 @@ public:
      */
     Frame* getPresentFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs);
     void validateRenderFrame(Frame* frame, int requiredWidth, int requiredHeight);
+    /**
+     * Puts this frame's Lua drawings into the frame's overlay texture: [pixels] is the whole overlay ([width] x [height], null if nothing was
+     * ever drawn) and [rows] the rows with drawings on each screen. Only the rows that have drawings now, or had them the last time the frame
+     * was used, are uploaded, and nothing at all while neither has any. Called on the emulator thread before the frame's render fence
+     */
+    void updateOverlay(Frame* frame, const u32* pixels, int width, int height, const TextureRows rows[2]);
     void pushRenderedFrame(Frame* frame, int64_t presentDueTimeNs);
     void discardRenderedFrame(Frame* frame);
     /**

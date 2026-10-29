@@ -109,7 +109,7 @@ static jmethodID getRenderFrameMethodId(JNIEnv* env)
         jclass localCallbackClass = env->FindClass("me/magnum/melonds/ui/emulator/render/FrameRenderCallback");
         jclass callbackClass = (jclass) env->NewGlobalRef(localCallbackClass);
         env->DeleteLocalRef(localCallbackClass);
-        return env->GetMethodID(callbackClass, "renderFrame", "(ZIIIJ)V");
+        return env->GetMethodID(callbackClass, "renderFrame", "(ZIIIIIJ)V");
     }();
     return renderFrameMethodId;
 }
@@ -353,13 +353,15 @@ Java_me_magnum_melonds_MelonEmulator_presentFrame(JNIEnv* env, jobject thiz, jlo
     if (presentationFrame != nullptr)
     {
         eglWaitSyncKHR(currentDisplay, presentationFrame->renderFence, 0);
-        env->CallVoidMethod(renderFrameCallback, renderFrameMethodId, true, (jint) presentationFrame->frameTexture, (jint) presentationFrame->width, (jint) presentationFrame->height, (jlong) presentationFrame->sequence);
+        // Bit 0: the top screen has Lua drawings, bit 1: the bottom screen has
+        jint overlayScreens = (presentationFrame->overlayRows[0].isEmpty() ? 0 : 1) | (presentationFrame->overlayRows[1].isEmpty() ? 0 : 2);
+        env->CallVoidMethod(renderFrameCallback, renderFrameMethodId, true, (jint) presentationFrame->frameTexture, (jint) presentationFrame->width, (jint) presentationFrame->height, (jint) presentationFrame->overlayTexture, overlayScreens, (jlong) presentationFrame->sequence);
         EGLSyncKHR presentFence = eglCreateSyncKHR(currentDisplay, EGL_SYNC_FENCE_KHR, nullptr);
         presentationFrame->presentFence = presentFence;
     }
     else
     {
-        env->CallVoidMethod(renderFrameCallback, renderFrameMethodId, false, 0, 0, 0, (jlong) 0);
+        env->CallVoidMethod(renderFrameCallback, renderFrameMethodId, false, 0, 0, 0, 0, 0, (jlong) 0);
     }
 }
 

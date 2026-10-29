@@ -416,6 +416,18 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         // Do nothing. Emulator already renders into the texture, which was set-up above
     }
 
+    // Lua drawings, before the fence so that they're presented with this frame. Scripts only stop during runLuaFrame(), whose drawing leaves
+    // theirs out, so the overlay is empty while none runs. Then this only clears the frame's old drawings, if it has any
+    const LuaOverlay& luaOverlay = luaEngine.getOverlay();
+    if (luaOverlay.hasDrawings() || renderFrame->overlayTexture) [[unlikely]]
+    {
+        TextureRows overlayRows[2] = {
+            { luaOverlay.getRowStart(LuaOverlay::Top), luaOverlay.getRowEnd(LuaOverlay::Top) },
+            { luaOverlay.getRowStart(LuaOverlay::Bottom), luaOverlay.getRowEnd(LuaOverlay::Bottom) },
+        };
+        frameQueue.updateOverlay(renderFrame, luaOverlay.getPixels(), LuaOverlay::kWidth, LuaOverlay::kHeight, overlayRows);
+    }
+
     bool isSleeping = nds->CPUStop & CPUStop_Sleep;
     sleeping.store(isSleeping, std::memory_order_relaxed);
     if (!isSleeping) [[likely]]

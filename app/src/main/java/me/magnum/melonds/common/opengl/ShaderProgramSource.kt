@@ -139,6 +139,22 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "}"
         )
 
+        // Lua drawings (melon.draw), drawn over each screen with the screen's quad. The overlay texture has the frame texture's layout at 2x and
+        // byte order, with premultiplied alpha, so it's blended with GL_ONE, GL_ONE_MINUS_SRC_ALPHA and fades with the screen's alpha. The
+        // filters and the DS screen colours never touch it. High precision where it can, so that the UVs land on the right texels
+        val OverlayShader = ShaderProgramSource(
+            TextureFiltering.NEAREST,
+            DEFAULT_VERT_SHADER,
+            PRECISION_HEADER +
+                    "uniform sampler2D tex;\n" +
+                    "varying vec2 uv;\n" +
+                    "varying float alpha;\n" +
+                    "void main()\n" +
+                    "{\n" +
+                    "    gl_FragColor = texture2D(tex, uv).bgra * alpha;\n" +
+                    "}"
+        )
+
         val NoFilterShader = ShaderProgramSource(
             TextureFiltering.NEAREST,
             DEFAULT_VERT_SHADER,

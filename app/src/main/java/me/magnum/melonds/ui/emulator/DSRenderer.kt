@@ -14,6 +14,8 @@ import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.RuntimeBackground
 import me.magnum.melonds.domain.model.VideoFiltering
 import me.magnum.melonds.domain.model.layout.BackgroundMode
+import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_BOTTOM
+import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_TOP
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import me.magnum.melonds.ui.emulator.model.RuntimeRendererConfiguration
 import me.magnum.melonds.ui.emulator.render.EmulatorRenderer
@@ -31,6 +33,7 @@ private const val SHADOW_STRENGTH = 0.6f
 // Screen and shadow vertices: position (2), UVs or distance outside the screen (2) and alpha (1). Background vertices have no alpha
 private const val FLOATS_PER_VERTEX = 5
 private const val BACKGROUND_FLOATS_PER_VERTEX = 4
+private const val VERTICES_PER_SCREEN = 6
 
 class DSRenderer(private val context: Context) : EmulatorRenderer {
 
@@ -50,6 +53,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var mustRebuildScreenFilter = true
     private lateinit var backgroundShader: Shader
     private lateinit var shadowShader: Shader
+    private lateinit var overlayShader: Shader
     // Whether the shaders above exist. Program names are shared with the emulator's context, so deleting them twice could free a program that
     // reused the name
     private var areShadersCreated = false
@@ -57,6 +61,9 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var screensVbo = 0
     private var screensVao = 0
     private var screenIndices = 0
+    // The DS screen of each quad in screensVbo, in draw order (OVERLAY_SCREEN_TOP or OVERLAY_SCREEN_BOTTOM), so that each one's Lua drawings
+    // can go right after it
+    private var screenQuadScreens = IntArray(0)
 
     private var shadowsVbo = 0
     private var shadowsVao = 0
@@ -161,9 +168,10 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         shadowsVbo = vbos[2]
         shadowsVao = vaos[2]
 
-        // Create background and shadow shaders
+        // Create background, shadow and Lua overlay shaders
         backgroundShader = ShaderFactory.createShaderProgram(ShaderProgramSource.BackgroundShader)
         shadowShader = ShaderFactory.createShaderProgram(ShaderProgramSource.ScreenShadowShader)
+        overlayShader = ShaderFactory.createShaderProgram(ShaderProgramSource.OverlayShader)
         areShadersCreated = true
 
         mustRebuildScreenFilter = true
@@ -197,6 +205,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         if (areShadersCreated) {
             backgroundShader.delete()
             shadowShader.delete()
+            overlayShader.delete()
             areShadersCreated = false
         }
         // Rebuilt on the next frame, since mustRebuildScreenFilter is set whenever the GL objects are created again
@@ -256,6 +265,11 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             val under = bottomScreenRect?.let { buildScreenVertexData(it, bottomUvs, bottomAlpha) }
             over to under
         }
+        val (overScreen, underScreen) = if (bottomOnTop) OVERLAY_SCREEN_BOTTOM to OVERLAY_SCREEN_TOP else OVERLAY_SCREEN_TOP to OVERLAY_SCREEN_BOTTOM
+        screenQuadScreens = listOfNotNull(
+            underScreenVertexData?.let { underScreen },
+            overScreenVertexData?.let { overScreen },
+        ).toIntArray()
 
         val vertexBufferSize = ((overScreenVertexData?.size ?: 0) + (underScreenVertexData?.size ?: 0)) * Float.SIZE_BYTES
         val vertexBuffer = ByteBuffer.allocateDirect(vertexBufferSize)
@@ -426,27 +440,66 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             GLES30.glBindVertexArray(screensVao)
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, screensVbo)
 
-            shader.use()
-
-            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, screenTexture?.textureId ?: presentFrameWrapper.textureId)
-            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, shader.textureFiltering)
-            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, shader.textureFiltering)
-
-            GLES30.glVertexAttribPointer(shader.attribPos, 2, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 0)
-            GLES30.glVertexAttribPointer(shader.attribUv, 2, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
-            GLES30.glVertexAttribPointer(shader.attribAlpha, 1, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 4 * Float.SIZE_BYTES)
-            GLES30.glUniform1i(shader.uniformTex, 0)
+            val screenTextureId = screenTexture?.textureId ?: presentFrameWrapper.textureId
             // A pre-pass with a scale makes the texture bigger than the frame
-            shader.setTextureSize(
-                screenTexture?.width ?: presentFrameWrapper.textureWidth,
-                screenTexture?.height ?: presentFrameWrapper.textureHeight,
-            )
-            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, screenIndices)
+            val screenTextureWidth = screenTexture?.width ?: presentFrameWrapper.textureWidth
+            val screenTextureHeight = screenTexture?.height ?: presentFrameWrapper.textureHeight
+            val overlayScreens = if (presentFrameWrapper.overlayTextureId != 0) presentFrameWrapper.overlayScreens else 0
+
+            if (overlayScreens == 0) {
+                useScreenShader(shader, screenTextureId, screenTextureWidth, screenTextureHeight)
+                GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, screenIndices)
+            } else {
+                // Each screen, then its Lua drawings, so that a screen drawn over the other one also covers the other one's drawings
+                screenQuadScreens.forEachIndexed { index, screen ->
+                    val firstVertex = index * VERTICES_PER_SCREEN
+                    useScreenShader(shader, screenTextureId, screenTextureWidth, screenTextureHeight)
+                    GLES30.glDrawArrays(GLES30.GL_TRIANGLES, firstVertex, VERTICES_PER_SCREEN)
+
+                    if (overlayScreens and screen != 0) {
+                        useOverlayShader(presentFrameWrapper.overlayTextureId)
+                        GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+                        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, firstVertex, VERTICES_PER_SCREEN)
+                        // Everything else (the other screen, and the next frame's background and shadows) is blended with straight alpha
+                        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+                    }
+                }
+            }
 
             GLES30.glBindVertexArray(0)
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
         }
+    }
+
+    private fun useScreenShader(shader: Shader, textureId: Int, textureWidth: Int, textureHeight: Int) {
+        shader.use()
+
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, shader.textureFiltering)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, shader.textureFiltering)
+
+        setScreenVertexAttributes(shader)
+        GLES30.glUniform1i(shader.uniformTex, 0)
+        shader.setTextureSize(textureWidth, textureHeight)
+    }
+
+    private fun useOverlayShader(overlayTextureId: Int) {
+        overlayShader.use()
+
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, overlayTextureId)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, overlayShader.textureFiltering)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, overlayShader.textureFiltering)
+
+        setScreenVertexAttributes(overlayShader)
+        GLES30.glUniform1i(overlayShader.uniformTex, 0)
+    }
+
+    private fun setScreenVertexAttributes(shader: Shader) {
+        GLES30.glVertexAttribPointer(shader.attribPos, 2, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 0)
+        GLES30.glVertexAttribPointer(shader.attribUv, 2, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
+        GLES30.glVertexAttribPointer(shader.attribAlpha, 1, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 4 * Float.SIZE_BYTES)
     }
 
     private fun renderBackground() {

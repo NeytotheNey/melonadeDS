@@ -75,6 +75,7 @@ add_library(
         ${ANDROID-CPP}/renderer/FrameQueue.cpp
         ${ANDROID-CPP}/renderer/ScreenshotRenderer.cpp
         ${ANDROID-CPP}/retroachievements/RetroAchievementsManager.cpp
+        ${ANDROID-CPP}/scripting/LuaDraw.cpp
         ${ANDROID-CPP}/scripting/LuaEngine.cpp
         ${ANDROID-CPP}/scripting/LuaScriptingJNI.cpp
 )
