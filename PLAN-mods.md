@@ -66,6 +66,8 @@ AR cheats write through the ARM7 bus (`AREngine.cpp`), which is the same JIT-saf
 
 Phone check: open a game's details, see the empty Mods group, and toggle back and forth without losing other ROM settings.
 
+**Done (2026-10-29), as planned.** The hardcore note in the UI came with Phase 4, once there were script rows to put it on.
+
 ## Phase 2: WideMelon (classic OpenGL)
 
 Core (`melonDS-android-lib/`):
@@ -114,6 +116,18 @@ No DraStic compatibility layer. Old DraStic scripts need porting by hand.
 
 Sticks and rotation: `EmulatorActivity` already reads controller axes. Forward them to native as atomics only while a script is active, like DraStic does (`luaIsActive()`).
 
+**Done (2026-10-29).** What differs from the plan above, or wasn't in it:
+- Lua 5.4.9 from lua.org, unchanged except `cpp/lua/patched/lstrlib.c`, which is built instead of the stock file and adds a work budget to pattern matching and plain find. `cpp/lua/LICENSE` says how to redo the patch on an upgrade.
+- Each script gets its own Lua state, capped at 32 MB. Besides the libraries left out: `dofile`, `loadfile` and `warn` are removed, `load` only takes text, `print` goes to the log, `setmetatable` refuses `__gc` (finalizers run with hooks off, so the limit couldn't stop one), `collectgarbage` only takes collect/count/step/isrunning, and `string.rep` and `table.move/insert/remove/sort` have size caps.
+- Limits per call: 1M instructions (10M for the main chunk plus `on_load`), and a work budget of 20 steps per instruction that pattern matching, the table functions and allocation charge against. Once either runs out, everything left in that call fails, so `pcall` can't keep a script going. The limits are there so a buggy script can't freeze the game; a script written on purpose to hang its own player's game is out of scope.
+- Hooks: `on_load` runs at the end of `MelonInstance::start()`. `loadState` runs on an IO thread and rewind on the UI thread, so they only set a flag, and `on_state_loaded()` runs on the emulator thread before the next frame. Reset reloads every running script (`on_unload`, a fresh state, the main chunk, `on_load`); scripts that were switched off stay off.
+- `melon.KEY.*`: pressed = bit set, A = bit 0 … Y = bit 11, TOUCH = bit 12. `press`/`release` last one frame; `set_touch` holds until `clear_touch`.
+- Memory: ARM9 checks ITCM/DTCM first (ITCM writes also invalidate the JIT). Reads in 0x04xxxxxx raise an error on both CPUs.
+- `melon.screen.set_layout` is left out: layouts are user-made and only have UUIDs, so a script has no stable id to ask for (see Later).
+- `melon.log` goes to logcat (tag `melonDS-lua`) only while the debug log is on. Script errors are always logged.
+- Events to Kotlin carry the script's index. Screen and fast-forward requests are coalesced per call, and Kotlin applies them only when they differ from the UI's state. Native events now go into the pipe in one write with up to 512 bytes of data, and the message queue's start waits for the pipe to open.
+- Sticks are zeroed when the last script stops, so a script switched back on doesn't see a stale position.
+
 ## Phase 4: scripts UI
 
 - ROM details → Mods → Scripts: an "Add script" file picker copies the `.lua` into app storage at `files/scripts/<gamecode>/`. Each script gets an on/off switch and a delete action. No SAF folder permissions to manage, and scripts survive ROM folder changes.
@@ -124,9 +138,18 @@ Sticks and rotation: `EmulatorActivity` already reads controller axes. Forward t
 
 Phone check: a test script of our own (for example dual-analog aim in Metroid Prime Hunters) works, a broken script shows an error and doesn't crash, hardcore switches scripts off, and savestates/rewind keep working with a script running.
 
+**Done (2026-10-29).** Checked on the phone (turbo A, screen swap, hardcore) and on the emulator with a set of test scripts (an API self-test, a screen swap, and broken scripts that error, loop, try sandbox escapes and run away in a pattern). What differs from the plan above, or wasn't in it:
+- Folder: `files/scripts/<gamecode>/` when the header's code is 4 uppercase letters or digits and isn't `0000`. Otherwise (homebrew's `####` and the like) it's `homebrew-<first 16 hex digits of a SHA-256 of the ROM's URI>`, since several homebrew ROMs can share a code. So a homebrew ROM that moves loses its scripts; ROMs with a real code don't. `impl/LuaScriptStorage.kt` holds the path rules for both ROM details and the emulator.
+- Import: `.lua` extension checked after picking, 1 MB cap, written to a temp file and renamed. Adding a name that's already there asks first, and the replaced script keeps its place and its switch. A script whose file is missing shows "File not found".
+- Hardcore: the switches are disabled with a line saying why. The setting is re-read when ROM details resumes.
+- Pause menu → Mods lists every script loaded this session with its description, or its error, or "Switched off". Ticking and unticking both work, for the rest of the session only, and never change the ROM config. Switching back on reloads the script (a fresh state, then `on_load`). Requests are applied on the emulator thread in the order they were made.
+- When a script stops (an error, the Mods dialog, or the end of the session), the screen swap, controls and fast-forward it set go back to the player's values (`ui/emulator/LuaUiOverrides.kt`, with unit tests). Per setting: the baseline is the player's value before the first request, the newest request from a script that's still running wins, and a change the player makes by hand clears the requests and becomes the new baseline. Fast-forward's baseline is off at the start of every session.
+
 ## Later (not planned in detail)
 
-- Drawing API (`melon.draw.text/rect/line/image`) into an RGBA overlay texture composited by `DSRenderer`. This is the biggest gap in DraStic's API.
+- Drawing API (`melon.draw.text/rect/line/image`) into an RGBA overlay texture composited by `DSRenderer`. This is the biggest gap in DraStic's API. Next up.
+- `melon.screen.set_layout`, once layouts have a name or slot a script can refer to.
+- `melon.storage`, for scripts that need to save data, limited to the game's own script folder. Scripts have no file access at all for now.
 - Per-script options declared by the script (sliders/toggles shown in the Mods screen).
 - `require` for multi-file scripts, resolved inside the game's script folder only.
 - WideMelon on the compute renderer.
