@@ -1,17 +1,28 @@
 package me.magnum.melonds.ui.romdetails
 
 import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import me.magnum.melonds.domain.model.rom.config.RomConfig
 import me.magnum.melonds.domain.model.rom.config.RomGbaSlotConfig
 import me.magnum.melonds.domain.repositories.LayoutsRepository
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiModel
 import me.magnum.melonds.ui.romdetails.model.RomGbaSlotConfigUiModel
+import me.magnum.melonds.ui.romdetails.model.RomLuaScriptsUiModel
+import me.magnum.melonds.utils.FileUtils
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 class RomDetailsUiMapper(
     private val context: Context,
     private val layoutsRepository: LayoutsRepository,
 ) {
+
+    // Display path of each script folder, by tree URI
+    private val folderPathCache = ConcurrentHashMap<Uri, String>()
 
     suspend fun mapRomConfigToUi(romConfig: RomConfig): RomConfigUiModel {
         return RomConfigUiModel(
@@ -22,7 +33,33 @@ class RomDetailsUiMapper(
             gbaSlotConfig = mapGbaSlotConfigToUi(romConfig.gbaSlotConfig),
             customName = romConfig.customName,
             mods = romConfig.mods,
+            luaScripts = RomLuaScriptsUiModel(folderPath = romConfig.mods.luaScriptFolder?.let { getFolderPath(it) }),
         )
+    }
+
+    private suspend fun getFolderPath(folderUri: Uri): String {
+        // The UI state is mapped again on every change, but working out the path uses reflection and maybe a provider query, so it's done
+        // once per folder, off the main thread
+        folderPathCache[folderUri]?.let { return it }
+        val folderPath = withContext(Dispatchers.IO) {
+            // Mostly worked out from the URI itself, so it can usually be shown even when the folder can't be found. "/" means the volume
+            // wasn't found, which tells nothing, so the path inside the volume is shown instead
+            FileUtils.getAbsolutePathFromSAFUri(context, folderUri)?.takeIf { it != File.separator }
+                ?: getTreeDocumentPath(folderUri)
+                ?: folderUri.lastPathSegment
+                ?: folderUri.toString()
+        }
+        folderPathCache[folderUri] = folderPath
+        return folderPath
+    }
+
+    /**
+     * The path part of a tree URI's document ID, like `LuaScripts/White2` for `primary:LuaScripts/White2`. Null if there's none
+     */
+    private fun getTreeDocumentPath(treeUri: Uri): String? {
+        return runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()
+            ?.substringAfter(':')
+            ?.takeIf { it.isNotEmpty() }
     }
 
     private fun mapGbaSlotConfigToUi(gbaSlotConfig: RomGbaSlotConfig): RomGbaSlotConfigUiModel {

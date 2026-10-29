@@ -60,6 +60,7 @@ import me.magnum.melonds.domain.model.retroachievements.RAEvent
 import me.magnum.melonds.domain.model.retroachievements.RASimpleAchievement
 import me.magnum.melonds.domain.model.retroachievements.RASimpleLeaderboard
 import me.magnum.melonds.domain.model.rom.Rom
+import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import me.magnum.melonds.domain.model.ui.Orientation
 import me.magnum.melonds.domain.repositories.BackgroundRepository
 import me.magnum.melonds.domain.repositories.CheatsRepository
@@ -69,6 +70,8 @@ import me.magnum.melonds.domain.repositories.RomsRepository
 import me.magnum.melonds.domain.repositories.SaveStatesRepository
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.domain.services.EmulatorManager
+import me.magnum.melonds.impl.LuaScriptFolderSync
+import me.magnum.melonds.impl.LuaScriptStorage
 import me.magnum.melonds.impl.emulator.EmulatorSession
 import me.magnum.melonds.impl.layout.UILayoutProvider
 import me.magnum.melonds.impl.perf.PerformanceLogger
@@ -116,6 +119,7 @@ class EmulatorViewModel @Inject constructor(
     private val emulatorSession: EmulatorSession,
     private val retroAchievementsSubmissionHandler: RetroAchievementsSubmissionHandler,
     private val performanceLogger: PerformanceLogger,
+    private val luaScriptStorage: LuaScriptStorage,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -273,8 +277,9 @@ class EmulatorViewModel @Inject constructor(
 
         val romInfo = getRomInfo(rom)
         val cheats = romInfo?.let { getRomEnabledCheats(it) } ?: emptyList()
-        val luaScripts = if (emulatorSession.areLuaScriptsAllowed()) rom.config.mods.luaScripts.filter { it.enabled } else emptyList()
-        val result = emulatorManager.loadRom(rom, cheats, luaScripts, romInfo?.gameCode)
+        val syncedLuaScripts = getSyncedLuaScripts(rom)
+        val luaScripts = if (emulatorSession.areLuaScriptsAllowed()) syncedLuaScripts.filter { it.enabled } else emptyList()
+        val result = emulatorManager.loadRom(rom, cheats, luaScripts, rom.config.mods.luaScriptFolder)
         when (result) {
             is RomLaunchResult.LaunchFailedRomNotFound,
             is RomLaunchResult.LaunchFailedRomNotSupported,
@@ -835,6 +840,22 @@ class EmulatorViewModel @Inject constructor(
                         emitAll(layoutsRepository.observeLayout(LayoutConfiguration.DEFAULT_ID))
                     }
             }
+    }
+
+    /**
+     * The ROM's script list brought in step with its linked folder (see [LuaScriptFolderSync]), saved to the ROM config if it changed. A
+     * script added to the folder since ROM details was last opened starts switched off, so it isn't run
+     */
+    private suspend fun getSyncedLuaScripts(rom: Rom): List<RomLuaScript> {
+        val mods = rom.config.mods
+        val folderScriptNames = withContext(Dispatchers.IO) {
+            mods.luaScriptFolder?.let { luaScriptStorage.listScripts(it) }?.map { it.name }
+        }
+        val syncedScripts = LuaScriptFolderSync.sync(mods.luaScripts, mods.luaScriptFolder != null, folderScriptNames)
+        if (syncedScripts != mods.luaScripts) {
+            romsRepository.updateRomConfig(rom, rom.config.copy(mods = mods.copy(luaScripts = syncedScripts)))
+        }
+        return syncedScripts
     }
 
     private suspend fun getRomInfo(rom: Rom): RomInfo? = withContext(Dispatchers.IO) {

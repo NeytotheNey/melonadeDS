@@ -41,6 +41,7 @@ fun RomDetailsScreen(
     onNavigateBack: () -> Unit,
     onLaunchRom: (Rom) -> Unit,
     onRomConfigUpdate: (RomConfigUpdateEvent) -> Unit,
+    onModsTabShown: () -> Unit,
     onRetroAchievementsLogin: (username: String, password: String) -> Unit,
     onRetroAchievementsRetryLoad: () -> Unit,
     onViewAchievement: (RAAchievement) -> Unit,
@@ -59,6 +60,13 @@ fun RomDetailsScreen(
                 pageFocusRequesters[tab.tabIndex].requestFocus()
             }
             Unit
+        }
+    }
+
+    // Settled, so swiping past the tab doesn't count
+    LaunchedEffect(pagerState.settledPage) {
+        if (pagerState.settledPage == RomDetailsTab.MODS.tabIndex) {
+            onModsTabShown()
         }
     }
 
@@ -112,6 +120,14 @@ fun RomDetailsScreen(
                         onConfigUpdate = onRomConfigUpdate,
                     )
                 }
+                RomDetailsTab.MODS.tabIndex -> {
+                    RomModsUi(
+                        modifier = Modifier.fillMaxSize().focusRequester(focusRequester),
+                        contentPadding = padding,
+                        romConfigUiState = romConfigUiState,
+                        onConfigUpdate = onRomConfigUpdate,
+                    )
+                }
                 RomDetailsTab.RETRO_ACHIEVEMENTS.tabIndex -> {
                     RomRetroAchievementsUi(
                         modifier = Modifier.fillMaxSize().focusRequester(focusRequester),
@@ -156,6 +172,7 @@ private fun PreviewRomScreen() {
             onNavigateBack = { },
             onLaunchRom = { },
             onRomConfigUpdate = { },
+            onModsTabShown = { },
             onRetroAchievementsLogin = { _, _ -> },
             onRetroAchievementsRetryLoad = { },
             onViewAchievement = { },

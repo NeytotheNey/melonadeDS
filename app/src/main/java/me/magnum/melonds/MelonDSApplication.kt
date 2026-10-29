@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import me.magnum.melonds.common.UriFileHandler
 import me.magnum.melonds.common.uridelegates.UriHandler
 import me.magnum.melonds.domain.repositories.SettingsRepository
+import me.magnum.melonds.impl.LuaScriptStorage
 import me.magnum.melonds.impl.PendingSettingsRestore
 import me.magnum.melonds.impl.debug.DebugLogRecorder
 import me.magnum.melonds.migrations.Migrator
@@ -43,6 +44,7 @@ class MelonDSApplication : Application(), Configuration.Provider {
     @Inject lateinit var migrator: Migrator
     @Inject lateinit var uriHandler: UriHandler
     @Inject lateinit var debugLogRecorder: DebugLogRecorder
+    @Inject lateinit var luaScriptStorage: LuaScriptStorage
 
     private val activeActivities = mutableSetOf<Activity>()
 
@@ -69,6 +71,7 @@ class MelonDSApplication : Application(), Configuration.Provider {
         applyTheme()
         applyDynamicColors()
         performMigrations()
+        deleteOldLuaScriptCopies()
         MelonDSAndroidInterface.setup(UriFileHandler(this, uriHandler))
     }
 
@@ -130,6 +133,13 @@ class MelonDSApplication : Application(), Configuration.Provider {
 
     private fun performMigrations() {
         migrator.performMigrations()
+    }
+
+    @OptIn(DelicateCoroutinesApi::class)
+    private fun deleteOldLuaScriptCopies() {
+        GlobalScope.launch(Dispatchers.IO) {
+            luaScriptStorage.deleteOldScriptCopies()
+        }
     }
 
     override fun onTerminate() {

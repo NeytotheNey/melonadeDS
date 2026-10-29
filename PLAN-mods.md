@@ -189,6 +189,28 @@ Phone check: a HUD script (text with a background, plus a rect) on both screens 
 
 Left for later: `image` (from a string of ARGB bytes, or PNG once `melon.storage` exists), a text size option, circles, a hook after `RunFrame`, the overlay in screenshots as an option, and overlay UVs for WideMelon's wider top screen.
 
+## Phase 6: Mods tab and linked script folders
+
+Decided 2026-10-29 with the user: one folder per game, picked in that game's Mods tab, that stays linked (not copied). Scripts found in it start switched off. The folder replaces the one-file picker.
+
+- ROM details gets a third tab, "Mods", between Configuration and RetroAchievements (`RomDetailsTab`, `RomHeaderUi`, `RomDetailsScreen`). The Mods group moves out of `RomConfigUi` into its own screen, and widescreen will go there too once Phase 2 lands.
+- `RomModsConfig` gets the folder's tree URI (DTO, parcelable and UI model too). Picking uses `OpenDocumentTree` and takes a persisted read permission. Changing or removing the folder clears the script list and releases the old permission, unless another ROM's config still uses that folder.
+- The script list is still `luaScripts` (file name + switch), now kept in step with the folder: top-level `.lua` files only (subfolders wait for `require`), sorted by name. A new file is added switched off. When the folder can be read and a file is gone, its entry is dropped. When the folder can't be read (permission lost, card removed, restored from a backup), the list is kept as it is and the tab says the folder can't be found and offers to pick it again.
+- The sync runs when the Mods tab is shown or ROM details resumes, and at game start. At game start only switched-on scripts that exist are read and sent to native, with the same 1 MB cap. A script that can't be read shows its error in the pause menu's Mods dialog, like a script that fails to load.
+- No delete action: the app never changes the user's folder. To get rid of a script, the user removes it from the folder.
+- `LuaScriptStorage` drops the copy/import/delete code and the `files/scripts/<gamecode>/` folder rules. Old copied scripts aren't migrated: lists that point at no folder are cleared, and `files/scripts/` is deleted once (it only holds copies the app made).
+- The hardcore note and disabled switches move to the Mods tab unchanged. The pause-menu Mods dialog doesn't change.
+
+Phone check: pick a folder with several scripts; they show up off with their descriptions; switch one on and it runs; add a file to the folder from a PC and it appears after leaving and reopening ROM details; delete one and it disappears; change the folder; hardcore still blocks; and a moved folder shows the "can't find the folder" state without crashing the game.
+
+**Done (2026-10-29).** Checked on the phone (Mods tab, hardcore) and on the emulator (picking, adding and deleting files from outside, a moved folder, changing folders, the cover screen). What differs from the plan above, or wasn't in it:
+- The folder's permission is also kept when the same tree is one of the app's own folders (ROM folders, BIOS, saves, perf log), since they share one grant. Picking the same folder again keeps the switches.
+- The folder is listed with one `DocumentsContract` children query. It counts as unreadable when it isn't a directory, when the provider throws, or when the cursor says it's still loading or has an error, so a slow cloud folder can't wipe the list.
+- While the folder can't be found, the last known descriptions stay on screen for that visit.
+- A switched-on script that can't be read at game start is listed after the loaded ones in the pause menu's Mods dialog, with the reason, and can't be switched on there.
+- `files/scripts/` is deleted at app start rather than in a migration, since the fork's versionCode doesn't change.
+- Side fixes: the ROM list is emitted as a copy (a scan could change it mid-iteration), and the GBA ROM/save permissions are only taken when those paths are picked, not on every config save.
+
 ## Later (not planned in detail)
 
 - `melon.screen.set_layout`, once layouts have a name or slot a script can refer to.

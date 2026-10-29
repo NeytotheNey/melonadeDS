@@ -2,80 +2,106 @@ package me.magnum.melonds.impl
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
-import me.magnum.melonds.domain.model.rom.Rom
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.IOException
 import java.io.InputStream
-import java.security.MessageDigest
 
 /**
- * The games' Lua scripts in app storage, in `files/scripts/<folder>/<file name>`, where the folder comes from [getScriptFolderName]. The ROM
- * details screen adds and removes them, and the emulator reads the enabled ones at launch. Native never opens script files itself.
+ * Reads the games' Lua scripts from the folder linked to each game (see RomModsConfig.luaScriptFolder). The app only ever reads that
+ * folder: scripts are added and removed by the user, outside the app. The ROM details screen lists the folder, and the emulator reads the
+ * enabled scripts at launch. Native never opens script files itself.
  */
 class LuaScriptStorage(private val context: Context) {
 
-    sealed class ImportResult {
-        data object Success : ImportResult()
-        data object NotLuaScript : ImportResult()
-        data object TooLarge : ImportResult()
-        data object Failed : ImportResult()
-    }
-
     /**
-     * The folder that holds the ROM's scripts. A real game code is used as is, so the scripts survive the ROM being moved. Homebrew often keeps
-     * a placeholder code (ndstool's `####`, or zeros), and ROMs that share one have separate configs, so those get a folder of their own, keyed
-     * by the ROM's URI like its config is. [gameCode] is null if the header couldn't be read
+     * A `.lua` file at the top of a linked folder
      */
-    fun getScriptFolderName(rom: Rom, gameCode: String?): String {
-        if (gameCode != null && GAME_CODE_REGEX.matches(gameCode) && gameCode !in PLACEHOLDER_GAME_CODES) {
-            return gameCode
-        }
+    class ScriptFile(val name: String, val uri: Uri)
 
-        val uriHash = MessageDigest.getInstance("SHA-256").digest(rom.uri.toString().toByteArray())
-        return HOMEBREW_FOLDER_PREFIX + uriHash.take(8).joinToString("") { "%02x".format(it) }
-    }
-
-    /**
-     * The name of a file picked with the system picker, or null if the provider doesn't say
-     */
-    fun getPickedFileName(uri: Uri): String? {
-        return DocumentFile.fromSingleUri(context, uri)?.name
+    sealed class ReadResult {
+        class Success(val source: ByteArray) : ReadResult()
+        data object FolderNotFound : ReadResult()
+        data object FileNotFound : ReadResult()
+        data object TooLarge : ReadResult()
+        data object Failed : ReadResult()
     }
 
     fun isLuaScriptName(fileName: String): Boolean {
         return fileName.endsWith(LUA_EXTENSION, ignoreCase = true)
     }
 
-    fun scriptExists(folderName: String, fileName: String): Boolean {
-        return getScriptFile(folderName, fileName)?.isFile == true
+    /**
+     * The `.lua` files at the top of the folder, in no particular order. Subfolders are skipped. Returns null if the folder can't be read:
+     * the permission was lost, it was moved or deleted, it's on a card that isn't in, or a cloud provider is still fetching it
+     */
+    fun listScripts(folderUri: Uri): List<ScriptFile>? {
+        return try {
+            // Some providers list a missing folder as empty, which would drop every script, so the folder itself is checked first.
+            // isDirectory is also false when the permission is gone
+            val folder = DocumentFile.fromTreeUri(context, folderUri)?.takeIf { it.isDirectory } ?: return null
+            // DocumentFile asks the provider once per file for its name and once for its type, which is slow in a big folder, so the
+            // children are queried in one go instead
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(folder.uri, DocumentsContract.getDocumentId(folder.uri))
+            val projection = arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+            )
+            context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+                // Cloud providers can answer with part of the list (or none of it) while they fetch the rest, or with an error. That
+                // isn't the folder's real content, so the folder counts as unreadable and the script list is kept
+                val extras = cursor.extras
+                if (extras?.getBoolean(DocumentsContract.EXTRA_LOADING) == true || extras?.getString(DocumentsContract.EXTRA_ERROR) != null) {
+                    return null
+                }
+                buildList {
+                    while (cursor.moveToNext()) {
+                        val documentId = cursor.getString(0) ?: continue
+                        val name = cursor.getString(1) ?: continue
+                        if (cursor.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR || !isLuaScriptName(name)) {
+                            continue
+                        }
+                        add(ScriptFile(name, DocumentsContract.buildDocumentUriUsingTree(folder.uri, documentId)))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not list the script folder", e)
+            null
+        }
     }
 
     /**
-     * Reads a script for the emulator. Returns null if the file is missing, unreadable or over [MAX_SCRIPT_SIZE]
+     * Reads scripts for the emulator, in the order given. The folder is listed once, and each script is looked up in it by name
+     *
+     * @param folderUri The game's script folder. With none, every script is [ReadResult.FolderNotFound]
      */
-    fun readScript(folderName: String, fileName: String): ByteArray? {
-        val file = getScriptFile(folderName, fileName)
-        if (file == null) {
-            Log.w(TAG, "Skipping Lua script $fileName: not inside the game's script folder")
-            return null
+    fun readScripts(folderUri: Uri?, fileNames: List<String>): List<Pair<String, ReadResult>> {
+        val scriptFiles = folderUri?.let { listScripts(it) }?.associateBy { it.name }
+        return fileNames.map { fileName ->
+            val result = if (scriptFiles == null) {
+                ReadResult.FolderNotFound
+            } else {
+                scriptFiles[fileName]?.let { readScript(it) } ?: ReadResult.FileNotFound
+            }
+            if (result !is ReadResult.Success) {
+                Log.w(TAG, "Skipping Lua script $fileName: $result")
+            }
+            fileName to result
         }
-        if (!file.isFile) {
-            Log.d(TAG, "Skipping Lua script $fileName: file not found")
-            return null
-        }
-        if (file.length() > MAX_SCRIPT_SIZE) {
-            Log.w(TAG, "Skipping Lua script $fileName: over $MAX_SCRIPT_SIZE bytes")
-            return null
-        }
+    }
 
+    private fun readScript(scriptFile: ScriptFile): ReadResult {
         return try {
-            file.readBytes()
+            // One byte over the limit is enough to know the file is too large, so a huge file is never read whole
+            val content = context.contentResolver.openInputStream(scriptFile.uri)?.use { readAtMost(it, MAX_SCRIPT_SIZE + 1) } ?: return ReadResult.Failed
+            if (content.size > MAX_SCRIPT_SIZE) ReadResult.TooLarge else ReadResult.Success(content)
         } catch (e: Exception) {
-            Log.w(TAG, "Skipping Lua script $fileName: could not be read", e)
-            null
+            Log.w(TAG, "Could not read Lua script ${scriptFile.name}", e)
+            ReadResult.Failed
         }
     }
 
@@ -83,10 +109,9 @@ class LuaScriptStorage(private val context: Context) {
      * The script's description from its header (see [parseDescription]), or null if it has none or can't be read. Only the start of the
      * file is read
      */
-    fun readDescription(folderName: String, fileName: String): String? {
-        val file = getScriptFile(folderName, fileName) ?: return null
+    fun readDescription(scriptFile: ScriptFile): String? {
         return try {
-            file.inputStream().use { parseDescription(readAtMost(it, DESCRIPTION_READ_LIMIT)) }
+            context.contentResolver.openInputStream(scriptFile.uri)?.use { parseDescription(readAtMost(it, DESCRIPTION_READ_LIMIT)) }
         } catch (e: Exception) {
             null
         }
@@ -165,65 +190,13 @@ class LuaScriptStorage(private val context: Context) {
     }
 
     /**
-     * Copies a picked file into the ROM's folder as [fileName], replacing a script with the same name. The old script is kept if the copy fails
+     * Older versions copied picked scripts into `files/scripts/`. Scripts are read from a linked folder now, and those copies were only ever
+     * made by the app, so they're deleted. Does nothing once they're gone
      */
-    fun importScript(folderName: String, sourceUri: Uri, fileName: String): ImportResult {
-        if (!isLuaScriptName(fileName)) {
-            return ImportResult.NotLuaScript
-        }
-
-        var tempFile: File? = null
-        return try {
-            val file = getScriptFile(folderName, fileName) ?: return ImportResult.Failed
-            // One byte over the limit is enough to know the file is too large, so a huge file is never read whole
-            val content = context.contentResolver.openInputStream(sourceUri)?.use { readAtMost(it, MAX_SCRIPT_SIZE + 1) } ?: return ImportResult.Failed
-            if (content.size > MAX_SCRIPT_SIZE) {
-                return ImportResult.TooLarge
-            }
-
-            val scriptFolder = file.parentFile!!
-            if (!scriptFolder.isDirectory && !scriptFolder.mkdirs()) {
-                return ImportResult.Failed
-            }
-            // Written next to it and renamed, so a failed copy never leaves half a script. The temp name is short, so it fits whatever the
-            // script's name is, and doesn't end in .lua, so it can't clash with one
-            tempFile = File.createTempFile(TEMP_PREFIX, TEMP_SUFFIX, scriptFolder)
-            tempFile.writeBytes(content)
-            if (tempFile.renameTo(file)) ImportResult.Success else ImportResult.Failed
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to import Lua script $fileName", e)
-            ImportResult.Failed
-        } finally {
-            // Gone after a successful rename
-            tempFile?.delete()
-        }
-    }
-
-    /**
-     * Returns true if the script's file is gone, including when it never existed
-     */
-    fun deleteScript(folderName: String, fileName: String): Boolean {
-        return try {
-            val file = getScriptFile(folderName, fileName) ?: return true
-            !file.exists() || file.delete()
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to delete Lua script $fileName", e)
-            false
-        }
-    }
-
-    /**
-     * The script's file, or null if [folderName] or [fileName] would point outside the ROM's folder. The names come from the ROM config, the
-     * cart header and the file picker, so they can't be trusted
-     */
-    private fun getScriptFile(folderName: String, fileName: String): File? {
-        return try {
-            val scriptsRoot = File(context.filesDir, SCRIPTS_FOLDER).canonicalFile
-            val scriptFolder = File(scriptsRoot, folderName).canonicalFile
-            val file = File(scriptFolder, fileName).canonicalFile
-            if (scriptFolder.parentFile == scriptsRoot && file.parentFile == scriptFolder) file else null
-        } catch (e: IOException) {
-            null
+    fun deleteOldScriptCopies() {
+        val oldScriptsFolder = File(context.filesDir, OLD_SCRIPTS_FOLDER)
+        if (oldScriptsFolder.exists() && !oldScriptsFolder.deleteRecursively()) {
+            Log.w(TAG, "Could not delete the old script copies")
         }
     }
 
@@ -242,16 +215,9 @@ class LuaScriptStorage(private val context: Context) {
 
     companion object {
         private const val TAG = "melonDS-lua"
-        private const val SCRIPTS_FOLDER = "scripts"
-        private const val HOMEBREW_FOLDER_PREFIX = "homebrew-"
+        private const val OLD_SCRIPTS_FOLDER = "scripts"
         private const val LUA_EXTENSION = ".lua"
-        private const val TEMP_PREFIX = "lua"
-        private const val TEMP_SUFFIX = ".tmp"
         const val MAX_SCRIPT_SIZE = 1024 * 1024
-
-        // Retail codes are 4 uppercase letters or digits. Anything else (NUL bytes, spaces, ndstool's ####) is treated as a placeholder
-        private val GAME_CODE_REGEX = Regex("[A-Z0-9]{4}")
-        private val PLACEHOLDER_GAME_CODES = setOf("0000")
 
         // Script headers
         private const val DESCRIPTION_READ_LIMIT = 4 * 1024

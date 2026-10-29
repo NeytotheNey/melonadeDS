@@ -109,6 +109,13 @@ fun RomHeaderUi(
                     }
                 )
                 Tab(
+                    selected = pagerState.currentPage == RomDetailsTab.MODS.tabIndex,
+                    onClick = { onTabClicked(RomDetailsTab.MODS) },
+                    text = {
+                        Text(text = stringResource(id = R.string.rom_details_mods_tab).uppercase())
+                    }
+                )
+                Tab(
                     selected = pagerState.currentPage == RomDetailsTab.RETRO_ACHIEVEMENTS.tabIndex,
                     onClick = { onTabClicked(RomDetailsTab.RETRO_ACHIEVEMENTS) },
                     text = {

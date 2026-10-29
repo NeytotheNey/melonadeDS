@@ -233,7 +233,8 @@ class FileSystemRomsRepository(
     }
 
     private fun onRomsChanged() {
-        romsChannel.tryEmit(roms)
+        // A copy, so collectors on other threads never iterate the list while a scan changes it
+        romsChannel.tryEmit(ArrayList(roms))
     }
 
     private suspend fun loadCachedRoms() {

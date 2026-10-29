@@ -6,11 +6,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
@@ -18,7 +19,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.UriPermissionManager
-import me.magnum.melonds.common.romprocessors.RomFileProcessorFactory
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.model.rom.config.RomConfig
 import me.magnum.melonds.domain.model.rom.config.RomGbaSlotConfig
@@ -26,6 +26,7 @@ import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import me.magnum.melonds.domain.repositories.RetroAchievementsRepository
 import me.magnum.melonds.domain.repositories.RomsRepository
 import me.magnum.melonds.domain.repositories.SettingsRepository
+import me.magnum.melonds.impl.LuaScriptFolderSync
 import me.magnum.melonds.impl.LuaScriptStorage
 import me.magnum.melonds.impl.RomIconProvider
 import me.magnum.melonds.parcelables.RomParcelable
@@ -33,7 +34,6 @@ import me.magnum.melonds.ui.romdetails.model.LuaScriptEvent
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiState
 import me.magnum.melonds.ui.romdetails.model.RomConfigUpdateEvent
 import me.magnum.melonds.ui.romdetails.model.RomGbaSlotConfigUiModel
-import me.magnum.melonds.ui.romdetails.model.RomLuaScriptsUiModel
 import me.magnum.melonds.ui.romlist.RomIcon
 import javax.inject.Inject
 
@@ -44,10 +44,9 @@ class RomDetailsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val romIconProvider: RomIconProvider,
     private val uriPermissionManager: UriPermissionManager,
-    private val romFileProcessorFactory: RomFileProcessorFactory,
     private val retroAchievementsRepository: RetroAchievementsRepository,
     private val luaScriptStorage: LuaScriptStorage,
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private val _rom = MutableStateFlow(savedStateHandle.get<RomParcelable>(RomDetailsActivity.KEY_ROM)!!.rom)
@@ -55,35 +54,36 @@ class RomDetailsViewModel @Inject constructor(
 
     private val _romConfig = MutableStateFlow(_rom.value.config)
 
-    // The ROM's script folder, worked out from the ROM header the same way the emulator does. Null until the header has been read
-    private val _scriptFolder = MutableStateFlow<String?>(null)
+    // What the last read of the linked script folder found. Null until it has been read
+    private val _luaScriptFolderState = MutableStateFlow<LuaScriptFolderState?>(null)
     // Same rule as EmulatorSession: hardcore only applies while logged in to RetroAchievements
     private val _areLuaScriptsBlockedByHardcore = MutableStateFlow(false)
-    // Bumped when a script file is added or removed, so missing files are checked again even if the config didn't change
-    private val _luaScriptFilesVersion = MutableStateFlow(0)
+    private var luaScriptSyncJob: Job? = null
 
     // Buffered until the screen collects it, since a picker result can arrive before that (after the process was killed, for example)
     private val _luaScriptEvent = Channel<LuaScriptEvent>(Channel.UNLIMITED)
     val luaScriptEvent = _luaScriptEvent.receiveAsFlow()
 
-    init {
-        viewModelScope.launch {
-            val rom = _rom.value
-            _scriptFolder.value = withContext(Dispatchers.IO) {
-                val gameCode = romFileProcessorFactory.getFileRomProcessorForDocument(rom.uri)?.getRomInfo(rom)?.gameCode
-                luaScriptStorage.getScriptFolderName(rom, gameCode)
-            }
-        }
-    }
+    /**
+     * @param folderUri The folder that was read. The rest only applies while the ROM is still linked to it
+     * @param isReadable False if the folder couldn't be read, in which case the script list was kept as it was
+     * @param descriptions Each script's description from its header, by file name
+     */
+    private data class LuaScriptFolderState(val folderUri: Uri, val isReadable: Boolean, val descriptions: Map<String, String>)
 
     val romConfigUiState by lazy {
         val uiStateFlow = MutableStateFlow<RomConfigUiState>(RomConfigUiState.Loading)
         viewModelScope.launch {
-            combine(_romConfig, _scriptFolder, _areLuaScriptsBlockedByHardcore, _luaScriptFilesVersion) { romConfig, scriptFolder, areLuaScriptsBlocked, _ ->
-                romDetailsUiMapper.mapRomConfigToUi(romConfig).copy(
-                    luaScripts = getLuaScriptsUiModel(romConfig, scriptFolder).copy(
-                        isScriptFolderKnown = scriptFolder != null,
+            combine(_romConfig, _luaScriptFolderState, _areLuaScriptsBlockedByHardcore) { romConfig, folderState, areLuaScriptsBlocked ->
+                val romConfigUiModel = romDetailsUiMapper.mapRomConfigToUi(romConfig)
+                // What was read from the previous folder says nothing about the new one
+                val currentFolderState = folderState?.takeIf { it.folderUri == romConfig.mods.luaScriptFolder }
+                romConfigUiModel.copy(
+                    luaScripts = romConfigUiModel.luaScripts.copy(
+                        isFolderMissing = currentFolderState?.isReadable == false,
+                        isFolderEmpty = currentFolderState?.isReadable == true && romConfig.mods.luaScripts.isEmpty(),
                         areScriptsBlockedByHardcore = areLuaScriptsBlocked,
+                        descriptions = currentFolderState?.descriptions.orEmpty(),
                     ),
                 )
             }.collect {
@@ -120,13 +120,17 @@ class RomDetailsViewModel @Inject constructor(
                 }
                 it.copy(gbaSlotConfig = newGbaSlotConfig)
             }
+            // The file permissions are only taken here, when a file is picked. Taking them on every save would throw if a grant was lost
+            // (after a settings restore, for example), and the script sync saves on its own when the screen resumes
             is RomConfigUpdateEvent.GbaRomPathUpdate -> currentRomConfig.let {
                 (currentRomConfig.gbaSlotConfig as? RomGbaSlotConfig.GbaRom)?.let { gbaConfig ->
+                    event.gbaRomPath?.let { uri -> uriPermissionManager.persistFilePermissions(uri, Permission.READ) }
                     it.copy(gbaSlotConfig = gbaConfig.copy(romPath = event.gbaRomPath))
                 }
             }
             is RomConfigUpdateEvent.GbaSavePathUpdate -> currentRomConfig.let {
                 (currentRomConfig.gbaSlotConfig as? RomGbaSlotConfig.GbaRom)?.let { gbaConfig ->
+                    event.gbaSavePath?.let { uri -> uriPermissionManager.persistFilePermissions(uri, Permission.READ_WRITE) }
                     it.copy(gbaSlotConfig = gbaConfig.copy(savePath = event.gbaSavePath))
                 }
             }
@@ -135,13 +139,8 @@ class RomDetailsViewModel @Inject constructor(
             is RomConfigUpdateEvent.LuaScriptToggle -> currentRomConfig.withLuaScripts { luaScripts ->
                 luaScripts.map { if (it.fileName == event.fileName) it.copy(enabled = event.enabled) else it }
             }
-            // These change files first, and update the config once that worked
-            is RomConfigUpdateEvent.LuaScriptAdd -> {
-                addLuaScript(event.uri, event.replace)
-                null
-            }
-            is RomConfigUpdateEvent.LuaScriptDelete -> {
-                deleteLuaScript(event.fileName)
+            is RomConfigUpdateEvent.LuaScriptFolderUpdate -> {
+                updateLuaScriptFolder(event.folderUri)
                 null
             }
         }
@@ -155,75 +154,107 @@ class RomDetailsViewModel @Inject constructor(
         return RomIcon(romIconBitmap, iconFiltering)
     }
 
-    private fun addLuaScript(uri: Uri, replace: Boolean) {
-        viewModelScope.launch {
-            // The picker result can arrive before the folder is known, if the process was killed while it was open
-            val scriptFolder = _scriptFolder.filterNotNull().first()
-            val fileName = withContext(Dispatchers.IO) { luaScriptStorage.getPickedFileName(uri) }
-            if (fileName == null) {
-                _luaScriptEvent.trySend(LuaScriptEvent.AddFailed)
-                return@launch
-            }
-            // .lua files often have no reliable MIME type, so the picker shows every file and the name is checked here
-            if (!luaScriptStorage.isLuaScriptName(fileName)) {
-                _luaScriptEvent.trySend(LuaScriptEvent.NotLuaScript)
-                return@launch
-            }
-            // A file left in the folder without a config entry isn't shown anywhere, so only a script in the list needs confirming
-            if (!replace && _romConfig.value.mods.luaScripts.any { it.fileName == fileName }) {
-                _luaScriptEvent.trySend(LuaScriptEvent.ConfirmReplace(uri, fileName))
-                return@launch
+    /**
+     * Brings the script list in step with the linked folder (see [LuaScriptFolderSync]) and reads the scripts' descriptions. Called when the
+     * Mods tab is shown and when the screen resumes, so files added to or removed from the folder outside the app show up
+     */
+    fun syncLuaScripts() {
+        luaScriptSyncJob?.cancel()
+        luaScriptSyncJob = viewModelScope.launch {
+            val folderUri = _romConfig.value.mods.luaScriptFolder
+            val (scriptFiles, descriptions) = withContext(Dispatchers.IO) {
+                val scriptFiles = folderUri?.let { luaScriptStorage.listScripts(it) }
+                val descriptions = scriptFiles.orEmpty().mapNotNull { scriptFile ->
+                    luaScriptStorage.readDescription(scriptFile)?.let { scriptFile.name to it }
+                }.toMap()
+                scriptFiles to descriptions
             }
 
-            val result = withContext(Dispatchers.IO) { luaScriptStorage.importScript(scriptFolder, uri, fileName) }
-            when (result) {
-                LuaScriptStorage.ImportResult.Success -> {
-                    // Applied to the config as it is now, so changes made while the file was copied are kept. A replaced script keeps its
-                    // place and its switch
-                    applyRomConfig(_romConfig.value.withLuaScripts { luaScripts ->
-                        if (luaScripts.any { it.fileName == fileName }) luaScripts else luaScripts + RomLuaScript(fileName = fileName, enabled = true)
-                    })
-                    _luaScriptFilesVersion.update { it + 1 }
-                }
-                LuaScriptStorage.ImportResult.NotLuaScript -> _luaScriptEvent.trySend(LuaScriptEvent.NotLuaScript)
-                LuaScriptStorage.ImportResult.TooLarge -> _luaScriptEvent.trySend(LuaScriptEvent.TooLarge)
-                LuaScriptStorage.ImportResult.Failed -> _luaScriptEvent.trySend(LuaScriptEvent.AddFailed)
+            // Applied to the config as it is now, so switches flipped while the folder was read are kept. If the folder was changed in the
+            // meantime, the sync started for the new one takes over
+            val romConfig = _romConfig.value
+            if (romConfig.mods.luaScriptFolder != folderUri) {
+                return@launch
             }
+            val syncedScripts = LuaScriptFolderSync.sync(romConfig.mods.luaScripts, folderUri != null, scriptFiles?.map { it.name })
+            if (syncedScripts != romConfig.mods.luaScripts) {
+                applyRomConfig(romConfig.withLuaScripts { syncedScripts })
+            }
+            // When the folder can't be read, the descriptions read from it before are kept for as long as the screen is open
+            val shownDescriptions = if (scriptFiles == null) {
+                _luaScriptFolderState.value?.takeIf { it.folderUri == folderUri }?.descriptions.orEmpty()
+            } else {
+                descriptions
+            }
+            _luaScriptFolderState.value = folderUri?.let { LuaScriptFolderState(it, isReadable = scriptFiles != null, descriptions = shownDescriptions) }
         }
     }
 
-    private fun deleteLuaScript(fileName: String) {
-        // The screen only offers delete once the folder is known, so the file is never left behind
-        val scriptFolder = _scriptFolder.value ?: return
-        viewModelScope.launch {
-            val isFileGone = withContext(Dispatchers.IO) { luaScriptStorage.deleteScript(scriptFolder, fileName) }
-            if (!isFileGone) {
-                _luaScriptEvent.trySend(LuaScriptEvent.DeleteFailed)
-                return@launch
+    private fun updateLuaScriptFolder(newFolderUri: Uri?) {
+        val oldFolderUri = _romConfig.value.mods.luaScriptFolder
+        if (newFolderUri == oldFolderUri) {
+            // Picking the same folder again keeps the switches. It's read again, which clears the "can't find the folder" state if access
+            // to it was given back
+            if (newFolderUri != null) {
+                takeLuaScriptFolderPermission(newFolderUri)
             }
+            syncLuaScripts()
+            return
+        }
 
-            applyRomConfig(_romConfig.value.withLuaScripts { luaScripts -> luaScripts.filter { it.fileName != fileName } })
-            _luaScriptFilesVersion.update { it + 1 }
+        if (newFolderUri != null && !takeLuaScriptFolderPermission(newFolderUri)) {
+            _luaScriptEvent.trySend(LuaScriptEvent.FolderPickFailed)
+            return
+        }
+
+        // The switches were for the old folder's scripts, so the list starts over
+        val currentRomConfig = _romConfig.value
+        applyRomConfig(currentRomConfig.copy(mods = currentRomConfig.mods.copy(luaScriptFolder = newFolderUri, luaScripts = emptyList())))
+        oldFolderUri?.let { releaseLuaScriptFolderPermission(it) }
+        syncLuaScripts()
+    }
+
+    private fun takeLuaScriptFolderPermission(folderUri: Uri): Boolean {
+        return try {
+            uriPermissionManager.persistDirectoryPermissions(folderUri, Permission.READ)
+            true
+        } catch (e: SecurityException) {
+            false
         }
     }
 
     /**
-     * Checks the script files: which are missing, and the descriptions in their headers. Done whenever the list is built, so editing a file
-     * shows up next time
+     * Gives back the read permission of a folder that was unlinked, unless something else still uses it: another game's script folder, or
+     * one of the app's own folders (picking the same folder there gives the same permission, so releasing it would break that one too)
      */
-    private suspend fun getLuaScriptsUiModel(romConfig: RomConfig, scriptFolder: String?): RomLuaScriptsUiModel {
-        if (scriptFolder == null) {
-            return RomLuaScriptsUiModel()
+    private fun releaseLuaScriptFolderPermission(folderUri: Uri) {
+        val currentRom = _rom.value
+        viewModelScope.launch {
+            // Finished even if the screen is closed meanwhile, or the permission would never be given back
+            withContext(NonCancellable + Dispatchers.IO) {
+                val isFolderStillUsed = try {
+                    val isUsedByOtherRom = romsRepository.getRoms().first().any {
+                        !it.hasSameFileAsRom(currentRom) && it.config.mods.luaScriptFolder == folderUri
+                    }
+                    isUsedByOtherRom || folderUri in getAppFolders()
+                } catch (e: Exception) {
+                    // When in doubt the permission is kept. Keeping one too many is harmless, releasing one in use breaks that folder
+                    true
+                }
+                if (!isFolderStillUsed) {
+                    uriPermissionManager.releaseDirectoryPermissions(folderUri, Permission.READ)
+                }
+            }
         }
+    }
 
-        return withContext(Dispatchers.IO) {
-            val fileNames = romConfig.mods.luaScripts.map { it.fileName }
-            val missingScripts = fileNames.filter { !luaScriptStorage.scriptExists(scriptFolder, it) }.toSet()
-            val descriptions = (fileNames - missingScripts).mapNotNull { fileName ->
-                luaScriptStorage.readDescription(scriptFolder, fileName)?.let { fileName to it }
-            }.toMap()
-            RomLuaScriptsUiModel(missingScripts = missingScripts, descriptions = descriptions)
-        }
+    private fun getAppFolders(): List<Uri> {
+        return settingsRepository.getRomSearchDirectories().toList() + listOfNotNull(
+            settingsRepository.getDsBiosDirectory(),
+            settingsRepository.getDsiBiosDirectory(),
+            settingsRepository.getSaveFileDirectory(),
+            settingsRepository.getPerformanceLogDirectory(),
+        )
     }
 
     private fun RomConfig.withLuaScripts(update: (List<RomLuaScript>) -> List<RomLuaScript>): RomConfig {
@@ -233,14 +264,13 @@ class RomDetailsViewModel @Inject constructor(
     private fun applyRomConfig(newConfig: RomConfig) {
         _romConfig.value = newConfig
         _rom.update { it.copy(config = newConfig) }
+        // Otherwise the ROM from the intent comes back after the process is killed, and a folder linked before that would look like it was
+        // never linked, so its permission wouldn't be given back when it's replaced
+        savedStateHandle[RomDetailsActivity.KEY_ROM] = RomParcelable(_rom.value)
         saveRomConfig(newConfig)
     }
 
     private fun saveRomConfig(newConfig: RomConfig) {
-        if (newConfig.gbaSlotConfig is RomGbaSlotConfig.GbaRom) {
-            newConfig.gbaSlotConfig.romPath?.let { uriPermissionManager.persistFilePermissions(it, Permission.READ) }
-            newConfig.gbaSlotConfig.savePath?.let { uriPermissionManager.persistFilePermissions(it, Permission.READ_WRITE) }
-        }
         romsRepository.updateRomConfig(_rom.value, newConfig)
     }
 }

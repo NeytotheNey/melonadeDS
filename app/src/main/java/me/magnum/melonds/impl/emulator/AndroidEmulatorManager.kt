@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import me.magnum.melonds.MelonEmulator
+import me.magnum.melonds.R
 import me.magnum.melonds.common.PermissionHandler
 import me.magnum.melonds.common.romprocessors.RomFileProcessorFactory
 import me.magnum.melonds.common.runtime.ScreenshotFrameBufferProvider
@@ -52,12 +53,16 @@ class AndroidEmulatorManager(
 
     private val achievementsSharedFlow = MutableSharedFlow<RAEvent>(replay = 0, extraBufferCapacity = Int.MAX_VALUE)
 
-    // Names of the Lua scripts sent at launch (their position is the ID native uses), the IDs of the ones still running, and the errors that
-    // switched scripts off. Replaced at launch. The running set is shrunk by the message queue thread when an error switches a script off, and
-    // changed by the UI thread when the player switches one off or on, so changes to it go through luaScriptsLock
+    // Names of the session's Lua scripts: first the ones sent at launch (their position is the ID native uses), then the ones that couldn't be
+    // read, which native never sees. Then the IDs of the ones still running, and the errors that switched scripts off. Replaced at launch. The
+    // running set is shrunk by the message queue thread when an error switches a script off, and changed by the UI thread when the player
+    // switches one off or on, so changes to it go through luaScriptsLock
     private val luaScriptsLock = Any()
     @Volatile
     private var luaScriptNames = emptyList<String>()
+    // How many of luaScriptNames were sent to native
+    @Volatile
+    private var loadedLuaScriptCount = 0
     @Volatile
     private var runningLuaScripts = emptySet<Int>()
     @Volatile
@@ -125,7 +130,7 @@ class AndroidEmulatorManager(
         }
     }
 
-    override suspend fun loadRom(rom: Rom, cheats: List<Cheat>, luaScripts: List<RomLuaScript>, gameCode: String?): RomLaunchResult {
+    override suspend fun loadRom(rom: Rom, cheats: List<Cheat>, luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?): RomLaunchResult {
         return withContext(Dispatchers.IO) {
             val fileRomDocument = DocumentFile.fromSingleUri(context, rom.uri) ?: return@withContext RomLaunchResult.LaunchFailedRomNotFound
             val fileRomProcessor = romFileProcessorFactory.getFileRomProcessorForDocument(fileRomDocument)
@@ -166,7 +171,7 @@ class AndroidEmulatorManager(
             } else {
                 messageQueue.start()
                 MelonEmulator.setupCheats(cheats.toTypedArray())
-                setupLuaScripts(rom, luaScripts, gameCode)
+                setupLuaScripts(luaScripts, luaScriptFolder)
                 MelonEmulator.startEmulation()
 
                 RomLaunchResult.LaunchSuccessful(loadResult != MelonEmulator.LoadResult.SUCCESS_GBA_FAILED)
@@ -240,7 +245,8 @@ class AndroidEmulatorManager(
 
     override fun enableLuaScript(scriptId: Int): Boolean {
         synchronized(luaScriptsLock) {
-            if (scriptId !in luaScriptNames.indices || scriptId in runningLuaScripts) {
+            // A script that couldn't be read at launch has nothing to run
+            if (scriptId !in 0 until loadedLuaScriptCount || scriptId in runningLuaScripts) {
                 return false
             }
             // If loading it fails, the stop event switches it off again with the new error
@@ -349,36 +355,54 @@ class AndroidEmulatorManager(
     }
 
     /**
-     * Reads the enabled scripts from the ROM's folder in app storage (see [LuaScriptStorage]) and gives them to the emulator. Missing or
-     * unreadable files are skipped.
+     * Reads the enabled scripts from the game's linked folder (see [LuaScriptStorage]) and gives them to the emulator. A script that can't be
+     * read is listed as switched off with the reason as its error, the same as a script that fails to load
      */
-    private fun setupLuaScripts(rom: Rom, luaScripts: List<RomLuaScript>, gameCode: String?) {
+    private fun setupLuaScripts(luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?) {
         val enabledScripts = luaScripts.filter { it.enabled }
         if (enabledScripts.isEmpty()) {
             clearLuaScripts()
             return
         }
 
-        val folderName = luaScriptStorage.getScriptFolderName(rom, gameCode)
-        val loadedScripts = enabledScripts.mapNotNull { script ->
-            luaScriptStorage.readScript(folderName, script.fileName)?.let { script.fileName to it }
+        val readResults = luaScriptStorage.readScripts(luaScriptFolder, enabledScripts.map { it.fileName })
+        val loadedScripts = readResults.mapNotNull { (fileName, result) ->
+            (result as? LuaScriptStorage.ReadResult.Success)?.let { fileName to it.source }
         }
+        val failedScripts = readResults.mapNotNull { (fileName, result) -> getLuaScriptReadError(result)?.let { fileName to it } }
 
         DebugLog.event { "Lua scripts: ${loadedScripts.size} of ${enabledScripts.size} enabled loaded" }
         synchronized(luaScriptsLock) {
-            luaScriptNames = loadedScripts.map { it.first }
+            luaScriptNames = loadedScripts.map { it.first } + failedScripts.map { it.first }
+            loadedLuaScriptCount = loadedScripts.size
             runningLuaScripts = loadedScripts.indices.toSet()
-            luaScriptErrors = emptyMap()
-            luaScriptDescriptions = loadedScripts.map { luaScriptStorage.parseDescription(it.second) }
+            luaScriptErrors = failedScripts.withIndex().associate { (index, script) -> loadedScripts.size + index to script.second }
+            luaScriptDescriptions = loadedScripts.map { luaScriptStorage.parseDescription(it.second) } + failedScripts.map { null }
         }
         if (loadedScripts.isNotEmpty()) {
             MelonEmulator.setupLuaScripts(loadedScripts.map { it.first }.toTypedArray(), loadedScripts.map { it.second }.toTypedArray())
         }
+        // Told like a script that fails to load, so the player sees why it isn't running
+        failedScripts.forEachIndexed { index, (fileName, error) ->
+            _emulatorEvents.tryEmit(EmulatorEvent.LuaScriptStopped(loadedScripts.size + index, fileName, error))
+        }
+    }
+
+    private fun getLuaScriptReadError(result: LuaScriptStorage.ReadResult): String? {
+        val error = when (result) {
+            is LuaScriptStorage.ReadResult.Success -> return null
+            LuaScriptStorage.ReadResult.FolderNotFound -> R.string.lua_script_error_folder_not_found
+            LuaScriptStorage.ReadResult.FileNotFound -> R.string.lua_script_error_file_not_found
+            LuaScriptStorage.ReadResult.TooLarge -> R.string.lua_script_error_too_large
+            LuaScriptStorage.ReadResult.Failed -> R.string.lua_script_error_unreadable
+        }
+        return context.getString(error)
     }
 
     private fun clearLuaScripts() {
         synchronized(luaScriptsLock) {
             luaScriptNames = emptyList()
+            loadedLuaScriptCount = 0
             runningLuaScripts = emptySet()
             luaScriptErrors = emptyMap()
             luaScriptDescriptions = emptyList()

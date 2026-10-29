@@ -20,10 +20,10 @@ interface EmulatorManager {
     val emulatorEvents: Flow<EmulatorEvent>
 
     /**
-     * @param luaScripts The enabled Lua scripts to run, read from the game's script folder. Empty when scripts aren't allowed
-     * @param gameCode The game code from the ROM header, which names the script folder (see LuaScriptStorage). Null if it couldn't be read
+     * @param luaScripts The enabled Lua scripts to run, read from [luaScriptFolder]. Empty when scripts aren't allowed
+     * @param luaScriptFolder The game's linked script folder. Null if none is linked
      */
-    suspend fun loadRom(rom: Rom, cheats: List<Cheat>, luaScripts: List<RomLuaScript>, gameCode: String?): RomLaunchResult
+    suspend fun loadRom(rom: Rom, cheats: List<Cheat>, luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?): RomLaunchResult
 
     /**
      * Whether any Lua script sent at launch is still running (none has been switched off after an error). Safe to call from any thread
@@ -31,7 +31,8 @@ interface EmulatorManager {
     fun areLuaScriptsRunning(): Boolean
 
     /**
-     * The Lua scripts loaded in this session, in the order sent at launch (their position is their ID). Empty if none was loaded
+     * The Lua scripts of this session (their position is their ID): the ones sent at launch in that order, then the ones that couldn't be
+     * read, which are off with the reason as their error. Empty if none was switched on
      */
     fun getLuaScripts(): List<LuaScriptStatus>
 
@@ -42,7 +43,7 @@ interface EmulatorManager {
 
     /**
      * Switches a stopped Lua script back on for this session, and clears its last error. The ROM config isn't changed. Returns false if there
-     * is no such script or it already runs
+     * is no such script, it couldn't be read at launch, or it already runs
      */
     fun enableLuaScript(scriptId: Int): Boolean
 

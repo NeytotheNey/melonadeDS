@@ -16,8 +16,7 @@ sealed class RomConfigUpdateEvent {
     data class WideViewWidthUpdate(val newWideViewWidth: Int?) : RomConfigUpdateEvent()
     data class LuaScriptToggle(val fileName: String, val enabled: Boolean) : RomConfigUpdateEvent()
     /**
-     * Copies a picked file into the game's script folder. A script with the same name is only replaced if [replace] is set
+     * Links a picked folder as the game's script folder, or unlinks it if [folderUri] is null
      */
-    data class LuaScriptAdd(val uri: Uri, val replace: Boolean) : RomConfigUpdateEvent()
-    data class LuaScriptDelete(val fileName: String) : RomConfigUpdateEvent()
+    data class LuaScriptFolderUpdate(val folderUri: Uri?) : RomConfigUpdateEvent()
 }

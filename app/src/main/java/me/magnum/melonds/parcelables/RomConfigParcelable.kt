@@ -2,6 +2,7 @@ package me.magnum.melonds.parcelables
 
 import android.os.Parcel
 import android.os.Parcelable
+import androidx.core.net.toUri
 import me.magnum.melonds.domain.model.rom.config.RomConfig
 import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import me.magnum.melonds.domain.model.rom.config.RomModsConfig
@@ -26,6 +27,7 @@ class RomConfigParcelable : Parcelable {
             customName = parcel.readString(),
             mods = RomModsConfig(
                 wideViewWidth = parcel.readInt().takeIf { it > 0 },
+                luaScriptFolder = parcel.readString()?.toUri(),
                 luaScripts = List(parcel.readInt()) {
                     RomLuaScript(fileName = parcel.readString()!!, enabled = parcel.readInt() != 0)
                 },
@@ -41,6 +43,7 @@ class RomConfigParcelable : Parcelable {
         dest.writeString(romConfig.customName)
         // 0 means widescreen is off
         dest.writeInt(romConfig.mods.wideViewWidth ?: 0)
+        dest.writeString(romConfig.mods.luaScriptFolder?.toString())
         dest.writeInt(romConfig.mods.luaScripts.size)
         romConfig.mods.luaScripts.forEach {
             dest.writeString(it.fileName)
