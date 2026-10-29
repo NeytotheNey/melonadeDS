@@ -6,6 +6,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "LuaDraw.h"
 #include "MelonEventMessenger.h"
@@ -22,6 +23,34 @@ struct LuaScriptSource
 {
     std::string name;
     std::string source;
+};
+
+/**
+ * What the scripts can use from their folder besides themselves: modules for require(), by module name, and images for melon.image.load(), by
+ * path. Read by the app at launch and never changed during the session, so every script's state shares it. An entry that was left out (over a
+ * cap, or unreadable) has no content, and [leftOutReason] says why
+ */
+struct LuaFolderContent
+{
+    struct Module
+    {
+        // In the folder, like "lib/util.lua"
+        std::string path;
+        std::optional<std::string> source;
+        std::string leftOutReason;
+    };
+
+    struct Image
+    {
+        int width = 0;
+        int height = 0;
+        // 0xAARRGGBB, premultiplied. Empty when left out
+        std::vector<melonDS::u32> pixels;
+        std::string leftOutReason;
+    };
+
+    std::unordered_map<std::string, Module> modules;
+    std::unordered_map<std::string, Image> images;
 };
 
 /**
@@ -67,6 +96,8 @@ struct LuaInputOverride
  * When the console is reset, every running script is reloaded from scratch (on_unload(), then the main chunk and on_load() again).
  * melon.input.press()/release() only last for the next frame, so on_frame() calls them every frame. melon.input.set_touch() keeps its position
  * until clear_touch(), and moves the touch (the player's, or one pressed with KEY.TOUCH). held() and touch() are the player's own input.
+ * require(name) loads a module from the script folder's subfolders (see LuaFolderContent), once per state. melon.image.load(path) gives an
+ * image from the folder, and melon.image.new(w, h, argb) one made from a string.
  * melon.screen.* and melon.emu.* requests are sent to the app once the callback returns (the last value of each kind wins), and are ignored
  * during on_unload(). melon.draw.* calls are only recorded during on_frame() and on_frame_end() (they do nothing anywhere else,
  * on_state_loaded() included), and drawn into [getOverlay] once every script's on_frame_end() has run, in script order (each script's on_frame()
@@ -84,7 +115,7 @@ public:
     LuaEngine();
     ~LuaEngine();
 
-    void setScripts(std::vector<LuaScriptSource> scripts);
+    void setScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent);
     /**
      * Loads the scripts given to [setScripts] and calls their on_load(game). Called once the game has started
      */
@@ -173,8 +204,15 @@ private:
     static int luaDrawRect(lua_State* L);
     static int luaDrawText(lua_State* L);
     static int luaDrawCircle(lua_State* L);
+    static int luaDrawImage(lua_State* L);
+    static int luaRequire(lua_State* L);
+    static int luaImageLoad(lua_State* L);
+    static int luaImageNew(lua_State* L);
+    static int luaImageSize(lua_State* L);
 
     std::vector<LuaScriptSource> pendingScripts;
+    // Outlives every script's state, which may point into its images
+    std::shared_ptr<const LuaFolderContent> folderContent;
     std::vector<std::unique_ptr<Script>> scripts;
     int activeScriptCount = 0;
     // Set while on_unload() runs: requests to the app are ignored, and errors are only logged

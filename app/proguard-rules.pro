@@ -31,6 +31,9 @@
 -keep class me.magnum.melonds.domain.model.ConsoleType { *; }
 -keep class me.magnum.melonds.domain.model.MicSource { *; }
 -keep class me.magnum.melonds.domain.model.Cheat { *; }
+-keep class me.magnum.melonds.domain.model.emulator.LuaScriptSetup { *; }
+-keep class me.magnum.melonds.domain.model.emulator.LuaScriptModule { *; }
+-keep class me.magnum.melonds.domain.model.emulator.LuaScriptImage { *; }
 -keep class me.magnum.melonds.domain.model.DSiWareTitle { *; }
 -keep class me.magnum.melonds.domain.model.VideoRenderer { *; }
 -keep class me.magnum.melonds.domain.model.retroachievements.RASimpleAchievement { *; }

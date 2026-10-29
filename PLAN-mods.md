@@ -239,6 +239,12 @@ Facts from the code these rest on: draw commands are recorded in `on_frame` and 
 - Kotlin finds `.png` files in the same walk, checks bounds first (each ≤ 1024×1024; at most 128 files and 4M pixels in total), decodes unpremultiplied and sends ARGB ints. Native premultiplies, keeps them immutable and shared for the session outside the Lua memory cap. `new` images live in Lua's allocator, so they count. A drawn image is anchored in a per-frame registry table so it can't be collected before rasterising. Charged 32 + clipped destination pixels at 2×.
 - Edited modules and images take effect at the next game start, like scripts.
 
+**Done (2026-10-29).** Checked on the emulator (the `require` and image self-tests pass, both together, savestate and reset); not yet on the phone. What differs from the plan above, or wasn't in it:
+- The walk also stops after 4096 files found. Caps are taken in path order, and once one module or image doesn't fit the total, later ones are left out too. The 256/128 file limits count files considered. The 64-folder cap doesn't count the root.
+- The path-name rule applies to images too. `x.lua` wins over `x/init.lua`, like Lua's own search. A module is called with its name and path, like stock Lua. A file over 1 MB gives `module 'x' wasn't loaded: modules are limited to 1 MB each`.
+- Module errors keep their traceback (the engine's message handler runs inside `require`).
+- `src` parts outside the image draw transparent. The image metatable is hidden from `getmetatable`. Image draws cost 2 steps per destination pixel, since they're heavier than fills.
+
 ### Phase 9: per-script data (storage, options)
 
 - `melon.storage`: `get(key)`, `set(key, value)` (nil deletes), `keys()`, `clear()`, `flush()`, `size()` → bytes used, limit. Keys are strings up to 256 bytes. Values are strings, numbers (integers and floats kept apart), booleans or tables (at most 16 deep, string or integer keys, no cycles); `set` deep-copies and `get` returns a fresh copy. Cap 256 KB per script, encoded; over it is a normal catchable error. Encoding and decoding charge 1 work step per byte.

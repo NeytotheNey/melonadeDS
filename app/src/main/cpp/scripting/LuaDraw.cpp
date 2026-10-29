@@ -23,6 +23,18 @@ static inline u32 divideBy255(u32 value)
 }
 
 /**
+ * Every channel of [color] times [factor] / 255, rounded. Two channels at a time, 16 bits each
+ */
+static inline u32 scaleChannels(u32 color, u32 factor)
+{
+    u32 redBlue = (color & 0x00FF00FF) * factor + 0x00800080;
+    u32 alphaGreen = ((color >> 8) & 0x00FF00FF) * factor + 0x00800080;
+    redBlue = ((redBlue + ((redBlue >> 8) & 0x00FF00FF)) >> 8) & 0x00FF00FF;
+    alphaGreen = (alphaGreen + ((alphaGreen >> 8) & 0x00FF00FF)) & 0xFF00FF00;
+    return redBlue | alphaGreen;
+}
+
+/**
  * Premultiplied [color] over [destination]
  */
 static inline u32 blend(u32 destination, u32 color)
@@ -31,12 +43,8 @@ static inline u32 blend(u32 destination, u32 color)
     if (inverseAlpha == 0)
         return color;
 
-    // Two channels at a time, 16 bits each. Every channel of the result fits in a byte, since the source's channels are at most its alpha
-    u32 redBlue = (destination & 0x00FF00FF) * inverseAlpha + 0x00800080;
-    u32 alphaGreen = ((destination >> 8) & 0x00FF00FF) * inverseAlpha + 0x00800080;
-    redBlue = ((redBlue + ((redBlue >> 8) & 0x00FF00FF)) >> 8) & 0x00FF00FF;
-    alphaGreen = (alphaGreen + ((alphaGreen >> 8) & 0x00FF00FF)) & 0xFF00FF00;
-    return color + (redBlue | alphaGreen);
+    // Every channel of the result fits in a byte, since the source's channels are at most its alpha
+    return color + scaleChannels(destination, inverseAlpha);
 }
 
 u32 premultiplyColor(u32 color)
@@ -429,6 +437,56 @@ void LuaOverlay::drawText(Screen screen, int x, int y, const char* text, size_t 
             }
         }
         penX += advance;
+    }
+}
+
+void LuaOverlay::drawImage(Screen screen, int x, int y, const u32* pixels, int stride, int width, int height, int scale, u32 alpha)
+{
+    Rect clipped = clipToScreen({ x, y, x + (int64_t) width * scale, y + (int64_t) height * scale });
+    if (clipped.isEmpty() || alpha == 0)
+        return;
+    addRows(screen, (int) clipped.y0, (int) clipped.y1);
+
+    // The clipped rectangle starts at or after (x, y), so the offsets into the image are never negative. Each source pixel covers a
+    // [scale] x [scale] block, so the divisions are done once: where the first visible block is, and how much of it is cut off
+    int x0 = (int) clipped.x0, x1 = (int) clipped.x1;
+    int y0 = (int) clipped.y0, y1 = (int) clipped.y1;
+    int firstColumn = (x0 - x) / scale;
+    int firstColumnCopies = scale - (x0 - x) % scale;
+    int sourceRowIndex = (y0 - y) / scale;
+    int rowCopiesLeft = scale - (y0 - y) % scale;
+    for (int rowY = y0; rowY < y1; rowY++)
+    {
+        const u32* source = pixels + (size_t) sourceRowIndex * stride + firstColumn;
+        u32* row = screenRow(screen, rowY);
+        u32* destination = row + x0;
+        u32* rowEnd = row + x1;
+        int copies = firstColumnCopies;
+        while (destination < rowEnd)
+        {
+            u32 color = *source++;
+            if (alpha < 255)
+                color = scaleChannels(color, alpha);
+            int count = (int) std::min<ptrdiff_t>(copies, rowEnd - destination);
+            // Premultiplied, so a transparent pixel is all 0
+            if ((color >> 24) == 255)
+            {
+                std::fill(destination, destination + count, color);
+            }
+            else if (color != 0)
+            {
+                for (int i = 0; i < count; i++)
+                    destination[i] = blend(destination[i], color);
+            }
+            destination += count;
+            copies = scale;
+        }
+
+        if (--rowCopiesLeft == 0)
+        {
+            sourceRowIndex++;
+            rowCopiesLeft = scale;
+        }
     }
 }
 

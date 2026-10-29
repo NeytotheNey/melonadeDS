@@ -31,6 +31,8 @@ public:
     static constexpr int kMaxTextSize = 4;
     // Circles bigger than this are capped, so that their maths fits in 64 bits. It's over a million screens across
     static constexpr int64_t kMaxCircleRadius = 1ll << 29;
+    // Overlay pixels per image pixel go from 1 (scale 0.5) to this (scale 8)
+    static constexpr int kMaxImageScale = 8 * kScale;
 
     enum Screen
     {
@@ -95,6 +97,11 @@ public:
     void drawText(Screen screen, int x, int y, const char* text, size_t length, melonDS::u32 color, melonDS::u32 background, int size);
     // See getCircleRowSpans()
     void drawCircle(Screen screen, int64_t middleX, int64_t middleY, int64_t radius, bool isFilled, melonDS::u32 color);
+    /**
+     * Draws [width] x [height] image pixels from [pixels] (premultiplied, [stride] pixels from one row to the next), each one [scale] x [scale]
+     * overlay pixels (1 to kMaxImageScale, nearest neighbour), with the top left at (x, y). [alpha] (0 to 255) multiplies the image's own
+     */
+    void drawImage(Screen screen, int x, int y, const melonDS::u32* pixels, int stride, int width, int height, int scale, melonDS::u32 alpha);
 
     bool hasDrawings() const { return rowStart[Top] < rowEnd[Top] || rowStart[Bottom] < rowEnd[Bottom]; }
     // Rows of the whole overlay (bottom screen included) that may have drawings on [screen]: [start, end), empty if start >= end

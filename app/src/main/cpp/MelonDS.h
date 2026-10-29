@@ -68,9 +68,9 @@ namespace MelonDSAndroid {
     extern void releaseKey(u32 key);
     extern void updateMotionData(float ax, float ay, float az, float rx, float ry, float rz);
     /**
-     * Gives the instance the game's Lua scripts. Must be called after setup() and before the emulator starts
+     * Gives the instance the game's Lua scripts, and the modules and images they can use. Must be called after setup() and before the emulator starts
      */
-    extern void setLuaScripts(std::vector<LuaScriptSource> scripts);
+    extern void setLuaScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent);
     /**
      * Switches a Lua script off until the player switches it back on. Any thread
      */

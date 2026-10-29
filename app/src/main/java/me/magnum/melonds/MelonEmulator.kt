@@ -5,6 +5,9 @@ import me.magnum.melonds.common.camera.DSiCameraSource
 import me.magnum.melonds.domain.model.Cheat
 import me.magnum.melonds.domain.model.EmulatorConfiguration
 import me.magnum.melonds.domain.model.Input
+import me.magnum.melonds.domain.model.emulator.LuaScriptImage
+import me.magnum.melonds.domain.model.emulator.LuaScriptModule
+import me.magnum.melonds.domain.model.emulator.LuaScriptSetup
 import me.magnum.melonds.domain.model.retroachievements.RASimpleAchievement
 import me.magnum.melonds.domain.model.retroachievements.RASimpleLeaderboard
 import me.magnum.melonds.domain.model.retroachievements.RASimpleRuntimeAchievement
@@ -76,10 +79,11 @@ object MelonEmulator {
     external fun getRuntimeAchievements(): Array<RASimpleRuntimeAchievement>
 
     /**
-     * Gives the emulator the game's Lua scripts: [names] and [sources] are matching pairs. Must be called after [setupEmulator] and before
-     * [startEmulation]. The scripts are loaded once the game starts.
+     * Gives the emulator the game's Lua scripts, plus the [modules] they can `require` and the [images] they can load from the script folder,
+     * shared by every script for the session. Must be called after [setupEmulator] and before [startEmulation]. The scripts are loaded once
+     * the game starts.
      */
-    external fun setupLuaScripts(names: Array<String>, sources: Array<ByteArray>)
+    external fun setupLuaScripts(scripts: Array<LuaScriptSetup>, modules: Array<LuaScriptModule>, images: Array<LuaScriptImage>)
 
     /**
      * Switches off the script at [scriptId] (its position in the list given to [setupLuaScripts]). Applied before the next frame runs

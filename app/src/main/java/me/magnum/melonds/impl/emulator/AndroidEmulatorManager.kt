@@ -20,6 +20,7 @@ import me.magnum.melonds.domain.model.EmulatorConfiguration
 import me.magnum.melonds.domain.model.MicSource
 import me.magnum.melonds.domain.model.emulator.EmulatorEvent
 import me.magnum.melonds.domain.model.emulator.FirmwareLaunchResult
+import me.magnum.melonds.domain.model.emulator.LuaScriptSetup
 import me.magnum.melonds.domain.model.emulator.LuaScriptStatus
 import me.magnum.melonds.domain.model.emulator.RomLaunchResult
 import me.magnum.melonds.domain.model.retroachievements.GameAchievementData
@@ -380,7 +381,19 @@ class AndroidEmulatorManager(
             luaScriptDescriptions = loadedScripts.map { luaScriptStorage.parseDescription(it.second) } + failedScripts.map { null }
         }
         if (loadedScripts.isNotEmpty()) {
-            MelonEmulator.setupLuaScripts(loadedScripts.map { it.first }.toTypedArray(), loadedScripts.map { it.second }.toTypedArray())
+            // Modules and images come from the whole folder tree. Without them the scripts still run, and require() or image.load() say
+            // what's missing
+            val folderContent = luaScriptFolder?.let { luaScriptStorage.readFolderContent(it) }
+            DebugLog.event {
+                val modules = folderContent?.modules.orEmpty()
+                val images = folderContent?.images.orEmpty()
+                "Lua folder content: ${modules.count { it.source != null }} of ${modules.size} modules, ${images.count { it.pixels != null }} of ${images.size} images"
+            }
+            MelonEmulator.setupLuaScripts(
+                scripts = loadedScripts.map { LuaScriptSetup(it.first, it.second) }.toTypedArray(),
+                modules = folderContent?.modules.orEmpty().toTypedArray(),
+                images = folderContent?.images.orEmpty().toTypedArray(),
+            )
         }
         // Told like a script that fails to load, so the player sees why it isn't running
         failedScripts.forEachIndexed { index, (fileName, error) ->
