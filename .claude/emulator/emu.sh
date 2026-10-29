@@ -30,7 +30,8 @@ case "${1:-help}" in
     $A emu kill ;;
   build)
     # Overwrites the shared debug APK with an x86_64 one; the phone needs an arm64 rebuild afterwards.
-    cd "$REPO" && JAVA_HOME="/c/Program Files/Java/jdk-25" ./gradlew assembleGitHubProdDebug \
+    # gradlew passes /c/... paths to java, so path conversion must be back on here.
+    cd "$REPO" && env -u MSYS_NO_PATHCONV JAVA_HOME="/c/Program Files/Java/jdk-25" bash ./gradlew assembleGitHubProdDebug \
       -Pandroid.injected.build.abi=x86_64 -Pandroid.injected.testOnly=false --console=plain > "$REPO/logs/build-x86_64.log" 2>&1
     rc=$?; tail -3 "$REPO/logs/build-x86_64.log"; exit $rc ;;
   install)
