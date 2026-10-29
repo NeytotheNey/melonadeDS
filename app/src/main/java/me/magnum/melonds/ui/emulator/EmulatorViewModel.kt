@@ -621,6 +621,8 @@ class EmulatorViewModel @Inject constructor(
                         val quickSlot = saveStatesRepository.getRomQuickSaveStateSlot(currentState.rom)
                         if (loadRomState(currentState.rom, quickSlot)) {
                             _toastEvent.emit(ToastEvent.QuickLoadSuccessful)
+                        } else if (quickSlot.exists) {
+                            _toastEvent.emit(ToastEvent.StateLoadFailed)
                         }
                         emulatorManager.resumeEmulator()
                     }

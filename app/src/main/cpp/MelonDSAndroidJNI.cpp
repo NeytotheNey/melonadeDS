@@ -4,6 +4,7 @@
 #include <atomic>
 #include <string>
 #include <sstream>
+#include <thread>
 #include <stdlib.h>
 #include <pthread.h>
 #include <unistd.h>
@@ -485,18 +486,68 @@ Java_me_magnum_melonds_MelonEmulator_resetEmulation(JNIEnv* env, jobject thiz) {
     }
 }
 
+/**
+ * Pauses the emulator and waits for its thread to park between frames, like a reset does. A frame can save or load a Lua script's state, so
+ * a player's save or load must not run alongside one. Returns false if the emulator isn't running or is stopping, and sets wasPaused to
+ * whether it was already paused.
+ * The thread parks once its frame and the Lua storage flush are done, and neither of them waits on the caller. A save state's screenshot
+ * waits for the frame after the resume, so it doesn't hold the thread back either.
+ */
+static bool pauseAndWaitForEmulatorThread(JNIEnv* env, jobject thiz, bool& wasPaused)
+{
+    if (!started)
+        return false;
+
+    pthread_mutex_lock(&emuThreadMutex);
+    if (stop) {
+        pthread_mutex_unlock(&emuThreadMutex);
+        return false;
+    }
+    wasPaused = paused;
+    pthread_mutex_unlock(&emuThreadMutex);
+
+    if (!wasPaused)
+        Java_me_magnum_melonds_MelonEmulator_pauseEmulation(env, thiz);
+
+    // A stop lets the thread end without parking
+    while (!isThreadReallyPaused && started)
+        std::this_thread::yield();
+
+    return isThreadReallyPaused;
+}
+
 JNIEXPORT jboolean JNICALL
 Java_me_magnum_melonds_MelonEmulator_saveStateInternal(JNIEnv* env, jobject thiz, jstring path)
 {
-    const char* saveStatePath = path == nullptr ? nullptr : env->GetStringUTFChars(path, JNI_FALSE);
-    return MelonDSAndroid::saveState(saveStatePath);
+    bool wasPaused = false;
+    if (!pauseAndWaitForEmulatorThread(env, thiz, wasPaused))
+        return JNI_FALSE;
+
+    const char* saveStatePath = env->GetStringUTFChars(path, nullptr);
+    bool result = MelonDSAndroid::saveState(saveStatePath);
+    env->ReleaseStringUTFChars(path, saveStatePath);
+
+    if (!wasPaused)
+        Java_me_magnum_melonds_MelonEmulator_resumeEmulation(env, thiz);
+
+    return result;
 }
 
 JNIEXPORT jboolean JNICALL
 Java_me_magnum_melonds_MelonEmulator_loadStateInternal(JNIEnv* env, jobject thiz, jstring path)
 {
-    const char* saveStatePath = path == nullptr ? nullptr : env->GetStringUTFChars(path, JNI_FALSE);
-    return MelonDSAndroid::loadState(saveStatePath);
+    bool wasPaused = false;
+    if (!pauseAndWaitForEmulatorThread(env, thiz, wasPaused))
+        return JNI_FALSE;
+
+    const char* saveStatePath = env->GetStringUTFChars(path, nullptr);
+    bool result = MelonDSAndroid::loadState(saveStatePath);
+    env->ReleaseStringUTFChars(path, saveStatePath);
+
+    if (!wasPaused)
+        Java_me_magnum_melonds_MelonEmulator_resumeEmulation(env, thiz);
+
+    return result;
 }
 
 JNIEXPORT jboolean JNICALL

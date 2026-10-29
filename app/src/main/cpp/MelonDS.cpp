@@ -395,36 +395,17 @@ namespace MelonDSAndroid
         }
         Platform::CloseFile(saveStateFile);
 
-        std::unique_ptr<Savestate> backup = std::make_unique<Savestate>(Savestate::DEFAULT_SIZE);
-        if (backup->Error)
-        {
-            Platform::Log(Platform::LogLevel::Error, "Failed to allocate memory for state backup\n");
-            return false;
-        }
-
-        // Runs on an IO thread, so the emulator can be stopped and the instance destroyed meanwhile. Keep the lock until the backup is
-        // restored, so that the backup and the load happen on the same instance
+        // Runs on an IO thread, so the emulator can be stopped and the instance destroyed meanwhile. Keep the lock until the load (and the
+        // backup restore if it fails) is done, so that it all happens on the same instance
         std::lock_guard lock(presentationMutex);
         if (!instance)
             return false;
 
-        if (!instance->saveState(backup.get()) || backup->Error)
-        {
-            Platform::Log(Platform::LogLevel::Error, "Failed to back up state, aborting load (from \"%s\")\n", path);
-            return false;
-        }
-
-        std::unique_ptr<Savestate> state = std::make_unique<Savestate>(buffer.data(), size, false);
-
-        if (!instance->loadState(state.get()) || state->Error)
+        Savestate state(buffer.data(), size, false);
+        // The instance backs up the current state first, and goes back to it if the load fails. The scripts only hear about a load that worked
+        if (!instance->loadState(&state))
         {
             Platform::Log(Platform::LogLevel::Error, "Failed to load state file \"%s\" into emulator\n", path);
-            // Restore backup
-            if (!instance->loadState(backup.get()) || backup->Error)
-                Platform::Log(Platform::LogLevel::Error, "Failed to load backup state\n", path);
-            else
-                Platform::Log(Platform::LogLevel::Info, "Backup state loaded\n", path);
-
             return false;
         }
         return true;
@@ -432,29 +413,10 @@ namespace MelonDSAndroid
 
     bool loadRewindState(melonDS::RewindSaveState rewindSaveState)
     {
-        std::unique_ptr<Savestate> backup = std::make_unique<Savestate>(Savestate::DEFAULT_SIZE);
-        if (backup->Error)
-        {
-            Platform::Log(Platform::LogLevel::Error, "Failed to allocate memory for state backup");
-            return false;
-        }
-
-        if (!instance->saveState(backup.get()) || backup->Error)
-        {
-            Platform::Log(Platform::LogLevel::Error, "Failed to back up state, aborting rewind state load");
-            return false;
-        }
-
+        // Backed up and restored on failure by the instance, like any load
         bool result = instance->loadRewindState(rewindSaveState);
         if (!result)
-        {
             Platform::Log(Platform::LogLevel::Error, "Failed to load rewind state");
-            // Restore backup
-            if (!instance->loadState(backup.get()) || backup->Error)
-                Platform::Log(Platform::LogLevel::Error, "Failed to load backup state");
-            else
-                Platform::Log(Platform::LogLevel::Info, "Backup state loaded");
-        }
 
         return result;
     }

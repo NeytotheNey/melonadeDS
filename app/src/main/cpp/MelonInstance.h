@@ -102,8 +102,10 @@ private:
     void setBatteryLevels();
     void setDateTime();
     void saveRewindState(RewindSaveState* rewindSaveState);
-    // loadState() without telling the scripts
+    // loadState() without telling the scripts, and without a backup
     bool restoreState(Savestate* state);
+    // restoreState(), going back to the state from before if the load fails. Doesn't tell the scripts
+    bool loadStateWithBackup(Savestate* state);
     // Whether LuaEngine::runFrame() ran, which LuaEngine::endFrame() must then follow
     bool runLuaFrame();
 

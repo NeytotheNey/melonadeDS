@@ -639,7 +639,7 @@ bool MelonInstance::saveState(Savestate* state)
 
 bool MelonInstance::loadState(Savestate* state)
 {
-    if (!restoreState(state))
+    if (!loadStateWithBackup(state))
         return false;
 
     // Loads happen on other threads, so the scripts hear about it before the next frame
@@ -657,6 +657,41 @@ bool MelonInstance::restoreState(Savestate* state)
 
     setBatteryLevels();
     setDateTime();
+    return true;
+}
+
+bool MelonInstance::loadStateWithBackup(Savestate* state)
+{
+    // A bad header (wrong magic, version or length, as in a truncated file) is found when the state is opened, before anything is loaded
+    if (state->Error)
+        return false;
+
+    std::unique_ptr<Savestate> backup = std::make_unique<Savestate>(Savestate::DEFAULT_SIZE);
+    if (backup->Error)
+    {
+        Platform::Log(Platform::LogLevel::Error, "Failed to allocate memory for state backup\n");
+        return false;
+    }
+
+    if (!saveState(backup.get()) || backup->Error)
+    {
+        Platform::Log(Platform::LogLevel::Error, "Failed to back up state, aborting load\n");
+        return false;
+    }
+
+    // The core doesn't stop at the first error, so a load that fails partway leaves the emulator half-loaded
+    if (!restoreState(state) || state->Error)
+    {
+        // The backup was saved (and finished), so it's read back through a state that loads from its buffer
+        Savestate backupState(backup->Buffer(), backup->Length(), false);
+        if (backupState.Error || !restoreState(&backupState) || backupState.Error)
+            Platform::Log(Platform::LogLevel::Error, "Failed to load backup state\n");
+        else
+            Platform::Log(Platform::LogLevel::Info, "Backup state loaded\n");
+
+        return false;
+    }
+
     return true;
 }
 
@@ -680,30 +715,14 @@ bool MelonInstance::saveLuaState(std::vector<u8>& data)
 
 bool MelonInstance::loadLuaState(const std::vector<u8>& data)
 {
-    // Like a player's load (MelonDS.cpp): back up first, and go back to the backup if the load fails. It runs on the emulator thread between
-    // frames, the same place as a rewind save, so the renderers resync the way they do after any load (the core resets the VRAM caches and
-    // restarts the software renderer's thread in DoSavestate)
-    std::unique_ptr<Savestate> backup = std::make_unique<Savestate>(Savestate::DEFAULT_SIZE);
-    if (backup->Error)
-    {
-        Platform::Log(Platform::LogLevel::Error, "Failed to allocate memory for state backup\n");
-        return false;
-    }
-
-    if (!saveState(backup.get()) || backup->Error)
-    {
-        Platform::Log(Platform::LogLevel::Error, "Failed to back up state, aborting a Lua script's load\n");
-        return false;
-    }
-
+    // Like a player's load: it goes back to the backup if it fails. It runs on the emulator thread between frames, the same place as a
+    // rewind save, so the renderers resync the way they do after any load (the core resets the VRAM caches and restarts the software
+    // renderer's thread in DoSavestate)
     // Reading never writes to the buffer
     Savestate state(const_cast<u8*>(data.data()), (u32) data.size(), false);
-    if (state.Error || !restoreState(&state) || state.Error)
+    if (!loadStateWithBackup(&state))
     {
         Platform::Log(Platform::LogLevel::Error, "Failed to load a Lua script's state\n");
-        Savestate backupState(backup->Buffer(), backup->Length(), false);
-        if (backupState.Error || !restoreState(&backupState) || backupState.Error)
-            Platform::Log(Platform::LogLevel::Error, "Failed to load backup state\n");
         return false;
     }
 
