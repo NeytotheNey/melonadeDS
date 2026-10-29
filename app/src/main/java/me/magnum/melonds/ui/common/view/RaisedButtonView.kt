@@ -16,7 +16,8 @@ import kotlin.math.min
 
 /**
  * Draws one or more buttons in the given [appearance]. Raised buttons sit on a darker lip (the same shape offset down) and sink onto it while pressed; flat
- * buttons shrink a little instead. All geometry is given in a square design space of [designSize] units, which is scaled to fit the view.
+ * buttons shrink a little instead. Pixel buttons are raised buttons drawn as pixel art by [PixelButtonPainter]. All geometry is given in a square design
+ * space of [designSize] units, which is scaled to fit the view.
  */
 @SuppressLint("ViewConstructor")
 class RaisedButtonView(
@@ -39,6 +40,10 @@ class RaisedButtonView(
         val glyph: Path? = null,
         val icon: Drawable? = null,
         val offIcon: Drawable? = null,
+        val colorGroup: ControllerAppearance.ColorGroup? = null,
+        // Hand-drawn versions of the glyph or icons, used instead of them by pixel styles
+        val pixelIcon: PixelIcon? = null,
+        val pixelOffIcon: PixelIcon? = null,
     )
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -61,6 +66,7 @@ class RaisedButtonView(
     private var offsetX = 0f
     private var offsetY = 0f
     private var isToggledOn = true
+    private val pixelPainter = appearance.pixelArt?.let { PixelButtonPainter(it, resources.displayMetrics.density) }
 
     init {
         setParts(parts)
@@ -102,9 +108,12 @@ class RaisedButtonView(
         scale = min(w, h) / designSize
         offsetX = (w - designSize * scale) / 2f
         offsetY = (h - designSize * scale) / 2f
-        if (appearance.shading != Shading.RAISED) {
+        if (appearance.shading == Shading.OUTLINE || appearance.shading == Shading.SOFT_TINT) {
             // Flat buttons have no lip, so they move into the middle of the space it would take up
             offsetY += lip * scale / 2f
+        }
+        if (pixelPainter != null) {
+            fitPixelLip(pixelPainter, w, h)
         }
         transform.setScale(scale, scale)
         transform.postTranslate(offsetX, offsetY)
@@ -134,7 +143,35 @@ class RaisedButtonView(
             Shading.RAISED -> 0f
             Shading.OUTLINE -> (lip * scale * 0.8f).coerceAtLeast(3f * density)
             Shading.SOFT_TINT -> (lip * scale).coerceAtLeast(3f * density)
+            Shading.PIXEL -> 0f
         }
+        pixelPainter?.update(parts, faces, glyphs, transform, isToggledOn)
+    }
+
+    /**
+     * Pixel lips have the same depth on every button, which is often deeper than the room the design leaves for the lip. When the faces plus the lip are
+     * taller than the view, the faces shrink until they fit, staying centred across. If the lip still runs off the bottom because the design leaves more
+     * room above the faces than below, they move up into that room.
+     */
+    private fun fitPixelLip(painter: PixelButtonPainter, w: Int, h: Int) {
+        painter.setViewSize(w, h)
+        val bounds = RectF()
+        val partBounds = RectF()
+        for (i in parts.indices) {
+            parts[i].shape.computeBounds(partBounds, true)
+            if (i == 0) bounds.set(partBounds) else bounds.union(partBounds)
+        }
+        if (bounds.height() <= 0f) return
+
+        val fitScale = ((h - painter.lipHeight) / bounds.height()).coerceAtLeast(0f)
+        if (fitScale < scale) {
+            scale = fitScale
+            offsetX = (w - designSize * scale) / 2f
+            offsetY = (h - designSize * scale) / 2f
+        }
+        val top = offsetY + bounds.top * scale
+        val bottom = offsetY + bounds.bottom * scale
+        offsetY -= (bottom + painter.lipHeight - h).coerceIn(0f, top.coerceAtLeast(0f))
     }
 
     override fun setPressed(pressed: Boolean) {
@@ -151,6 +188,10 @@ class RaisedButtonView(
     fun setToggleState(enabled: Boolean) {
         if (enabled != isToggledOn) {
             isToggledOn = enabled
+            if (pixelPainter != null && width > 0 && height > 0) {
+                // The icons are part of the cached pixel faces
+                updateGeometry(width, height)
+            }
             invalidate()
         }
     }
@@ -172,7 +213,11 @@ class RaisedButtonView(
     }
 
     override fun onDraw(canvas: Canvas) {
-        if (appearance.shading == Shading.RAISED) {
+        if (pixelPainter != null) {
+            for (i in parts.indices) {
+                pixelPainter.drawLip(canvas, i)
+            }
+        } else if (appearance.shading == Shading.RAISED) {
             for (i in parts.indices) {
                 fillPaint.color = colors[i].edge
                 canvas.drawPath(lips[i], fillPaint)
@@ -192,6 +237,10 @@ class RaisedButtonView(
     }
 
     private fun drawFace(canvas: Canvas, index: Int) {
+        if (pixelPainter != null) {
+            pixelPainter.drawFace(canvas, index, pressedParts[index])
+            return
+        }
         val part = parts[index]
         val partColors = colors[index]
         val pressed = pressedParts[index]
@@ -202,6 +251,8 @@ class RaisedButtonView(
                 Shading.RAISED -> canvas.translate(0f, travel * scale)
                 Shading.OUTLINE -> canvas.scale(OUTLINE_PRESSED_SCALE, OUTLINE_PRESSED_SCALE, centersX[index], centersY[index])
                 Shading.SOFT_TINT -> canvas.scale(SOFT_TINT_PRESSED_SCALE, SOFT_TINT_PRESSED_SCALE, centersX[index], centersY[index])
+                // Drawn by the pixel painter above
+                Shading.PIXEL -> Unit
             }
         }
 

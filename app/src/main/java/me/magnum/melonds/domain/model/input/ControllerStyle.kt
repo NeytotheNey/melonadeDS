@@ -8,4 +8,6 @@ enum class ControllerStyle {
     INDIGO,
     OUTLINE,
     SOFT_TINT,
+    PIXEL_8,
+    PIXEL_16,
 }

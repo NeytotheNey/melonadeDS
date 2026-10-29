@@ -60,12 +60,16 @@ object RaisedButtons {
         // Glyphs sit halfway along their arm
         val glyphOffset = (armStart + reach) / 2f
         val corner = 16f
+        val group = ControllerAppearance.ColorGroup.DPAD
+        fun arm(shape: Path, input: Input, glyph: Path, pixelIcon: PixelIcon): RaisedButtonView.Part {
+            return RaisedButtonView.Part(shape, input, glyph = glyph, colorGroup = group, pixelIcon = pixelIcon)
+        }
         return listOf(
-            RaisedButtonView.Part(roundRect(cx - halfWidth, cy - halfWidth, cx + halfWidth, cy + halfWidth, corner), pressable = false),
-            RaisedButtonView.Part(roundRect(cx - halfWidth, cy - reach, cx + halfWidth, cy - armStart, corner), Input.UP, glyph = triangle(cx, cy - glyphOffset, 0f, -1f)),
-            RaisedButtonView.Part(roundRect(cx - halfWidth, cy + armStart, cx + halfWidth, cy + reach, corner), Input.DOWN, glyph = triangle(cx, cy + glyphOffset, 0f, 1f)),
-            RaisedButtonView.Part(roundRect(cx - reach, cy - halfWidth, cx - armStart, cy + halfWidth, corner), Input.LEFT, glyph = triangle(cx - glyphOffset, cy, -1f, 0f)),
-            RaisedButtonView.Part(roundRect(cx + armStart, cy - halfWidth, cx + reach, cy + halfWidth, corner), Input.RIGHT, glyph = triangle(cx + glyphOffset, cy, 1f, 0f)),
+            RaisedButtonView.Part(roundRect(cx - halfWidth, cy - halfWidth, cx + halfWidth, cy + halfWidth, corner), pressable = false, colorGroup = group),
+            arm(roundRect(cx - halfWidth, cy - reach, cx + halfWidth, cy - armStart, corner), Input.UP, triangle(cx, cy - glyphOffset, 0f, -1f), PixelIcons.ARROW_UP),
+            arm(roundRect(cx - halfWidth, cy + armStart, cx + halfWidth, cy + reach, corner), Input.DOWN, triangle(cx, cy + glyphOffset, 0f, 1f), PixelIcons.ARROW_DOWN),
+            arm(roundRect(cx - reach, cy - halfWidth, cx - armStart, cy + halfWidth, corner), Input.LEFT, triangle(cx - glyphOffset, cy, -1f, 0f), PixelIcons.ARROW_LEFT),
+            arm(roundRect(cx + armStart, cy - halfWidth, cx + reach, cy + halfWidth, corner), Input.RIGHT, triangle(cx + glyphOffset, cy, 1f, 0f), PixelIcons.ARROW_RIGHT),
         )
     }
 
@@ -117,9 +121,13 @@ object RaisedButtons {
             dimWhenOff && iconRes != null -> ContextCompat.getDrawable(context, iconRes)?.mutate()?.apply { alpha = OFF_ICON_ALPHA }
             else -> null
         }
+        // Pixel styles draw hand-drawn icons instead. A dimmed off icon has no pixel version of its own, so it dims the normal one
+        val pixelIcon = iconRes?.let { PixelIcons.forDrawable(it) }
+        val pixelOffIcon = offIconRes?.let { PixelIcons.forDrawable(it) }
         // Same proportions as Start/Select: the 57 unit face plus its 7 unit lip fill the 64 unit square
         val shape = roundRect(3.5f, 0f, 60.5f, 57f, 11.4f)
-        return build(context, style, 64f, SMALL_DEPTH, listOf(RaisedButtonView.Part(shape, icon = icon, offIcon = offIcon)))
+        val part = RaisedButtonView.Part(shape, icon = icon, offIcon = offIcon, pixelIcon = pixelIcon, pixelOffIcon = pixelOffIcon)
+        return build(context, style, 64f, SMALL_DEPTH, listOf(part))
     }
 
     private fun build(context: Context, style: ControllerStyle, designSize: Float, depth: Depth, parts: List<RaisedButtonView.Part>): RaisedButtonView {
