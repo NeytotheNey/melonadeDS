@@ -72,9 +72,13 @@ namespace MelonDSAndroid {
      */
     extern void setLuaScripts(std::vector<LuaScriptSource> scripts);
     /**
-     * Switches a Lua script off for the rest of the session. Any thread
+     * Switches a Lua script off until the player switches it back on. Any thread
      */
     extern void disableLuaScript(int scriptId);
+    /**
+     * Switches a stopped Lua script back on. Any thread
+     */
+    extern void enableLuaScript(int scriptId);
     extern void updateLuaSticks(float leftX, float leftY, float rightX, float rightY);
     extern void start();
     /**

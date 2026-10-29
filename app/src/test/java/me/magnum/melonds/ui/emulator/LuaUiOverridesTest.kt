@@ -96,6 +96,19 @@ class LuaUiOverridesTest {
     }
 
     @Test
+    fun aScriptSwitchedBackOnCanRequestAgain() {
+        val overrides = LuaUiOverrides()
+        overrides.onScriptRequest(swap, scriptId = 0, value = true, currentValue = false)
+        overrides.onScriptStopped(0)
+        overrides.onScriptStarted(0)
+
+        // Its new on_load() request applies, and the player's value is the baseline again
+        assertEquals(true, overrides.onScriptRequest(swap, scriptId = 0, value = true, currentValue = false))
+        assertEquals(true, overrides.getScriptValue(swap))
+        assertEquals(mapOf(swap to false), overrides.onScriptStopped(0))
+    }
+
+    @Test
     fun aNewSessionsFastForwardBaselineIsOff() {
         val overrides = LuaUiOverrides()
         overrides.onScriptRequest(fastForward, scriptId = 0, value = true, currentValue = false)

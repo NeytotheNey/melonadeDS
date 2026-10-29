@@ -36,9 +36,15 @@ interface EmulatorManager {
     fun getLuaScripts(): List<LuaScriptStatus>
 
     /**
-     * Switches a running Lua script off for the rest of this session. The ROM config isn't changed
+     * Switches a running Lua script off for this session. The ROM config isn't changed
      */
     fun disableLuaScript(scriptId: Int)
+
+    /**
+     * Switches a stopped Lua script back on for this session, and clears its last error. The ROM config isn't changed. Returns false if there
+     * is no such script or it already runs
+     */
+    fun enableLuaScript(scriptId: Int): Boolean
 
     suspend fun loadFirmware(consoleType: ConsoleType): FirmwareLaunchResult
 

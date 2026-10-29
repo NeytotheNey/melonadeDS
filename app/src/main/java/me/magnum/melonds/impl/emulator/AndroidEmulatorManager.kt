@@ -54,7 +54,7 @@ class AndroidEmulatorManager(
 
     // Names of the Lua scripts sent at launch (their position is the ID native uses), the IDs of the ones still running, and the errors that
     // switched scripts off. Replaced at launch. The running set is shrunk by the message queue thread when an error switches a script off, and
-    // by the UI thread when the player does, so changes to it go through luaScriptsLock
+    // changed by the UI thread when the player switches one off or on, so changes to it go through luaScriptsLock
     private val luaScriptsLock = Any()
     @Volatile
     private var luaScriptNames = emptyList<String>()
@@ -236,6 +236,20 @@ class AndroidEmulatorManager(
         }
         DebugLog.event { "Lua script ${luaScriptNames.getOrNull(scriptId)} switched off by the player" }
         MelonEmulator.disableLuaScript(scriptId)
+    }
+
+    override fun enableLuaScript(scriptId: Int): Boolean {
+        synchronized(luaScriptsLock) {
+            if (scriptId !in luaScriptNames.indices || scriptId in runningLuaScripts) {
+                return false
+            }
+            // If loading it fails, the stop event switches it off again with the new error
+            runningLuaScripts = runningLuaScripts + scriptId
+            luaScriptErrors = luaScriptErrors - scriptId
+        }
+        DebugLog.event { "Lua script ${luaScriptNames.getOrNull(scriptId)} switched on by the player" }
+        MelonEmulator.enableLuaScript(scriptId)
+        return true
     }
 
     override fun getFps(): Float {

@@ -370,7 +370,7 @@
     <string name="lua_script_delete_failed">Couldn\'t delete the script</string>
     <string name="lua_script_running">Running</string>
     <string name="lua_script_off_error">Switched off: %1$s</string>
-    <string name="lua_script_off_for_session">Switched off until the game restarts</string>
+    <string name="lua_script_off">Switched off</string>
     <string name="rom_details_configuration_tab">Configuration</string>
     <string name="retro_achievements_tab">Retro&#8203;Achievements</string> <!-- Keep zero-width space to allow line breaks in the middle of the word -->
 

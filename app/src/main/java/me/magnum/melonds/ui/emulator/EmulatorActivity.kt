@@ -624,6 +624,7 @@ class EmulatorActivity : AppCompatActivity() {
                             }
                             applyLuaUiSettings(viewModel.luaUiOverrides.onScriptStopped(it.scriptId))
                         }
+                        is LuaUiEvent.ScriptStarted -> viewModel.luaUiOverrides.onScriptStarted(it.scriptId)
                         is LuaUiEvent.Request -> {
                             val value = viewModel.luaUiOverrides.onScriptRequest(it.setting, it.scriptId, it.value, getLuaUiSetting(it.setting))
                             applyLuaUiSetting(it.setting, value)
@@ -1196,12 +1197,14 @@ class EmulatorActivity : AppCompatActivity() {
     }
 
     /**
-     * Lists the session's scripts, ticked while they run. Unticking one switches it off until the game restarts, and one that is off can't be
-     * ticked again
+     * Lists the session's scripts, ticked while they run. Unticking one switches it off and ticking it switches it back on, for this session
+     * only
      */
     private fun showLuaScriptsDialog(scripts: List<LuaScriptStatus>) {
         val isRunning = BooleanArray(scripts.size) { scripts[it].isRunning }
-        val labels = MutableList(scripts.size) { getLuaScriptLabel(scripts[it], isRunning[it]) }
+        // Cleared when a script is switched back on, like the session's own copy
+        val lastErrors = MutableList(scripts.size) { scripts[it].lastError }
+        val labels = MutableList(scripts.size) { getLuaScriptLabel(scripts[it], isRunning[it], lastErrors[it]) }
         val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_multiple_choice, labels)
 
         // The list's own checked state is set from isRunning after every tap, so a row never shows a state the script isn't in
@@ -1211,11 +1214,15 @@ class EmulatorActivity : AppCompatActivity() {
             isRunning.forEachIndexed { index, running -> setItemChecked(index, running) }
             setOnItemClickListener { _, _, position, _ ->
                 if (isRunning[position]) {
-                    isRunning[position] = false
                     viewModel.disableLuaScript(position)
-                    labels[position] = getLuaScriptLabel(scripts[position], false)
-                    adapter.notifyDataSetChanged()
+                    isRunning[position] = false
+                } else if (viewModel.enableLuaScript(position)) {
+                    // If it fails to load, its error shows the next time the dialog opens
+                    isRunning[position] = true
+                    lastErrors[position] = null
                 }
+                labels[position] = getLuaScriptLabel(scripts[position], isRunning[position], lastErrors[position])
+                adapter.notifyDataSetChanged()
                 setItemChecked(position, isRunning[position])
             }
         }
@@ -1236,12 +1243,12 @@ class EmulatorActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun getLuaScriptLabel(script: LuaScriptStatus, isRunning: Boolean): String {
+    private fun getLuaScriptLabel(script: LuaScriptStatus, isRunning: Boolean, lastError: String?): String {
         // The tick already shows that a script runs, so its description takes the second line when it has one
         val state = when {
             isRunning -> script.description ?: getString(R.string.lua_script_running)
-            script.lastError != null -> getString(R.string.lua_script_off_error, script.lastError)
-            else -> getString(R.string.lua_script_off_for_session)
+            lastError != null -> getString(R.string.lua_script_off_error, lastError)
+            else -> getString(R.string.lua_script_off)
         }
         return "${script.name}\n$state"
     }

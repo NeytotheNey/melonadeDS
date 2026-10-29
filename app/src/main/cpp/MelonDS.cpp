@@ -248,6 +248,12 @@ namespace MelonDSAndroid
             instance->disableLuaScript(scriptId);
     }
 
+    void enableLuaScript(int scriptId)
+    {
+        if (instance)
+            instance->enableLuaScript(scriptId);
+    }
+
     void updateLuaSticks(float leftX, float leftY, float rightX, float rightY)
     {
         if (instance)

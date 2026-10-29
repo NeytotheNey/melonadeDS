@@ -854,13 +854,26 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * Switches a script off for this session only, from the pause menu. The ROM config keeps it enabled
+     * Switches a script off for this session only, from the pause menu. The ROM config doesn't change
      */
     fun disableLuaScript(scriptId: Int) {
         emulatorManager.disableLuaScript(scriptId)
         // Native doesn't send a stop event for this one, so the screen is told here to undo what the script changed
         val scriptName = emulatorManager.getLuaScripts().getOrNull(scriptId)?.name ?: return
         _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ScriptStopped(scriptId, scriptName, error = null))
+    }
+
+    /**
+     * Switches a stopped script back on for this session only, from the pause menu. The ROM config doesn't change. Returns false if it
+     * already runs
+     */
+    fun enableLuaScript(scriptId: Int): Boolean {
+        if (!emulatorManager.enableLuaScript(scriptId)) {
+            return false
+        }
+        // Sent before anything the script asks for in on_load(), which only runs once the emulator resumes
+        _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ScriptStarted(scriptId))
+        return true
     }
 
     /**

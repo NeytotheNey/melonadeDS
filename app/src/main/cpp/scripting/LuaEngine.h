@@ -69,7 +69,7 @@ struct LuaInputOverride
  * during on_unload().
  *
  * Everything runs on the emulator thread, except [setScripts] (before the emulator thread starts), [notifyStateLoaded], [notifyReset],
- * [disableScript] and [updateSticks] (any thread).
+ * [disableScript], [enableScript] and [updateSticks] (any thread).
  */
 class LuaEngine
 {
@@ -85,9 +85,10 @@ public:
      */
     void start(melonDS::NDS* nds, std::shared_ptr<MelonEventMessenger> eventMessenger);
     /**
-     * Whether any script is still running. While none is, the emulator doesn't need to call [runFrame]
+     * Whether any script is still running, or the player switched one on or off since the last frame (which [runFrame] applies). While
+     * neither is true, the emulator doesn't need to call [runFrame]
      */
-    bool isActive() const { return activeScriptCount > 0; }
+    bool isActive() const { return activeScriptCount > 0 || isScriptSwitchPending.load(std::memory_order_relaxed); }
     /**
      * Reloads the scripts if the console was reset, calls on_state_loaded() if a state was loaded since the last frame, then on_frame(), and
      * returns how the scripts want to change the input of the frame that is about to run. Called just before the frame runs
@@ -107,10 +108,15 @@ public:
      */
     void notifyReset() { isResetPending.store(true, std::memory_order_relaxed); }
     /**
-     * Switches a script off for the rest of the session because the player asked to: on_unload() runs, and the app isn't told (it already
-     * knows). The app runs on another thread, so it's only queued and applied before the next frame
+     * Switches a script off because the player asked to: on_unload() runs, and the app isn't told (it already knows). The app runs on another
+     * thread, so it's only queued and applied before the next frame
      */
     void disableScript(int id);
+    /**
+     * Switches a stopped script back on because the player asked to, the way a reset reloads it: a fresh state, its main chunk, then
+     * on_load(game). If that fails, it's switched off again and the app is told, like any error. Queued like [disableScript], in the same queue
+     */
+    void enableScript(int id);
     /**
      * Controller sticks from the app, from -1 to 1 (down and right are positive). Only sent while a script runs
      */
@@ -119,7 +125,7 @@ public:
 private:
     bool loadScript(Script& script);
     void reloadScripts();
-    void applyPendingDisables();
+    void applyPendingScriptSwitches();
     bool callCallback(Script& script, const char* name, const char* argument, int instructionLimit);
     bool runProtected(Script& script, lua_CFunction function, void* data, int instructionLimit);
     void sendRequests(Script& script);
@@ -161,10 +167,15 @@ private:
 
     std::atomic_bool isStateLoadPending = false;
     std::atomic_bool isResetPending = false;
-    // Script ids from disableScript(). The flag saves locking the mutex every frame
-    std::mutex pendingDisableMutex;
-    std::vector<int> pendingDisabledScripts;
-    std::atomic_bool isDisablePending = false;
+    // From disableScript() and enableScript(), applied in the order they were asked for. The flag saves locking the mutex every frame
+    struct ScriptSwitch
+    {
+        int id;
+        bool enable;
+    };
+    std::mutex pendingScriptSwitchMutex;
+    std::vector<ScriptSwitch> pendingScriptSwitches;
+    std::atomic_bool isScriptSwitchPending = false;
     std::atomic<float> sticks[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 };
 

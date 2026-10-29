@@ -32,7 +32,8 @@ class LuaUiOverrides {
     }
 
     private val settings = LuaUiSetting.entries.associateWith { SettingState() }.also { resetFastForwardBaseline(it) }
-    // A stopped script stays off for the session (a reset doesn't bring it back), so a request of its that was still on its way is ignored
+    // A stopped script stays off until the player switches it back on (a reset doesn't), so a request of its that was still on its way is
+    // ignored
     private val stoppedScripts = mutableSetOf<Int>()
 
     /**
@@ -67,6 +68,13 @@ class LuaUiOverrides {
             }
         }
         return newValues
+    }
+
+    /**
+     * The player switched a stopped script back on. Its new requests count again, under the same rules.
+     */
+    fun onScriptStarted(scriptId: Int) {
+        stoppedScripts.remove(scriptId)
     }
 
     /**

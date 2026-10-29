@@ -82,10 +82,15 @@ object MelonEmulator {
     external fun setupLuaScripts(names: Array<String>, sources: Array<ByteArray>)
 
     /**
-     * Switches off the script at [scriptId] (its position in the list given to [setupLuaScripts]) for the rest of the session. Applied before
-     * the next frame runs
+     * Switches off the script at [scriptId] (its position in the list given to [setupLuaScripts]). Applied before the next frame runs
      */
     external fun disableLuaScript(scriptId: Int)
+
+    /**
+     * Switches a stopped script back on, loading it again and calling its on_load(). If that fails, a stop event is sent like for any error.
+     * Applied before the next frame runs, in order with [disableLuaScript]
+     */
+    external fun enableLuaScript(scriptId: Int)
 
     /**
      * Controller sticks for Lua scripts, from -1 to 1 (down and right are positive). Only needed while a script runs.

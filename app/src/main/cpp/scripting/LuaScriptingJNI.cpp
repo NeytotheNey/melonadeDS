@@ -40,6 +40,12 @@ Java_me_magnum_melonds_MelonEmulator_disableLuaScript(JNIEnv* env, jobject thiz,
 }
 
 JNIEXPORT void JNICALL
+Java_me_magnum_melonds_MelonEmulator_enableLuaScript(JNIEnv* env, jobject thiz, jint scriptId)
+{
+    MelonDSAndroid::enableLuaScript(scriptId);
+}
+
+JNIEXPORT void JNICALL
 Java_me_magnum_melonds_MelonEmulator_updateLuaSticks(JNIEnv* env, jobject thiz, jfloat leftX, jfloat leftY, jfloat rightX, jfloat rightY)
 {
     MelonDSAndroid::updateLuaSticks(leftX, leftY, rightX, rightY);

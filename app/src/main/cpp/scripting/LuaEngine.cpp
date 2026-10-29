@@ -403,8 +403,8 @@ LuaInputOverride LuaEngine::runFrame(int frame, const LuaUserInput& userInput)
     currentUserInput = userInput;
 
     // Before a pending reset, so a script the player switched off isn't loaded again
-    if (isDisablePending.exchange(false, std::memory_order_acquire))
-        applyPendingDisables();
+    if (isScriptSwitchPending.exchange(false, std::memory_order_acquire))
+        applyPendingScriptSwitches();
 
     if (isResetPending.exchange(false, std::memory_order_relaxed))
         reloadScripts();
@@ -452,16 +452,23 @@ void LuaEngine::stop()
     isUnloading = false;
 
     // The ids belong to this session's scripts
-    std::lock_guard lock(pendingDisableMutex);
-    pendingDisabledScripts.clear();
-    isDisablePending.store(false, std::memory_order_relaxed);
+    std::lock_guard lock(pendingScriptSwitchMutex);
+    pendingScriptSwitches.clear();
+    isScriptSwitchPending.store(false, std::memory_order_relaxed);
 }
 
 void LuaEngine::disableScript(int id)
 {
-    std::lock_guard lock(pendingDisableMutex);
-    pendingDisabledScripts.push_back(id);
-    isDisablePending.store(true, std::memory_order_release);
+    std::lock_guard lock(pendingScriptSwitchMutex);
+    pendingScriptSwitches.push_back({ id, false });
+    isScriptSwitchPending.store(true, std::memory_order_release);
+}
+
+void LuaEngine::enableScript(int id)
+{
+    std::lock_guard lock(pendingScriptSwitchMutex);
+    pendingScriptSwitches.push_back({ id, true });
+    isScriptSwitchPending.store(true, std::memory_order_release);
 }
 
 void LuaEngine::updateSticks(float leftX, float leftY, float rightX, float rightY)
@@ -518,29 +525,44 @@ void LuaEngine::reloadScripts()
     }
 }
 
-void LuaEngine::applyPendingDisables()
+void LuaEngine::applyPendingScriptSwitches()
 {
-    std::vector<int> ids;
+    std::vector<ScriptSwitch> switches;
     {
-        std::lock_guard lock(pendingDisableMutex);
-        ids.swap(pendingDisabledScripts);
+        std::lock_guard lock(pendingScriptSwitchMutex);
+        switches.swap(pendingScriptSwitches);
     }
 
-    for (int id : ids)
+    // In order, so a quick off-on-off ends up off
+    for (const ScriptSwitch& scriptSwitch : switches)
     {
-        // Ids are positions in [scripts]. One that is already off (after an error, say) is skipped
-        if (id < 0 || id >= (int) scripts.size() || !scripts[id]->L)
+        // Ids are positions in [scripts]. Switching off one that is already off (after an error, say), or on one that runs, does nothing
+        if (scriptSwitch.id < 0 || scriptSwitch.id >= (int) scripts.size())
             continue;
 
-        Script& script = *scripts[id];
-        // Like when the emulator stops: requests to the app are ignored, and an error is only logged
-        isUnloading = true;
-        callCallback(script, "on_unload", nullptr, kCallbackInstructionLimit);
-        isUnloading = false;
-        closeScript(script);
+        Script& script = *scripts[scriptSwitch.id];
+        bool isRunning = script.L != nullptr;
+        if (scriptSwitch.enable == isRunning)
+            continue;
+
+        if (scriptSwitch.enable)
+        {
+            // Like the reset reload. A load or on_load() error switches it off again and tells the app
+            script.hasTouchPosition = false;
+            if (loadScript(script))
+                callCallback(script, "on_load", gameCode.c_str(), kLoadInstructionLimit);
+        }
+        else
+        {
+            // Like when the emulator stops: requests to the app are ignored, and an error is only logged
+            isUnloading = true;
+            callCallback(script, "on_unload", nullptr, kCallbackInstructionLimit);
+            isUnloading = false;
+            closeScript(script);
+        }
 
         if (DebugLog::isEnabled()) [[unlikely]]
-            LOG_INFO(TAG, "%s: switched off by the player", script.source.name.c_str());
+            LOG_INFO(TAG, "%s: switched %s by the player", script.source.name.c_str(), scriptSwitch.enable ? "on" : "off");
     }
 }
 
@@ -777,6 +799,10 @@ void LuaEngine::closeScript(Script& script)
     lua_close(script.L);
     script.L = nullptr;
     activeScriptCount--;
+
+    // The app stops sending stick motion once no script runs, so a script switched back on later would read the last position forever
+    if (activeScriptCount == 0)
+        updateSticks(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 int LuaEngine::luaGameCode(lua_State* L)

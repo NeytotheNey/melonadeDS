@@ -87,6 +87,7 @@ public:
     // Must be called before the emulator thread starts. The scripts are loaded when the game starts
     void setLuaScripts(std::vector<LuaScriptSource> scripts) { luaEngine.setScripts(std::move(scripts)); }
     void disableLuaScript(int scriptId) { luaEngine.disableScript(scriptId); }
+    void enableLuaScript(int scriptId) { luaEngine.enableScript(scriptId); }
     void updateLuaSticks(float leftX, float leftY, float rightX, float rightY) { luaEngine.updateSticks(leftX, leftY, rightX, rightY); }
 
 private:
