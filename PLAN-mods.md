@@ -211,11 +211,51 @@ Phone check: pick a folder with several scripts; they show up off with their des
 - `files/scripts/` is deleted at app start rather than in a migration, since the fork's versionCode doesn't change.
 - Side fixes: the ROM list is emitted as a copy (a scan could change it mid-iteration), and the GBA ROM/save permissions are only taken when those paths are picked, not on every config save.
 
+## Phases 7–10: the rest of the Lua list
+
+Designed 2026-10-29. The user chose: options can also be changed from the pause menu, script savestate slots live in memory only, and script drawings can be put in savestate/rewind pictures with a global setting that's off by default. Defaults picked without asking: storage is kept per game by game code (or `homebrew-<sha256 of the ROM URI>`), is capped at 256 KB per script, and isn't deleted when its script leaves the folder; PNGs and modules come from the whole folder tree.
+
+Facts from the code these rest on: draw commands are recorded in `on_frame` and rasterised in `LuaEngine::runFrame`; the overlay upload happens after `RunFrame` and before the fence. There's no player screenshot feature: savestate thumbnails (`takeScreenshot`) and rewind thumbnails both go through `ScreenshotRenderer::renderScreenshot`. Saving state between frames on the emulator thread is safe (rewind does it). `stopEmulation` destroys the instance, so anything Kotlin pulls after stop must live outside `MelonInstance`. The event pipe carries at most 512 bytes. Layout names are optional and not unique.
+
+### Phase 7: drawing extras
+
+- `melon.draw.text(screen, x, y, str, color[, bg[, size]])`: `size` is an integer 1–4 (default 1). Each glyph pixel becomes size×size overlay pixels; the returned width and the work charge scale with it.
+- `melon.draw.circle(screen, cx, cy, r, color[, filled])` on the half-pixel grid. The outline is the pixels whose centre is between r−1 and r DS pixels from the middle. r ≤ 0 draws nothing. Charged like `rect` (clipped pixel count, worked out over visible rows when recorded).
+- `on_frame_end()`: a new callback after `RunFrame` (and the software upload), before the overlay upload. `LuaEngine::endFrame()` runs it and then rasterises, so drawings from both callbacks land on the same frame: each script's `on_frame` commands, then its `on_frame_end` commands. It gets its own instruction budget; the 4096-command and 64 KB text caps are per frame across both. `melon.frame()` is the frame that just ran. Memory writes are allowed; `press`/`release` there apply to the next frame. `endFrame()` runs whenever `runLuaFrame` ran, so a script that stopped mid-frame is still cleared.
+- Overlay in savestate and rewind pictures: a global setting in video settings, "Show script drawings in save state pictures", off by default, carried in `EmulatorConfiguration` (which already updates live). GL path: after the frame quad in `ScreenshotRenderer`, draw the overlay texture with a premultiplied blend and a 2×2 average shader (`.bgra` swizzle); don't change the texture's filter, since the render thread may be presenting it. Software path: CPU-blend the overlay with a 2×2 average.
+
+### Phase 8: folder content (`require`, images)
+
+- Setup over JNI changes once to an array of `LuaScriptSetup` objects (name, source; later phases add storage and options), plus the session's modules and images.
+- Kotlin walks the linked folder's subfolders at launch when any script is on: at most 4 levels and 64 folders, one children query per folder. Top-level `.lua` files stay the only scripts and can't be required.
+- `require`: `lib/util.lua` is module `lib.util`, `lib/init.lua` is `lib`. Path parts outside `[A-Za-z0-9_-]` are skipped. Caps: 1 MB per file, 2 MB and 256 files in total, taken in path order; names left out are sent so the error can say why. Native keeps one immutable map for the session, shared by every state. `require` is a C function with a per-state cache in the registry (a fresh state loads modules fresh), loads text only with chunk name `=lib/util.lua`, caches the result (or `true`), catches loops, and charges 1 work step per source byte. Still no `package` table. Errors: `module 'x' not found (looked for x.lua and x/init.lua in the script folder's subfolders)`, `module 'x' wasn't loaded: modules are limited to 2 MB in total`, `loop in require: a -> b -> a`.
+- Images: `melon.image.load("hud.png")` → image or nil plus an error; `melon.image.new(w, h, argb_string)` (4 bytes per pixel, 0xAARRGGBB little-endian); `img:size()` → w, h; `melon.draw.image(screen, x, y, img[, opts])` with opts `{ scale = 1, src = {x, y, w, h}, alpha = 1 }`. `scale` is a multiple of 0.5 from 0.5 to 8 (1 = one image pixel per DS pixel, 0.5 = one per overlay pixel for 2× art), nearest neighbour. Names are paths relative to the folder (`img/hud.png`).
+- Kotlin finds `.png` files in the same walk, checks bounds first (each ≤ 1024×1024; at most 128 files and 4M pixels in total), decodes unpremultiplied and sends ARGB ints. Native premultiplies, keeps them immutable and shared for the session outside the Lua memory cap. `new` images live in Lua's allocator, so they count. A drawn image is anchored in a per-frame registry table so it can't be collected before rasterising. Charged 32 + clipped destination pixels at 2×.
+- Edited modules and images take effect at the next game start, like scripts.
+
+### Phase 9: per-script data (storage, options)
+
+- `melon.storage`: `get(key)`, `set(key, value)` (nil deletes), `keys()`, `clear()`, `flush()`, `size()` → bytes used, limit. Keys are strings up to 256 bytes. Values are strings, numbers (integers and floats kept apart), booleans or tables (at most 16 deep, string or integer keys, no cycles); `set` deep-copies and `get` returns a fresh copy. Cap 256 KB per script, encoded; over it is a normal catchable error. Encoding and decoding charge 1 work step per byte.
+- Native: `scripting/LuaStorage.{h,cpp}`, a versioned binary codec and a key → encoded map that lives in `LuaEngine::Script`, not in the Lua state, so it survives reset reloads and switching off and on. A corrupt blob starts empty (logged) and isn't overwritten until the script writes.
+- Saving: never every frame. When changed, native encodes a snapshot on `flush()` (applied at the end of the frame), every 600 frames, when the emulator thread parks for a pause, when a script stops, and at `stop()` after `on_unload`. Snapshots go into a global outbox (mutex, outside `MelonInstance`); a small event wakes Kotlin to drain it on IO, and `stopEmulator()` drains it after the emulator stops. Kotlin (`impl/LuaScriptDataStore.kt`) writes `files/lua-data/<gameKey>/<script>.bin` via a temp file and rename, and sends the blob with the source at launch. Not part of savestates or rewind. The Mods tab shows "Saved data: N KB" with a Clear action.
+- Options, declared in the leading comment block and parsed in Kotlin (new `impl/LuaScriptHeader.kt`, which also takes over the description parsing):
+  ```
+  -- option: speed type=number min=1 max=10 step=1 default=5 label="Aim speed"
+  -- option: hud type=toggle default=true label="Show HUD"
+  -- option: mode type=choice values=easy,normal,hard default=normal label="Difficulty"
+  ```
+  At most 16 options; key `[a-z_][a-z0-9_]{0,31}`; label up to 60 characters; choice up to 8 values of up to 24 characters; number finite, min < max, at most 1000 steps. Header read limit 8 KB. Bad lines are skipped and the Mods tab says how many couldn't be read.
+- Stored in RomConfig as `RomLuaScript.options: Map<String, String>` (DTO, parcelable, kept by `LuaScriptFolderSync`). At launch, declarations are parsed from the source being sent; a missing or invalid stored value falls back to the default. In Lua, `melon.options` is a plain table built at each load with typed values (boolean, integer when integral, number, string); undeclared keys are nil.
+- UI: an expandable options section under each script in the Mods tab (switch, slider, dropdown). The pause menu's Mods dialog gets "Options…" per running script: it saves to the ROM config and restarts that script with the new values (the off/on path plus an options payload).
+
+### Phase 10: emulator control (`set_layout`, savestates)
+
+- Layouts become an option type: `-- option: map_layout type=layout label="Layout while the map is open"`. The Mods tab shows "Don't change" plus the player's layouts and stores the UUID. `melon.screen.set_layout("map_layout")` names that option; `set_layout(nil)` goes back to the player's layout. Native sends `(script, key)`; Kotlin resolves the UUID. `LuaUiOverrides.kt` gets a layout request (newest from a running script wins, dropped when it stops; no baseline needed, the ROM's layout is the fallback). A deleted layout or "Don't change" does nothing.
+- `melon.state.save(slot)`, `melon.state.load(slot)`, `melon.state.has(slot)`, slots 1–4 per script, kept in memory in `Script` (survive a reset, freed when the script is switched off, gone at the end of the session, never touch the player's slots). `save` runs on the emulator thread between frames (like rewind), at most one per script per frame, and returns true or false plus an error. `load` queues the load to run after every script's `on_frame`: it backs up first like a player's load, drops that frame's input override, and makes `on_state_loaded` run before the next `on_frame`. A small callback interface in `MelonInstance` keeps `Savestate` out of `LuaEngine`. Defensive check against hardcore even though scripts are off there.
+
+Phone check per phase: the matching test scripts work on the phone, and the earlier ones still do.
+
 ## Later (not planned in detail)
 
-- `melon.screen.set_layout`, once layouts have a name or slot a script can refer to.
-- `melon.storage`, for scripts that need to save data, limited to the game's own script folder. Scripts have no file access at all for now.
-- Per-script options declared by the script (sliders/toggles shown in the Mods screen).
-- `require` for multi-file scripts, resolved inside the game's script folder only.
 - WideMelon on the compute renderer.
-- `melon.state.save/load(slot)`, if anyone asks.
+- Script savestate slots on disk, if anyone asks (Phase 10 keeps them in memory).
