@@ -99,8 +99,14 @@ namespace MelonDSAndroid
 
     void setCodeList(std::list<Cheat> cheats)
     {
-        instance->loadCheats(std::move(cheats));
+        // Cheats can be updated from a coroutine that runs after the emulator was stopped
+        if (instance)
+            instance->loadCheats(std::move(cheats));
     }
+
+    // The RetroAchievements calls below come from coroutines that can outlive the emulator, so the instance may already be gone (or be
+    // destroyed by another thread meanwhile). Hold the lock for the whole call instead of copying the pointer out: a copy could make this
+    // thread the last owner, and the instance must be destroyed in destroyInstance(), with the GL context current
 
     void setupAchievements(
         std::list<RetroAchievements::RAAchievement> achievements,
@@ -108,21 +114,38 @@ namespace MelonDSAndroid
         std::optional<std::string> richPresenceScript
     )
     {
+        // Also keeps it from changing the achievement list while getRuntimeAchievements() reads it on another thread
+        std::lock_guard lock(presentationMutex);
+        if (!instance)
+            return;
+
         instance->setupAchievements(std::move(achievements), std::move(leaderboards), std::move(richPresenceScript));
     }
 
     void unloadRetroAchievementsData()
     {
+        std::lock_guard lock(presentationMutex);
+        if (!instance)
+            return;
+
         instance->unloadRetroAchievementsData();
     }
 
     std::string getRichPresenceStatus()
     {
+        std::lock_guard lock(presentationMutex);
+        if (!instance)
+            return "";
+
         return instance->getRichPresenceStatus();
     }
 
     std::vector<RetroAchievements::RARuntimeAchievement> getRuntimeAchievements()
     {
+        std::lock_guard lock(presentationMutex);
+        if (!instance)
+            return { };
+
         return instance->getRuntimeAchievements();
     }
 
@@ -132,6 +155,10 @@ namespace MelonDSAndroid
      * @param emulatorConfiguration The new emulator configuration
      */
     void updateEmulatorConfiguration(std::unique_ptr<EmulatorConfiguration> emulatorConfiguration) {
+        // Settings can change after the emulator was stopped. The next setConfiguration() replaces the configuration anyway
+        if (!instance)
+            return;
+
         std::shared_ptr<EmulatorConfiguration> sharedConfig = std::move(emulatorConfiguration);
         instance->updateConfiguration(sharedConfig);
         updateAudioSettings(sharedConfig->audioSettings);
@@ -272,25 +299,27 @@ namespace MelonDSAndroid
 
     bool saveState(const char* path)
     {
-        Platform::FileHandle* saveStateFile = Platform::OpenFile(path, Platform::FileMode::Write);
-
-        if (!saveStateFile)
-            return false;
-
         Savestate state;
         if (state.Error)
-        {
-            Platform::CloseFile(saveStateFile);
             return false;
+
+        {
+            // Runs on an IO thread, so the emulator can be stopped and the instance destroyed meanwhile
+            std::lock_guard lock(presentationMutex);
+            if (!instance)
+                return false;
+
+            if (!instance->saveState(&state) || state.Error)
+            {
+                Platform::Log(Platform::LogLevel::Error, "Failed to create savestate for \"%s\"\n", path);
+                return false;
+            }
         }
 
-        instance->saveState(&state);
-
-        if (state.Error)
-        {
-            Platform::CloseFile(saveStateFile);
+        // Only open the file once the state is ready: opening it truncates the slot, and a failed save must keep the previous state
+        Platform::FileHandle* saveStateFile = Platform::OpenFile(path, Platform::FileMode::Write);
+        if (!saveStateFile)
             return false;
-        }
 
         if (Platform::FileWrite(state.Buffer(), state.Length(), 1, saveStateFile) == 0)
         {
@@ -312,21 +341,6 @@ namespace MelonDSAndroid
             return false;
         }
 
-        std::unique_ptr<Savestate> backup = std::make_unique<Savestate>(Savestate::DEFAULT_SIZE);
-        if (backup->Error)
-        {
-            Platform::Log(Platform::LogLevel::Error, "Failed to allocate memory for state backup\n");
-            Platform::CloseFile(saveStateFile);
-            return false;
-        }
-
-        if (!instance->saveState(backup.get()) || backup->Error)
-        {
-            Platform::Log(Platform::LogLevel::Error, "Failed to back up state, aborting load (from \"%s\")\n", path);
-            Platform::CloseFile(saveStateFile);
-            return false;
-        }
-
         size_t size = Platform::FileLength(saveStateFile);
 
         // Allocate exactly as much memory as we need for the savestate
@@ -339,13 +353,32 @@ namespace MelonDSAndroid
         }
         Platform::CloseFile(saveStateFile);
 
+        std::unique_ptr<Savestate> backup = std::make_unique<Savestate>(Savestate::DEFAULT_SIZE);
+        if (backup->Error)
+        {
+            Platform::Log(Platform::LogLevel::Error, "Failed to allocate memory for state backup\n");
+            return false;
+        }
+
+        // Runs on an IO thread, so the emulator can be stopped and the instance destroyed meanwhile. Keep the lock until the backup is
+        // restored, so that the backup and the load happen on the same instance
+        std::lock_guard lock(presentationMutex);
+        if (!instance)
+            return false;
+
+        if (!instance->saveState(backup.get()) || backup->Error)
+        {
+            Platform::Log(Platform::LogLevel::Error, "Failed to back up state, aborting load (from \"%s\")\n", path);
+            return false;
+        }
+
         std::unique_ptr<Savestate> state = std::make_unique<Savestate>(buffer.data(), size, false);
 
         if (!instance->loadState(state.get()) || state->Error)
         {
             Platform::Log(Platform::LogLevel::Error, "Failed to load state file \"%s\" into emulator\n", path);
             // Restore backup
-            if (!instance->loadState(backup.get()) || state->Error)
+            if (!instance->loadState(backup.get()) || backup->Error)
                 Platform::Log(Platform::LogLevel::Error, "Failed to load backup state\n", path);
             else
                 Platform::Log(Platform::LogLevel::Info, "Backup state loaded\n", path);
@@ -386,6 +419,11 @@ namespace MelonDSAndroid
 
     RewindWindow getRewindWindow()
     {
+        // Called from a coroutine that can outlive the emulator
+        std::lock_guard lock(presentationMutex);
+        if (!instance)
+            return { };
+
         return instance->getRewindWindow();
     }
 

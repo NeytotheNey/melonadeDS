@@ -427,12 +427,16 @@ class EmulatorViewModel @Inject constructor(
             _achievementsEvent.emit(RAEventUi.Reset)
         }
         performanceLogger.stopSession()
+        // Stop session jobs (RA heartbeat, play time) so they don't outlive the native instance
+        sessionCoroutineScope.cancel()
         emulatorManager.stopEmulator()
         screenshotFrameBufferProvider.clearBuffer()
     }
 
     private fun stopEmulatorAndExit() {
         performanceLogger.stopSession()
+        // Stop session jobs (RA heartbeat, play time) so they don't outlive the native instance
+        sessionCoroutineScope.cancel()
         emulatorManager.stopEmulator()
         _uiEvent.tryEmit(EmulatorUiEvent.CloseEmulator)
     }
@@ -491,9 +495,7 @@ class EmulatorViewModel @Inject constructor(
                     FirmwarePauseMenuOption.SETTINGS -> _uiEvent.tryEmit(EmulatorUiEvent.OpenScreen.SettingsScreen)
                     FirmwarePauseMenuOption.RESET -> resetEmulator()
                     FirmwarePauseMenuOption.EXIT -> {
-                        performanceLogger.stopSession()
-                        emulatorManager.stopEmulator()
-                        _uiEvent.tryEmit(EmulatorUiEvent.CloseEmulator)
+                        stopEmulatorAndExit()
                     }
                 }
             }

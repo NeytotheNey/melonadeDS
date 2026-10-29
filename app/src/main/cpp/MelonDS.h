@@ -35,7 +35,8 @@ namespace MelonDSAndroid {
     extern std::string internalFilesDir;
     extern std::shared_ptr<MelonEventMessenger> eventMessenger;
     /**
-     * Held by the render thread while it uses the instance to present a frame, and while the instance is replaced or destroyed. Recursive
+     * Held while the instance is replaced or destroyed, and by any thread other than the emulator thread that uses it (the render thread
+     * presenting a frame, savestates and RetroAchievements calls from coroutines), so the instance can't be destroyed under them. Recursive
      * because the frame render callback can call back into the native code (isSleeping()) while presentFrame holds it.
      */
     extern std::recursive_mutex presentationMutex;

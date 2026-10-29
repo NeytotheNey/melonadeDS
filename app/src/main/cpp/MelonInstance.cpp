@@ -427,7 +427,9 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 
 void MelonInstance::stop()
 {
-    retroAchievementsManager = nullptr;
+    // The RetroAchievements manager is kept until the instance is destroyed. Savestates and RetroAchievements calls on other threads use it
+    // under presentationMutex, which the emulator thread doesn't hold here, so freeing it now could free it under them. The instance is
+    // always destroyed right after stopping (it can't be started again), and the manager's teardown doesn't need the emulator thread
     screenshotRenderer->cleanup();
 }
 
