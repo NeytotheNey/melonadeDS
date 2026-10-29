@@ -120,20 +120,30 @@ void AndroidMelonEventMessenger::onLuaScriptStopped(int scriptId, const std::str
     MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_SCRIPT_STOPPED, 2 * sizeof(int32_t) + errorSize, &data);
 }
 
-void AndroidMelonEventMessenger::onLuaSwapScreens(bool swapped)
+// The Lua UI requests carry the script's id, so the app can undo a script's requests once it stops
+namespace
 {
-    int32_t value = swapped ? 1 : 0;
-    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_SWAP_SCREENS, sizeof(value), &value);
+struct LuaRequestData
+{
+    int32_t scriptId;
+    int32_t value;
+};
 }
 
-void AndroidMelonEventMessenger::onLuaShowControls(bool visible)
+void AndroidMelonEventMessenger::onLuaSwapScreens(int scriptId, bool swapped)
 {
-    int32_t value = visible ? 1 : 0;
-    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_SHOW_CONTROLS, sizeof(value), &value);
+    LuaRequestData data { scriptId, swapped ? 1 : 0 };
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_SWAP_SCREENS, sizeof(data), &data);
 }
 
-void AndroidMelonEventMessenger::onLuaFastForward(bool enabled)
+void AndroidMelonEventMessenger::onLuaShowControls(int scriptId, bool visible)
 {
-    int32_t value = enabled ? 1 : 0;
-    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_FAST_FORWARD, sizeof(value), &value);
+    LuaRequestData data { scriptId, visible ? 1 : 0 };
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_SHOW_CONTROLS, sizeof(data), &data);
+}
+
+void AndroidMelonEventMessenger::onLuaFastForward(int scriptId, bool enabled)
+{
+    LuaRequestData data { scriptId, enabled ? 1 : 0 };
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_FAST_FORWARD, sizeof(data), &data);
 }

@@ -108,11 +108,20 @@ class AndroidEmulatorManager(
                     luaScriptErrors = luaScriptErrors + (scriptId to error)
                 }
                 val scriptName = luaScriptNames.getOrNull(scriptId) ?: "?"
-                _emulatorEvents.tryEmit(EmulatorEvent.LuaScriptStopped(scriptName, error))
+                _emulatorEvents.tryEmit(EmulatorEvent.LuaScriptStopped(scriptId, scriptName, error))
             }
-            EmulatorEventType.EventLuaSwapScreens -> _emulatorEvents.tryEmit(EmulatorEvent.LuaSwapScreens(data.getInt() != 0))
-            EmulatorEventType.EventLuaShowControls -> _emulatorEvents.tryEmit(EmulatorEvent.LuaShowControls(data.getInt() != 0))
-            EmulatorEventType.EventLuaFastForward -> _emulatorEvents.tryEmit(EmulatorEvent.LuaFastForward(data.getInt() != 0))
+            EmulatorEventType.EventLuaSwapScreens -> {
+                val scriptId = data.getInt()
+                _emulatorEvents.tryEmit(EmulatorEvent.LuaSwapScreens(scriptId, data.getInt() != 0))
+            }
+            EmulatorEventType.EventLuaShowControls -> {
+                val scriptId = data.getInt()
+                _emulatorEvents.tryEmit(EmulatorEvent.LuaShowControls(scriptId, data.getInt() != 0))
+            }
+            EmulatorEventType.EventLuaFastForward -> {
+                val scriptId = data.getInt()
+                _emulatorEvents.tryEmit(EmulatorEvent.LuaFastForward(scriptId, data.getInt() != 0))
+            }
         }
     }
 

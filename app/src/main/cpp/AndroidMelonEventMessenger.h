@@ -20,9 +20,9 @@ public:
     void onLeaderboardAttemptCompleted(long leaderboardId, int value, std::string formattedValue) override;
 
     void onLuaScriptStopped(int scriptId, const std::string& error) override;
-    void onLuaSwapScreens(bool swapped) override;
-    void onLuaShowControls(bool visible) override;
-    void onLuaFastForward(bool enabled) override;
+    void onLuaSwapScreens(int scriptId, bool swapped) override;
+    void onLuaShowControls(int scriptId, bool visible) override;
+    void onLuaFastForward(int scriptId, bool enabled) override;
 
 private:
     // Event type constants

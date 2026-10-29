@@ -167,11 +167,18 @@ class EmulatorViewModel @Inject constructor(
     // and events from a session that has ended (still buffered, or from its on_unload) are dropped. The state isn't checked: on_load events can
     // arrive before it becomes RunningRom
     private val _luaUiEvent = Channel<Pair<Int, LuaUiEvent>>(Channel.UNLIMITED)
+    // SessionEnded is never dropped: it's sent as the session changes, and undoes what the ended session's scripts did
     val luaUiEvent = _luaUiEvent.receiveAsFlow()
-        .filter { (session, _) -> session == luaUiEventSession }
+        .filter { (session, event) -> session == luaUiEventSession || event is LuaUiEvent.SessionEnded }
         .map { it.second }
     // Changed on the main thread whenever a session starts or stops, so nothing matches it while no session runs
     private var luaUiEventSession = 0
+
+    /**
+     * What the scripts changed in the UI, so it can be put back when they stop. Kept here so it survives the activity being recreated, and only
+     * used by the screen as it handles [luaUiEvent] (in order) and the player's own changes
+     */
+    val luaUiOverrides = LuaUiOverrides()
 
     init {
         viewModelScope.launch {
@@ -436,7 +443,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     private fun stopEmulator() {
-        luaUiEventSession++
+        endLuaUiSession()
         viewModelScope.launch {
             _achievementsEvent.emit(RAEventUi.Reset)
         }
@@ -448,7 +455,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     private fun stopEmulatorAndExit() {
-        luaUiEventSession++
+        endLuaUiSession()
         performanceLogger.stopSession()
         // Stop session jobs (RA heartbeat, play time) so they don't outlive the native instance
         sessionCoroutineScope.cancel()
@@ -691,7 +698,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     private fun resetEmulatorState(newState: EmulatorState) {
-        luaUiEventSession++
+        endLuaUiSession()
         performanceLogger.stopSession()
         sessionCoroutineScope.notifyNewSessionStarted()
         emulatorSession.reset()
@@ -709,10 +716,10 @@ class EmulatorViewModel @Inject constructor(
                 when (it) {
                     is EmulatorEvent.RumbleStart -> _rumbleEvent.tryEmit(RumbleEvent.RumbleStart(it.duration))
                     EmulatorEvent.RumbleStop -> _rumbleEvent.tryEmit(RumbleEvent.RumbleStop)
-                    is EmulatorEvent.LuaScriptStopped -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ScriptStopped(it.scriptName, it.error))
-                    is EmulatorEvent.LuaSwapScreens -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.SwapScreens(it.swapped))
-                    is EmulatorEvent.LuaShowControls -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ShowControls(it.visible))
-                    is EmulatorEvent.LuaFastForward -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.FastForward(it.enabled))
+                    is EmulatorEvent.LuaScriptStopped -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ScriptStopped(it.scriptId, it.scriptName, it.error))
+                    is EmulatorEvent.LuaSwapScreens -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.Request(LuaUiSetting.SWAP_SCREENS, it.scriptId, it.swapped))
+                    is EmulatorEvent.LuaShowControls -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.Request(LuaUiSetting.SHOW_CONTROLS, it.scriptId, it.visible))
+                    is EmulatorEvent.LuaFastForward -> _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.Request(LuaUiSetting.FAST_FORWARD, it.scriptId, it.enabled))
                     is EmulatorEvent.Stop -> {
                         when (it.reason) {
                             EmulatorEvent.Stop.Reason.GBAModeNotSupported -> _toastEvent.tryEmit(ToastEvent.GbaModeNotSupported)
@@ -851,6 +858,17 @@ class EmulatorViewModel @Inject constructor(
      */
     fun disableLuaScript(scriptId: Int) {
         emulatorManager.disableLuaScript(scriptId)
+        // Native doesn't send a stop event for this one, so the screen is told here to undo what the script changed
+        val scriptName = emulatorManager.getLuaScripts().getOrNull(scriptId)?.name ?: return
+        _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.ScriptStopped(scriptId, scriptName, error = null))
+    }
+
+    /**
+     * Ends the current session's Lua UI events. Anything still queued from it is dropped, and the screen puts back what its scripts changed
+     */
+    private fun endLuaUiSession() {
+        luaUiEventSession++
+        _luaUiEvent.trySend(luaUiEventSession to LuaUiEvent.SessionEnded)
     }
 
     fun isSustainedPerformanceModeEnabled(): Boolean {

@@ -26,9 +26,9 @@ public:
     // Lua scripts. Called on the emulator thread
     // [scriptId] is the script's position in the list the app sent
     virtual void onLuaScriptStopped(int scriptId, const std::string& error) = 0;
-    virtual void onLuaSwapScreens(bool swapped) = 0;
-    virtual void onLuaShowControls(bool visible) = 0;
-    virtual void onLuaFastForward(bool enabled) = 0;
+    virtual void onLuaSwapScreens(int scriptId, bool swapped) = 0;
+    virtual void onLuaShowControls(int scriptId, bool visible) = 0;
+    virtual void onLuaFastForward(int scriptId, bool enabled) = 0;
 };
 
 }

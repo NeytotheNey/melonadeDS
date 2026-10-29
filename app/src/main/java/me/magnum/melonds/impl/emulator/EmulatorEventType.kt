@@ -85,18 +85,21 @@ enum class EmulatorEventType(val event: Int) {
 
     /**
      * A Lua script wants the screens swapped or not. Data:
+     * * script ID (`i32`)
      * * swapped (`i32`, 0 or 1)
      */
     EventLuaSwapScreens(301),
 
     /**
      * A Lua script wants the on-screen controls shown or hidden. Data:
+     * * script ID (`i32`)
      * * visible (`i32`, 0 or 1)
      */
     EventLuaShowControls(302),
 
     /**
      * A Lua script wants fast-forward on or off. Data:
+     * * script ID (`i32`)
      * * enabled (`i32`, 0 or 1)
      */
     EventLuaFastForward(303),

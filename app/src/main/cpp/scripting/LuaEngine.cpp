@@ -595,11 +595,11 @@ void LuaEngine::sendRequests(Script& script)
     if (eventMessenger)
     {
         if (script.swapScreens)
-            eventMessenger->onLuaSwapScreens(*script.swapScreens);
+            eventMessenger->onLuaSwapScreens(script.id, *script.swapScreens);
         if (script.showControls)
-            eventMessenger->onLuaShowControls(*script.showControls);
+            eventMessenger->onLuaShowControls(script.id, *script.showControls);
         if (script.fastForward)
-            eventMessenger->onLuaFastForward(*script.fastForward);
+            eventMessenger->onLuaFastForward(script.id, *script.fastForward);
     }
 
     script.swapScreens.reset();

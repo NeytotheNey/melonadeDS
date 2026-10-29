@@ -226,6 +226,11 @@ class EmulatorActivity : AppCompatActivity() {
             private set
 
         override fun onSoftInputTogglePressed() {
+            viewModel.luaUiOverrides.onPlayerChanged(LuaUiSetting.SHOW_CONTROLS)
+            toggleSoftInputVisibility()
+        }
+
+        fun toggleSoftInputVisibility() {
             binding.viewLayoutControls.toggleSoftInputVisibility()
             presentation?.layoutView?.toggleSoftInputVisibility()
         }
@@ -235,6 +240,7 @@ class EmulatorActivity : AppCompatActivity() {
         }
 
         override fun onFastForwardPressed() {
+            viewModel.luaUiOverrides.onPlayerChanged(LuaUiSetting.FAST_FORWARD)
             setFastForwardEnabled(!fastForwardEnabled)
         }
 
@@ -246,33 +252,23 @@ class EmulatorActivity : AppCompatActivity() {
             setFastForwardHoldActive(false)
         }
 
-        // The last fast-forward request from a Lua script in this run, if any
-        private var scriptFastForwardRequest: Boolean? = null
-
         /**
-         * Sets the fast-forward toggle, for Lua scripts.
+         * Sets the fast-forward toggle, for Lua scripts (and for putting it back once they stop).
          */
         fun setFastForwardFromScript(enabled: Boolean) {
-            scriptFastForwardRequest = enabled
             if (fastForwardEnabled != enabled) {
                 setFastForwardEnabled(enabled)
             }
         }
 
         /**
-         * Forgets the last script request. Used when a new ROM or firmware is about to start.
-         */
-        fun clearScriptFastForwardRequest() {
-            scriptFastForwardRequest = null
-        }
-
-        /**
          * Turns fast-forward off. Used when a ROM or firmware is running (also after the activity is recreated), since the emulator starts
-         * without fast-forward. A script's request from this run is applied again, since it can arrive (from on_load()) before this is called.
+         * without fast-forward. A request from this session's scripts is applied again, since it can arrive (from on_load()) before this is
+         * called. The previous session's requests are gone by then (LuaUiEvent.SessionEnded is sent before the next game starts).
          */
         fun resetFastForward() {
             fastForwardHoldActive = false
-            setFastForwardEnabled(scriptFastForwardRequest ?: false)
+            setFastForwardEnabled(viewModel.luaUiOverrides.getScriptValue(LuaUiSetting.FAST_FORWARD) ?: false)
         }
 
         /**
@@ -319,6 +315,7 @@ class EmulatorActivity : AppCompatActivity() {
         }
 
         override fun onSwapScreens() {
+            viewModel.luaUiOverrides.onPlayerChanged(LuaUiSetting.SWAP_SCREENS)
             swapScreen()
         }
 
@@ -621,20 +618,23 @@ class EmulatorActivity : AppCompatActivity() {
                 viewModel.luaUiEvent.collect {
                     when (it) {
                         is LuaUiEvent.ScriptStopped -> {
-                            val message = getString(R.string.lua_script_switched_off, it.scriptName, it.error)
-                            Toast.makeText(this@EmulatorActivity, message, Toast.LENGTH_LONG).show()
+                            if (it.error != null) {
+                                val message = getString(R.string.lua_script_switched_off, it.scriptName, it.error)
+                                Toast.makeText(this@EmulatorActivity, message, Toast.LENGTH_LONG).show()
+                            }
+                            applyLuaUiSettings(viewModel.luaUiOverrides.onScriptStopped(it.scriptId))
                         }
-                        is LuaUiEvent.SwapScreens -> {
-                            if (binding.viewLayoutControls.areScreensSwapped() != it.swapped) {
-                                swapScreen()
+                        is LuaUiEvent.Request -> {
+                            val value = viewModel.luaUiOverrides.onScriptRequest(it.setting, it.scriptId, it.value, getLuaUiSetting(it.setting))
+                            applyLuaUiSetting(it.setting, value)
+                        }
+                        LuaUiEvent.SessionEnded -> {
+                            val values = viewModel.luaUiOverrides.onSessionEnded()
+                            // Nothing to put back if the screen is closing
+                            if (!isFinishing) {
+                                applyLuaUiSettings(values)
                             }
                         }
-                        is LuaUiEvent.ShowControls -> {
-                            if (binding.viewLayoutControls.isSoftInputVisible() != it.visible) {
-                                frontendInputHandler.onSoftInputTogglePressed()
-                            }
-                        }
-                        is LuaUiEvent.FastForward -> frontendInputHandler.setFastForwardFromScript(it.enabled)
                     }
                 }
             }
@@ -701,13 +701,11 @@ class EmulatorActivity : AppCompatActivity() {
                             binding.textLoading.isGone = true
                         }
                         is EmulatorState.ValidatingFirmware -> {
-                            frontendInputHandler.clearScriptFastForwardRequest()
                             showLoadingState()
                             emulatorMotionManager.stop()
                             emulatorLaunchValidatorDelegate.validateFirmware(it.consoleType)
                         }
                         is EmulatorState.ValidatingRom -> {
-                            frontendInputHandler.clearScriptFastForwardRequest()
                             showLoadingState()
                             emulatorMotionManager.stop()
                             emulatorLaunchValidatorDelegate.validateRom(it.rom)
@@ -717,6 +715,7 @@ class EmulatorActivity : AppCompatActivity() {
                         is EmulatorState.RunningRom,
                         is EmulatorState.RunningFirmware -> {
                             frontendInputHandler.resetFastForward()
+                            reapplyLuaUiSettings()
                             setupSustainedPerformanceMode()
                             setupFramePacing()
                             setupFpsCounter()
@@ -1011,6 +1010,43 @@ class EmulatorActivity : AppCompatActivity() {
             binding.viewLayoutControls.destroyLayout()
             presentation?.layoutView?.destroyLayout()
         }
+    }
+
+    private fun getLuaUiSetting(setting: LuaUiSetting): Boolean {
+        return when (setting) {
+            LuaUiSetting.SWAP_SCREENS -> binding.viewLayoutControls.areScreensSwapped()
+            LuaUiSetting.SHOW_CONTROLS -> binding.viewLayoutControls.isSoftInputVisible()
+            LuaUiSetting.FAST_FORWARD -> frontendInputHandler.fastForwardEnabled
+        }
+    }
+
+    /**
+     * Changes a setting for Lua scripts, only if it differs from what the UI shows. Doesn't count as the player's change
+     */
+    private fun applyLuaUiSetting(setting: LuaUiSetting, value: Boolean) {
+        if (getLuaUiSetting(setting) == value) {
+            return
+        }
+
+        when (setting) {
+            LuaUiSetting.SWAP_SCREENS -> swapScreen()
+            LuaUiSetting.SHOW_CONTROLS -> frontendInputHandler.toggleSoftInputVisibility()
+            LuaUiSetting.FAST_FORWARD -> frontendInputHandler.setFastForwardFromScript(value)
+        }
+    }
+
+    /**
+     * Puts back the swap and controls values the scripts hold. A recreated activity starts from the defaults (fast-forward is handled by
+     * resetFastForward())
+     */
+    private fun reapplyLuaUiSettings() {
+        listOf(LuaUiSetting.SWAP_SCREENS, LuaUiSetting.SHOW_CONTROLS).forEach { setting ->
+            viewModel.luaUiOverrides.getScriptValue(setting)?.let { applyLuaUiSetting(setting, it) }
+        }
+    }
+
+    private fun applyLuaUiSettings(values: Map<LuaUiSetting, Boolean>) {
+        values.forEach { (setting, value) -> applyLuaUiSetting(setting, value) }
     }
 
     private fun swapScreen() {
