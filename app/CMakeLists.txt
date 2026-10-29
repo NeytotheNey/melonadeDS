@@ -87,3 +87,7 @@ target_include_directories(melonDS-android-frontend PUBLIC
         ${RCHEEVOS}/include
 )
 target_link_libraries(melonDS-android-frontend android core net-utils oboe faad enet rcheevos lua EGL GLESv3)
+
+# Bind the library's own symbols at link time, so calls between its functions (the core's hot paths included)
+# don't go through PLT stubs. Symbols stay exported, so the JNI entry points are unaffected
+target_link_options(melonDS-android-frontend PRIVATE -Wl,-Bsymbolic)
