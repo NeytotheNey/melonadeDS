@@ -18,6 +18,7 @@
 #include "NDSCart.h"
 #include "net/Net_Slirp.h"
 #include "Platform.h"
+#include "PlatformAndroid.h"
 #include "SDCardArgsBuilder.h"
 #include "debug/DebugLog.h"
 #ifdef MELONADE_DEBUG_TOOLS
@@ -65,6 +66,15 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     char hash2dProperty[PROP_VALUE_MAX] = {};
     __system_property_get("debug.melonade.hash2d", hash2dProperty);
     nds->GPU.Hash2DLogging = hash2dProperty[0] == '1';
+
+    // `adb shell setprop debug.melonade.threaded2d 1` (or 0) forces threaded 2D on (or off) over the setting, for testing. Clear it with an
+    // empty value: `adb shell setprop debug.melonade.threaded2d ""`
+    char threaded2dProperty[PROP_VALUE_MAX] = {};
+    __system_property_get("debug.melonade.threaded2d", threaded2dProperty);
+    if (threaded2dProperty[0] == '1')
+        threaded2dOverride = 1;
+    else if (threaded2dProperty[0] == '0')
+        threaded2dOverride = 0;
 #endif
 
     if (configuration->userInternalFirmwareAndBios)
@@ -711,6 +721,16 @@ void MelonInstance::updateRenderer()
         }
         default: __builtin_unreachable();
     }
+
+    // Runs between frames, so the 2D thread can start or stop right away
+    bool threaded2d = threaded2dOverride >= 0 ? threaded2dOverride == 1 : currentConfiguration->threaded2dRendering;
+    nds->GPU.SetThreaded2D(threaded2d);
+}
+
+pid_t MelonInstance::getGpu2DThreadId()
+{
+    Platform::Thread* thread = nds->GPU.Get2DThread();
+    return thread ? Platform::GetThreadTid(thread) : 0;
 }
 
 void MelonInstance::setBatteryLevels()

@@ -16,6 +16,7 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <dlfcn.h>
@@ -54,7 +55,9 @@ namespace Platform
     {
         pthread_t ID;
         std::function<void()> Func;
-
+        std::string Name;
+        // The kernel thread ID, set once the thread has started (0 until then)
+        std::atomic<pid_t> Tid;
     } AndroidThread;
 
     typedef pthread_mutex_t AndroidMutex;
@@ -62,8 +65,17 @@ namespace Platform
     void* ThreadEntry(void* data)
     {
         AndroidThread* thread = (AndroidThread*)data;
+        // Named from the thread itself, so the name is there before it runs any code. Linux names are at most 15 characters
+        if (!thread->Name.empty())
+            pthread_setname_np(pthread_self(), thread->Name.substr(0, 15).c_str());
+        thread->Tid.store(gettid(), std::memory_order_release);
         thread->Func();
         return nullptr;
+    }
+
+    pid_t GetThreadTid(Thread* thread)
+    {
+        return ((AndroidThread*) thread)->Tid.load(std::memory_order_acquire);
     }
 
     void SignalStop(StopReason reason, void* userdata)
@@ -329,11 +341,20 @@ namespace Platform
         va_end(args);
     }
 
-    Thread* Thread_Create(std::function<void()> func)
+    Thread* Thread_Create(std::function<void()> func, const char* name)
     {
         AndroidThread* data = new AndroidThread;
         data->Func = func;
-        pthread_create(&data->ID, nullptr, ThreadEntry, data);
+        data->Name = name ? name : "";
+        data->Tid.store(0, std::memory_order_relaxed);
+        int result = pthread_create(&data->ID, nullptr, ThreadEntry, data);
+        if (result != 0)
+        {
+            // Null tells the caller there's no thread. Thread_Wait and Thread_Free accept it, so callers that don't check stay safe
+            Log(LogLevel::Error, "Failed to create thread %s (error %d)\n", data->Name.c_str(), result);
+            delete data;
+            return nullptr;
+        }
         return (Thread*) data;
     }
 
@@ -344,6 +365,9 @@ namespace Platform
 
     void Thread_Wait(Thread* thread)
     {
+        if (thread == nullptr)
+            return;
+
         pthread_t pthread = ((AndroidThread*) thread)->ID;
         pthread_join(pthread, NULL);
     }

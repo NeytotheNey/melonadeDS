@@ -85,6 +85,8 @@ typedef struct
     int rewindLengthSeconds;
     FirmwareConfiguration firmwareConfiguration;
     std::unique_ptr<RenderSettings> renderSettings;
+    // Draws the 2D layers on their own thread. Used by every renderer, so it's not in renderSettings
+    bool threaded2dRendering;
     SdCardSettings dsiSdCardSettings;
     SdCardSettings dldiSdCardSettings;
     Renderer renderer;

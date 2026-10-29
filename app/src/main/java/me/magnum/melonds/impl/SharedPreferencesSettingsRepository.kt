@@ -112,9 +112,10 @@ class SharedPreferencesSettingsRepository(
             getVideoRenderer(),
             lookSettingsFlow,
             isThreadedRenderingEnabled(),
+            isThreaded2dRenderingEnabled(),
             getVideoInternalResolutionScaling(),
-        ) { renderer, (filtering, dsScreenColors, screenShadow), threadedRenderingEnabled, resolutionScaling ->
-            RendererConfiguration(renderer, filtering, dsScreenColors, screenShadow, threadedRenderingEnabled, resolutionScaling)
+        ) { renderer, (filtering, dsScreenColors, screenShadow), threadedRenderingEnabled, threaded2dRenderingEnabled, resolutionScaling ->
+            RendererConfiguration(renderer, filtering, dsScreenColors, screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled, resolutionScaling)
         }.conflate().shareIn(preferencesCoroutineScope, SharingStarted.Lazily, replay = 1)
     }
 
@@ -365,6 +366,12 @@ class SharedPreferencesSettingsRepository(
     override fun isThreadedRenderingEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow("enable_threaded_rendering") {
             preferences.getBoolean("enable_threaded_rendering", true)
+        }
+    }
+
+    override fun isThreaded2dRenderingEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_THREADED_2D) {
+            preferences.getBoolean(PreferenceKeys.VIDEO_THREADED_2D, false)
         }
     }
 

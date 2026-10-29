@@ -47,6 +47,7 @@ interface SettingsRepository {
     fun isDsScreenColorsEnabled(): Flow<Boolean>
     fun isScreenShadowEnabled(): Flow<Boolean>
     fun isThreadedRenderingEnabled(): Flow<Boolean>
+    fun isThreaded2dRenderingEnabled(): Flow<Boolean>
     fun getFpsCounterPosition(): FpsCounterPosition
     fun showStatusBar(): Boolean
     fun getDSiCameraSource(): DSiCameraSourceType

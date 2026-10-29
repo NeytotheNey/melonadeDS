@@ -77,6 +77,11 @@ namespace MelonDSAndroid {
      * log is on
      */
     extern void logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs);
+    /**
+     * The kernel thread ID of the core's 2D render thread, or 0 while threaded 2D is off. Must only be called by the emulator thread, after
+     * loop()
+     */
+    extern pid_t getGpu2DThreadId();
     extern Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs);
     extern bool isSleeping();
     extern void pause();

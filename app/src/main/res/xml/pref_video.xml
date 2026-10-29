@@ -23,6 +23,15 @@
                 android:defaultValue="1"/>
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/settings_section_2d_rendering">
+
+        <SwitchPreference
+                android:key="video_threaded_2d"
+                android:title="@string/threaded_2d_rendering"
+                android:summary="@string/threaded_2d_rendering_summary"
+                android:defaultValue="false" />
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="@string/settings_section_image">
 
         <ListPreference

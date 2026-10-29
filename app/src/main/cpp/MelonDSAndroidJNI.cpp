@@ -872,6 +872,8 @@ void* emulate(void*)
     auto manager = PerformanceHintManagerFactory::create(jniEnvHandler);
     performanceHintSession = new ThreadSafePerformanceHintSession(std::move(manager));
     performanceHintSession->createSession(gettid(), FRAME_DURATION_60FPS_NS);
+    // The core's 2D render thread does part of each frame's work, so it joins the session while threaded 2D is on
+    pid_t sessionGpu2DThreadId = 0;
 
     for (;;)
     {
@@ -912,7 +914,17 @@ void* emulate(void*)
 
         int64_t workNs = std::chrono::nanoseconds(std::chrono::steady_clock::now() - frameStart).count();
         if (performanceHintSession != nullptr)
+        {
+            // The 2D thread starts or stops at the start of a frame (when the setting changes), and its ID is known once it runs
+            pid_t gpu2DThreadId = MelonDSAndroid::getGpu2DThreadId();
+            if (gpu2DThreadId != sessionGpu2DThreadId) [[unlikely]]
+            {
+                sessionGpu2DThreadId = gpu2DThreadId;
+                performanceHintSession->setHelperThreads(gpu2DThreadId ? std::vector<pid_t> { gpu2DThreadId } : std::vector<pid_t> {});
+            }
+
             performanceHintSession->reportActualWorkDuration(workNs);
+        }
 
         double currentTick = getCurrentMillis();
         double delay = currentTick - lastTick;

@@ -7,6 +7,7 @@ package me.magnum.melonds.common
  */
 object PreferenceKeys {
     // pref_video.xml
+    const val VIDEO_THREADED_2D = "video_threaded_2d"
     const val VIDEO_DS_SCREEN_COLORS = "video_ds_screen_colors"
     const val VIDEO_SCREEN_SHADOW = "video_screen_shadow"
     const val SHOW_STATUS_BAR = "show_status_bar"

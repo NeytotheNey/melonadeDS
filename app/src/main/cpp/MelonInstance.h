@@ -64,6 +64,8 @@ public:
     bool isSleeping() { return sleeping.load(std::memory_order_relaxed); }
     // Logs the CPU heartbeat and exception checks for the debug log. Must be called on the emulator thread, between frames
     void logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs) { DebugLog::onFrame(*nds, isFastForward, fps, lastFrameWorkNs); }
+    // The kernel thread ID of the core's 2D render thread, or 0 while threaded 2D is off (or the thread hasn't started yet). Emulator thread only
+    pid_t getGpu2DThreadId();
 
     void updateConfiguration(std::shared_ptr<EmulatorConfiguration> newConfiguration);
     void requestNdsSaveWrite(const u8* saveData, u32 saveLength, u32 writeOffset, u32 writeLength);
@@ -109,6 +111,8 @@ private:
     RewindManager rewindManager;
     Renderer currentRenderer;
     bool isRenderConfigurationDirty;
+    // Debug builds only: debug.melonade.threaded2d forces threaded 2D on (1) or off (0). -1 when the property isn't set
+    int threaded2dOverride = -1;
     int frame;
     // CRC32 of the loaded ROM file. Only worked out while the debug log is on
     bool hasRomCrc32 = false;

@@ -257,6 +257,12 @@ namespace MelonDSAndroid
             instance->logDebugFrameState(isFastForward, fps, lastFrameWorkNs);
     }
 
+    pid_t getGpu2DThreadId()
+    {
+        // Same as above: the emulator thread calls it right after loop()
+        return instance ? instance->getGpu2DThreadId() : 0;
+    }
+
     Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs)
     {
         // The caller must keep holding the lock while it uses the frame

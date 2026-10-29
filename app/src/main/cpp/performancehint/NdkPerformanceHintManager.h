@@ -14,7 +14,7 @@ class NdkPerformanceHintManager : public PerformanceHintManager
 {
 public:
     NdkPerformanceHintManager();
-    void createSession(pid_t threadId, int64_t targetDurationNs) override;
+    bool createSession(const std::vector<pid_t>& threadIds, int64_t targetDurationNs) override;
     void destroySession() override;
     void reportActualWorkDuration(int64_t actualDurationNs) override;
     void updateTargetWorkDuration(int64_t targetDurationNs) override;
