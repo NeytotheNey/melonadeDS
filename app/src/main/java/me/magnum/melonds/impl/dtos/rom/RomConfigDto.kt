@@ -21,6 +21,9 @@ data class RomConfigDto(
     // Configs saved before mods existed have no "mods" entry. Gson leaves it null, which means all mods are off
     @SerializedName("mods")
     val mods: RomModsConfigDto? = null,
+    // Configs saved before the swap was kept have no "screensSwapped" entry. Gson leaves it null, which means not swapped
+    @SerializedName("screensSwapped")
+    val screensSwapped: Boolean? = null,
 ) {
 
     companion object {
@@ -32,6 +35,7 @@ data class RomConfigDto(
                 RomGbaSlotConfigDto.fromModel(romConfig.gbaSlotConfig),
                 romConfig.customName,
                 RomModsConfigDto.fromModel(romConfig.mods),
+                romConfig.screensSwapped,
             )
         }
     }
@@ -44,6 +48,7 @@ data class RomConfigDto(
             gbaSlotConfig.toModel(),
             customName = customName,
             mods = mods?.toModel() ?: RomModsConfig(),
+            screensSwapped = screensSwapped == true,
         )
     }
 }

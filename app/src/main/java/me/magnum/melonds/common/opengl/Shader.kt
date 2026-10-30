@@ -19,6 +19,8 @@ class Shader(
     private val uniformTexSize: Int
     // Only declared by the filters that need to know the frame's width in DS pixels (see ShaderProgramSource)
     private val uniformTopScreenWidth: Int
+    // Only declared by the filters that keep their samples off the parts beside a screen's middle (see ShaderProgramSource.screenColumns)
+    private val uniformBottomScreenWide: Int
 
     init {
         GLES30.glUseProgram(programId)
@@ -28,6 +30,7 @@ class Shader(
         uniformTex = GLES30.glGetUniformLocation(programId, "tex")
         uniformTexSize = GLES30.glGetUniformLocation(programId, "texSize")
         uniformTopScreenWidth = GLES30.glGetUniformLocation(programId, "topScreenWidth")
+        uniformBottomScreenWide = GLES30.glGetUniformLocation(programId, "bottomScreenWide")
         GLES30.glUseProgram(0)
     }
 
@@ -56,6 +59,16 @@ class Shader(
     fun setTopScreenWidth(width: Int) {
         if (uniformTopScreenWidth != INVALID_UNIFORM) {
             GLES30.glUniform1f(uniformTopScreenWidth, width.toFloat())
+        }
+    }
+
+    /**
+     * Sets which screen is drawn wide, with the parts of its half of the frame beside its middle SCREEN_WIDTH columns: the bottom one when the
+     * screens are swapped, otherwise the top one. Must be called after [use]. Does nothing if the shader doesn't need it.
+     */
+    fun setBottomScreenWide(isBottomScreenWide: Boolean) {
+        if (uniformBottomScreenWide != INVALID_UNIFORM) {
+            GLES30.glUniform1f(uniformBottomScreenWide, if (isBottomScreenWide) 1f else 0f)
         }
     }
 

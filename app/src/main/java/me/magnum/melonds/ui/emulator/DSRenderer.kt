@@ -16,9 +16,7 @@ import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.VideoFiltering
 import me.magnum.melonds.domain.model.layout.BackgroundMode
-import me.magnum.melonds.domain.model.layout.buildCentredRect
-import me.magnum.melonds.domain.model.layout.getLetterboxedRect
-import me.magnum.melonds.domain.model.layout.getWideTopScreenRect
+import me.magnum.melonds.domain.model.layout.getScreensDrawing
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_BOTTOM
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_TOP
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
@@ -71,8 +69,10 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var screenQuadScreens = IntArray(0)
     // PresentFrameWrapper.topScreenWidth of the frame that the quads were built for. They're built again when a frame of another width comes,
     // so a SCREEN_WIDTH frame (widescreen off, another renderer, or a frame from before the width changed) always draws as without widescreen.
-    // Only accessed on the GL thread
-    private var frameTopScreenWidth = SCREEN_WIDTH
+    // Only changed on the GL thread. The touch screen input reads it to take touches where this draws the bottom screen
+    @Volatile
+    var frameTopScreenWidth = SCREEN_WIDTH
+        private set
 
     private var shadowsVbo = 0
     private var shadowsVao = 0
@@ -93,6 +93,12 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var bottomOnTop: Boolean = false
     // Whether the layout is a wide one (LayoutConfiguration.isWide), whose top rects are placed by the player for each variant
     private var isWideLayout: Boolean = false
+    // Whether the screens are swapped, so that bottomScreenRect is the top screen's rect in the layout, and the bottom screen is the one drawn
+    // wide
+    private var areScreensSwapped: Boolean = false
+    // areScreensSwapped as it was when the quads were built, which the filters are given so that they keep the same screen's sides. Only
+    // accessed on the GL thread
+    private var isBottomScreenWideInQuads = false
 
     private var width = 0f
     private var height = 0f
@@ -118,6 +124,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         topOnTop: Boolean,
         bottomOnTop: Boolean,
         isWideLayout: Boolean,
+        areScreensSwapped: Boolean,
     ) {
         synchronized(configurationLock) {
             this.topScreenRect = topScreenRect
@@ -127,6 +134,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             this.topOnTop = topOnTop
             this.bottomOnTop = bottomOnTop
             this.isWideLayout = isWideLayout
+            this.areScreensSwapped = areScreensSwapped
             mustUpdateConfiguration = true
         }
     }
@@ -253,19 +261,17 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         val topScreenBottomV = 0.5f - lineRelativeSize
         val bottomScreenTopV = 0.5f + lineRelativeSize
 
-        // The top screen takes the frame's whole width. In a frame wider than SCREEN_WIDTH (widescreen), the bottom screen is the middle
-        // SCREEN_WIDTH of it, with black bars beside it. The Lua drawings are always SCREEN_WIDTH wide
-        val bottomScreenLeftU = (frameTopScreenWidth - SCREEN_WIDTH) / (2f * frameTopScreenWidth)
-        val topUvs = buildScreenUvs(0f, 1f, 0f, topScreenBottomV)
-        val bottomUvs = buildScreenUvs(bottomScreenLeftU, 1f - bottomScreenLeftU, bottomScreenTopV, 1f)
-        val overlayBottomUvs = buildScreenUvs(0f, 1f, bottomScreenTopV, 1f)
-
-        // A wide top screen is drawn wider than its rect in the layout. Its Lua drawings stay on its middle SCREEN_WIDTH part, where the 2D is
-        val drawnTopScreenRect = topScreenRect?.let { getTopScreenDrawRect(it, bottomScreenRect, frameTopScreenWidth) }
-        val topScreenVertexData = drawnTopScreenRect?.let { buildScreenVertexData(it, topUvs, topAlpha) }
-        val bottomScreenVertexData = bottomScreenRect?.let { buildScreenVertexData(it, bottomUvs, bottomAlpha) }
-        val topOverlayVertexData = drawnTopScreenRect?.let { buildScreenVertexData(getNativeTopScreenRect(it, frameTopScreenWidth), topUvs, topAlpha) }
-        val bottomOverlayVertexData = bottomScreenRect?.let { buildScreenVertexData(it, overlayBottomUvs, bottomAlpha) }
+        // The screen in the layout's top screen rect (the bottom one when swapped) takes its half's whole width, and is drawn wider than its rect
+        // in a frame wider than SCREEN_WIDTH (widescreen). The other one is the middle SCREEN_WIDTH of its half, without the black bars beside it.
+        // The Lua drawings are always SCREEN_WIDTH wide, and stay on each screen's middle SCREEN_WIDTH part, where the 2D is
+        val drawing = getScreensDrawing(topScreenRect, bottomScreenRect, frameTopScreenWidth, isWideLayout, areScreensSwapped, width)
+        isBottomScreenWideInQuads = areScreensSwapped
+        val topScreen = drawing.topScreen
+        val bottomScreen = drawing.bottomScreen
+        val topScreenVertexData = topScreen?.let { buildScreenVertexData(it.drawRect, buildScreenUvs(it.leftU, it.rightU, 0f, topScreenBottomV), topAlpha) }
+        val bottomScreenVertexData = bottomScreen?.let { buildScreenVertexData(it.drawRect, buildScreenUvs(it.leftU, it.rightU, bottomScreenTopV, 1f), bottomAlpha) }
+        val topOverlayVertexData = topScreen?.let { buildScreenVertexData(it.nativeRect, buildScreenUvs(0f, 1f, 0f, topScreenBottomV), topAlpha) }
+        val bottomOverlayVertexData = bottomScreen?.let { buildScreenVertexData(it.nativeRect, buildScreenUvs(0f, 1f, bottomScreenTopV, 1f), bottomAlpha) }
 
         val (overScreen, underScreen) = if (bottomOnTop) OVERLAY_SCREEN_BOTTOM to OVERLAY_SCREEN_TOP else OVERLAY_SCREEN_TOP to OVERLAY_SCREEN_BOTTOM
         screenQuadScreens = intArrayOf(underScreen, overScreen).filter {
@@ -289,36 +295,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GLES30.GL_STATIC_DRAW)
         screenIndices = screenQuadScreens.size * VERTICES_PER_SCREEN
 
-        updateShadowCoordinates(drawnTopScreenRect)
-    }
-
-    /**
-     * Where the top screen is drawn when the frame's top screen is [topScreenWidth] DS pixels wide. In a wide layout the frame is fitted in
-     * [rect] at its own aspect ratio, whatever its width, so a frame whose width doesn't match the variant yet (just after a fold, or while
-     * paused) never spreads beyond the rect. Otherwise a SCREEN_WIDTH frame takes [rect] itself, and a wider one is drawn at its own aspect
-     * ratio, placed by getWideTopScreenRect. Stored layouts and touch never change
-     */
-    private fun getTopScreenDrawRect(rect: Rect, bottomRect: Rect?, topScreenWidth: Int): Rect {
-        if (isWideLayout) {
-            return getLetterboxedRect(rect, topScreenWidth.coerceAtLeast(SCREEN_WIDTH) / SCREEN_HEIGHT.toFloat())
-        }
-        if (topScreenWidth <= SCREEN_WIDTH) {
-            return rect
-        }
-
-        return getWideTopScreenRect(rect, bottomRect, topScreenWidth / SCREEN_HEIGHT.toFloat(), width)
-    }
-
-    /**
-     * The middle SCREEN_WIDTH part of a top screen that's [topScreenWidth] DS pixels wide and drawn at [drawRect]
-     */
-    private fun getNativeTopScreenRect(drawRect: Rect, topScreenWidth: Int): Rect {
-        if (topScreenWidth <= SCREEN_WIDTH) {
-            return drawRect
-        }
-
-        val nativeWidth = drawRect.width * SCREEN_WIDTH / topScreenWidth.toFloat()
-        return buildCentredRect(drawRect.x + drawRect.width / 2f, drawRect.y.toFloat(), nativeWidth, drawRect.height.toFloat())
+        updateShadowCoordinates(topScreen?.drawRect, bottomScreen?.drawRect)
     }
 
     private fun buildScreenUvs(left: Float, right: Float, top: Float, bottom: Float): FloatArray {
@@ -335,13 +312,15 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
     /**
      * @param drawnTopScreenRect Where the top screen is drawn, which is wider than its rect while widescreen is on
+     * @param drawnBottomScreenRect Where the bottom screen is drawn, which is wider than its rect while widescreen is on with the screens
+     * swapped
      */
-    private fun updateShadowCoordinates(drawnTopScreenRect: Rect?) {
+    private fun updateShadowCoordinates(drawnTopScreenRect: Rect?, drawnBottomScreenRect: Rect?) {
         // Empty when the setting is off, so nothing is drawn
         val shadowVertexData = if (rendererConfiguration?.screenShadow == true) {
             listOfNotNull(
                 drawnTopScreenRect?.let { buildShadowVertexData(it, topAlpha) },
-                bottomScreenRect?.let { buildShadowVertexData(it, bottomAlpha) },
+                drawnBottomScreenRect?.let { buildShadowVertexData(it, bottomAlpha) },
             )
         } else {
             emptyList()
@@ -469,7 +448,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
         // Runs before anything is drawn to the surface. Returns the frame texture itself for filters without pre-passes. Also called for
         // invalid frames, which clear its cache
-        val screenTexture = screenFilter?.renderPrePasses(presentFrameWrapper)
+        val screenTexture = screenFilter?.renderPrePasses(presentFrameWrapper, isBottomScreenWideInQuads)
 
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         if (!presentFrameWrapper.isValidFrame) {
@@ -535,6 +514,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         GLES30.glUniform1i(shader.uniformTex, 0)
         shader.setTextureSize(textureWidth, textureHeight)
         shader.setTopScreenWidth(topScreenWidth)
+        shader.setBottomScreenWide(isBottomScreenWideInQuads)
     }
 
     private fun useOverlayShader(overlayTextureId: Int) {

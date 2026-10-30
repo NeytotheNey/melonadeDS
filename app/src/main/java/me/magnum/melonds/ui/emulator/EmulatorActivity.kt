@@ -325,8 +325,7 @@ class EmulatorActivity : AppCompatActivity() {
         }
 
         override fun onSwapScreens() {
-            viewModel.luaUiOverrides.onPlayerChanged(LuaUiSetting.SWAP_SCREENS)
-            swapScreen()
+            swapScreensForPlayer()
         }
 
         override fun onQuickSave() {
@@ -471,6 +470,12 @@ class EmulatorActivity : AppCompatActivity() {
         binding.viewLayoutControls.apply {
             setFrontendInputHandler(frontendInputHandler)
             setSystemInputHandler(melonTouchHandler)
+            setFrameWidthProvider { mainScreenRenderer.frameTopScreenWidth }
+            // A recreated activity's views start unswapped. Put back the swap shown before (the player's or a script's) before any Lua event is
+            // handled, so the scripts' bookkeeping reads what the player sees. The renderer gets it once the layout is set up
+            if (viewModel.areScreensSwapped) {
+                swapScreens()
+            }
         }
 
         val layoutChangeListener = View.OnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
@@ -649,6 +654,12 @@ class EmulatorActivity : AppCompatActivity() {
                             applyLuaUiSettings(viewModel.luaUiOverrides.onScriptStopped(it.scriptId))
                         }
                         is LuaUiEvent.ScriptStarted -> viewModel.luaUiOverrides.onScriptStarted(it.scriptId)
+                        is LuaUiEvent.SessionStarted -> {
+                            // The game's own swap, shown before its scripts' first requests so that it's their baseline. Neither the
+                            // player's change nor a script's
+                            viewModel.luaUiOverrides.onSessionStarted(mapOf(LuaUiSetting.SWAP_SCREENS to it.screensSwapped))
+                            applyLuaUiSetting(LuaUiSetting.SWAP_SCREENS, it.screensSwapped)
+                        }
                         is LuaUiEvent.Request -> {
                             val value = viewModel.luaUiOverrides.onScriptRequest(it.setting, it.scriptId, it.value, getLuaUiSetting(it.setting))
                             applyLuaUiSetting(it.setting, value)
@@ -702,6 +713,7 @@ class EmulatorActivity : AppCompatActivity() {
                             activeOverlays.addActiveOverlay(EmulatorOverlay.PENDING_SUBMISSION_CONFIRM_EXIT)
                             showPendingSubmissionsDialog.value = true
                         }
+                        EmulatorUiEvent.SwapScreens -> swapScreensForPlayer()
                     }
                 }
             }
@@ -1065,7 +1077,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     /**
      * Puts back the swap and controls values the scripts hold. A recreated activity starts from the defaults (fast-forward is handled by
-     * resetFastForward())
+     * resetFastForward()). The swap shown before was already put back in onCreate(), so the scripts' swap value changes nothing then
      */
     private fun reapplyLuaUiSettings() {
         listOf(LuaUiSetting.SWAP_SCREENS, LuaUiSetting.SHOW_CONTROLS).forEach { setting ->
@@ -1077,9 +1089,19 @@ class EmulatorActivity : AppCompatActivity() {
         values.forEach { (setting, value) -> applyLuaUiSetting(setting, value) }
     }
 
+    /**
+     * The player swapped the screens (with the button, a controller or the pause menu), so no script holds the swap anymore
+     */
+    private fun swapScreensForPlayer() {
+        viewModel.luaUiOverrides.onPlayerChanged(LuaUiSetting.SWAP_SCREENS)
+        swapScreen()
+        viewModel.onPlayerSwappedScreens(binding.viewLayoutControls.areScreensSwapped())
+    }
+
     private fun swapScreen() {
         binding.viewLayoutControls.swapScreens()
         presentation?.swapScreens()
+        viewModel.areScreensSwapped = binding.viewLayoutControls.areScreensSwapped()
 
         updateRendererScreenAreas()
     }
@@ -1100,6 +1122,7 @@ class EmulatorActivity : AppCompatActivity() {
             topView?.onTop ?: false,
             bottomView?.onTop ?: false,
             isWideLayout,
+            binding.viewLayoutControls.areScreensSwapped(),
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

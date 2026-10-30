@@ -78,12 +78,15 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    gl_FragColor = vec4(finishColor(color.bgr), alpha);\n" +
                 "}"
 
-        // Keeps the samples of the screen that contains p off the black bars beside a wide frame's bottom screen. screenColumns() is the range
-        // of u coordinates (texel centres) they can use. Only that screen has anything beside it: everywhere else the range doesn't limit
-        // anything, since the texture's own edges (CLAMP_TO_EDGE) do the same, so nothing changes on a SCREEN_WIDTH frame. Needs texSize and
-        // topScreenWidth to be declared before it. sampleColumns() is for GLSL ES 1.00 filters that don't use sampleScreen(), and needs tex
-        private const val SCREEN_COLUMN_RANGE_FUNCTIONS = "vec2 screenColumns(vec2 p) {\n" +
-                "    if (p.y < 0.5 || topScreenWidth <= ${SCREEN_WIDTH}.0) {\n" +
+        // Keeps the samples of the screen that contains p off the parts beside its middle SCREEN_WIDTH columns in a wide frame, unless it's the
+        // screen drawn wide: the top one, or the bottom one when bottomScreenWide is 1 (the screens are swapped). screenColumns() is the range
+        // of u coordinates (texel centres) they can use. For the wide screen the range doesn't limit anything, since the texture's own edges
+        // (CLAMP_TO_EDGE) do the same, and neither does it on a SCREEN_WIDTH frame. Needs texSize and topScreenWidth to be declared before it,
+        // and declares bottomScreenWide (0, the top screen, when it's never set). sampleColumns() is for GLSL ES 1.00 filters that don't use
+        // sampleScreen(), and needs tex
+        private const val SCREEN_COLUMN_RANGE_FUNCTIONS = "uniform float bottomScreenWide;\n" +
+                "vec2 screenColumns(vec2 p) {\n" +
+                "    if ((p.y < 0.5) == (bottomScreenWide < 0.5) || topScreenWidth <= ${SCREEN_WIDTH}.0) {\n" +
                 "        return vec2(-1.0, 2.0);\n" +
                 "    }\n" +
                 "    float halfWidth = 0.5 * ${SCREEN_WIDTH}.0 / topScreenWidth;\n" +

@@ -11,6 +11,7 @@ enum class RomPauseMenuOption(override val textResource: Int) : PauseMenuOption 
     CHEATS(R.string.cheats),
     MODS(R.string.label_rom_config_mods),
     VIEW_ACHIEVEMENTS(R.string.achievements),
+    SWAP_SCREENS(R.string.swap_screens),
     RESET(R.string.reset),
     EXIT(R.string.exit)
 }

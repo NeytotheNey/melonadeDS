@@ -37,6 +37,7 @@ class RomConfigParcelable : Parcelable {
                 },
                 wideLayoutId = parcel.readString()?.let { UUID.fromString(it) },
             ),
+            screensSwapped = parcel.readInt() != 0,
         )
     }
 
@@ -60,6 +61,7 @@ class RomConfigParcelable : Parcelable {
             }
         }
         dest.writeString(romConfig.mods.wideLayoutId?.toString())
+        dest.writeInt(if (romConfig.screensSwapped) 1 else 0)
     }
 
     override fun describeContents(): Int {

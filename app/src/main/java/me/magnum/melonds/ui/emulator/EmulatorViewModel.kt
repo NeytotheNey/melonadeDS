@@ -189,6 +189,12 @@ class EmulatorViewModel @Inject constructor(
      */
     val luaUiOverrides = LuaUiOverrides()
 
+    /**
+     * Whether the screens are swapped as the screen shows them, by the player or by a script. The screen updates it on each swap, and puts it
+     * back when it's recreated, since its views start unswapped. What the scripts hold is still kept in [luaUiOverrides]
+     */
+    var areScreensSwapped = false
+
     // The layout the scripts asked for with melon.screen.set_layout(), or null for the player's. Unlike the settings in [luaUiOverrides], it's
     // worked out here as the events are sent (in the same order), since the layout flow is here too. Main thread only
     private val luaLayoutRequests = LuaLayoutRequests()
@@ -293,6 +299,9 @@ class EmulatorViewModel @Inject constructor(
         val cheats = romInfo?.let { getRomEnabledCheats(it) } ?: emptyList()
         val syncedLuaScripts = getSyncedLuaScripts(rom)
         val luaScripts = if (emulatorSession.areLuaScriptsAllowed()) syncedLuaScripts.filter { it.enabled } else emptyList()
+        // Before the scripts run, so their requests come after it. The newest config, since the ROM given may be an older copy
+        val screensSwapped = (getLibraryRom(rom) ?: rom).config.screensSwapped
+        sendLuaUiEvent(LuaUiEvent.SessionStarted(screensSwapped))
         val result = emulatorManager.loadRom(
             rom,
             cheats,
@@ -324,6 +333,8 @@ class EmulatorViewModel @Inject constructor(
         viewModelScope.launch {
             resetEmulatorState(EmulatorState.LoadingFirmware)
             startEmulatorSession(EmulatorSession.SessionType.FirmwareSession(consoleType))
+            // The firmware has no saved swap, so it starts unswapped instead of keeping the last game's
+            sendLuaUiEvent(LuaUiEvent.SessionStarted(screensSwapped = false))
             sessionCoroutineScope.launch {
                 startObservingMainScreenBackground()
                 startObservingSecondaryScreenBackground()
@@ -535,6 +546,7 @@ class EmulatorViewModel @Inject constructor(
                     }
                     RomPauseMenuOption.MODS -> _uiEvent.tryEmit(EmulatorUiEvent.ShowLuaScripts(emulatorManager.getLuaScripts()))
                     RomPauseMenuOption.VIEW_ACHIEVEMENTS -> _uiEvent.tryEmit(EmulatorUiEvent.ShowAchievementList)
+                    RomPauseMenuOption.SWAP_SCREENS -> swapScreensFromPauseMenu()
                     RomPauseMenuOption.RESET -> resetEmulator()
                     RomPauseMenuOption.EXIT -> exitEmulator(force = false)
                 }
@@ -542,6 +554,7 @@ class EmulatorViewModel @Inject constructor(
             is FirmwarePauseMenuOption -> {
                 when (option) {
                     FirmwarePauseMenuOption.SETTINGS -> _uiEvent.tryEmit(EmulatorUiEvent.OpenScreen.SettingsScreen)
+                    FirmwarePauseMenuOption.SWAP_SCREENS -> swapScreensFromPauseMenu()
                     FirmwarePauseMenuOption.RESET -> resetEmulator()
                     FirmwarePauseMenuOption.EXIT -> {
                         stopEmulatorAndExit()
@@ -549,6 +562,27 @@ class EmulatorViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * The player swapped the screens by hand, so the game starts that way next time. Only a game's own swap is kept, not the firmware's
+     */
+    fun onPlayerSwappedScreens(screensSwapped: Boolean) {
+        val rom = (_emulatorState.value as? EmulatorState.RunningRom)?.rom ?: return
+        viewModelScope.launch {
+            // The config may have changed since launch (the script list is synced then), so the newest one is updated. A ROM from outside the
+            // library has no config to save
+            val currentRom = getLibraryRom(rom) ?: return@launch
+            if (currentRom.config.screensSwapped != screensSwapped) {
+                romsRepository.updateRomConfig(currentRom, currentRom.config.copy(screensSwapped = screensSwapped))
+            }
+        }
+    }
+
+    private fun swapScreensFromPauseMenu() {
+        _uiEvent.tryEmit(EmulatorUiEvent.SwapScreens)
+        // Like a reset, it's done straight from the menu, so the game goes on
+        resumeEmulator()
     }
 
     fun onOpenRewind() {
@@ -962,15 +996,28 @@ class EmulatorViewModel @Inject constructor(
      * script added to the folder since ROM details was last opened starts switched off, so it isn't run
      */
     private suspend fun getSyncedLuaScripts(rom: Rom): List<RomLuaScript> {
-        val mods = rom.config.mods
+        // The ROM given may be an older copy (from the intent of an activity recreated after the process was killed, say). Its config would
+        // put back older values of what changed since, like the saved swap or script options, so the newest one is synced and saved
+        val libraryRom = getLibraryRom(rom)
+        val config = (libraryRom ?: rom).config
+        val mods = config.mods
         val folderScriptNames = withContext(Dispatchers.IO) {
             mods.luaScriptFolder?.let { luaScriptStorage.listScripts(it) }?.map { it.name }
         }
         val syncedScripts = LuaScriptFolderSync.sync(mods.luaScripts, mods.luaScriptFolder != null, folderScriptNames)
-        if (syncedScripts != mods.luaScripts) {
-            romsRepository.updateRomConfig(rom, rom.config.copy(mods = mods.copy(luaScripts = syncedScripts)))
+        if (libraryRom != null && syncedScripts != mods.luaScripts) {
+            romsRepository.updateRomConfig(libraryRom, config.copy(mods = mods.copy(luaScripts = syncedScripts)))
         }
         return syncedScripts
+    }
+
+    /**
+     * The library's own copy of [rom], which has the newest config, or null for a ROM opened from outside the library, whose config can't be
+     * saved (updateRomConfig only changes library ROMs). Unlike getRomAtUri(), it never reads the file, which for a ROM that isn't in the
+     * library means building a new ROM from it (unpacking an archive, say)
+     */
+    private suspend fun getLibraryRom(rom: Rom): Rom? {
+        return romsRepository.getRoms().first().find { it.hasSameFileAsRom(rom) }
     }
 
     private suspend fun getRomInfo(rom: Rom): RomInfo? = withContext(Dispatchers.IO) {
@@ -1060,6 +1107,7 @@ class EmulatorViewModel @Inject constructor(
             is LuaUiEvent.ScriptStopped -> _luaLayoutId.value = luaLayoutRequests.onScriptStopped(event.scriptId)
             is LuaUiEvent.ScriptStarted -> luaLayoutRequests.onScriptStarted(event.scriptId)
             LuaUiEvent.SessionEnded -> _luaLayoutId.value = luaLayoutRequests.onSessionEnded()
+            is LuaUiEvent.SessionStarted,
             is LuaUiEvent.Request -> { }
         }
         _luaUiEvent.trySend(luaUiEventSession to event)

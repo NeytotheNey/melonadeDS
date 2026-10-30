@@ -6,8 +6,16 @@ import android.view.MotionEvent.PointerCoords
 import android.view.View
 import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.Point
+import me.magnum.melonds.domain.model.Rect
 
-class TouchscreenInputHandler(inputListener: IInputListener) : BaseInputHandler(inputListener) {
+/**
+ * @param getScreenArea Where the bottom screen's middle SCREEN_WIDTH columns are drawn in the view, in its own coordinates, or null for the whole
+ * view. That's only part of it when the screen is drawn wide or fitted in the view (see getScreensDrawing), so taps line up with the picture
+ */
+class TouchscreenInputHandler(
+    inputListener: IInputListener,
+    private val getScreenArea: (View) -> Rect?,
+) : BaseInputHandler(inputListener) {
     private val touchPoint: Point = Point()
 
     @SuppressLint("ClickableViewAccessibility")
@@ -15,10 +23,10 @@ class TouchscreenInputHandler(inputListener: IInputListener) : BaseInputHandler(
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
                 inputListener.onKeyPress(Input.TOUCHSCREEN)
-                inputListener.onTouch(normalizeTouchCoordinates(event, v.width, v.height))
+                inputListener.onTouch(normalizeTouchCoordinates(event, getScreenArea(v) ?: Rect(0, 0, v.width, v.height)))
             }
             MotionEvent.ACTION_MOVE -> {
-                inputListener.onTouch(normalizeTouchCoordinates(event, v.width, v.height))
+                inputListener.onTouch(normalizeTouchCoordinates(event, getScreenArea(v) ?: Rect(0, 0, v.width, v.height)))
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 // The listener lets go of the screen too, so a release a layout change holds back doesn't let go of it
@@ -28,7 +36,7 @@ class TouchscreenInputHandler(inputListener: IInputListener) : BaseInputHandler(
         return true
     }
 
-    private fun normalizeTouchCoordinates(event: MotionEvent, viewWidth: Int, viewHeight: Int): Point {
+    private fun normalizeTouchCoordinates(event: MotionEvent, screenRect: Rect): Point {
         var averageTouchX = 0f
         var averageTouchY = 0f
         val pointerCoordinates = PointerCoords()
@@ -44,8 +52,9 @@ class TouchscreenInputHandler(inputListener: IInputListener) : BaseInputHandler(
         averageTouchX /= event.pointerCount
         averageTouchY /= event.pointerCount
 
-        touchPoint.x = (averageTouchX / viewWidth * 256).toInt().coerceIn(0, 255)
-        touchPoint.y = (averageTouchY / viewHeight * 192).toInt().coerceIn(0, 191)
+        // A touch beside the screen's middle (on the bars beside a fitted screen, or on a wide one's sides) counts as one on its nearest edge
+        touchPoint.x = ((averageTouchX - screenRect.x) / screenRect.width * 256).toInt().coerceIn(0, 255)
+        touchPoint.y = ((averageTouchY - screenRect.y) / screenRect.height * 192).toInt().coerceIn(0, 191)
         return touchPoint
     }
 }

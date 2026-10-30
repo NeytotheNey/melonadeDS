@@ -97,6 +97,16 @@ class LuaUiOverrides {
     }
 
     /**
+     * A session starts with the player's own values for some settings ([playerValues]), shown before any of its scripts run. They're the
+     * baselines of the session's first requests for those settings, unless the player changes them first
+     */
+    fun onSessionStarted(playerValues: Map<LuaUiSetting, Boolean>) {
+        playerValues.forEach { (setting, value) ->
+            settings.getValue(setting).knownBaseline = value
+        }
+    }
+
+    /**
      * The value scripts hold for [setting], or null if none does.
      */
     fun getScriptValue(setting: LuaUiSetting): Boolean? {

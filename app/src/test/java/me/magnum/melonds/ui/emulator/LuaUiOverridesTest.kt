@@ -289,4 +289,61 @@ class LuaUiOverridesTest {
         // From then on, the global one is the player's, and changing it is a pick
         assertEquals(1, countPlayerLayoutPicks(listOf("rom layout"), listOf(layoutA, layoutB)))
     }
+
+    @Test
+    fun aSavedSwapIsTheBaselineOfTheSessionsScripts() {
+        val overrides = LuaUiOverrides()
+        // The game was left swapped. The saved value is the baseline of the first request, even if the screen's value doesn't match it (the
+        // screen shows the saved value before the scripts run, but it can't be told apart from a value left over)
+        overrides.onSessionStarted(mapOf(swap to true))
+        assertEquals(false, overrides.onScriptRequest(swap, scriptId = 0, value = false, currentValue = false))
+
+        assertEquals(mapOf(swap to true), overrides.onScriptStopped(0))
+    }
+
+    @Test
+    fun aSavedSwapIsPutBackWhenTheSessionEnds() {
+        val overrides = LuaUiOverrides()
+        overrides.onSessionStarted(mapOf(swap to true))
+        overrides.onScriptRequest(swap, scriptId = 0, value = false, currentValue = true)
+
+        assertEquals(mapOf(swap to true), overrides.onSessionEnded())
+    }
+
+    @Test
+    fun scriptsStillWinOverASavedSwapUntilThePlayerSwaps() {
+        val overrides = LuaUiOverrides()
+        overrides.onSessionStarted(mapOf(swap to true))
+        overrides.onScriptRequest(swap, scriptId = 0, value = false, currentValue = true)
+        assertEquals(false, overrides.onScriptRequest(swap, scriptId = 1, value = false, currentValue = false))
+
+        // The player swaps back to swapped, then a script asks again: the player's new value is its baseline
+        overrides.onPlayerChanged(swap)
+        assertNull(overrides.getScriptValue(swap))
+        assertEquals(false, overrides.onScriptRequest(swap, scriptId = 0, value = false, currentValue = true))
+        assertEquals(mapOf(swap to true), overrides.onScriptStopped(0))
+    }
+
+    @Test
+    fun thePlayersSwapBeforeAnyRequestReplacesTheSavedOne() {
+        val overrides = LuaUiOverrides()
+        overrides.onSessionStarted(mapOf(swap to true))
+        // The player unswaps before any script asks, so the screen's value is the player's from then on
+        overrides.onPlayerChanged(swap)
+        assertEquals(true, overrides.onScriptRequest(swap, scriptId = 0, value = true, currentValue = false))
+
+        assertEquals(mapOf(swap to false), overrides.onScriptStopped(0))
+    }
+
+    @Test
+    fun theNextSessionsSavedSwapReplacesTheLastOne() {
+        val overrides = LuaUiOverrides()
+        overrides.onSessionStarted(mapOf(swap to true))
+        overrides.onSessionEnded()
+
+        // The next game wasn't left swapped. A value the screen still showed from the last game doesn't count
+        overrides.onSessionStarted(mapOf(swap to false))
+        overrides.onScriptRequest(swap, scriptId = 0, value = true, currentValue = true)
+        assertEquals(mapOf(swap to false), overrides.onScriptStopped(0))
+    }
 }

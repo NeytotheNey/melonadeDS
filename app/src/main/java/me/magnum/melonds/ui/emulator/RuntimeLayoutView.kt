@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.MotionEvent
+import android.view.View
 import androidx.core.view.doOnNextLayout
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
@@ -11,8 +12,11 @@ import dagger.hilt.android.AndroidEntryPoint
 import me.magnum.melonds.common.vibration.TouchVibrator
 import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.Point
+import me.magnum.melonds.domain.model.Rect
+import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.input.SoftInputBehaviour
 import me.magnum.melonds.domain.model.layout.LayoutComponent
+import me.magnum.melonds.domain.model.layout.getScreensDrawing
 import me.magnum.melonds.ui.common.LayoutView
 import me.magnum.melonds.ui.common.view.RaisedButtonView
 import me.magnum.melonds.ui.emulator.input.ButtonsInputHandler
@@ -38,6 +42,8 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     private var isSoftInputVisible = true
     private var areScreensSwapped = false
     private var connectedControllersState: ConnectedControllersState = ConnectedControllersState.NoControllers
+    // The width of the frames the screens are drawn from, in DS pixels (DSRenderer.frameTopScreenWidth), for where touches go
+    private var frameWidthProvider: () -> Int = { SCREEN_WIDTH }
 
     // The last event of the touches that are down now, or null if none is. Kept so they can be carried over to a new layout
     private var currentTouches: MotionEvent? = null
@@ -54,6 +60,13 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     fun setSystemInputHandler(systemInputHandler: IInputListener) {
         this.systemInputHandler = TouchCarryingInputListener(systemInputHandler)
         updateInputs()
+    }
+
+    /**
+     * Sets where the width of the frames being drawn comes from, so that touches go where the renderer draws the bottom screen
+     */
+    fun setFrameWidthProvider(provider: () -> Int) {
+        frameWidthProvider = provider
     }
 
     fun setConnectedControllersState(state: ConnectedControllersState) {
@@ -73,6 +86,7 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
 
     fun swapScreens() {
         areScreensSwapped = !areScreensSwapped
+        setLayoutComponentToggleState(LayoutComponent.BUTTON_SWAP_SCREENS, areScreensSwapped)
         updateScreenInputs()
     }
 
@@ -105,6 +119,7 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
         updateInputs()
         updateVisibility()
         setLayoutComponentToggleState(LayoutComponent.BUTTON_TOGGLE_SOFT_INPUT, isSoftInputVisible)
+        setLayoutComponentToggleState(LayoutComponent.BUTTON_SWAP_SCREENS, areScreensSwapped)
 
         if (isCarryingTouches) {
             // Nor should the new views when they're given the touches that were already down
@@ -275,9 +290,32 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
             LayoutComponent.BOTTOM_SCREEN to LayoutComponent.TOP_SCREEN
         }
         systemInputHandler?.let {
-            getLayoutComponentView(touchScreenComponent)?.view?.setOnTouchListener(TouchscreenInputHandler(it))
+            getLayoutComponentView(touchScreenComponent)?.view?.setOnTouchListener(TouchscreenInputHandler(it, ::getTouchScreenArea))
         }
         getLayoutComponentView(nonTouchScreenComponent)?.view?.setOnTouchListener(null)
+    }
+
+    /**
+     * Where the renderer draws the bottom screen's middle SCREEN_WIDTH columns in [touchScreenView], in its coordinates. Worked out with the same
+     * getScreensDrawing() and the same rects the screen gives the renderer, at the time of each touch, since the frame width can change any time
+     */
+    private fun getTouchScreenArea(touchScreenView: View): Rect? {
+        val (topScreen, bottomScreen) = if (areScreensSwapped) {
+            LayoutComponent.BOTTOM_SCREEN to LayoutComponent.TOP_SCREEN
+        } else {
+            LayoutComponent.TOP_SCREEN to LayoutComponent.BOTTOM_SCREEN
+        }
+        val bottomScreenRect = getLayoutComponentView(bottomScreen)?.getRect() ?: return null
+        val drawing = getScreensDrawing(
+            getLayoutComponentView(topScreen)?.getRect(),
+            bottomScreenRect,
+            frameWidthProvider(),
+            currentRuntimeLayout?.isWideLayout == true,
+            areScreensSwapped,
+            width.toFloat(),
+        )
+        val area = drawing.touchScreenRect ?: return null
+        return Rect(area.x - touchScreenView.x.toInt(), area.y - touchScreenView.y.toInt(), area.width, area.height)
     }
 
     private fun updateVisibility() {

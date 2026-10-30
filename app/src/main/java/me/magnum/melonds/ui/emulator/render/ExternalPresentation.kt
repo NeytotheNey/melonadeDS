@@ -55,6 +55,8 @@ class ExternalPresentation(
         emulatorRenderer = DSRenderer(context).also {
             surfaceView = createSurfaceView(it)
         }
+        // Touches on this display go where its own renderer draws the bottom screen
+        layoutView.setFrameWidthProvider { emulatorRenderer.frameTopScreenWidth }
         surfaceView.updateRendererConfiguration(currentRendererConfiguration)
 
         container.addView(surfaceView)
@@ -106,6 +108,7 @@ class ExternalPresentation(
             topOnTop = topView?.onTop ?: false,
             bottomOnTop = bottomView?.onTop ?: false,
             isWideLayout = isWideLayout,
+            areScreensSwapped = layoutView.areScreensSwapped(),
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

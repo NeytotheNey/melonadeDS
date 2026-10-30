@@ -11,7 +11,7 @@ import me.magnum.melonds.ui.common.view.RaisedButtons
 class ToggleableSingleButtonLayoutComponentViewBuilder(private val layoutComponent: LayoutComponent) : LayoutComponentViewBuilder() {
 
     override fun build(context: Context, style: ControllerStyle): View {
-        // Fast forward has no off icon, so its icon is dimmed while it's off
+        // Fast forward and swap screens have no off icon, so their icon is dimmed while they're off
         return RaisedButtons.iconButton(
             context = context,
             style = style,

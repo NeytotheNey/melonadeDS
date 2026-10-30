@@ -5,6 +5,7 @@ import me.magnum.melonds.ui.emulator.PauseMenuOption
 
 enum class FirmwarePauseMenuOption(override val textResource: Int) : PauseMenuOption {
     SETTINGS(R.string.settings),
+    SWAP_SCREENS(R.string.swap_screens),
     RESET(R.string.reset),
     EXIT(R.string.exit)
 }

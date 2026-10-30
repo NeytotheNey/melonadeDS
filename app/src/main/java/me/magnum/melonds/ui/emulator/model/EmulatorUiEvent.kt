@@ -22,5 +22,6 @@ sealed class EmulatorUiEvent {
     data object ShowAchievementList : EmulatorUiEvent()
     data class ShowLuaScripts(val scripts: List<LuaScriptStatus>) : EmulatorUiEvent()
     data object ShowPendingSubmissionsDialog : EmulatorUiEvent()
+    data object SwapScreens : EmulatorUiEvent()
     data object CloseEmulator : EmulatorUiEvent()
 }

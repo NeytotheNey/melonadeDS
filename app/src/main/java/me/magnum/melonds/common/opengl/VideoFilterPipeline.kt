@@ -60,6 +60,8 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     private var lastFrameSequence = 0L
     private var lastFrameWidth = 0
     private var lastFrameHeight = 0
+    // Swapping the screens changes which half's sides the passes keep, so the same frame is filtered again
+    private var lastFrameBottomScreenWide = false
     // What renderPrePasses() returned for that frame
     private var lastOutputTextureId = 0
     private var lastOutputWidth = 0
@@ -82,7 +84,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
      * texture bound to unit 0 (which it leaves active) are left changed, so set them before drawing. Call it for invalid frames too, so the
      * cache is cleared.
      */
-    fun renderPrePasses(frame: PresentFrameWrapper): FilterOutput {
+    fun renderPrePasses(frame: PresentFrameWrapper, isBottomScreenWide: Boolean): FilterOutput {
         output.set(frame.textureId, frame.textureWidth, frame.textureHeight)
 
         if (!frame.isValidFrame) {
@@ -103,7 +105,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         }
 
         val isSameFrame = frame.frameSequence != 0L && frame.frameSequence == lastFrameSequence && frame.textureId == lastFrameTextureId &&
-                width == lastFrameWidth && height == lastFrameHeight
+                width == lastFrameWidth && height == lastFrameHeight && isBottomScreenWide == lastFrameBottomScreenWide
         if (isSameFrame) {
             output.set(lastOutputTextureId, lastOutputWidth, lastOutputHeight)
             return output
@@ -141,7 +143,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
                 break
             }
             GLES30.glViewport(0, 0, outputWidth, outputHeight)
-            pass.render(inputTexture, inputWidth, inputHeight, frame.topScreenWidth)
+            pass.render(inputTexture, inputWidth, inputHeight, frame.topScreenWidth, isBottomScreenWide)
             inputTexture = pass.texture
             inputWidth = outputWidth
             inputHeight = outputHeight
@@ -161,6 +163,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         lastFrameSequence = frame.frameSequence
         lastFrameWidth = width
         lastFrameHeight = height
+        lastFrameBottomScreenWide = isBottomScreenWide
         lastOutputTextureId = inputTexture
         lastOutputWidth = inputWidth
         lastOutputHeight = inputHeight
@@ -275,9 +278,10 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
 
         /**
          * Draws the input texture through this pass's shader into the target, with the input's size as the shader's texSize and the frame's
-         * [topScreenWidth]. The caller binds the quad and sets the viewport (to the target's size) and blending.
+         * [topScreenWidth], and whether the bottom screen is the one drawn wide. The caller binds the quad and sets the viewport (to the target's
+         * size) and blending.
          */
-        fun render(inputTexture: Int, inputWidth: Int, inputHeight: Int, topScreenWidth: Int) {
+        fun render(inputTexture: Int, inputWidth: Int, inputHeight: Int, topScreenWidth: Int, isBottomScreenWide: Boolean) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
             // The quad covers every texel, so the old contents never have to be loaded
             GLES30.glInvalidateFramebuffer(GLES30.GL_FRAMEBUFFER, 1, COLOR_ATTACHMENTS, 0)
@@ -291,6 +295,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
             GLES30.glUniform1i(shader.uniformTex, 0)
             shader.setTextureSize(inputWidth, inputHeight)
             shader.setTopScreenWidth(topScreenWidth)
+            shader.setBottomScreenWide(isBottomScreenWide)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         }
 
