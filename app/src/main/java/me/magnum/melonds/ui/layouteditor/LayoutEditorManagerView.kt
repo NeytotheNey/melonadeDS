@@ -26,12 +26,19 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.findViewTreeLifecycleOwner
 import androidx.lifecycle.findViewTreeViewModelStoreOwner
 import androidx.lifecycle.get
+import androidx.lifecycle.lifecycleScope
 import androidx.preference.PreferenceManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.squareup.picasso.Callback
 import com.squareup.picasso.Picasso
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import me.magnum.melonds.R
 import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.databinding.DialogLayoutEditorGridBinding
@@ -84,6 +91,7 @@ class LayoutEditorManagerView(
     private val preferences = PreferenceManager.getDefaultSharedPreferences(context)
     // Runs after every layout pass, so the item controls follow the selected item however it was moved or resized
     private val globalLayoutListener = ViewTreeObserver.OnGlobalLayoutListener { itemControls.onLayout() }
+    private var wideAspectJob: Job? = null
 
     private var showLayoutPropertiesDialog by mutableStateOf(initialEditorState?.isPropertiesDialogShown ?: false)
     private var showBackgroundPropertiesDialog by mutableStateOf(initialEditorState?.isBackgroundPropertiesDialogShown ?: false)
@@ -164,7 +172,21 @@ class LayoutEditorManagerView(
         addView(binding.root, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(composeView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
-        itemControls = LayoutEditorItemControls(binding) { shownEditablePropertyDialog = it }
+        itemControls = LayoutEditorItemControls(
+            binding = binding,
+            onEditPropertyValue = { shownEditablePropertyDialog = it },
+            getWideAspect = { viewModel.currentLayout.value?.layout?.wideAspect },
+            onWideAspectPicked = { wideAspect ->
+                // Widening works from the stored rects, and the editor on the other display may have changed meanwhile
+                listener?.onStoreLayoutChanges()
+                // If the layout shown changes, it's shown again, which deselects the top screen. Select it again then, so its controls stay open.
+                // The reselection is armed first, and disarmed if nothing is shown again, so it can't fire on some later unrelated change
+                binding.viewLayoutEditor.reselectAfterNextLayout(LayoutComponent.TOP_SCREEN)
+                if (!viewModel.setWideAspect(wideAspect)) {
+                    binding.viewLayoutEditor.reselectAfterNextLayout(null)
+                }
+            },
+        )
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
             // The status bar is included so that the editor's own controls stay clear of it when it's shown. Only used for these controls, not the layouts
@@ -191,10 +213,19 @@ class LayoutEditorManagerView(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         viewTreeObserver.addOnGlobalLayoutListener(globalLayoutListener)
+        // The item controls read the widescreen ratio of the variant shown, which the Wide menu, a fold or a rotation can change while an item is
+        // selected
+        wideAspectJob = findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
+            viewModel.currentLayout.map { it?.layout?.wideAspect }.distinctUntilChanged().drop(1).collect {
+                itemControls.refresh()
+            }
+        }
     }
 
     override fun onDetachedFromWindow() {
         viewTreeObserver.removeOnGlobalLayoutListener(globalLayoutListener)
+        wideAspectJob?.cancel()
+        wideAspectJob = null
         super.onDetachedFromWindow()
     }
 

@@ -167,6 +167,14 @@
                         android:layout_height="wrap_content"
                         android:text="@string/layout_editor_aspect_ratio_16_9" />
 
+                    <!-- Only shown for a wide layout's top screen. The text names the layout's ratio -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/button_aspect_ratio_wide"
+                        style="@style/Button.EditorChoice"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:visibility="gone" />
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/button_aspect_ratio_free"
                         style="@style/Button.EditorChoice"

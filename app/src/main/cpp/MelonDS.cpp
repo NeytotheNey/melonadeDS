@@ -236,6 +236,12 @@ namespace MelonDSAndroid
             instance->updateMotionData(ax, ay, az, rx, ry, rz);
     }
 
+    void setWideViewWidth(int width)
+    {
+        if (instance)
+            instance->setWideViewWidth(width);
+    }
+
     void setLuaScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent, bool areStateLoadsAllowed)
     {
         if (instance)

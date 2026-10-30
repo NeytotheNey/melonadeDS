@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -58,6 +59,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -68,7 +70,17 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
+import me.magnum.melonds.domain.model.Point
+import me.magnum.melonds.domain.model.layout.Insets
+import me.magnum.melonds.domain.model.layout.LayoutDisplay
+import me.magnum.melonds.domain.model.layout.LayoutDisplayPair
+import me.magnum.melonds.domain.model.layout.ScreenLayout
+import me.magnum.melonds.domain.model.layout.UILayout
+import me.magnum.melonds.domain.model.layout.UILayoutVariant
+import me.magnum.melonds.domain.model.layout.WidescreenAspect
+import me.magnum.melonds.domain.model.ui.Orientation
 import me.magnum.melonds.ui.common.MelonPreviewSet
+import me.magnum.melonds.ui.common.component.text.CaptionText
 import me.magnum.melonds.ui.common.component.dialog.TextInputDialog
 import me.magnum.melonds.ui.common.component.dialog.TextInputDialogState
 import me.magnum.melonds.ui.common.component.dialog.rememberTextInputDialogState
@@ -77,10 +89,16 @@ import me.magnum.melonds.ui.layouts.viewmodel.BaseLayoutsViewModel
 import me.magnum.melonds.ui.theme.MelonTheme
 import java.util.UUID
 
+/**
+ * @param noLayoutName What the entry without a layout (null ID) is called instead of its own name. Null to keep its name
+ * @param newLayoutWideAspect If set, new layouts start as wide layouts at this ratio
+ */
 @Composable
 fun LayoutsScreen(
     viewModel: BaseLayoutsViewModel,
     onNavigateBack: () -> Unit,
+    noLayoutName: String? = null,
+    newLayoutWideAspect: WidescreenAspect? = null,
 ) {
     val context = LocalContext.current
 
@@ -91,10 +109,12 @@ fun LayoutsScreen(
 
     LayoutsScreenContent(
         layouts = layouts ?: emptyList(),
+        noLayoutName = noLayoutName,
         selectedLayoutId = selectedLayout.layoutId,
         onLayoutSelected = viewModel::setSelectedLayoutId,
         onCreateLayout = {
             val intent = Intent(context, LayoutEditorActivity::class.java)
+            newLayoutWideAspect?.let { intent.putExtra(LayoutEditorActivity.KEY_NEW_LAYOUT_WIDE_ASPECT, it.key) }
             layoutEditorLauncher.launch(intent)
         },
         onEditLayout = { layoutId ->
@@ -125,6 +145,7 @@ fun LayoutsScreen(
 @Composable
 private fun LayoutsScreenContent(
     layouts: List<LayoutConfiguration>,
+    noLayoutName: String?,
     selectedLayoutId: UUID?,
     onLayoutSelected: (UUID?) -> Unit,
     onCreateLayout: () -> Unit,
@@ -183,6 +204,7 @@ private fun LayoutsScreenContent(
             ) { layout ->
                 LayoutItem(
                     layout = layout,
+                    name = noLayoutName?.takeIf { layout.id == null } ?: layout.name.orEmpty(),
                     isSelected = layout.id == selectedLayoutId,
                     onLayoutSelected = { onLayoutSelected(layout.id) },
                     onEditLayout = { layout.id?.let(onEditLayout) },
@@ -215,6 +237,7 @@ private fun LayoutsScreenContent(
 @Composable
 private fun LayoutItem(
     layout: LayoutConfiguration,
+    name: String,
     isSelected: Boolean,
     onLayoutSelected: () -> Unit,
     onEditLayout: () -> Unit,
@@ -249,15 +272,32 @@ private fun LayoutItem(
             onClick = null,
         )
 
-        Text(
+        Column(
             modifier = Modifier
                 .weight(1f)
                 .padding(start = 32.dp),
-            text = layout.name.orEmpty(),
-            style = MaterialTheme.typography.bodyLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        ) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (layout.isWide) {
+                // The ratio is per variant, so it's only named when they all share it
+                val wideAspect = layout.commonWideAspect
+                val label = if (wideAspect != null) {
+                    val aspectName = stringArrayResource(R.array.widescreen_aspect_options).getOrElse(wideAspect.ordinal) { wideAspect.key }
+                    stringResource(R.string.wide_layout_label, aspectName)
+                } else {
+                    stringResource(R.string.wide_layout_label_mixed)
+                }
+                CaptionText(
+                    text = label,
+                    maxLines = 1,
+                )
+            }
+        }
 
         if (isCustomLayout) {
             Box {
@@ -317,6 +357,7 @@ private fun LayoutItem(
 private fun PreviewLayoutsScreen() {
     MelonTheme {
         LayoutsScreenContent(
+            noLayoutName = null,
             layouts = listOf(
                 LayoutConfiguration(
                     id = LayoutConfiguration.DEFAULT_ID,
@@ -335,6 +376,18 @@ private fun PreviewLayoutsScreen() {
                     useCustomOpacity = false,
                     opacity = 50,
                     layoutVariants = emptyMap(),
+                ),
+                LayoutConfiguration(
+                    id = UUID.randomUUID(),
+                    name = "Wide Layout",
+                    type = LayoutConfiguration.LayoutType.CUSTOM,
+                    orientation = LayoutConfiguration.LayoutOrientation.FOLLOW_SYSTEM,
+                    useCustomOpacity = false,
+                    opacity = 50,
+                    layoutVariants = mapOf(
+                        UILayoutVariant(Point(), Insets(0, 0, 0, 0), Orientation.LANDSCAPE, emptyList(), LayoutDisplayPair(LayoutDisplay(0, LayoutDisplay.Type.BUILT_IN, 0, 0), null)) to
+                            UILayout(ScreenLayout(), ScreenLayout(), WidescreenAspect.RATIO_20_9),
+                    ),
                 ),
             ),
             selectedLayoutId = LayoutConfiguration.DEFAULT_ID,

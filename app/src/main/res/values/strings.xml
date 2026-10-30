@@ -363,6 +363,12 @@
     <string name="widescreen_description">Widens the 3D view. 2D, menus and touch stay the same. Some games show things popping in at the edges. Applies the next time the game starts.</string>
     <string name="widescreen_aspect_ratio">Aspect ratio</string>
     <string name="widescreen_needs_opengl">Needs the OpenGL renderer. With other renderers the game shows at its normal width.</string>
+    <string name="wide_layout">Wide layout</string>
+    <string name="wide_layout_automatic">Automatic</string>
+    <string name="wide_layout_none">To place the wide screen yourself, tap Wide layout and add one with +. Or copy a layout you use and pick a ratio with the top screen\'s Wide button in the copy, so your usual layout stays as it is.</string>
+    <string name="wide_layout_aspect_ratio">Set by the layout</string>
+    <string name="wide_layout_label">Wide %1$s</string>
+    <string name="wide_layout_label_mixed">Wide</string>
     <string name="lua_script_switched_off">Script %1$s was switched off: %2$s</string>
     <string name="lua_scripts">Scripts</string>
     <string name="lua_scripts_off_in_hardcore">Scripts are off in RetroAchievements hardcore mode, because RetroAchievements doesn\'t allow scripting</string>
@@ -471,6 +477,8 @@
     <string name="layout_editor_aspect_ratio_4_3">4:3</string>
     <string name="layout_editor_aspect_ratio_16_9">16:9</string>
     <string name="layout_editor_aspect_ratio_free">Free</string>
+    <string name="layout_editor_aspect_ratio_wide">Wide (%1$s) ▾</string>
+    <string name="layout_editor_aspect_ratio_wide_off">Wide ▾</string>
     <string name="layout_editor_scale_multiplier">%1$dx</string>
     <string name="layout_editor_scale_fit">Fit</string>
     <string name="layout_editor_opacity">Opacity</string>
@@ -489,6 +497,7 @@
     <string name="layout_orientation">Layout orientation</string>
     <string name="layout_use_default_opacity">Use default opacity</string>
     <string name="layout_opacity">Layout opacity</string>
+    <string name="layout_widescreen_off">Off</string>
     <string name="layout_background_load_failed">Failed to load the background</string>
 
     <string name="layout_background_title">Layout Background</string>

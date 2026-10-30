@@ -147,6 +147,12 @@ Mods tab, with widescreen on:
 
 Phone check: make a wide layout (20:9) and place the top screen differently on the cover screen and unfolded, pick it for a game, and check it's used as drawn in both. Turn widescreen off and the normal layout comes back. Delete the wide layout and the game falls back to automatic. Change the layout's ratio and the game follows it at the next start. Old layouts and settings backups still load, and a Lua `set_layout` still works.
 
+**Change (2026-10-29, after the user tried it): the ratio is per variant, not per layout.** The user wants e.g. 16:10 folded portrait and 20:9 unfolded landscape in one layout.
+- `UILayout.wideAspect: WidescreenAspect?` replaces the layout-level field: each variant (folded/unfolded, portrait/landscape, displays) has its own ratio or none (a normal 4:3 top screen at width 256). A layout is "wide" when any saved variant has a ratio. Layouts saved with the old layout-level field get it copied to their saved variants when loaded.
+- The top screen's Wide ▾ chip sets the ratio of the variant being edited only, and re-shapes only that variant. The Properties dialog loses its Widescreen row. A new "+" wide layout gives each variant it shows the game's ratio, as now.
+- The width follows the variant on screen during play. When the active variant changes (fold, unfold, rotation), Kotlin sends the new width to native, which applies it on the emulator thread before the next frame through `GLRenderer::SetViewWidth` on the existing renderer (no renderer rebuild). The core latches it at the next polygon swap and the app follows `GetOutputWidth()`, so a frame or two shows the old width in the new rect. A variant with no ratio uses 256. The launch rules don't change: widescreen off or a non-OpenGL renderer at launch means 256 for the session, and Automatic (no wide layout) keeps one ratio from the Mods tab.
+- The renderer's letterbox-at-256 and "use as drawn" rules use the active variant's ratio. The layouts list caption shows "Wide 20:9" when all wide variants share a ratio and "Wide" when they differ. The Mods tab says the ratio is "set by the layout".
+
 Later: a pause-menu toggle that switches widescreen and the layout during play (the core already handles a width change).
 
 ## Phase 3: Lua engine and API (native)

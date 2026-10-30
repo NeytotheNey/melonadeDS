@@ -23,7 +23,6 @@ import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.UriPermissionManager
 import me.magnum.melonds.common.romprocessors.RomFileProcessorFactory
 import me.magnum.melonds.domain.model.VideoRenderer
-import me.magnum.melonds.domain.model.emulator.LuaLayoutChoice
 import me.magnum.melonds.domain.model.emulator.toLuaLayoutChoices
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.rom.Rom
@@ -93,25 +92,26 @@ class RomDetailsViewModel @Inject constructor(
     val romConfigUiState by lazy {
         val uiStateFlow = MutableStateFlow<RomConfigUiState>(RomConfigUiState.Loading)
         viewModelScope.launch {
-            // For the scripts' layout options. Null until read, so the rest doesn't wait for them
-            val luaLayoutChoices = layoutsRepository.getLayouts()
-                .map<List<LayoutConfiguration>, List<LuaLayoutChoice>?> { it.toLuaLayoutChoices() }
+            // For the scripts' layout options and the wide layout. Null until read, so the rest doesn't wait for them
+            val allLayouts = layoutsRepository.getLayouts()
+                .map<List<LayoutConfiguration>, List<LayoutConfiguration>?> { it }
                 .onStart { emit(null) }
             // For the widescreen section. combine() takes up to 5 flows, so the renderer comes with the config
             val romConfigAndRenderer = combine(_romConfig, settingsRepository.getVideoRenderer()) { romConfig, renderer -> romConfig to renderer }
-            combine(romConfigAndRenderer, _luaScriptFolderState, _areLuaScriptsBlockedByHardcore, _luaScriptDataSizes, luaLayoutChoices) { (romConfig, renderer), folderState, areLuaScriptsBlocked, dataSizes, layouts ->
+            combine(romConfigAndRenderer, _luaScriptFolderState, _areLuaScriptsBlockedByHardcore, _luaScriptDataSizes, allLayouts) { (romConfig, renderer), folderState, areLuaScriptsBlocked, dataSizes, layouts ->
                 val romConfigUiModel = romDetailsUiMapper.mapRomConfigToUi(romConfig)
                 // What was read from the previous folder says nothing about the new one
                 val currentFolderState = folderState?.takeIf { it.folderUri == romConfig.mods.luaScriptFolder }
                 romConfigUiModel.copy(
                     isWidescreenSupported = renderer == VideoRenderer.OPENGL,
+                    wideLayouts = layouts?.filter { it.isWide },
                     luaScripts = romConfigUiModel.luaScripts.copy(
                         isFolderMissing = currentFolderState?.isReadable == false,
                         isFolderEmpty = currentFolderState?.isReadable == true && romConfig.mods.luaScripts.isEmpty(),
                         areScriptsBlockedByHardcore = areLuaScriptsBlocked,
                         headers = currentFolderState?.headers.orEmpty(),
                         dataSizes = dataSizes,
-                        layouts = layouts,
+                        layouts = layouts?.toLuaLayoutChoices(),
                     ),
                 )
             }.collect {
@@ -164,6 +164,7 @@ class RomDetailsViewModel @Inject constructor(
             }
             is RomConfigUpdateEvent.CustomNameUpdate -> currentRomConfig.copy(customName = event.customName)
             is RomConfigUpdateEvent.WideViewWidthUpdate -> currentRomConfig.copy(mods = currentRomConfig.mods.copy(wideViewWidth = event.newWideViewWidth))
+            is RomConfigUpdateEvent.WideLayoutUpdate -> currentRomConfig.copy(mods = currentRomConfig.mods.copy(wideLayoutId = event.newWideLayoutId))
             is RomConfigUpdateEvent.LuaScriptToggle -> currentRomConfig.withLuaScripts { luaScripts ->
                 luaScripts.map { if (it.fileName == event.fileName) it.copy(enabled = event.enabled) else it }
             }

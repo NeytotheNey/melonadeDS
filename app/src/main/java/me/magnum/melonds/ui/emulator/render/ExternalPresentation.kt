@@ -38,6 +38,8 @@ class ExternalPresentation(
     private val surfaceView: EmulatorSurfaceView
     private var currentBackground: RuntimeBackground? = null
     private var currentRendererConfiguration: RuntimeRendererConfiguration? = null
+    // RuntimeInputLayoutConfiguration.isWideLayout of the layout shown, for the renderer
+    private var isWideLayout = false
 
     init {
         window?.setFlags(
@@ -103,6 +105,7 @@ class ExternalPresentation(
             bottomAlpha = bottomView?.baseAlpha ?: 1f,
             topOnTop = topView?.onTop ?: false,
             bottomOnTop = bottomView?.onTop ?: false,
+            isWideLayout = isWideLayout,
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -127,6 +130,7 @@ class ExternalPresentation(
     }
 
     fun updateLayout(layoutConfiguration: RuntimeInputLayoutConfiguration) {
+        isWideLayout = layoutConfiguration.isWideLayout
         layoutView.instantiateLayout(layoutConfiguration, LayoutTarget.SECONDARY_SCREEN)
         updateRendererScreenAreas()
     }

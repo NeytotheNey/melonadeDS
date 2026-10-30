@@ -44,6 +44,17 @@ class UILayoutProvider(private val defaultLayoutProvider: DefaultLayoutProvider)
         }
     }
 
+    /**
+     * The layout picked for the current variant, with the configuration it was picked from, so the two always match
+     */
+    val currentLayoutWithConfiguration = combine(_currentLayoutConfiguration, currentLayoutVariant) { layoutConfiguration, variant ->
+        if (layoutConfiguration == null || variant == null) {
+            null
+        } else {
+            layoutConfiguration to getOptimalLayoutForVariant(layoutConfiguration, variant)
+        }
+    }
+
     fun updateCurrentOrientation(orientation: Orientation) {
         currentOrientation.value = orientation
     }
@@ -102,7 +113,7 @@ class UILayoutProvider(private val defaultLayoutProvider: DefaultLayoutProvider)
             } else {
                 layout.secondaryScreenLayout
             }
-            UILayout(mainScreenLayout, secondaryScreenLayout)
+            UILayout(mainScreenLayout, secondaryScreenLayout, layout.wideAspect)
         } else {
             layout
         }

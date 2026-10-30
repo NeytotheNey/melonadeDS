@@ -1,5 +1,6 @@
 package me.magnum.melonds.ui.romdetails.model
 
+import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.rom.config.RomModsConfig
 import me.magnum.melonds.domain.model.rom.config.RuntimeConsoleType
 import me.magnum.melonds.domain.model.rom.config.RuntimeMicSource
@@ -15,5 +16,7 @@ data class RomConfigUiModel(
     val mods: RomModsConfig = RomModsConfig(),
     // Widescreen only works with the OpenGL renderer, which is a global setting
     val isWidescreenSupported: Boolean = true,
+    // The wide layouts (LayoutConfiguration.isWide), which the game can pick as its wide layout. Null until the layouts are read
+    val wideLayouts: List<LayoutConfiguration>? = null,
     val luaScripts: RomLuaScriptsUiModel = RomLuaScriptsUiModel(),
 )

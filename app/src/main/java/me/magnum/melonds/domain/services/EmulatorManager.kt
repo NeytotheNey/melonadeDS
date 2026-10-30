@@ -23,8 +23,17 @@ interface EmulatorManager {
      * @param luaScripts The enabled Lua scripts to run, read from [luaScriptFolder]. Empty when scripts aren't allowed
      * @param luaScriptFolder The game's linked script folder. Null if none is linked
      * @param areLuaStateLoadsAllowed Whether the scripts may load savestates (`melon.state.load()`). False in RetroAchievements hardcore
+     * @param wideViewWidth The width the game starts at (WidescreenLaunch.viewWidth), or 0 for the normal width. It then follows
+     * [setWideViewWidth], and configuration updates keep it
      */
-    suspend fun loadRom(rom: Rom, cheats: List<Cheat>, luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?, areLuaStateLoadsAllowed: Boolean): RomLaunchResult
+    suspend fun loadRom(
+        rom: Rom,
+        cheats: List<Cheat>,
+        luaScripts: List<RomLuaScript>,
+        luaScriptFolder: Uri?,
+        areLuaStateLoadsAllowed: Boolean,
+        wideViewWidth: Int,
+    ): RomLaunchResult
 
     /**
      * Whether any Lua script sent at launch is still running (none has been switched off after an error). Safe to call from any thread
@@ -58,6 +67,11 @@ interface EmulatorManager {
     suspend fun loadFirmware(consoleType: ConsoleType): FirmwareLaunchResult
 
     suspend fun updateRomEmulatorConfiguration(rom: Rom)
+
+    /**
+     * Changes the running game's widescreen width (0 for the normal width), when the layout shown asks for another one
+     */
+    fun setWideViewWidth(width: Int)
 
     suspend fun updateFirmwareEmulatorConfiguration(consoleType: ConsoleType)
 

@@ -1,8 +1,12 @@
 package me.magnum.melonds.ui.romdetails.ui
 
+import android.app.Activity
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
@@ -42,19 +47,23 @@ import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.contracts.DirectoryPickerContract
 import me.magnum.melonds.domain.model.emulator.LuaLayoutChoice
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
+import me.magnum.melonds.domain.model.layout.LayoutConfiguration
+import me.magnum.melonds.domain.model.layout.WidescreenAspect
 import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import me.magnum.melonds.domain.model.rom.config.RomModsConfig
 import me.magnum.melonds.impl.LuaScriptHeader
 import me.magnum.melonds.ui.common.MelonPreviewSet
 import me.magnum.melonds.ui.common.component.LuaScriptOptionControl
 import me.magnum.melonds.ui.common.component.text.CaptionText
+import me.magnum.melonds.ui.common.preference.ActionLauncherItem
 import me.magnum.melonds.ui.common.preference.SingleChoiceItem
+import me.magnum.melonds.ui.layouts.LayoutSelectorActivity
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiModel
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiState
 import me.magnum.melonds.ui.romdetails.model.RomConfigUpdateEvent
 import me.magnum.melonds.ui.romdetails.model.RomLuaScriptsUiModel
-import me.magnum.melonds.ui.romdetails.model.WidescreenAspect
 import me.magnum.melonds.ui.theme.MelonTheme
+import java.util.UUID
 
 @Composable
 fun RomModsUi(
@@ -128,13 +137,102 @@ private fun WidescreenSection(
 
     if (wideViewWidth != null) {
         val aspectOptions = stringArrayResource(id = R.array.widescreen_aspect_options)
-        val aspect = WidescreenAspect.fromViewWidth(wideViewWidth)
-        SingleChoiceItem(
-            name = stringResource(id = R.string.widescreen_aspect_ratio),
-            value = aspectOptions[aspect.ordinal],
-            items = aspectOptions.toList(),
-            selectedItemIndex = aspect.ordinal,
-            onItemSelected = { onConfigUpdate(RomConfigUpdateEvent.WideViewWidthUpdate(WidescreenAspect.entries[it].viewWidth)) },
+        // A layout that was deleted or isn't marked wide anymore counts as automatic, like at launch
+        val wideLayout = romConfig.wideLayouts?.firstOrNull { it.id != null && it.id == romConfig.mods.wideLayoutId }
+        val automaticAspect = WidescreenAspect.fromViewWidth(wideViewWidth)
+        WideLayoutItem(
+            romConfig = romConfig,
+            wideLayout = wideLayout,
+            newLayoutWideAspect = wideLayout?.commonWideAspect ?: automaticAspect,
+            onConfigUpdate = onConfigUpdate,
+        )
+
+        if (wideLayout != null) {
+            // Each of the layout's variants has its own ratio
+            InfoItem(
+                name = stringResource(id = R.string.widescreen_aspect_ratio),
+                value = stringResource(id = R.string.wide_layout_aspect_ratio),
+            )
+        } else {
+            SingleChoiceItem(
+                name = stringResource(id = R.string.widescreen_aspect_ratio),
+                value = aspectOptions[automaticAspect.ordinal],
+                items = aspectOptions.toList(),
+                selectedItemIndex = automaticAspect.ordinal,
+                onItemSelected = { onConfigUpdate(RomConfigUpdateEvent.WideViewWidthUpdate(WidescreenAspect.entries[it].viewWidth)) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun WideLayoutItem(
+    romConfig: RomConfigUiModel,
+    wideLayout: LayoutConfiguration?,
+    newLayoutWideAspect: WidescreenAspect,
+    onConfigUpdate: (RomConfigUpdateEvent) -> Unit,
+) {
+    val context = LocalContext.current
+    val layoutSelectorLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val layoutId = result.data?.getStringExtra(LayoutSelectorActivity.KEY_SELECTED_LAYOUT_ID)?.let { UUID.fromString(it) }
+            onConfigUpdate(RomConfigUpdateEvent.WideLayoutUpdate(layoutId))
+        }
+    }
+    ActionLauncherItem(
+        name = stringResource(id = R.string.wide_layout),
+        value = when {
+            wideLayout == null -> stringResource(id = R.string.wide_layout_automatic)
+            wideLayout.name.isNullOrBlank() -> stringResource(id = R.string.lua_script_option_layout_unnamed)
+            else -> wideLayout.name
+        },
+        // Until the layouts are read it isn't known which one is picked
+        enabled = romConfig.wideLayouts != null,
+        onLaunchAction = {
+            // The stored pick, so that backing out keeps it. The picker falls back to automatic if that layout isn't wide (anymore)
+            val intent = Intent(context, LayoutSelectorActivity::class.java).apply {
+                putExtra(LayoutSelectorActivity.KEY_SELECTED_LAYOUT_ID, romConfig.mods.wideLayoutId?.toString())
+                putExtra(LayoutSelectorActivity.KEY_WIDE_LAYOUTS_ONLY, true)
+                // New layouts made from the picker start at the game's current ratio
+                putExtra(LayoutSelectorActivity.KEY_NEW_LAYOUT_WIDE_ASPECT, newLayoutWideAspect.key)
+            }
+            layoutSelectorLauncher.launch(intent)
+        },
+    )
+
+    if (romConfig.wideLayouts?.isEmpty() == true) {
+        CaptionText(
+            text = stringResource(id = R.string.wide_layout_none),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+    }
+}
+
+/**
+ * A row that only shows a value, which can't be changed here
+ */
+@Composable
+private fun InfoItem(
+    name: String,
+    value: String,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = name,
+            style = MaterialTheme.typography.bodyLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        CaptionText(
+            text = value,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

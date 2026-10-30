@@ -14,6 +14,10 @@ sealed class RomConfigUpdateEvent {
     data class GbaSavePathUpdate(val gbaSavePath: Uri?) : RomConfigUpdateEvent()
     data class CustomNameUpdate(val customName: String?) : RomConfigUpdateEvent()
     data class WideViewWidthUpdate(val newWideViewWidth: Int?) : RomConfigUpdateEvent()
+    /**
+     * The game's wide layout, or null for automatic
+     */
+    data class WideLayoutUpdate(val newWideLayoutId: UUID?) : RomConfigUpdateEvent()
     data class LuaScriptToggle(val fileName: String, val enabled: Boolean) : RomConfigUpdateEvent()
     /**
      * Links a picked folder as the game's script folder, or unlinks it if [folderUri] is null

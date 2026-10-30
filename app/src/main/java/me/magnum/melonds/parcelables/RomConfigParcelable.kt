@@ -35,6 +35,7 @@ class RomConfigParcelable : Parcelable {
                         options = List(parcel.readInt()) { parcel.readString()!! to parcel.readString()!! }.toMap(),
                     )
                 },
+                wideLayoutId = parcel.readString()?.let { UUID.fromString(it) },
             ),
         )
     }
@@ -58,6 +59,7 @@ class RomConfigParcelable : Parcelable {
                 dest.writeString(value)
             }
         }
+        dest.writeString(romConfig.mods.wideLayoutId?.toString())
     }
 
     override fun describeContents(): Int {

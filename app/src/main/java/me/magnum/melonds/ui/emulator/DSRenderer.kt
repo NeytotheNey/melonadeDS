@@ -16,6 +16,9 @@ import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.VideoFiltering
 import me.magnum.melonds.domain.model.layout.BackgroundMode
+import me.magnum.melonds.domain.model.layout.buildCentredRect
+import me.magnum.melonds.domain.model.layout.getLetterboxedRect
+import me.magnum.melonds.domain.model.layout.getWideTopScreenRect
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_BOTTOM
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_TOP
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
@@ -88,6 +91,8 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var bottomAlpha: Float = 1f
     private var topOnTop: Boolean = false
     private var bottomOnTop: Boolean = false
+    // Whether the layout is a wide one (LayoutConfiguration.isWide), whose top rects are placed by the player for each variant
+    private var isWideLayout: Boolean = false
 
     private var width = 0f
     private var height = 0f
@@ -112,6 +117,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         bottomAlpha: Float,
         topOnTop: Boolean,
         bottomOnTop: Boolean,
+        isWideLayout: Boolean,
     ) {
         synchronized(configurationLock) {
             this.topScreenRect = topScreenRect
@@ -120,6 +126,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             this.bottomAlpha = bottomAlpha
             this.topOnTop = topOnTop
             this.bottomOnTop = bottomOnTop
+            this.isWideLayout = isWideLayout
             mustUpdateConfiguration = true
         }
     }
@@ -286,39 +293,20 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     }
 
     /**
-     * Where the top screen is drawn when the frame's top screen is [topScreenWidth] DS pixels wide. At SCREEN_WIDTH that's [rect] itself. A
-     * wider one is drawn at its own aspect ratio: a rect that's already that wide or wider (a 16:9 layout) gets it in its middle, at the rect's
-     * height. A narrower one grows sideways around its centre, up to the surface's edges and the bottom screen's rect when it shares rows.
-     * If that's not enough room, it gets as wide as it can and shorter, in the middle of [rect]. Stored layouts and touch never change
+     * Where the top screen is drawn when the frame's top screen is [topScreenWidth] DS pixels wide. In a wide layout the frame is fitted in
+     * [rect] at its own aspect ratio, whatever its width, so a frame whose width doesn't match the variant yet (just after a fold, or while
+     * paused) never spreads beyond the rect. Otherwise a SCREEN_WIDTH frame takes [rect] itself, and a wider one is drawn at its own aspect
+     * ratio, placed by getWideTopScreenRect. Stored layouts and touch never change
      */
     private fun getTopScreenDrawRect(rect: Rect, bottomRect: Rect?, topScreenWidth: Int): Rect {
+        if (isWideLayout) {
+            return getLetterboxedRect(rect, topScreenWidth.coerceAtLeast(SCREEN_WIDTH) / SCREEN_HEIGHT.toFloat())
+        }
         if (topScreenWidth <= SCREEN_WIDTH) {
             return rect
         }
 
-        val aspectRatio = topScreenWidth / SCREEN_HEIGHT.toFloat()
-        val centreX = rect.x + rect.width / 2f
-        val wantedWidth = rect.height * aspectRatio
-        if (rect.width >= wantedWidth) {
-            return buildCentredRect(centreX, rect.y.toFloat(), wantedWidth, rect.height.toFloat())
-        }
-
-        // A bottom screen that shares rows with the top screen stops it at its near edge, on whichever side its centre is. That edge never
-        // counts as further in than the top screen's own one, so a bottom screen that overlaps the rect only stops the growth on that side
-        var minX = 0f
-        var maxX = width
-        if (bottomRect != null && bottomRect.y < rect.bottom && rect.y < bottomRect.bottom) {
-            if (bottomRect.x + bottomRect.width / 2f >= centreX) {
-                maxX = minOf(maxX, maxOf(bottomRect.x, rect.right).toFloat())
-            } else {
-                minX = maxOf(minX, minOf(bottomRect.right, rect.x).toFloat())
-            }
-        }
-
-        // Never narrower than the layout's own rect, even if that's partly off the surface
-        val drawWidth = minOf(wantedWidth, 2f * minOf(centreX - minX, maxX - centreX)).coerceAtLeast(rect.width.toFloat())
-        val drawHeight = drawWidth / aspectRatio
-        return buildCentredRect(centreX, rect.y + (rect.height - drawHeight) / 2f, drawWidth, drawHeight)
+        return getWideTopScreenRect(rect, bottomRect, topScreenWidth / SCREEN_HEIGHT.toFloat(), width)
     }
 
     /**
@@ -331,14 +319,6 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
         val nativeWidth = drawRect.width * SCREEN_WIDTH / topScreenWidth.toFloat()
         return buildCentredRect(drawRect.x + drawRect.width / 2f, drawRect.y.toFloat(), nativeWidth, drawRect.height.toFloat())
-    }
-
-    private fun buildCentredRect(centreX: Float, top: Float, rectWidth: Float, rectHeight: Float): Rect {
-        // The edges are rounded rather than the sizes, so that the rect stays centred
-        val left = (centreX - rectWidth / 2f).roundToInt()
-        val right = (centreX + rectWidth / 2f).roundToInt()
-        val y = top.roundToInt()
-        return Rect(left, y, right - left, (top + rectHeight).roundToInt() - y)
     }
 
     private fun buildScreenUvs(left: Float, right: Float, top: Float, bottom: Float): FloatArray {

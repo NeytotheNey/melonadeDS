@@ -3,9 +3,11 @@ package me.magnum.melonds.ui.layouteditor
 import android.annotation.SuppressLint
 import android.content.res.ColorStateList
 import android.view.Gravity
+import android.view.Menu
 import android.view.MotionEvent
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.PopupMenu
 import android.widget.SeekBar
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
@@ -21,6 +23,7 @@ import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.consoleAspectRatio
 import me.magnum.melonds.domain.model.layout.LayoutComponent
+import me.magnum.melonds.domain.model.layout.WidescreenAspect
 import me.magnum.melonds.ui.common.LayoutComponentView
 import me.magnum.melonds.ui.layouteditor.model.LayoutComponentEditableProperty
 import me.magnum.melonds.utils.getLayoutComponentName
@@ -33,6 +36,8 @@ import kotlin.math.roundToInt
 private const val SIZE_STEP_PX = 16
 private const val REPEAT_INITIAL_DELAY_MS = 400L
 private const val REPEAT_INTERVAL_MS = 50L
+// The Off item of the Wide chip's menu. The ratios use their ordinal
+private const val WIDE_ASPECT_MENU_OFF = -1
 
 /**
  * The controls for the selected item: a compact pill shown next to it, which can be expanded into a panel with every option. The last mode used
@@ -41,11 +46,17 @@ private const val REPEAT_INTERVAL_MS = 50L
 class LayoutEditorItemControls(
     private val binding: ViewLayoutEditorManagerBinding,
     private val onEditPropertyValue: (LayoutComponentEditableProperty) -> Unit,
+    // The widescreen ratio of the variant shown (UILayout.wideAspect), or null for a normal one
+    private val getWideAspect: () -> WidescreenAspect?,
+    // Sets the widescreen ratio of the variant shown (null for off), from the top screen's Wide menu
+    private val onWideAspectPicked: (WidescreenAspect?) -> Unit,
 ) {
 
     private enum class ScreenAspectRatio(val ratio: Float?) {
         RATIO_4_3(consoleAspectRatio),
         RATIO_16_9(16 / 9f),
+        // The wide variant's own ratio, which only its top screen offers. See lockedRatio. Its chip also sets the variant's ratio
+        WIDE(null),
         UNRESTRICTED(null)
     }
 
@@ -57,6 +68,10 @@ class LayoutEditorItemControls(
     private var isExpanded = preferences.getBoolean(PreferenceKeys.LAYOUT_EDITOR_ITEM_PANEL_EXPANDED, false)
     private var selectedView: LayoutComponentView? = null
     private var screenAspectRatio = ScreenAspectRatio.RATIO_4_3
+    // Whether the top screen is selected. Only it has the Wide chip
+    private var isTopScreen = false
+    // The wide variant's ratio while its top screen is selected, otherwise null
+    private var wideAspect: WidescreenAspect? = null
     private var lastSelectedViewRect: Rect? = null
     private var controlInsets = Insets.NONE
     private var fillingControls = false
@@ -73,11 +88,21 @@ class LayoutEditorItemControls(
     fun show(view: LayoutComponentView) {
         selectedView = view
         lastSelectedViewRect = null
+        isTopScreen = view.component == LayoutComponent.TOP_SCREEN
+        wideAspect = if (isTopScreen) getWideAspect() else null
         if (view.component.isScreen()) {
             screenAspectRatio = guessAspectRatio(view)
         }
-        editor.selectedScreenAspectRatio = screenAspectRatio.ratio
+        editor.selectedScreenAspectRatio = lockedRatio
         updateMode()
+    }
+
+    /**
+     * Reads the widescreen ratio of the variant shown again and refills the controls. Called whenever it changes, since the layout isn't always
+     * shown again then (Off, or rects that already had the shape)
+     */
+    fun refresh() {
+        selectedView?.let { show(it) }
     }
 
     fun hide() {
@@ -228,18 +253,26 @@ class LayoutEditorItemControls(
         binding.toggleGroupAspectRatio.addOnButtonCheckedListener { _, checkedId, isChecked ->
             val view = selectedView
             if (!isChecked || fillingControls || view == null) return@addOnButtonCheckedListener
+            if (checkedId == R.id.button_aspect_ratio_wide) {
+                // The Wide chip opens its menu instead (see its click listener), and the lock follows the ratio picked there. Until then
+                // the current choice is put back
+                binding.toggleGroupAspectRatio.post { fillPanel() }
+                return@addOnButtonCheckedListener
+            }
             screenAspectRatio = when (checkedId) {
                 R.id.button_aspect_ratio_16_9 -> ScreenAspectRatio.RATIO_16_9
                 R.id.button_aspect_ratio_free -> ScreenAspectRatio.UNRESTRICTED
                 else -> ScreenAspectRatio.RATIO_4_3
             }
-            editor.selectedScreenAspectRatio = screenAspectRatio.ratio
-            if (screenAspectRatio.ratio != null) {
+            editor.selectedScreenAspectRatio = lockedRatio
+            if (lockedRatio != null) {
                 // Keep the width and fix the height to match the new ratio
                 editor.resizeSelectedView(view.getWidth().toFloat(), view.getHeight().toFloat())
             }
             fillPanel()
         }
+        // Called after the toggle group's own handling, whether or not the chip was already checked
+        binding.buttonAspectRatioWide.setOnClickListener { showWideAspectMenu() }
 
         scaleButtons.forEach { (scale, button) ->
             button.text = context.getString(R.string.layout_editor_scale_multiplier, scale)
@@ -288,9 +321,19 @@ class LayoutEditorItemControls(
         }
 
         binding.toggleGroupAspectRatio.isVisible = isScreen
+        // In a wide variant the top screen has the variant's ratio instead of plain 16:9, which would only stretch it
+        val currentWideAspect = wideAspect
+        binding.buttonAspectRatioWide.isVisible = isTopScreen
+        binding.buttonAspectRatio169.isVisible = currentWideAspect == null
+        binding.buttonAspectRatioWide.text = if (currentWideAspect != null) {
+            context.getString(R.string.layout_editor_aspect_ratio_wide, getWideAspectName(currentWideAspect))
+        } else {
+            context.getString(R.string.layout_editor_aspect_ratio_wide_off)
+        }
         binding.toggleGroupAspectRatio.check(when (screenAspectRatio) {
             ScreenAspectRatio.RATIO_4_3 -> R.id.button_aspect_ratio_4_3
             ScreenAspectRatio.RATIO_16_9 -> R.id.button_aspect_ratio_16_9
+            ScreenAspectRatio.WIDE -> R.id.button_aspect_ratio_wide
             ScreenAspectRatio.UNRESTRICTED -> R.id.button_aspect_ratio_free
         })
 
@@ -336,11 +379,23 @@ class LayoutEditorItemControls(
     }
 
     /**
-     * Returns the size of the screen at an integer scale of the DS resolution. The height follows the locked aspect ratio, if any.
+     * The ratio the selected screen's size is locked to, or null if it's free
+     */
+    private val lockedRatio: Float? get() = if (screenAspectRatio == ScreenAspectRatio.WIDE) wideAspect?.aspectRatio else screenAspectRatio.ratio
+
+    /**
+     * Returns the size of the screen at an integer scale of the DS resolution. The height follows the locked aspect ratio, if any. A wide top
+     * screen keeps the DS height instead, so its middle part is at that scale
      */
     private fun getScaleSize(scale: Int): Pair<Int, Int> {
+        val ratio = lockedRatio
+        if (screenAspectRatio == ScreenAspectRatio.WIDE && ratio != null) {
+            val height = SCREEN_HEIGHT * scale
+            return (height * ratio).roundToInt() to height
+        }
+
         val width = SCREEN_WIDTH * scale
-        val height = screenAspectRatio.ratio?.let { (width / it).roundToInt() } ?: (SCREEN_HEIGHT * scale)
+        val height = ratio?.let { (width / it).roundToInt() } ?: (SCREEN_HEIGHT * scale)
         return width to height
     }
 
@@ -350,7 +405,7 @@ class LayoutEditorItemControls(
      */
     private fun getFitSize(): Pair<Int, Int> {
         val view = selectedView ?: return 0 to 0
-        val ratio = screenAspectRatio.ratio ?: (view.getWidth() / view.getHeight().coerceAtLeast(1).toFloat())
+        val ratio = lockedRatio ?: (view.getWidth() / view.getHeight().coerceAtLeast(1).toFloat())
         val width = min(editor.width.toFloat(), editor.height * ratio)
         return width.roundToInt() to (width / ratio).roundToInt()
     }
@@ -364,13 +419,48 @@ class LayoutEditorItemControls(
     }
 
     /**
+     * The Wide chip's menu: the ratios, and Off in a wide variant. Picking one sets the ratio of the variant shown and places its top screen
+     * for it. Other variants keep their own
+     */
+    private fun showWideAspectMenu() {
+        val currentWideAspect = wideAspect
+        // android.widget.PopupMenu, since the external display presentation has no AppCompat theme
+        val menu = PopupMenu(context, binding.buttonAspectRatioWide)
+        WidescreenAspect.entries.forEach {
+            menu.menu.add(Menu.NONE, it.ordinal, Menu.NONE, getWideAspectName(it))
+        }
+        if (currentWideAspect != null) {
+            menu.menu.add(Menu.NONE, WIDE_ASPECT_MENU_OFF, Menu.NONE, R.string.layout_widescreen_off)
+        }
+        menu.menu.setGroupCheckable(Menu.NONE, true, true)
+        currentWideAspect?.let { menu.menu.findItem(it.ordinal)?.isChecked = true }
+        menu.setOnMenuItemClickListener { item ->
+            val pickedAspect = WidescreenAspect.entries.getOrNull(item.itemId)
+            // The controls are refreshed when the ratio changes (see refresh), or the top screen is selected again with the layout
+            onWideAspectPicked(pickedAspect)
+            true
+        }
+        menu.show()
+    }
+
+    private fun getWideAspectName(aspect: WidescreenAspect): String {
+        return context.resources.getStringArray(R.array.widescreen_aspect_options).getOrElse(aspect.ordinal) { aspect.key }
+    }
+
+    /**
      * Picks the aspect ratio that matches the screen's current size, so that resizing it doesn't suddenly change its shape.
      */
     private fun guessAspectRatio(view: LayoutComponentView): ScreenAspectRatio {
-        return ScreenAspectRatio.entries.firstOrNull {
-            val ratio = it.ratio
+        // A wide variant's top screen has no plain 16:9, so a 16:9 shape that isn't the variant's ratio counts as Free
+        val currentWideAspect = wideAspect
+        val candidates = if (currentWideAspect != null) {
+            listOf(ScreenAspectRatio.WIDE to currentWideAspect.aspectRatio, ScreenAspectRatio.RATIO_4_3 to ScreenAspectRatio.RATIO_4_3.ratio)
+        } else {
+            listOf(ScreenAspectRatio.RATIO_4_3 to ScreenAspectRatio.RATIO_4_3.ratio, ScreenAspectRatio.RATIO_16_9 to ScreenAspectRatio.RATIO_16_9.ratio)
+        }
+        return candidates.firstOrNull { (_, ratio) ->
             ratio != null && abs(view.getWidth() - view.getHeight() * ratio) <= 2f
-        } ?: ScreenAspectRatio.UNRESTRICTED
+        }?.first ?: ScreenAspectRatio.UNRESTRICTED
     }
 
     /**

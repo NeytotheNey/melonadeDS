@@ -70,6 +70,8 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     private val defaultComponentWidth = context.dpToPixels(100f).toInt()
     val minComponentSize = context.dpToPixels(30f).toInt()
     private var selectedView: LayoutComponentView? = null
+    // See reselectAfterNextLayout()
+    private var componentToReselect: LayoutComponent? = null
     private var selectedViewAnchor = Anchor.TOP_LEFT
     private var modifiedByUser = false
     private var resizeGesture: ResizeGesture? = null
@@ -159,6 +161,22 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     override fun instantiateLayout(layoutConfiguration: UILayout, layoutTarget: LayoutTarget) {
         super.instantiateLayout(layoutConfiguration, layoutTarget)
         modifiedByUser = false
+
+        componentToReselect?.let { component ->
+            componentToReselect = null
+            views[component]?.let {
+                it.view.alpha = 1f
+                it.setHighlighted(true)
+                selectView(it)
+            }
+        }
+    }
+
+    /**
+     * Selects [component] again once the layout is next shown, for a change made from its own controls. Null cancels that
+     */
+    fun reselectAfterNextLayout(component: LayoutComponent?) {
+        componentToReselect = component
     }
 
     override fun destroyLayout() {

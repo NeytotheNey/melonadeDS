@@ -48,6 +48,8 @@ import javax.inject.Inject
 class LayoutEditorActivity : AppCompatActivity() {
     companion object {
         const val KEY_LAYOUT_ID = "layout_id"
+        // For a new layout: makes it a wide layout at this ratio (WidescreenAspect.key), with its top screen widened
+        const val KEY_NEW_LAYOUT_WIDE_ASPECT = "new_layout_wide_aspect"
     }
 
     enum class MenuOption(@field:StringRes val stringRes: Int) {

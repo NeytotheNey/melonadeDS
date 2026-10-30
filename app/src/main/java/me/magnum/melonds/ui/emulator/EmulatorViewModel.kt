@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -46,6 +47,7 @@ import me.magnum.melonds.domain.model.FpsCounterPosition
 import me.magnum.melonds.domain.model.RomInfo
 import me.magnum.melonds.domain.model.RuntimeBackground
 import me.magnum.melonds.domain.model.SaveStateSlot
+import me.magnum.melonds.domain.model.VideoRenderer
 import me.magnum.melonds.domain.model.emulator.EmulatorEvent
 import me.magnum.melonds.domain.model.emulator.EmulatorSessionUpdateAction
 import me.magnum.melonds.domain.model.emulator.FirmwareLaunchResult
@@ -63,6 +65,7 @@ import me.magnum.melonds.domain.model.retroachievements.RASimpleAchievement
 import me.magnum.melonds.domain.model.retroachievements.RASimpleLeaderboard
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.model.rom.config.RomLuaScript
+import me.magnum.melonds.domain.model.rom.config.WidescreenLaunch
 import me.magnum.melonds.domain.model.ui.Orientation
 import me.magnum.melonds.domain.repositories.BackgroundRepository
 import me.magnum.melonds.domain.repositories.CheatsRepository
@@ -281,14 +284,23 @@ class EmulatorViewModel @Inject constructor(
         startObservingRendererConfiguration()
         startObservingEmulatorEvents()
         startObservingAchievementEvents()
-        startObservingLayoutForRom(rom)
+        val widescreenLaunch = getWidescreenLaunch(rom)
+        startObservingLayoutForRom(rom, widescreenLaunch.wideLayoutId)
+        startObservingWideViewWidth(widescreenLaunch)
         startRetroAchievementsSession(rom)
 
         val romInfo = getRomInfo(rom)
         val cheats = romInfo?.let { getRomEnabledCheats(it) } ?: emptyList()
         val syncedLuaScripts = getSyncedLuaScripts(rom)
         val luaScripts = if (emulatorSession.areLuaScriptsAllowed()) syncedLuaScripts.filter { it.enabled } else emptyList()
-        val result = emulatorManager.loadRom(rom, cheats, luaScripts, rom.config.mods.luaScriptFolder, emulatorSession.areSaveStateLoadsAllowed())
+        val result = emulatorManager.loadRom(
+            rom,
+            cheats,
+            luaScripts,
+            rom.config.mods.luaScriptFolder,
+            emulatorSession.areSaveStateLoadsAllowed(),
+            widescreenLaunch.viewWidth,
+        )
         when (result) {
             is RomLaunchResult.LaunchFailedRomNotFound,
             is RomLaunchResult.LaunchFailedRomNotSupported,
@@ -707,6 +719,7 @@ class EmulatorViewModel @Inject constructor(
                         isHapticFeedbackEnabled = isHapticFeedbackEnabled,
                         layoutOrientation = layoutConfiguration.orientation,
                         layout = layout,
+                        isWideLayout = layoutConfiguration.isWide,
                     )
                 }
             }.collect(_runtimeLayout)
@@ -795,9 +808,13 @@ class EmulatorViewModel @Inject constructor(
         }
     }
 
-    private fun startObservingLayoutForRom(rom: Rom) {
+    /**
+     * @param wideLayoutId The wide layout the game uses while widescreen is on (WidescreenLaunch.wideLayoutId). It takes the place of the ROM's
+     * own layout, which comes back if it's deleted
+     */
+    private fun startObservingLayoutForRom(rom: Rom, wideLayoutId: UUID?) {
         val romLayoutId = rom.config.layoutId
-        val playerLayoutFlow = if (romLayoutId == null) {
+        val normalLayoutFlow = if (romLayoutId == null) {
             getGlobalLayoutFlow()
         } else {
             // Load and observe ROM layout but switch to global layout if the ROM layout stops existing
@@ -806,10 +823,26 @@ class EmulatorViewModel @Inject constructor(
                     emitAll(getGlobalLayoutFlow())
                 }
         }
+        val playerLayoutFlow = wideLayoutId?.let {
+            layoutsRepository.observeLayout(it)
+                .onCompletion { cause ->
+                    if (cause == null) {
+                        emitAll(normalLayoutFlow)
+                    }
+                }
+        } ?: normalLayoutFlow
 
         // The player picking another layout by hand (in the settings, from the pause menu) wins over the scripts, like a screen swap does.
-        // A layout being edited or deleted isn't a pick
-        val romLayoutFlow = romLayoutId?.let { layoutsRepository.observeLayout(it) }
+        // A layout being edited or deleted isn't a pick. The wide layout counts as the ROM's own, and so does the ROM's layout after it
+        val romLayoutFlow = if (wideLayoutId == null) {
+            romLayoutId?.let { layoutsRepository.observeLayout(it) }
+        } else {
+            layoutsRepository.observeLayout(wideLayoutId).onCompletion { cause ->
+                if (cause == null && romLayoutId != null) {
+                    emitAll(layoutsRepository.observeLayout(romLayoutId))
+                }
+            }
+        }
         sessionCoroutineScope.launch {
             getPlayerLayoutPicks(romLayoutFlow, settingsRepository.observeSelectedLayoutId()).collect {
                 _luaLayoutId.value = luaLayoutRequests.onPlayerChanged()
@@ -875,6 +908,43 @@ class EmulatorViewModel @Inject constructor(
             val background = backgroundsRepository.getBackground(backgroundId)
             RuntimeBackground(background, mode)
         }
+    }
+
+    /**
+     * Sends the game the width the layout shown asks for (WidescreenLaunch.getViewWidth) whenever it changes: a fold, a rotation, or another
+     * layout picked by the player or a script. Nothing is sent in a session that isn't wide
+     */
+    private fun startObservingWideViewWidth(widescreenLaunch: WidescreenLaunch) {
+        if (!widescreenLaunch.isWideSession) {
+            return
+        }
+
+        sessionCoroutineScope.launch {
+            var currentWidth = widescreenLaunch.viewWidth
+            // The provider can still hold the previous session's layout until this session's one is shown, so only a layout that matches the
+            // session's counts. Both are watched, so the provider's layout is checked again when the session's one arrives, even if it's the
+            // same as the provider's (which then doesn't emit again)
+            combine(_layout, uiLayoutProvider.currentLayoutWithConfiguration) { sessionLayout, providerLayout ->
+                providerLayout?.takeIf { sessionLayout != null && it.first == sessionLayout }
+            }.collect {
+                val (layoutConfiguration, layout) = it ?: return@collect
+                val width = widescreenLaunch.getViewWidth(layoutConfiguration, layout)
+                if (width != currentWidth) {
+                    currentWidth = width
+                    emulatorManager.setWideViewWidth(width)
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether the game can be wide, its wide layout and the width it starts at. Decided once per launch, so the session keeps them
+     */
+    private suspend fun getWidescreenLaunch(rom: Rom): WidescreenLaunch {
+        val mods = rom.config.mods
+        val isOpenGlRenderer = settingsRepository.getVideoRenderer().first() == VideoRenderer.OPENGL
+        val wideLayout = mods.wideLayoutId?.let { layoutsRepository.getLayout(it) }
+        return WidescreenLaunch.resolve(mods, wideLayout, isOpenGlRenderer)
     }
 
     private fun getGlobalLayoutFlow(): Flow<LayoutConfiguration> {

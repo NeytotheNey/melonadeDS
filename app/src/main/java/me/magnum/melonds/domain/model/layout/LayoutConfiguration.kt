@@ -12,6 +12,12 @@ data class LayoutConfiguration(
     val layoutVariants: Map<UILayoutVariant, UILayout>,
 ) {
 
+    // A wide layout has at least one saved variant with a ratio (UILayout.wideAspect). A game with widescreen on can pick it as its wide layout
+    val isWide get() = layoutVariants.values.any { it.wideAspect != null }
+
+    // The ratio all of its wide variants share, or null if it has none or they differ
+    val commonWideAspect get() = layoutVariants.values.mapNotNull { it.wideAspect }.distinct().singleOrNull()
+
     companion object {
         val DEFAULT_ID = UUID(0, 0)
 

@@ -22,6 +22,8 @@ import me.magnum.melonds.domain.model.layout.ScreenFold
 import me.magnum.melonds.domain.model.layout.ScreenLayout
 import me.magnum.melonds.domain.model.layout.UILayout
 import me.magnum.melonds.domain.model.layout.UILayoutVariant
+import me.magnum.melonds.domain.model.layout.WidescreenAspect
+import me.magnum.melonds.domain.model.layout.widenTopScreens
 import me.magnum.melonds.domain.model.ui.Orientation
 import me.magnum.melonds.domain.repositories.BackgroundRepository
 import me.magnum.melonds.domain.repositories.LayoutsRepository
@@ -45,6 +47,9 @@ class LayoutEditorViewModel @Inject constructor(
      */
     private var initialLayoutConfiguration: LayoutConfiguration? = null
     private var currentLayoutVariant: UILayoutVariant? = null
+    // The ratio of a new layout made as a wide one (LayoutEditorActivity.KEY_NEW_LAYOUT_WIDE_ASPECT). Until it's first saved, each variant
+    // it's shown in gets its top screen widened, so a variant that only settles after the first one (size, insets, rotation) gets it too
+    private var newLayoutWideAspect: WidescreenAspect? = null
 
     private val _currentLayoutConfiguration = MutableStateFlow<LayoutConfiguration?>(null)
     val currentLayoutConfiguration = _currentLayoutConfiguration.asStateFlow()
@@ -87,8 +92,9 @@ class LayoutEditorViewModel @Inject constructor(
                 _currentLayoutConfiguration.value = initialLayout
             }
         } else {
-            val newLayout = LayoutConfiguration.newCustom(
-            )
+            val newLayoutWideAspect = WidescreenAspect.fromKey(savedStateHandle.get<String>(LayoutEditorActivity.KEY_NEW_LAYOUT_WIDE_ASPECT))
+            val newLayout = LayoutConfiguration.newCustom()
+            this.newLayoutWideAspect = newLayoutWideAspect
             initialLayoutConfiguration = newLayout
             _currentLayoutConfiguration.value = newLayout
         }
@@ -108,6 +114,16 @@ class LayoutEditorViewModel @Inject constructor(
                     val currentLayoutConfig = _currentLayoutConfiguration.value ?: return@collect
                     currentLayoutVariant = variant
                     _currentLayout.value = CurrentLayoutState(layout, currentLayoutConfig.orientation)
+
+                    val newWideAspect = newLayoutWideAspect
+                    if (newWideAspect != null && currentLayoutConfig.id == null && currentLayoutConfig.layoutVariants[variant] == null) {
+                        val widenedLayout = currentLayoutConfig.copy(layoutVariants = getVariantsWithShownAspect(currentLayoutConfig.layoutVariants, newWideAspect))
+                        // The widened layout is where the new layout starts, so it counts as unchanged unless something else was changed already
+                        if (currentLayoutConfig == initialLayoutConfiguration) {
+                            initialLayoutConfiguration = widenedLayout
+                        }
+                        _currentLayoutConfiguration.value = widenedLayout
+                    }
                 }
             }
         }
@@ -253,7 +269,8 @@ class LayoutEditorViewModel @Inject constructor(
                             secondaryScreenLayout = secondaryScreenLayout,
                         )
                     } else {
-                        UILayout(ScreenLayout(layoutComponents), ScreenLayout(secondaryDisplayLayoutComponents))
+                        // A variant borrowed from a similar one shows its ratio, which is kept
+                        UILayout(ScreenLayout(layoutComponents), ScreenLayout(secondaryDisplayLayoutComponents), _currentLayout.value?.layout?.wideAspect)
                     }
 
                     this[currentVariant] = updatedLayout
@@ -271,6 +288,38 @@ class LayoutEditorViewModel @Inject constructor(
                 opacity = layoutOpacity
             )
         }
+    }
+
+    /**
+     * Sets the widescreen ratio of the variant shown, from the top screen's Wide menu. Picking a ratio (even the same one again) places its top
+     * screen for it, and Off makes it a normal variant with the rects as they are. Other variants keep theirs. Layout changes made in the editor
+     * views must be stored in the current configuration first. Returns whether the layout shown changes, in which case it's shown again
+     */
+    fun setWideAspect(wideAspect: WidescreenAspect?): Boolean {
+        val currentConfiguration = _currentLayoutConfiguration.value ?: return false
+        val variant = currentLayoutVariant ?: return false
+        val newConfiguration = currentConfiguration.copy(layoutVariants = getVariantsWithShownAspect(currentConfiguration.layoutVariants, wideAspect))
+        _currentLayoutConfiguration.value = newConfiguration
+        // A variant that was never saved gets an entry here, which can be the same as what was shown
+        val newLayout = newConfiguration.layoutVariants[variant]
+        return newLayout != currentConfiguration.layoutVariants[variant] && newLayout != _currentLayout.value?.layout
+    }
+
+    /**
+     * [layoutVariants] with the variant shown at [wideAspect], its top screen placed for it the same way it's widened in game (unless it's
+     * null). The variant shown is saved as it's shown, so that the change can be seen right away even if it was never edited
+     */
+    private fun getVariantsWithShownAspect(layoutVariants: Map<UILayoutVariant, UILayout>, wideAspect: WidescreenAspect?): Map<UILayoutVariant, UILayout> {
+        val currentVariant = currentLayoutVariant ?: return layoutVariants
+        val shownLayout = _currentLayout.value?.layout ?: return layoutVariants
+        val storedLayout = layoutVariants[currentVariant]
+        val layout = UILayout(
+            mainScreenLayout = storedLayout?.mainScreenLayout?.takeIf { it.components != null } ?: shownLayout.mainScreenLayout,
+            secondaryScreenLayout = storedLayout?.secondaryScreenLayout?.takeIf { it.components != null } ?: shownLayout.secondaryScreenLayout,
+            wideAspect = wideAspect,
+        )
+        val placedLayout = if (wideAspect != null) widenTopScreens(layout, currentVariant, wideAspect) else layout
+        return layoutVariants + (currentVariant to placedLayout)
     }
 
     fun setBackgroundPropertiesBackgroundId(target: LayoutTarget, backgroundId: UUID?) {
@@ -322,6 +371,8 @@ class LayoutEditorViewModel @Inject constructor(
                                         components = null,
                                     ),
                                     secondaryScreenLayout = ScreenLayout(),
+                                    // A variant borrowed from a similar one shows its ratio, which is kept
+                                    wideAspect = _currentLayout.value?.layout?.wideAspect,
                                 )
                             }
                         }
@@ -341,6 +392,7 @@ class LayoutEditorViewModel @Inject constructor(
                                         backgroundMode = currentBackgroundProperties.backgroundMode,
                                         components = null,
                                     ),
+                                    wideAspect = _currentLayout.value?.layout?.wideAspect,
                                 )
                             }
                         }

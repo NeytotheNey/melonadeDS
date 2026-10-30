@@ -233,4 +233,10 @@ object MelonEmulator {
     external fun updateEmulatorConfiguration(emulatorConfiguration: EmulatorConfiguration)
 
     external fun updateMotionData(ax: Float, ay: Float, az: Float, rx: Float, ry: Float, rz: Float)
+
+    /**
+     * A new width for the top screen's 3D view during play (like EmulatorConfiguration.wideViewWidth, 0 for the normal width). Applied before
+     * the next frame. Only the OpenGL renderer uses it
+     */
+    external fun setWideViewWidth(width: Int)
 }

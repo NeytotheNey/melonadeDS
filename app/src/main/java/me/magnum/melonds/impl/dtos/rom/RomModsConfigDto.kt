@@ -4,6 +4,7 @@ import androidx.core.net.toUri
 import com.google.gson.annotations.SerializedName
 import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import me.magnum.melonds.domain.model.rom.config.RomModsConfig
+import java.util.UUID
 
 data class RomModsConfigDto(
     @SerializedName("wideViewWidth")
@@ -12,6 +13,9 @@ data class RomModsConfigDto(
     val luaScriptFolder: String?,
     @SerializedName("luaScripts")
     val luaScripts: List<LuaScriptDto?>?,
+    // Missing in configs saved before wide layouts
+    @SerializedName("wideLayoutId")
+    val wideLayoutId: String? = null,
 ) {
 
     data class LuaScriptDto(
@@ -36,6 +40,8 @@ data class RomModsConfigDto(
                     RomLuaScript(fileName, script.enabled == true, options)
                 }
             }.orEmpty(),
+            // An ID that can't be read counts as automatic instead of failing the whole config
+            wideLayoutId = wideLayoutId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
         )
     }
 
@@ -45,6 +51,7 @@ data class RomModsConfigDto(
                 wideViewWidth = romModsConfig.wideViewWidth,
                 luaScriptFolder = romModsConfig.luaScriptFolder?.toString(),
                 luaScripts = romModsConfig.luaScripts.map { LuaScriptDto(it.fileName, it.enabled, it.options) },
+                wideLayoutId = romModsConfig.wideLayoutId?.toString(),
             )
         }
     }

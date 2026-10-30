@@ -51,6 +51,7 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     frame = 0;
     luaDrawingsInScreenshots = configuration->luaDrawingsInScreenshots;
     wideViewWidth = configuration->wideViewWidth;
+    requestedWideViewWidth = wideViewWidth;
 
     net->RegisterInstance(instanceId);
 
@@ -331,6 +332,15 @@ void MelonInstance::reset()
 
 u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 {
+    // A width change only needs the existing GL renderer told. If the renderer is about to be set up again, updateRenderer() applies it
+    int requestedWidth = requestedWideViewWidth.load(std::memory_order_relaxed);
+    if (requestedWidth != wideViewWidth)
+    {
+        wideViewWidth = requestedWidth;
+        if (!isRenderConfigurationDirty && currentRenderer == Renderer::OpenGl)
+            static_cast<GLRenderer&>(nds->GPU.GetRenderer3D()).SetViewWidth(wideViewWidth);
+    }
+
     if (isRenderConfigurationDirty)
     {
         updateRenderer();

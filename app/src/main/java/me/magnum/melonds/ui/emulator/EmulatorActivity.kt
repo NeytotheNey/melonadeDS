@@ -187,6 +187,8 @@ class EmulatorActivity : AppCompatActivity() {
     lateinit var performanceLogger: PerformanceLogger
 
     private var presentation: ExternalPresentation? = null
+    // RuntimeInputLayoutConfiguration.isWideLayout of the layout shown, for the renderer
+    private var isWideLayout = false
     private var pauseMenuDialog: AlertDialog? = null
     private var displayLock60HzEnabled = false
 
@@ -1014,6 +1016,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     private fun setupSoftInput(layoutConfiguration: RuntimeInputLayoutConfiguration?) {
         if (layoutConfiguration != null) {
+            isWideLayout = layoutConfiguration.isWideLayout
             setLayoutOrientation(layoutConfiguration.layoutOrientation)
             with(binding.viewLayoutControls) {
                 instantiateLayout(layoutConfiguration, LayoutTarget.MAIN_SCREEN)
@@ -1094,6 +1097,7 @@ class EmulatorActivity : AppCompatActivity() {
             bottomView?.baseAlpha ?: 1f,
             topView?.onTop ?: false,
             bottomView?.onTop ?: false,
+            isWideLayout,
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

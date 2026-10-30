@@ -84,6 +84,10 @@ class AndroidEmulatorManager(
     @Volatile
     private var luaScriptOptionValues = emptyList<Map<String, String>>()
 
+    // The running game's widescreen width: the launch one, then whatever setWideViewWidth() changed it to
+    @Volatile
+    private var romWideViewWidth = 0
+
     // Writes the scripts' storage snapshots. Snapshots are drained and written under luaDataLock, so an older one can't overwrite a newer one
     private val luaDataScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val luaDataLock = Any()
@@ -154,7 +158,15 @@ class AndroidEmulatorManager(
         }
     }
 
-    override suspend fun loadRom(rom: Rom, cheats: List<Cheat>, luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?, areLuaStateLoadsAllowed: Boolean): RomLaunchResult {
+    override suspend fun loadRom(
+        rom: Rom,
+        cheats: List<Cheat>,
+        luaScripts: List<RomLuaScript>,
+        luaScriptFolder: Uri?,
+        areLuaStateLoadsAllowed: Boolean,
+        wideViewWidth: Int,
+    ): RomLaunchResult {
+        romWideViewWidth = wideViewWidth
         return withContext(Dispatchers.IO) {
             val fileRomDocument = DocumentFile.fromSingleUri(context, rom.uri) ?: return@withContext RomLaunchResult.LaunchFailedRomNotFound
             val fileRomProcessor = romFileProcessorFactory.getFileRomProcessorForDocument(fileRomDocument)
@@ -223,6 +235,12 @@ class AndroidEmulatorManager(
                 FirmwareLaunchResult.LaunchSuccessful
             }
         }
+    }
+
+    override fun setWideViewWidth(width: Int) {
+        romWideViewWidth = width
+        MelonEmulator.setWideViewWidth(width)
+        DebugLog.event { "Wide view width: $width" }
     }
 
     override suspend fun updateRomEmulatorConfiguration(rom: Rom) {
@@ -529,7 +547,7 @@ class AndroidEmulatorManager(
             showBootScreen = baseConfiguration.showBootScreen && mustUseCustomBios,
             consoleType = getRomOptionOrDefault(rom.config.runtimeConsoleType, baseConfiguration.consoleType),
             micSource = getRomOptionOrDefault(rom.config.runtimeMicSource, baseConfiguration.micSource),
-            wideViewWidth = rom.config.mods.validWideViewWidth ?: 0,
+            wideViewWidth = romWideViewWidth,
         ).run { getPermissionAdjustedConfiguration(this) }
     }
 

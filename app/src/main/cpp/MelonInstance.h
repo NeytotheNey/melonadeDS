@@ -47,6 +47,11 @@ public:
     void syncDateTimeToDevice();
 
     void updateMotionData(float ax, float ay, float az, float rx, float ry, float rz);
+    /**
+     * A new width for the top screen's 3D view (even, 256..768, anything else means 256), applied before the next frame on the OpenGL
+     * renderer. The core starts drawing at it once the polygons being drawn were built for it. Safe to call from any thread
+     */
+    void setWideViewWidth(int width) { requestedWideViewWidth.store(width, std::memory_order_relaxed); }
     float getMotionData(MotionQueryType type);
     void touchScreen(u16 x, u16 y);
     void releaseScreen();
@@ -131,9 +136,12 @@ private:
     LuaEngine luaEngine;
     // EmulatorConfiguration::luaDrawingsInScreenshots, for the emulator thread. The configuration can be replaced on another thread
     std::atomic_bool luaDrawingsInScreenshots = false;
-    // EmulatorConfiguration::wideViewWidth from the launch. Configuration updates don't change it, since a new width only applies at the next
-    // game start. Applied to every OpenGL renderer that updateRenderer() sets up, since a new one starts at 256
+    // The width of the top screen's 3D view, for the emulator thread. Starts at EmulatorConfiguration::wideViewWidth from the launch and then
+    // follows setWideViewWidth() (configuration updates don't change it). Applied to every OpenGL renderer that updateRenderer() sets up,
+    // since a new one starts at 256
     int wideViewWidth;
+    // The width setWideViewWidth() asked for, from any thread. Picked up by the emulator thread before the next frame
+    std::atomic_int requestedWideViewWidth;
 
     std::shared_ptr<EmulatorConfiguration> currentConfiguration;
     FrameQueue frameQueue;
