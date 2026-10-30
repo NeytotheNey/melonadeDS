@@ -71,6 +71,12 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     __system_property_get("debug.melonade.hash2d", hash2dProperty);
     nds->GPU.Hash2DLogging = hash2dProperty[0] == '1';
 
+    // `adb shell setprop debug.melonade.defercap 0` before starting a game draws display capture lines at their HBlank again, as before
+    // they were held until line 192 with the OpenGL renderer (GPU::Begin2DJob), for A/B tests. Unset or 1 keeps them held
+    char defercapProperty[PROP_VALUE_MAX] = {};
+    __system_property_get("debug.melonade.defercap", defercapProperty);
+    nds->GPU.DeferCapture2D = defercapProperty[0] != '0';
+
     // `adb shell setprop debug.melonade.threaded2d 1` (or 0) forces threaded 2D on (or off) over the setting, for testing. Clear it with an
     // empty value: `adb shell setprop debug.melonade.threaded2d ""`
     char threaded2dProperty[PROP_VALUE_MAX] = {};
