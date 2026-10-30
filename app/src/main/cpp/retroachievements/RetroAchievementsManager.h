@@ -36,6 +36,8 @@ public:
 private:
 
     static std::string GetLeaderboardFormattedValue(int leaderboardId, int value);
+    static unsigned PeekMemory(unsigned address, unsigned numBytes, void* ud);
+    void FlushPeekWarnings();
 
     melonDS::NDS* nds;
     rc_runtime_t rcheevosRuntime;
@@ -44,6 +46,10 @@ private:
     std::list<RAAchievement> loadedAchievements;
     std::list<RALeaderboard> loadedLeaderboards;
     bool isRichPresenceEnabled;
+
+    // Failed peeks are logged once per session and counted. Guarded by runtimeLock
+    unsigned unmappedPeekCount = 0;
+    unsigned unsupportedPeekSizeCount = 0;
 
     static RetroAchievementsManager* activeInstance;
     static std::mutex activeInstanceLock;

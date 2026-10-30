@@ -15,8 +15,6 @@ std::weak_ptr<MelonEventMessenger> RetroAchievementsManager::EventMessenger;
 RetroAchievementsManager* RetroAchievementsManager::activeInstance = nullptr;
 std::mutex RetroAchievementsManager::activeInstanceLock;
 
-unsigned PeekMemory(unsigned address, unsigned numBytes, void* ud);
-
 RetroAchievementsManager::RetroAchievementsManager(melonDS::NDS* nds) : nds(nds)
 {
     rc_runtime_init(&rcheevosRuntime);
@@ -25,12 +23,16 @@ RetroAchievementsManager::RetroAchievementsManager(melonDS::NDS* nds) : nds(nds)
 
 RetroAchievementsManager::~RetroAchievementsManager()
 {
+    FlushPeekWarnings();
     rc_runtime_destroy(&rcheevosRuntime);
 }
 
 bool RetroAchievementsManager::LoadAchievements(std::list<RAAchievement> achievements)
 {
     std::unique_lock lock(runtimeLock);
+
+    // A new achievement set starts a new session for the peek warnings
+    FlushPeekWarnings();
 
     for (const auto &achievement : achievements) {
         int result = rc_runtime_activate_achievement(&rcheevosRuntime, achievement.id, achievement.memoryAddress.c_str(), nullptr, 0);
@@ -74,6 +76,7 @@ void RetroAchievementsManager::UnloadEverything()
 
     loadedAchievements.clear();
     loadedLeaderboards.clear();
+    FlushPeekWarnings();
 }
 
 void RetroAchievementsManager::SetupRichPresence(std::string richPresenceScript)
@@ -92,7 +95,7 @@ std::string RetroAchievementsManager::GetRichPresenceStatus()
         return "";
 
     char buffer[512];
-    rc_runtime_get_richpresence(&rcheevosRuntime, buffer, 512, PeekMemory, nds, nullptr);
+    rc_runtime_get_richpresence(&rcheevosRuntime, buffer, 512, PeekMemory, this, nullptr);
 
     return buffer;
 }
@@ -157,6 +160,7 @@ void RetroAchievementsManager::Reset()
 {
     std::unique_lock lock(runtimeLock);
     rc_runtime_reset(&rcheevosRuntime);
+    FlushPeekWarnings();
 }
 
 void RetroAchievementsManager::FrameUpdate()
@@ -165,7 +169,7 @@ void RetroAchievementsManager::FrameUpdate()
     std::unique_lock instanceLock(activeInstanceLock);
 
     activeInstance = this;
-    rc_runtime_do_frame(&rcheevosRuntime, &CheevosEventHandler, &PeekMemory, nds, nullptr);
+    rc_runtime_do_frame(&rcheevosRuntime, &CheevosEventHandler, &PeekMemory, this, nullptr);
     activeInstance = nullptr;
 }
 
@@ -239,9 +243,21 @@ std::string RetroAchievementsManager::GetLeaderboardFormattedValue(int leaderboa
     return buffer;
 }
 
-unsigned PeekMemory(unsigned address, unsigned numBytes, void* ud)
+void RetroAchievementsManager::FlushPeekWarnings()
 {
-    NDS* nds = (NDS*) ud;
+    if (unmappedPeekCount > 0)
+        Platform::Log(Platform::LogLevel::Warn, "Unknown memory peek region: %u peeks returned 0 this session", unmappedPeekCount);
+    if (unsupportedPeekSizeCount > 0)
+        Platform::Log(Platform::LogLevel::Warn, "Unsupported memory peek size: %u peeks returned 0 this session", unsupportedPeekSizeCount);
+
+    unmappedPeekCount = 0;
+    unsupportedPeekSizeCount = 0;
+}
+
+unsigned RetroAchievementsManager::PeekMemory(unsigned address, unsigned numBytes, void* ud)
+{
+    auto manager = (RetroAchievementsManager*) ud;
+    NDS* nds = manager->nds;
     u8* memoryRegion;
     u32 memoryMask;
 
@@ -258,29 +274,28 @@ unsigned PeekMemory(unsigned address, unsigned numBytes, void* ud)
             memoryMask = DTCMPhysicalSize - 1;
             break;
         default:
-            Platform::Log(Platform::LogLevel::Error, "Unknown memory peek region. Address: %d", address);
+            // Expected when a pointer chain follows a null or stale pointer (loading, cutscenes), so only log the first one
+            if (manager->unmappedPeekCount++ == 0)
+                Platform::Log(Platform::LogLevel::Warn, "Unknown memory peek region. Address: 0x%08X (further ones are suppressed this session)", address);
             return 0;
     }
 
     switch (numBytes)
     {
         case 1:
-        {
-            u8 value = *(u8*) &memoryRegion[address & memoryMask];
-            return value;
-        }
         case 2:
-        {
-            u16 value  = *(u16*) &memoryRegion[address & memoryMask];
-            return value;
-        }
         case 4:
         {
-            u32 value = *(u32*) &memoryRegion[address & memoryMask];
+            // Read byte by byte (little-endian) with the mask applied to each byte, so reads never leave the region
+            unsigned value = 0;
+            for (unsigned i = 0; i < numBytes; i++)
+                value |= (unsigned) memoryRegion[(address + i) & memoryMask] << (i * 8);
+
             return value;
         }
         default:
-            Platform::Log(Platform::LogLevel::Error, "Unsupported memory peek size: %d", numBytes);
+            if (manager->unsupportedPeekSizeCount++ == 0)
+                Platform::Log(Platform::LogLevel::Warn, "Unsupported memory peek size: %u (further ones are suppressed this session)", numBytes);
             return 0;
     }
 }
