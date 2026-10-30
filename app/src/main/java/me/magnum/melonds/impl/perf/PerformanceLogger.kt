@@ -11,6 +11,7 @@ import android.system.Os
 import android.system.OsConstants
 import android.util.Log
 import android.view.Display
+import androidx.annotation.VisibleForTesting
 import androidx.core.content.getSystemService
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.documentfile.provider.DocumentFile
@@ -72,6 +73,8 @@ class PerformanceLogger(
         private const val HOLD_HISTOGRAM_SIZE = 33
         // If refresh_hz / 60 is within this of a whole number, every frame is expected to be held exactly that many refreshes
         private const val HOLD_WHOLE_NUMBER_TOLERANCE = 0.05
+        // Refresh rates within this fraction of each other are taken as the same rate, so that small changes in the vsync period aren't a change
+        private const val REFRESH_RATE_MATCH_TOLERANCE = 0.03
         private const val JUDDER_WINDOW_SECONDS = 10
         // A window is only evaluated once it holds at least 80% of the holds a full window should have at 60 FPS (480)
         private const val JUDDER_WINDOW_MIN_FRAMES = JUDDER_WINDOW_SECONDS * EMULATOR_TARGET_FPS * 4 / 5
@@ -191,9 +194,10 @@ class PerformanceLogger(
 
         private val stats = SessionStatistics()
         private var settingsSnapshot = emptyList<Pair<String, String>>()
+        // The rate the display reported at session start. Only used for the display stats until the display samples carry their own vsync period
         private var displayRefreshRate: Float? = null
-        // Re-read at session start and before every periodic summary, to show whether the refresh rate changed after start (e.g. the 60Hz lock
-        // landing). Not re-read for the final summary, since by then the emulator screen may be gone and the display back at its normal rate
+        // Re-read at session start and before every periodic summary. Not re-read for the final summary, since by then the emulator screen may be
+        // gone and the display back at its normal rate
         private var lastDisplayState: DisplayStateSnapshot? = null
         private var startMemorySnapshot: PssSnapshot? = null
         private var endMemorySnapshot: PssSnapshot? = null
@@ -232,7 +236,7 @@ class PerformanceLogger(
             try {
                 settingsSnapshot = buildSettingsSnapshot()
                 displayRefreshRate = getDisplayRefreshRate()
-                stats.configureDisplayCadence(displayRefreshRate)
+                stats.setInitialRefreshRate(displayRefreshRate)
                 sampleDisplayState()
 
                 val logDestination = resolveDestination()
@@ -241,7 +245,7 @@ class PerformanceLogger(
                     write("frame,t_ms,work_ms,sleep_ms,interval_ms,lines,fast_forward,after_pause,paced,audio_fill,audio_silence,audio_full,audio_skew_ppm,audio_ff_speed\n")
                 }
                 displayWriter = logDestination.openWriter("${filePrefix}_display.csv").apply {
-                    write("t_ms,render_ms,valid,new_frame,skipped_frames,paused,ds_sleep,fast_forward,prev_hold_refreshes\n")
+                    write("t_ms,render_ms,valid,new_frame,skipped_frames,paused,ds_sleep,fast_forward,prev_hold_refreshes,refresh_period_ms\n")
                 }
                 memoryWriter = logDestination.openWriter("${filePrefix}_memory.csv").apply {
                     // The PSS columns are only set on the rows where a PSS sample was taken
@@ -381,13 +385,17 @@ class PerformanceLogger(
                     val renderDuration = displayBuffer[offset + 1]
                     val flags = displayBuffer[offset + 2]
                     val skippedFrames = displayBuffer[offset + 3]
+                    val refreshPeriod = displayBuffer[offset + 4]
                     val isValid = (flags and DisplayPerformanceCapture.FLAG_VALID) != 0L
                     val isNewFrame = (flags and DisplayPerformanceCapture.FLAG_NEW_FRAME) != 0L
                     val isPaused = (flags and DisplayPerformanceCapture.FLAG_EMULATION_PAUSED) != 0L
                     val isDsSleeping = (flags and DisplayPerformanceCapture.FLAG_DS_SLEEP) != 0L
                     val isFastForward = (flags and DisplayPerformanceCapture.FLAG_FAST_FORWARD) != 0L
 
-                    val previousHold = stats.trackDisplayFrame(timestamp, renderDuration, isValid, isNewFrame, skippedFrames, isPaused, isDsSleeping, isFastForward)
+                    val previousHold = stats.trackDisplayFrame(timestamp, renderDuration, isValid, isNewFrame, skippedFrames, isPaused, isDsSleeping, isFastForward, refreshPeriod)
+                    if (stats.refreshRateChangedOnLastSample) {
+                        stats.currentRefreshRate?.let { queueEvent("display_refresh_rate", formatRefreshRate(it.refreshRate), timestamp) }
+                    }
 
                     lineBuilder.appendMillis(timestamp - startNs).append(',')
                         .appendMillis(renderDuration).append(',')
@@ -400,6 +408,11 @@ class PerformanceLogger(
                     // Only set on new frames whose previous frame's hold was measured
                     if (previousHold > 0) {
                         lineBuilder.append(previousHold)
+                    }
+                    lineBuilder.append(',')
+                    // The vsync period the sample was rendered at. Blank when unknown
+                    if (refreshPeriod > 0) {
+                        lineBuilder.appendMillis(refreshPeriod)
                     }
                     lineBuilder.append('\n')
                 }
@@ -639,8 +652,20 @@ class PerformanceLogger(
             }
             line("android_version", Build.VERSION.RELEASE)
             line("android_sdk", Build.VERSION.SDK_INT)
-            line("display_refresh_rate_hz", decimal(displayRefreshRate?.toDouble()))
-            line("display_refresh_rate_last_hz", decimal(lastDisplayState?.refreshRate?.toDouble()))
+            // The refresh rates below are the vsync period the render loop ran at (from Choreographer), over the display samples counted in the
+            // repeat stats outside fast-forward (which drops the 60Hz lock). The rate the display reported at session start stands in until the samples carry one. display_refresh_rate_hz is their
+            // time-weighted average, so it's the session's rate unless the rate changed mid-session (see display_refresh_rate_time_pct)
+            line("display_refresh_rate_hz", decimal(stats.averageRefreshRate() ?: displayRefreshRate?.toDouble()))
+            line("display_refresh_rate_start_hz", decimal(stats.firstCountedRefreshRate?.refreshRate ?: displayRefreshRate?.toDouble()))
+            // Of the last counted sample, so not the rate the display goes back to once the emulator is paused or fast-forwarded
+            line("display_refresh_rate_last_hz", decimal(stats.lastCountedRefreshRate?.refreshRate ?: lastDisplayState?.refreshRate?.toDouble()))
+            line("display_refresh_rate_changes", stats.refreshRateChanges)
+            // Counted samples, and share of their time, at each refresh rate
+            line("display_refresh_rate_samples", stats.formatRefreshRateSamples())
+            line("display_refresh_rate_time_pct", stats.formatRefreshRateTimeShares())
+            // Display.getRefreshRate() at session start and at the last periodic check
+            line("display_reported_refresh_rate_start_hz", decimal(displayRefreshRate?.toDouble()))
+            line("display_reported_refresh_rate_last_hz", decimal(lastDisplayState?.refreshRate?.toDouble()))
             // Refresh rates the display supports at its current resolution
             line("display_modes_hz", lastDisplayState?.refreshRatesAtCurrentResolution?.joinToString(",") { decimal(it.toDouble()) })
             // The mode the 60Hz lock asks for (dropped while fast-forwarding). off: setting disabled. none: no 60Hz mode at the current resolution
@@ -689,38 +714,35 @@ class PerformanceLogger(
             line("pacing_locked_frames_pct", decimal(if (hasFrames) stats.pacingLockedFrames * 100.0 / intervals.count else null))
             line("pacing_divisor_last", stats.lastPacingDivisor.takeIf { it > 0 })
 
-            summary.append("\n# Display (repeat stats exclude samples while paused or while the DS is asleep. Hold stats also exclude fast-forward)\n")
-            val refreshRate = displayRefreshRate?.toDouble()?.takeIf { it > 0 }
-            // A display faster than 60Hz has to show some frames twice even with perfect pacing
-            val expectedRepeatRatio = refreshRate?.let { maxOf(0.0, 1.0 - TARGET_FPS / it) }
-            val countedFrames = stats.displayNewFrames + stats.displayRepeatedFrames
-            val unexpectedRepeats = expectedRepeatRatio?.let { maxOf(0L, stats.displayRepeatedFrames - (it * countedFrames).roundToLong()) }
-            val expectedLongestRepeatRun = refreshRate?.let { maxOf(0L, ceil(it / TARGET_FPS - 1e-3).toLong() - 1) }
+            summary.append("\n# Display (repeat stats exclude samples while paused or while the DS is asleep. Expected and unexpected repeats and hold stats also exclude fast-forward)\n")
+            // Each counted sample's expected repeats come from its own refresh rate, so a rate change mid-session doesn't show up as repeats
+            val countedFrames = stats.cadenceCountedFrames
+            val unexpectedRepeats = stats.unexpectedRepeats()
             line("display_samples", stats.displaySamples)
             line("display_samples_while_paused", stats.displayPausedSamples)
             line("display_samples_while_ds_sleep", stats.displaySleepSamples)
             line("display_samples_dropped_from_log", DisplayPerformanceCapture.getDroppedSampleCount())
             line("display_new_frames", stats.displayNewFrames)
             line("display_repeated_frames", stats.displayRepeatedFrames)
-            line("display_expected_repeat_ratio", decimal(expectedRepeatRatio, 3))
+            line("display_expected_repeat_ratio", decimal(stats.expectedRepeatRatio(), 3))
             line("display_unexpected_repeats", unexpectedRepeats)
             line("display_unexpected_repeats_pct", decimal(unexpectedRepeats?.takeIf { countedFrames > 0 }?.let { it * 100.0 / countedFrames }))
             line("display_invalid_frames", stats.displayInvalidFrames)
             line("display_longest_repeat_run", stats.displayLongestRepeatRun)
-            line("display_longest_repeat_run_expected", expectedLongestRepeatRun)
+            // The longest run explained by the fastest refresh rate the counted samples were at. Runs longer than their own rate explains are counted
+            // apart
+            line("display_longest_repeat_run_expected", stats.expectedLongestRepeatRun())
+            line("display_repeat_runs_over_expected", stats.displayRepeatRunsOverExpected)
             line("display_skipped_emulator_frames", stats.displaySkippedFrames)
             line("display_samples_while_fast_forward", stats.displayFastForwardSamples)
             // Hold = number of refreshes a frame stayed on screen. Judder shows up as frames held more or fewer refreshes than expected, even when
             // the average matches (for example 1 + 3 instead of 2 + 2 at 120Hz)
             val hasHolds = stats.displayHoldFrames > 0
-            val tracksCadence = stats.expectedHoldRefreshes != null
-            line("display_expected_hold_refreshes", decimal(stats.expectedHoldRefreshes))
-            line("display_on_cadence_holds", when {
-                !tracksCadence -> null
-                stats.onCadenceMinHold == stats.onCadenceMaxHold -> "${stats.onCadenceMinHold}"
-                // For example 90Hz: frames alternate between 1 and 2 refreshes, so both count as on-cadence
-                else -> "${stats.onCadenceMinHold} or ${stats.onCadenceMaxHold} (expected hold is not a whole number, so the cadence alternates)"
-            })
+            // Each hold is measured in the refresh period in effect when it ended, and holds that span a refresh rate change are skipped. If the rate
+            // changed, the expected hold is averaged over the measured holds and the on-cadence holds are given for each rate
+            val tracksCadence = stats.currentRefreshRate != null
+            line("display_expected_hold_refreshes", decimal(stats.expectedHoldRefreshes()))
+            line("display_on_cadence_holds", stats.formatOnCadenceHolds())
             line("display_hold_frames", stats.displayHoldFrames.takeIf { tracksCadence })
             line("display_hold_histogram", if (hasHolds) stats.formatHoldHistogram() else null)
             line("display_off_cadence_frames", stats.displayOffCadenceFrames.takeIf { tracksCadence })
@@ -864,7 +886,7 @@ class PerformanceLogger(
         }
     }
 
-    private class PssSnapshot(val total: Long, val java: Long, val native: Long, val graphics: Long, val privateOther: Long, val durationNs: Long)
+    internal class PssSnapshot(val total: Long, val java: Long, val native: Long, val graphics: Long, val privateOther: Long, val durationNs: Long)
 
     private class PendingEvent(val timestampNs: Long, val event: String, val detail: String)
 
@@ -935,7 +957,8 @@ class PerformanceLogger(
         }
     }
 
-    private class SessionStatistics {
+    @VisibleForTesting
+    internal class SessionStatistics {
         var totalFrames = 0L
             private set
         var fastForwardFrames = 0L
@@ -983,19 +1006,44 @@ class PerformanceLogger(
             private set
         var displayOffCadenceFrames = 0L
             private set
-        var expectedHoldRefreshes: Double? = null
-            private set
-        // 0 when the refresh rate is unknown, in which case off-cadence frames aren't tracked
-        var onCadenceMinHold = 0L
-            private set
-        var onCadenceMaxHold = 0L
+        // Repeat runs longer than the refresh rate they happened at explains, counted once per run
+        var displayRepeatRunsOverExpected = 0L
             private set
         private val displayHoldHistogram = LongArray(HOLD_HISTOGRAM_SIZE)
-        // 0 when the refresh rate is unknown, in which case holds aren't measured
-        private var refreshPeriodNs = 0.0
-        // Timestamp of the current frame's first sample. Only valid when its start was seen (not after a pause, fast-forward or an invalid frame)
+        // Timestamp of the current frame's first sample. Only valid when its start was seen (not after a pause, fast-forward, an invalid frame or a
+        // refresh rate change)
         private var currentFrameStartNs = 0L
         private var hasCurrentFrameStart = false
+
+        // Refresh rates the display samples were rendered at, in the order they were first seen. The rate can change mid-session (the 60Hz lock
+        // landing late, fast-forward dropping it, a fold), so every sample is measured against the rate in effect for it
+        private val refreshRates = ArrayList<RefreshRateStatistics>()
+        // Rate of the latest sample that carried one, or the one given to setInitialRefreshRate before that. null while unknown, in which case
+        // holds aren't measured and no repeats are expected
+        var currentRefreshRate: RefreshRateStatistics? = null
+            private set
+        // Whether the latest sample's rate differs from the previous sample's (or is the first one known)
+        var refreshRateChangedOnLastSample = false
+            private set
+        private var previousSampleRefreshRate: RefreshRateStatistics? = null
+        // The rate-weighted stats below only use the samples counted in the repeat stats that aren't fast-forwarded. Fast-forward drops the 60Hz
+        // lock and shows a new frame on almost every refresh, so its samples would expect repeats that never happen and offset real ones
+        var cadenceCountedFrames = 0L
+            private set
+        var cadenceRepeatedFrames = 0L
+            private set
+        // Rates of the first and last of those samples, and how many times the rate changed between them
+        var firstCountedRefreshRate: RefreshRateStatistics? = null
+            private set
+        var lastCountedRefreshRate: RefreshRateStatistics? = null
+            private set
+        var refreshRateChanges = 0L
+            private set
+        // Repeats expected at each of those samples' rate, summed over the ones whose rate was known
+        private var expectedRepeatSum = 0.0
+        private var ratedCountedSamples = 0L
+        // Whether the current repeat run has already been counted in displayRepeatRunsOverExpected
+        private var isRepeatRunOverExpected = false
 
         // Sliding judder window in 1 second steps. Each slot holds the counts of one second
         private val judderWindowFrames = LongArray(JUDDER_WINDOW_SECONDS)
@@ -1118,18 +1166,56 @@ class PerformanceLogger(
             return if (audioFillSamples > 0) audioSkewSumPpm.toDouble() / audioFillSamples else null
         }
 
-        fun configureDisplayCadence(refreshRate: Float?) {
+        /**
+         * Sets the rate used until the display samples carry their own vsync period.
+         */
+        fun setInitialRefreshRate(refreshRate: Float?) {
             val rate = refreshRate?.toDouble()?.takeIf { it > 0 } ?: return
-            val expected = rate / TARGET_FPS
-            refreshPeriodNs = 1e9 / rate
-            expectedHoldRefreshes = expected
-            val nearest = expected.roundToLong()
-            if (abs(expected - nearest) <= HOLD_WHOLE_NUMBER_TOLERANCE) {
-                onCadenceMinHold = maxOf(1L, nearest)
-                onCadenceMaxHold = onCadenceMinHold
-            } else {
-                onCadenceMinHold = maxOf(1L, floor(expected).toLong())
-                onCadenceMaxHold = maxOf(1L, ceil(expected).toLong())
+            currentRefreshRate = findRefreshRate(rate)
+        }
+
+        private fun findRefreshRate(refreshRate: Double): RefreshRateStatistics {
+            return refreshRates.firstOrNull { it.matches(refreshRate) } ?: RefreshRateStatistics(refreshRate).also { refreshRates.add(it) }
+        }
+
+        /**
+         * Moves to the refresh rate given by [refreshPeriodNs] (0 if unknown, which keeps the current one) and returns the rate in effect.
+         */
+        private fun updateRefreshRate(refreshPeriodNs: Long): RefreshRateStatistics? {
+            val current = currentRefreshRate
+            val rate = when {
+                refreshPeriodNs <= 0 -> current
+                current != null && current.matches(1e9 / refreshPeriodNs) -> current
+                else -> findRefreshRate(1e9 / refreshPeriodNs)
+            }
+            if (rate !== current) {
+                // A hold that spans a rate change can't be measured in either period, so it's skipped
+                hasCurrentFrameStart = false
+                currentRefreshRate = rate
+            }
+            refreshRateChangedOnLastSample = rate != null && rate !== previousSampleRefreshRate
+            previousSampleRefreshRate = rate
+            return rate
+        }
+
+        private fun trackCountedRefreshRate(rate: RefreshRateStatistics?, isRepeat: Boolean, isFastForward: Boolean) {
+            if (isFastForward) {
+                return
+            }
+            cadenceCountedFrames++
+            if (isRepeat) {
+                cadenceRepeatedFrames++
+            }
+            rate ?: return
+            rate.countedSamples++
+            ratedCountedSamples++
+            expectedRepeatSum += rate.expectedRepeatRatio
+            if (lastCountedRefreshRate != null && lastCountedRefreshRate !== rate) {
+                refreshRateChanges++
+            }
+            lastCountedRefreshRate = rate
+            if (firstCountedRefreshRate == null) {
+                firstCountedRefreshRate = rate
             }
         }
 
@@ -1145,7 +1231,9 @@ class PerformanceLogger(
             isPaused: Boolean,
             isDsSleeping: Boolean,
             isFastForward: Boolean,
+            refreshPeriodNs: Long,
         ): Long {
+            val refreshRate = updateRefreshRate(refreshPeriodNs)
             displaySamples++
             displayRenderDurationSum += renderDuration
             if (renderDuration > displayMaxRenderDuration) {
@@ -1160,6 +1248,7 @@ class PerformanceLogger(
                     displaySleepSamples++
                 }
                 currentRepeatRun = 0
+                isRepeatRunOverExpected = false
                 hasCurrentFrameStart = false
                 return 0
             }
@@ -1176,20 +1265,28 @@ class PerformanceLogger(
                 }
                 isNewFrame -> {
                     displayNewFrames++
+                    trackCountedRefreshRate(refreshRate, isRepeat = false, isFastForward)
                     displaySkippedFrames += skippedFrames
                     currentRepeatRun = 0
-                    if (hasCurrentFrameStart && !isFastForward && refreshPeriodNs > 0) {
-                        previousHold = maxOf(1L, Math.round((timestamp - currentFrameStartNs) / refreshPeriodNs))
-                        trackHold(previousHold, timestamp)
+                    isRepeatRunOverExpected = false
+                    if (hasCurrentFrameStart && !isFastForward && refreshRate != null) {
+                        previousHold = maxOf(1L, Math.round((timestamp - currentFrameStartNs) / refreshRate.periodNs))
+                        trackHold(previousHold, timestamp, refreshRate)
                     }
                     currentFrameStartNs = timestamp
                     hasCurrentFrameStart = true
                 }
                 else -> {
                     displayRepeatedFrames++
+                    trackCountedRefreshRate(refreshRate, isRepeat = true, isFastForward)
                     currentRepeatRun++
                     if (currentRepeatRun > displayLongestRepeatRun) {
                         displayLongestRepeatRun = currentRepeatRun
+                    }
+                    // Checked against the rate in effect now, since a run can span a rate change. Counted once per run
+                    if (refreshRate != null && !isRepeatRunOverExpected && currentRepeatRun > refreshRate.expectedLongestRepeatRun) {
+                        isRepeatRunOverExpected = true
+                        displayRepeatRunsOverExpected++
                     }
                 }
             }
@@ -1201,15 +1298,12 @@ class PerformanceLogger(
             return previousHold
         }
 
-        private fun trackHold(hold: Long, timestamp: Long) {
+        private fun trackHold(hold: Long, timestamp: Long, refreshRate: RefreshRateStatistics) {
             displayHoldFrames++
             displayHoldHistogram[minOf(hold, HOLD_HISTOGRAM_SIZE - 1L).toInt()]++
+            refreshRate.holdFrames++
 
-            if (onCadenceMinHold == 0L) {
-                return
-            }
-
-            val isOffCadence = hold < onCadenceMinHold || hold > onCadenceMaxHold
+            val isOffCadence = hold < refreshRate.onCadenceMinHold || hold > refreshRate.onCadenceMaxHold
             if (isOffCadence) {
                 displayOffCadenceFrames++
             }
@@ -1277,7 +1371,8 @@ class PerformanceLogger(
          * least up to 4) and groups the rest.
          */
         fun formatHoldHistogram(): String {
-            val lastListed = maxOf(4L, onCadenceMaxHold + 2).coerceAtMost(HOLD_HISTOGRAM_SIZE - 2L).toInt()
+            val longestOnCadenceHold = refreshRates.filter { it.holdFrames > 0 }.maxOfOrNull { it.onCadenceMaxHold } ?: currentRefreshRate?.onCadenceMaxHold ?: 0L
+            val lastListed = maxOf(4L, longestOnCadenceHold + 2).coerceAtMost(HOLD_HISTOGRAM_SIZE - 2L).toInt()
             val builder = StringBuilder()
             for (hold in 1..lastListed) {
                 builder.append(hold).append(':').append(displayHoldHistogram[hold]).append(' ')
@@ -1288,6 +1383,88 @@ class PerformanceLogger(
             }
             builder.append(lastListed + 1).append("+:").append(rest)
             return builder.toString()
+        }
+
+        /**
+         * Time-weighted average of the refresh rates of the counted samples outside fast-forward (each sample lasts one refresh period), or null if
+         * none had a known rate.
+         */
+        fun averageRefreshRate(): Double? {
+            val countedTimeNs = refreshRates.sumOf { it.countedSamples * it.periodNs }
+            return if (countedTimeNs > 0) ratedCountedSamples * 1e9 / countedTimeNs else null
+        }
+
+        /**
+         * Share of the counted samples outside fast-forward expected to be repeats, from each sample's refresh rate. Before any sample is counted,
+         * the current rate's.
+         */
+        fun expectedRepeatRatio(): Double? {
+            return if (ratedCountedSamples > 0) expectedRepeatSum / ratedCountedSamples else currentRefreshRate?.expectedRepeatRatio
+        }
+
+        fun unexpectedRepeats(): Long? {
+            // Scaled to every counted sample outside fast-forward, in case some came before any rate was known
+            val expectedRepeats = expectedRepeatRatio()?.let { it * cadenceCountedFrames } ?: return null
+            return maxOf(0L, cadenceRepeatedFrames - expectedRepeats.roundToLong())
+        }
+
+        fun expectedLongestRepeatRun(): Long? {
+            return refreshRates.filter { it.countedSamples > 0 }.maxOfOrNull { it.expectedLongestRepeatRun } ?: currentRefreshRate?.expectedLongestRepeatRun
+        }
+
+        /**
+         * Expected hold averaged over the measured holds, or the current rate's if none was measured.
+         */
+        fun expectedHoldRefreshes(): Double? {
+            if (displayHoldFrames == 0L) {
+                return currentRefreshRate?.expectedHold
+            }
+            return refreshRates.sumOf { it.holdFrames * it.expectedHold } / displayHoldFrames
+        }
+
+        /**
+         * The on-cadence holds, for example "2". If holds were measured at more than one refresh rate, those of each rate, most holds first, for
+         * example "1 at 60.00 Hz, 2 at 120.00 Hz".
+         */
+        fun formatOnCadenceHolds(): String? {
+            val ratesWithHolds = refreshRates.filter { it.holdFrames > 0 }.sortedByDescending { it.holdFrames }
+            if (ratesWithHolds.size > 1) {
+                return ratesWithHolds.joinToString(", ") { rate ->
+                    val holds = if (rate.onCadenceMinHold == rate.onCadenceMaxHold) "${rate.onCadenceMinHold}" else "${rate.onCadenceMinHold} or ${rate.onCadenceMaxHold}"
+                    "$holds at ${formatRefreshRate(rate.refreshRate)} Hz"
+                }
+            }
+
+            val rate = ratesWithHolds.firstOrNull() ?: currentRefreshRate ?: return null
+            return if (rate.onCadenceMinHold == rate.onCadenceMaxHold) {
+                "${rate.onCadenceMinHold}"
+            } else {
+                // For example 90Hz: frames alternate between 1 and 2 refreshes, so both count as on-cadence
+                "${rate.onCadenceMinHold} or ${rate.onCadenceMaxHold} (expected hold is not a whole number, so the cadence alternates)"
+            }
+        }
+
+        /**
+         * Counted samples outside fast-forward at each refresh rate, in the order the rates were first seen, for example "120.00:12 60.00:2400".
+         */
+        fun formatRefreshRateSamples(): String? {
+            return refreshRates.filter { it.countedSamples > 0 }.takeIf { it.isNotEmpty() }?.joinToString(" ") {
+                "${formatRefreshRate(it.refreshRate)}:${it.countedSamples}"
+            }
+        }
+
+        /**
+         * Share of the time (in %) of the counted samples outside fast-forward at each refresh rate, for example "120.00:0.2 60.00:99.8".
+         */
+        fun formatRefreshRateTimeShares(): String? {
+            val counted = refreshRates.filter { it.countedSamples > 0 }
+            val countedTimeNs = counted.sumOf { it.countedSamples * it.periodNs }
+            if (countedTimeNs <= 0) {
+                return null
+            }
+            return counted.joinToString(" ") {
+                "${formatRefreshRate(it.refreshRate)}:${String.format(Locale.US, "%.1f", it.countedSamples * it.periodNs * 100.0 / countedTimeNs)}"
+            }
         }
 
         fun trackMemory(rss: Long, nativeHeapAllocated: Long, thermalStatus: Int) {
@@ -1330,10 +1507,42 @@ class PerformanceLogger(
     }
 
     /**
+     * What the display cadence is expected to be at one refresh rate, and the counted samples and measured holds at it.
+     */
+    internal class RefreshRateStatistics(val refreshRate: Double) {
+        val periodNs = 1e9 / refreshRate
+        // Refreshes each frame is expected to stay on screen at 60 FPS
+        val expectedHold = refreshRate / TARGET_FPS
+        // A display faster than 60Hz has to show some frames twice even with perfect pacing
+        val expectedRepeatRatio = maxOf(0.0, 1.0 - TARGET_FPS / refreshRate)
+        val expectedLongestRepeatRun = maxOf(0L, ceil(expectedHold - 1e-3).toLong() - 1)
+        // If the expected hold isn't a whole number (for example 90Hz), frames alternate between the two nearest holds, so both are on-cadence
+        val onCadenceMinHold: Long
+        val onCadenceMaxHold: Long
+        var countedSamples = 0L
+        var holdFrames = 0L
+
+        init {
+            val nearest = expectedHold.roundToLong()
+            if (abs(expectedHold - nearest) <= HOLD_WHOLE_NUMBER_TOLERANCE) {
+                onCadenceMinHold = maxOf(1L, nearest)
+                onCadenceMaxHold = onCadenceMinHold
+            } else {
+                onCadenceMinHold = maxOf(1L, floor(expectedHold).toLong())
+                onCadenceMaxHold = maxOf(1L, ceil(expectedHold).toLong())
+            }
+        }
+
+        fun matches(rate: Double): Boolean {
+            return abs(rate - refreshRate) <= refreshRate * REFRESH_RATE_MATCH_TOLERANCE
+        }
+    }
+
+    /**
      * Fixed-size histogram of durations, so that memory use doesn't grow with the session length. Values from 0 to 250 ms go into 0.05 ms buckets
      * and anything above goes into an overflow bucket. Count, sum, sum of squares, min and max are tracked exactly.
      */
-    private class DurationHistogram {
+    internal class DurationHistogram {
         companion object {
             const val BUCKET_WIDTH_NS = 50_000L
             const val BUCKET_COUNT = 5000
@@ -1417,6 +1626,10 @@ class PerformanceLogger(
             }
         }
     }
+}
+
+private fun formatRefreshRate(refreshRate: Double): String {
+    return String.format(Locale.US, "%.2f", refreshRate)
 }
 
 /**

@@ -7,11 +7,11 @@ import java.util.concurrent.atomic.AtomicLong
  * drained by the logger (single consumer) through a preallocated lock-free ring, so recording never allocates or blocks.
  *
  * Each sample takes [FIELDS] entries: presentation timestamp (ns, [System.nanoTime]), render CPU duration (ns), flags ([FLAG_VALID],
- * [FLAG_NEW_FRAME], [FLAG_EMULATION_PAUSED], [FLAG_DS_SLEEP], [FLAG_FAST_FORWARD]) and the number of emulator frames that were skipped (produced
- * but never presented) before this one.
+ * [FLAG_NEW_FRAME], [FLAG_EMULATION_PAUSED], [FLAG_DS_SLEEP], [FLAG_FAST_FORWARD]), the number of emulator frames that were skipped (produced
+ * but never presented) before this one and the display's vsync period when it was rendered (ns, 0 if unknown).
  */
 object DisplayPerformanceCapture {
-    const val FIELDS = 4
+    const val FIELDS = 5
     const val FLAG_VALID = 1L
     const val FLAG_NEW_FRAME = 2L
     const val FLAG_EMULATION_PAUSED = 4L
@@ -50,7 +50,7 @@ object DisplayPerformanceCapture {
     /**
      * Must be called from the render thread.
      */
-    fun record(timestampNs: Long, renderDurationNs: Long, isValidFrame: Boolean, frameSequence: Long, isEmulationPaused: Boolean, isDsSleeping: Boolean, isFastForward: Boolean) {
+    fun record(timestampNs: Long, renderDurationNs: Long, isValidFrame: Boolean, frameSequence: Long, isEmulationPaused: Boolean, isDsSleeping: Boolean, isFastForward: Boolean, refreshPeriodNs: Long) {
         if (resetFrameSequence) {
             resetFrameSequence = false
             lastFrameSequence = 0L
@@ -82,6 +82,7 @@ object DisplayPerformanceCapture {
                 (if (isDsSleeping) FLAG_DS_SLEEP else 0L) or
                 (if (isFastForward) FLAG_FAST_FORWARD else 0L)
         data[offset + 3] = skippedFrames
+        data[offset + 4] = refreshPeriodNs
         // Publishes the sample to the consumer
         writeIndex.lazySet(write + 1)
     }

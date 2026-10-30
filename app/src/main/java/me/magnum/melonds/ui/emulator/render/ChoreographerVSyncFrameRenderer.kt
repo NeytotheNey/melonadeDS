@@ -4,6 +4,10 @@ import android.os.Build
 import android.view.Choreographer
 import androidx.annotation.RequiresApi
 
+// Frame timeline spacings outside of this range (over 250Hz, or under 20Hz) aren't taken as a vsync period
+private const val MIN_VSYNC_PERIOD_NS = 4_000_000L
+private const val MAX_VSYNC_PERIOD_NS = 50_000_000L
+
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 class ChoreographerVSyncFrameRenderer(
     private val frameRenderCoordinator: FrameRenderCoordinator,
@@ -25,7 +29,21 @@ class ChoreographerVSyncFrameRenderer(
             null
         }
 
-        frameRenderCoordinator.renderFrame(frameDeadline, data.frameTimeNanos)
+        frameRenderCoordinator.renderFrame(frameDeadline, data.frameTimeNanos, getVsyncPeriodNanos(data))
         Choreographer.getInstance().postVsyncCallback(this)
+    }
+
+    /**
+     * The system's vsync period for this app, from the spacing of the frame timelines (one vsync apart), or 0 if it can't be told. It follows a
+     * refresh rate change from the first vsync at the new rate, and late callbacks don't affect it.
+     */
+    private fun getVsyncPeriodNanos(data: Choreographer.FrameData): Long {
+        // The array is reused by Choreographer, so this doesn't allocate
+        val timelines = data.frameTimelines
+        if (timelines.size < 2) {
+            return 0L
+        }
+        val period = timelines[1].expectedPresentationTimeNanos - timelines[0].expectedPresentationTimeNanos
+        return period.takeIf { it in MIN_VSYNC_PERIOD_NS..MAX_VSYNC_PERIOD_NS } ?: 0L
     }
 }

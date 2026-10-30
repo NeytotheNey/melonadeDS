@@ -66,10 +66,11 @@ class FrameRenderCoordinator {
      * Called from the Choreographer callback (main thread) on every vsync.
      *
      * @param vsyncTimeNanos The vsync's timestamp (Choreographer's frame time, CLOCK_MONOTONIC)
+     * @param vsyncPeriodNanos The vsync period that this callback runs at, or 0 if it's not known. Only used by the performance logger
      */
-    fun renderFrame(frameDeadlineNanos: Long?, vsyncTimeNanos: Long) {
+    fun renderFrame(frameDeadlineNanos: Long?, vsyncTimeNanos: Long, vsyncPeriodNanos: Long) {
         MelonEmulator.onDisplayVsync(vsyncTimeNanos)
-        frameRenderThread.requestFrameRender(frameDeadlineNanos, vsyncTimeNanos)
+        frameRenderThread.requestFrameRender(frameDeadlineNanos, vsyncTimeNanos, vsyncPeriodNanos)
     }
 
     /**
@@ -121,6 +122,9 @@ class FrameRenderCoordinator {
         private var hasPendingRenderRequest = false
         private var pendingFrameDeadlineNanos = 0L
         private var pendingVsyncTimeNanos = 0L
+        private var pendingVsyncPeriodNanos = 0L
+        // Vsync period of the request being rendered, for the display samples
+        private var renderingVsyncPeriodNanos = 0L
 
         private val frameRenderCallback = object : FrameRenderCallback {
             override fun renderFrame(isValidFrame: Boolean, frameTextureId: Int, frameTextureWidth: Int, frameTextureHeight: Int, topScreenWidth: Int, overlayTextureId: Int, overlayScreens: Int, frameSequence: Long) {
@@ -154,6 +158,7 @@ class FrameRenderCoordinator {
                         isEmulationPaused = (stateFlags and MelonEmulator.PERF_STATE_FLAG_PAUSED) != 0,
                         isDsSleeping = (stateFlags and MelonEmulator.PERF_STATE_FLAG_DS_SLEEP) != 0,
                         isFastForward = (stateFlags and MelonEmulator.PERF_STATE_FLAG_FAST_FORWARD) != 0,
+                        refreshPeriodNs = renderingVsyncPeriodNanos,
                     )
                 }
             }
@@ -171,12 +176,13 @@ class FrameRenderCoordinator {
             }
         }
 
-        fun requestFrameRender(frameDeadlineNanos: Long?, vsyncTimeNanos: Long) {
+        fun requestFrameRender(frameDeadlineNanos: Long?, vsyncTimeNanos: Long, vsyncPeriodNanos: Long) {
             val handler = handler ?: return
             synchronized(renderRequestLock) {
                 hasPendingRenderRequest = true
                 pendingFrameDeadlineNanos = frameDeadlineNanos ?: 0L
                 pendingVsyncTimeNanos = vsyncTimeNanos
+                pendingVsyncPeriodNanos = vsyncPeriodNanos
             }
             handler.removeMessages(MSG_RENDER_FRAME)
             handler.sendEmptyMessage(MSG_RENDER_FRAME)
@@ -203,6 +209,7 @@ class FrameRenderCoordinator {
                 hasPendingRenderRequest = false
                 frameDeadlineNanos = pendingFrameDeadlineNanos
                 vsyncTimeNanos = pendingVsyncTimeNanos
+                renderingVsyncPeriodNanos = pendingVsyncPeriodNanos
             }
             renderFrame(frameDeadlineNanos, vsyncTimeNanos)
         }
