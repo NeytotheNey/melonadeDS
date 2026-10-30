@@ -577,6 +577,11 @@ void MelonInstance::setAudioOutputSkew(double skew)
     nds->SPU.SetOutputSkew(skew);
 }
 
+int MelonInstance::trimAudioOutput(int thresholdFrames, int keepFrames)
+{
+    return nds->SPU.TrimOutputIfAbove(thresholdFrames, keepFrames);
+}
+
 int MelonInstance::getAudioOutputBufferFill()
 {
     return nds->SPU.GetOutputSize();

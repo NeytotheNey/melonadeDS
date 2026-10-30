@@ -186,6 +186,8 @@ class PerformanceLogger(
         // Kept for the final summary, by which time the stream is usually closed
         private var lastAudioStreamInfo: String? = null
         private var wasAudioStreamOpenAtStart = false
+        // The open size of the first stream that opened during the session, or -1. Only used if no stream was open at the start
+        private var firstAudioBufferSizeAtOpen = -1L
 
         private val stats = SessionStatistics()
         private var settingsSnapshot = emptyList<Pair<String, String>>()
@@ -225,6 +227,7 @@ class PerformanceLogger(
             DisplayPerformanceCapture.setEnabled(true)
             MelonEmulator.getAudioDiagnosticsTotals(audioTotalsAtStart)
             wasAudioStreamOpenAtStart = MelonEmulator.getAudioStreamInfo() != null
+            firstAudioBufferSizeAtOpen = -1L
 
             try {
                 settingsSnapshot = buildSettingsSnapshot()
@@ -235,7 +238,7 @@ class PerformanceLogger(
                 val logDestination = resolveDestination()
                 destination = logDestination
                 framesWriter = logDestination.openWriter("${filePrefix}_frames.csv").apply {
-                    write("frame,t_ms,work_ms,sleep_ms,interval_ms,lines,fast_forward,after_pause,paced,audio_fill,audio_silence,audio_full\n")
+                    write("frame,t_ms,work_ms,sleep_ms,interval_ms,lines,fast_forward,after_pause,paced,audio_fill,audio_silence,audio_full,audio_skew_ppm\n")
                 }
                 displayWriter = logDestination.openWriter("${filePrefix}_display.csv").apply {
                     write("t_ms,render_ms,valid,new_frame,skipped_frames,paused,ds_sleep,fast_forward,prev_hold_refreshes\n")
@@ -328,6 +331,7 @@ class PerformanceLogger(
                     val isAudioBufferFull = (flags and MelonEmulator.PERF_FRAME_FLAG_AUDIO_BUFFER_FULL) != 0L
                     val audioFill = frameBuffer[offset + 6]
                     val audioSilence = frameBuffer[offset + 7]
+                    val audioSkewPpm = frameBuffer[offset + 8]
 
                     lineBuilder.append(stats.totalFrames).append(',')
                         .appendMillis(timestamp - startNs).append(',')
@@ -344,10 +348,14 @@ class PerformanceLogger(
                     }
                     lineBuilder.append(',')
                         .append(audioSilence).append(',')
-                        .append(if (isAudioBufferFull) '1' else '0').append('\n')
+                        .append(if (isAudioBufferFull) '1' else '0').append(',')
+                    if (audioFill >= 0) {
+                        lineBuilder.append(audioSkewPpm)
+                    }
+                    lineBuilder.append('\n')
 
                     stats.trackFrame(workDuration, interval, isFastForward, isAfterPause, isPacingLocked, pacingDivisor)
-                    stats.trackAudioFrame(audioFill, audioSilence, isAudioBufferFull, isFastForward, isFastForward || isAfterPause)
+                    stats.trackAudioFrame(audioFill, audioSilence, isAudioBufferFull, audioSkewPpm, isFastForward, isFastForward || isAfterPause)
                 }
                 writer.append(lineBuilder)
             } while (count == FRAME_DRAIN_BATCH_SIZE)
@@ -416,6 +424,10 @@ class PerformanceLogger(
                 lineBuilder.appendMillis(maxOf(0L, audioEventTimestamps[i] - startNs) / 1000).append(',')
                     .append(audioEventNames[i].orEmpty().toCsvField()).append(',')
                     .append(audioEventDetails[i].orEmpty().toCsvField()).append('\n')
+                // With no stream open at the start, the first stream's facts give the buffer size the session started with
+                if (!wasAudioStreamOpenAtStart && firstAudioBufferSizeAtOpen < 0 && audioEventNames[i] == "audio_stream") {
+                    firstAudioBufferSizeAtOpen = parseAudioStreamInfo(audioEventDetails[i])["buffer_size"]?.toLongOrNull() ?: -1L
+                }
             }
             writer.append(lineBuilder)
         }
@@ -711,7 +723,7 @@ class PerformanceLogger(
             line("render_avg_ms", decimal(stats.averageRenderDurationNs()?.div(1e6), 3))
             line("render_max_ms", millis(stats.displayMaxRenderDuration.takeIf { stats.displaySamples > 0 }))
 
-            summary.append("\n# Audio (underrun and silence counts are given in total and outside fast-forward. Buffer stats exclude fast-forward and after-pause frames)\n")
+            summary.append("\n# Audio (underrun and silence counts exclude fast-forward, muted or not, which is given apart as *_ff. Buffer stats exclude fast-forward and after-pause frames)\n")
             // The latency the stream was asked for (emulation always asks for LOW, the audio latency preference isn't used) and what it got
             val audioStreamInfo = parseAudioStreamInfo(MelonEmulator.getAudioStreamInfo() ?: lastAudioStreamInfo)
             line("audio_latency_setting", audioStreamInfo["requested_latency"])
@@ -740,16 +752,27 @@ class PerformanceLogger(
             line("audio_callback_gap_max_ms", millis(audioTotals[MelonEmulator.AUDIO_TOTAL_MAX_CALLBACK_GAP_NS].takeIf { audioCallbacks > 0 }))
             line("audio_xruns", if (audioTotals[MelonEmulator.AUDIO_TOTAL_STREAM_OPENS] == 0L) null else if (audioXRuns < 0) "unsupported" else audioXRuns - maxOf(0L, audioTotalsAtStart[MelonEmulator.AUDIO_TOTAL_XRUNS]))
             // Callbacks that found fewer frames in the buffer than they needed, and the frames they filled with silence or a repeated sample
-            val audioUnderruns = audioDelta(MelonEmulator.AUDIO_TOTAL_UNDERRUN_CALLBACKS)
-            val audioSilenceFramesOutsideFastForward = audioSilenceFrames - audioDelta(MelonEmulator.AUDIO_TOTAL_FAST_FORWARD_SILENCE_FRAMES)
+            val audioFastForwardUnderruns = audioDelta(MelonEmulator.AUDIO_TOTAL_FAST_FORWARD_UNDERRUN_CALLBACKS)
+            val audioFastForwardSilenceFrames = audioDelta(MelonEmulator.AUDIO_TOTAL_FAST_FORWARD_SILENCE_FRAMES)
+            val audioUnderruns = audioDelta(MelonEmulator.AUDIO_TOTAL_UNDERRUN_CALLBACKS) - audioFastForwardUnderruns
+            val audioSilenceFramesOutsideFastForward = audioSilenceFrames - audioFastForwardSilenceFrames
             line("audio_underrun_callbacks", audioUnderruns)
-            line("audio_underrun_callbacks_outside_ff", audioUnderruns - audioDelta(MelonEmulator.AUDIO_TOTAL_FAST_FORWARD_UNDERRUN_CALLBACKS))
-            line("audio_silence_frames", audioSilenceFrames)
-            line("audio_silence_frames_outside_ff", audioSilenceFramesOutsideFastForward)
-            line("audio_silence_ms", decimal(audioSilenceFrames * 1000.0 / audioSampleRate, 1))
-            line("audio_silence_outside_ff_ms", decimal(audioSilenceFramesOutsideFastForward * 1000.0 / audioSampleRate, 1))
-            line("audio_emulator_frames_with_silence", stats.audioFramesWithSilence)
-            line("audio_emulator_frames_with_silence_outside_ff", stats.audioFramesWithSilenceOutsideFastForward)
+            line("audio_silence_frames", audioSilenceFramesOutsideFastForward)
+            line("audio_silence_ms", decimal(audioSilenceFramesOutsideFastForward * 1000.0 / audioSampleRate, 1))
+            line("audio_emulator_frames_with_silence", stats.audioFramesWithSilenceOutsideFastForward)
+            line("audio_underrun_callbacks_ff", audioFastForwardUnderruns)
+            line("audio_silence_frames_ff", audioFastForwardSilenceFrames)
+            line("audio_silence_ff_ms", decimal(audioFastForwardSilenceFrames * 1000.0 / audioSampleRate, 1))
+            line("audio_emulator_frames_with_silence_ff", stats.audioFramesWithSilence - stats.audioFramesWithSilenceOutsideFastForward)
+            // Priming, over the whole emulation session (so including the startup prime from before the capture began): silence while the
+            // callback waited for the buffer to fill (after a start or resume, or after it ran dry), not part of the underruns, how often it
+            // ran dry, and the trims when priming ended (the emulator keeps filling the ring while a stream starts)
+            val audioPrimeWaitFrames = audioTotals[MelonEmulator.AUDIO_TOTAL_SESSION_PRIME_WAIT_FRAMES]
+            line("audio_prime_wait_frames", audioPrimeWaitFrames)
+            line("audio_prime_wait_ms", decimal(audioPrimeWaitFrames * 1000.0 / audioSampleRate, 1))
+            line("audio_reprimes", audioTotals[MelonEmulator.AUDIO_TOTAL_SESSION_REPRIMES])
+            line("audio_prime_trims", audioTotals[MelonEmulator.AUDIO_TOTAL_SESSION_PRIME_TRIMS])
+            line("audio_prime_trim_frames", audioTotals[MelonEmulator.AUDIO_TOTAL_SESSION_PRIME_TRIM_FRAMES])
             line("audio_buffer_capacity_frames", AUDIO_BUFFER_CAPACITY_FRAMES)
             // Taken after each frame's sleep, so these are the low points
             val hasAudioFill = stats.audioFillSamples > 0
@@ -758,6 +781,19 @@ class PerformanceLogger(
             line("audio_buffer_fill_avg_frames", decimal(stats.averageAudioFill(), 0))
             // Frames after which the buffer was full, so some of the emulator's samples were dropped
             line("audio_buffer_full_frames", stats.audioBufferFullFrames)
+            // The drift control's skew, as parts per million off the base rate (positive: the ring was too full, so fewer frames were made)
+            line("audio_skew_min_ppm", stats.audioSkewMinPpm.takeIf { hasAudioFill })
+            line("audio_skew_avg_ppm", decimal(stats.averageAudioSkewPpm(), 0))
+            line("audio_skew_max_ppm", stats.audioSkewMaxPpm.takeIf { hasAudioFill })
+            // The AAudio buffer (between the callback and the device): its size when the session started (or when the first stream opened during
+            // the session started, if none was open at the start), now, and how often it grew after an xrun
+            val audioBufferSizeStart = if (wasAudioStreamOpenAtStart) audioTotalsAtStart[MelonEmulator.AUDIO_TOTAL_BUFFER_SIZE] else firstAudioBufferSizeAtOpen
+            val audioBufferSizeFinal = audioTotals[MelonEmulator.AUDIO_TOTAL_BUFFER_SIZE]
+            line("audio_output_buffer_start_frames", audioBufferSizeStart.takeIf { it >= 0 })
+            line("audio_output_buffer_start_ms", decimal(if (audioBufferSizeStart >= 0) audioBufferSizeStart * 1000.0 / audioSampleRate else null, 1))
+            line("audio_output_buffer_final_frames", audioBufferSizeFinal.takeIf { it >= 0 })
+            line("audio_output_buffer_final_ms", decimal(if (audioBufferSizeFinal >= 0) audioBufferSizeFinal * 1000.0 / audioSampleRate else null, 1))
+            line("audio_output_buffer_grows", audioDelta(MelonEmulator.AUDIO_TOTAL_BUFFER_GROWS))
 
             summary.append("\n# Memory\n")
             line("memory_samples", stats.memorySamples)
@@ -1013,8 +1049,13 @@ class PerformanceLogger(
         private var audioFillSum = 0L
         var audioBufferFullFrames = 0L
             private set
+        var audioSkewMinPpm = Long.MAX_VALUE
+            private set
+        var audioSkewMaxPpm = Long.MIN_VALUE
+            private set
+        private var audioSkewSumPpm = 0L
 
-        fun trackAudioFrame(fill: Long, silenceFrames: Long, isBufferFull: Boolean, isFastForward: Boolean, isExcluded: Boolean) {
+        fun trackAudioFrame(fill: Long, silenceFrames: Long, isBufferFull: Boolean, skewPpm: Long, isFastForward: Boolean, isExcluded: Boolean) {
             if (silenceFrames > 0) {
                 audioFramesWithSilence++
                 if (!isFastForward) {
@@ -1029,6 +1070,9 @@ class PerformanceLogger(
             if (fill < audioFillMin) {
                 audioFillMin = fill
             }
+            audioSkewSumPpm += skewPpm
+            audioSkewMinPpm = minOf(audioSkewMinPpm, skewPpm)
+            audioSkewMaxPpm = maxOf(audioSkewMaxPpm, skewPpm)
             if (isBufferFull) {
                 audioBufferFullFrames++
             }
@@ -1036,6 +1080,11 @@ class PerformanceLogger(
 
         fun averageAudioFill(): Double? {
             return if (audioFillSamples > 0) audioFillSum.toDouble() / audioFillSamples else null
+        }
+
+        // Sampled on the same frames as the fill
+        fun averageAudioSkewPpm(): Double? {
+            return if (audioFillSamples > 0) audioSkewSumPpm.toDouble() / audioFillSamples else null
         }
 
         fun configureDisplayCadence(refreshRate: Float?) {

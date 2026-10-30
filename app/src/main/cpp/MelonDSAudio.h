@@ -15,10 +15,25 @@ namespace MelonDSAndroid
 
     extern void setupAudio(AudioSettings audioSettings);
     extern void updateAudioSettings(AudioSettings audioSettings);
-    extern void setAudioFastForwardActive(bool active);
+    /**
+     * [speedMultiplier] is the fast-forward speed the emulator is paced at, or 0 or less if it runs unlimited. Call again when it changes.
+     */
+    extern void setAudioFastForwardActive(bool active, float speedMultiplier = 0);
     extern bool shouldMuteAudioOutput();
     // Lock-free, for the output callback
     extern bool isAudioFastForwarding();
+    // Lock-free, for the output callback. The fast-forward speed multiplier, or 0 or less if fast-forward is unlimited
+    extern float getAudioFastForwardSpeed();
+    // Lock-free, for the output callback. Changes whenever the drift control has to start over: fast-forward turned on or off or its speed
+    // changed, fast-forward unmuted, playback resumed
+    extern uint32_t getAudioRateGeneration();
+    // Lock-free, for the output callback. Changes whenever the output stream is about to (re)start, so the callback primes again
+    extern uint32_t getAudioStartGeneration();
+    /**
+     * Emulator thread, right after each frame. Runs the trim fast-forward ending asked for, now that the last fast-forward frame's audio is in
+     * the ring. Costs one relaxed load otherwise.
+     */
+    extern void runPendingAudioOutputTrim(MelonInstance& instance);
     extern void setAudioActiveInstance(std::shared_ptr<MelonInstance> instance);
     extern void cleanupAudio();
     extern void startAudio();

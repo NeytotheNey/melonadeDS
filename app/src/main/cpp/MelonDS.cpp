@@ -289,7 +289,9 @@ namespace MelonDSAndroid
     u32 loop(int64_t presentDueTimeNs)
     {
         MPInterface::Get().Process();
-        return instance->runFrame(presentDueTimeNs);
+        u32 lines = instance->runFrame(presentDueTimeNs);
+        runPendingAudioOutputTrim(*instance);
+        return lines;
     }
 
     void logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs)

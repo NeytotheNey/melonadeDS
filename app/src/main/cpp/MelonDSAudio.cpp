@@ -9,6 +9,12 @@
 
 #define MIC_BUFFER_SIZE 2048
 
+// The largest output buffer used (it's also capped by the stream's capacity)
+static constexpr int32_t MAX_OUTPUT_BUFFER_FRAMES = 2048;
+// Where a low latency output buffer starts, in bursts. The worst gap between two callbacks measured on the Fold was 4.7 ms, a bit over two
+// 2 ms bursts
+static constexpr int32_t INITIAL_LOW_LATENCY_BUFFER_BURSTS = 3;
+
 std::weak_ptr<MelonDSAndroid::MelonInstance> activeInstance;
 
 // Guards audioStream, outputCallback and isAudioRunning. They are touched from the JNI thread and
@@ -28,6 +34,15 @@ MelonDSAndroid::AudioSettings currentAudioSettings;
 // Read lock-free by the output data callback to decide whether to output silence while fast-forwarding
 std::atomic_bool isAudioFastForwardActive = false;
 std::atomic_bool muteFastForwardAudio = false;
+std::atomic<float> audioFastForwardSpeed = 0;
+std::atomic<uint32_t> audioRateGeneration = 0;
+std::atomic<uint32_t> audioStartGeneration = 0;
+// Whether the current output stream trims the ring (priming mode, small bursts: OboeCallback::isPrimingModeBurst()). Set when it opens
+std::atomic_bool areAudioOutputTrimsEnabled = true;
+// Set when fast-forward ends, for the emulator thread to trim once more after the frame it was running. That trim only fires this far over
+// the usual threshold
+static constexpr int32_t POST_FRAME_TRIM_EXTRA_FRAMES = 400;
+std::atomic_bool isAudioTrimAfterFramePending = false;
 std::mutex micBufferMutex;
 int actualMicSource = 0;
 bool isMicInputEnabled = true;
@@ -39,6 +54,33 @@ namespace MelonDSAndroid
     // AUDIO OUTPUT
 
     void resetAudioOutputStream(oboe::AudioStream* erroredStream);
+
+    // Trims a ring left too full by muted or unlimited fast-forward back to about the target, since the drift control would take seconds to
+    // drain it at its limit. For fast-forward and mute changes on a stream that keeps playing. A stream that (re)starts is trimmed by its
+    // callback instead, when it finishes priming, since the emulator keeps filling the ring while requestStart() runs. Callers trim before
+    // changing the state, so a primed callback can't play the stale ring first, then bump audioRateGeneration. Must be called with
+    // audioOutputMutex held. The SPU's audio lock is taken inside it, which is fine: nothing takes audioOutputMutex while holding that one
+    static int trimOutput(MelonInstance& instance)
+    {
+        if (!areAudioOutputTrimsEnabled.load(std::memory_order_relaxed))
+            return 0;
+        return instance.trimAudioOutput(OboeCallback::TRIM_THRESHOLD_FRAMES, OboeCallback::TRIM_KEEP_FRAMES);
+    }
+
+    static void trimActiveOutput()
+    {
+        if (std::shared_ptr<MelonInstance> instance = activeInstance.lock())
+            trimOutput(*instance);
+    }
+
+    // Before every requestStart() of the output stream. Must be called with audioOutputMutex held. The callback primes again unless the
+    // stream is already playing (startAudio() can be called while it is)
+    static void onOutputStreamStarting()
+    {
+        AudioDiagnostics::onStreamStarting();
+        if (audioStream && audioStream->getState() != oboe::StreamState::Started && audioStream->getState() != oboe::StreamState::Starting)
+            audioStartGeneration++;
+    }
 
     // setupAudioOutputStream(), cleanupAudioOutputStream() and recreateAudioOutputStream() must be called with audioOutputMutex held. [reason]
     // is for the audio diagnostics
@@ -82,8 +124,22 @@ namespace MelonDSAndroid
             AudioDiagnostics::onStreamOpenFailed(result, audioLatency, reason);
         } else {
             audioStream->setPerformanceHintEnabled(true);
-            audioStream->setBufferSizeInFrames(std::min(audioStream->getBufferCapacityInFrames(), 2048));
-            AudioDiagnostics::onStreamOpened(*audioStream, audioLatency, reason);
+
+            // A low latency stream starts with a small buffer that grows by a burst on every xrun, up to the size every stream used to get.
+            // The other modes, or a stream that can't count its xruns, get that size from the start
+            int32_t bufferSizeLimit = std::min(audioStream->getBufferCapacityInFrames(), MAX_OUTPUT_BUFFER_FRAMES);
+            int32_t burstFrames = audioStream->getFramesPerBurst();
+            // Small bursts prime, reprime and trim. Large ones (no low latency path, Bluetooth, say) only steer, as before priming existed
+            outputCallback->setBurstFrames(burstFrames);
+            areAudioOutputTrimsEnabled = OboeCallback::isPrimingModeBurst(burstFrames);
+            bool isBufferTuned = audioStream->getPerformanceMode() == oboe::PerformanceMode::LowLatency && burstFrames > 0
+                    && audioStream->isXRunCountSupported();
+            audioStream->setBufferSizeInFrames(isBufferTuned ? std::min(burstFrames * INITIAL_LOW_LATENCY_BUFFER_BURSTS, bufferSizeLimit) : bufferSizeLimit);
+            if (isBufferTuned) {
+                oboe::ResultWithValue<int32_t> xruns = audioStream->getXRunCount();
+                outputCallback->enableBufferTuning(burstFrames, bufferSizeLimit, xruns ? xruns.value() : 0, audioStream->getSampleRate());
+            }
+            AudioDiagnostics::onStreamOpened(*audioStream, audioLatency, reason, bufferSizeLimit, isBufferTuned);
         }
     }
 
@@ -124,13 +180,13 @@ namespace MelonDSAndroid
         if (!audioStream)
             return;
 
-        AudioDiagnostics::onStreamStarting();
+        onOutputStreamStarting();
         oboe::Result result = audioStream->requestStart();
         if (result == oboe::Result::ErrorDisconnected) {
             recreateAudioOutputStream(audioLatency, volume, "disconnected on start");
             if (!audioStream)
                 return;
-            AudioDiagnostics::onStreamStarting();
+            onOutputStreamStarting();
             result = audioStream->requestStart();
         }
 
@@ -150,7 +206,7 @@ namespace MelonDSAndroid
 
         recreateAudioOutputStream(currentAudioSettings.audioLatency, currentAudioSettings.volume, "restart after error");
         if (audioStream && isAudioRunning) {
-            AudioDiagnostics::onStreamStarting();
+            onOutputStreamStarting();
             if (audioStream->requestStart() == oboe::Result::OK)
                 AudioDiagnostics::onStreamStarted();
         }
@@ -322,6 +378,9 @@ namespace MelonDSAndroid
         isAudioRunning = false;
         isMicOn = false;
         isAudioFastForwardActive = false;
+        audioFastForwardSpeed = 0;
+        audioRateGeneration++;
+        AudioDiagnostics::onAudioSessionStart();
         muteFastForwardAudio = audioSettings.muteFastForwardAudio;
         actualMicSource = audioSettings.micSource;
         currentAudioSettings = audioSettings;
@@ -337,7 +396,14 @@ namespace MelonDSAndroid
     {
         std::lock_guard<std::mutex> lock(audioOutputMutex);
 
-        muteFastForwardAudio = audioSettings.muteFastForwardAudio;
+        // Unmuted mid fast-forward (from the pause menu): steering starts with the ring muted fast-forward filled. Trimmed before unmuting
+        if (isAudioFastForwardActive && muteFastForwardAudio && !audioSettings.muteFastForwardAudio) {
+            trimActiveOutput();
+            muteFastForwardAudio = false;
+            audioRateGeneration++;
+        } else {
+            muteFastForwardAudio = audioSettings.muteFastForwardAudio;
+        }
 
         if (audioSettings.soundEnabled && audioSettings.volume > 0) {
             if (!audioStream) {
@@ -370,9 +436,51 @@ namespace MelonDSAndroid
         currentAudioSettings = audioSettings;
     }
 
-    void setAudioFastForwardActive(bool active)
+    void setAudioFastForwardActive(bool active, float speedMultiplier)
     {
+        // Runs on the JNI thread, never in the output callback
+        std::lock_guard<std::mutex> lock(audioOutputMutex);
+
+        // Unlimited fast-forward is stored as 0, whatever the caller passed
+        float speed = active && speedMultiplier > 0 ? speedMultiplier : 0;
+        bool wasActive = isAudioFastForwardActive.load(std::memory_order_relaxed);
+        // It's called again with the same state (when the activity is recreated, or for every configuration update), and that must not throw
+        // away the drift control's state
+        if (active == wasActive && speed == audioFastForwardSpeed.load(std::memory_order_relaxed))
+            return;
+
+        // Fast-forward ending (muted or unlimited above all) leaves the ring full, and starting it with sound on begins steering at a new base.
+        // Trimmed before the state changes, then the drift control restarts
+        trimActiveOutput();
+        audioFastForwardSpeed = speed;
         isAudioFastForwardActive = active;
+        audioRateGeneration++;
+        // The emulator may be in the middle of a fast-forward frame, whose audio lands after the trim above. The caller restores the frame
+        // pacing before calling this, so the emulator thread trims once more right after that frame
+        if (wasActive && !active)
+            // Release: the emulator thread that sees the flag also sees the fast-forward state stored above
+            isAudioTrimAfterFramePending.store(true, std::memory_order_release);
+    }
+
+
+    void runPendingAudioOutputTrim(MelonInstance& instance)
+    {
+        if (!isAudioTrimAfterFramePending.load(std::memory_order_relaxed)) [[likely]]
+            return;
+        // Acquire pairs with the release in setAudioFastForwardActive()
+        if (!isAudioTrimAfterFramePending.exchange(false, std::memory_order_acquire))
+            return;
+
+        // Fast-forward was turned back on meanwhile: its own trim already ran
+        if (isAudioFastForwardActive.load(std::memory_order_relaxed))
+            return;
+
+        // A normal frame's audio can briefly push the ring to ~1500, so this trim only fires on more than that: a ring still overfull from
+        // fast-forward (~1700 and up). The drift control restarts from the trimmed fill
+        if (!areAudioOutputTrimsEnabled.load(std::memory_order_relaxed))
+            return;
+        if (instance.trimAudioOutput(OboeCallback::TRIM_THRESHOLD_FRAMES + POST_FRAME_TRIM_EXTRA_FRAMES, OboeCallback::TRIM_KEEP_FRAMES) > 0)
+            audioRateGeneration++;
     }
 
     // Called from the real-time output callback. Must stay lock-free
@@ -384,6 +492,21 @@ namespace MelonDSAndroid
     bool isAudioFastForwarding()
     {
         return isAudioFastForwardActive.load(std::memory_order_relaxed);
+    }
+
+    float getAudioFastForwardSpeed()
+    {
+        return audioFastForwardSpeed.load(std::memory_order_relaxed);
+    }
+
+    uint32_t getAudioRateGeneration()
+    {
+        return audioRateGeneration.load(std::memory_order_relaxed);
+    }
+
+    uint32_t getAudioStartGeneration()
+    {
+        return audioStartGeneration.load(std::memory_order_relaxed);
     }
 
     void setAudioActiveInstance(std::shared_ptr<MelonInstance> instance)
@@ -401,17 +524,24 @@ namespace MelonDSAndroid
 
         isAudioRunning = false;
         isAudioFastForwardActive = false;
+        audioFastForwardSpeed = 0;
+        audioRateGeneration++;
         muteFastForwardAudio = false;
         // Forget the settings so that startAudio() doesn't reopen a stream with no emulator to feed it
         currentAudioSettings = { };
         cleanupAudioOutputStream();
         cleanupMicInputStream();
+        // Drop the reference to the instance that's about to be destroyed, so that nothing here (trimActiveOutput() from a late fast-forward
+        // toggle, say) can end up holding its last reference and destroy it on the wrong thread. Every new session sets
+        // it again with setAudioActiveInstance(), after setupAudio(). The callback's copy went with the callback
+        activeInstance.reset();
     }
 
     void startAudio()
     {
         std::lock_guard<std::mutex> lock(audioOutputMutex);
 
+        // A resumed stream primes again, and its callback trims the ring when priming ends
         isAudioRunning = true;
 
         // A device disconnect closes the stream, and reopening it can fail while the app is in the

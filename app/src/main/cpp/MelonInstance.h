@@ -59,6 +59,12 @@ public:
     void releaseKey(u32 key);
     int readAudioOutput(s16* buffer, int length);
     void setAudioOutputSkew(double skew);
+    /**
+     * Drops the oldest output samples if the SPU output ring holds more than [thresholdFrames], keeping the newest [keepFrames]. Returns the
+     * number of frames dropped. Holds the SPU's audio lock once for a constant-time update, like readAudioOutput(), so the output callback may
+     * call it too.
+     */
+    int trimAudioOutput(int thresholdFrames, int keepFrames);
     // Frames waiting in the SPU output ring, for the audio diagnostics. Takes the SPU's audio lock
     int getAudioOutputBufferFill();
     bool takeScreenshot();

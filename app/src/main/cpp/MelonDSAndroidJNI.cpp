@@ -76,10 +76,10 @@ static const int64_t FRAME_DURATION_1000FPS_NS = 1000000; // 1ms. Used as frame 
 ThreadSafePerformanceHintSession* performanceHintSession = nullptr;
 
 // Performance logging. Each frame sample contains: frame end timestamp, work duration, sleep duration, interval since the previous frame end (all in
-// ns), emulated line count, flags, audio buffer fill (frames, after the frame's sleep) and audio silence frames (filled by the output callback
-// since the previous sample). 16384 samples are enough for over 1 second of emulation at 16x speed between each drain. The field count and the
+// ns), emulated line count, flags, audio buffer fill (frames, after the frame's sleep), audio silence frames (filled by the output callback
+// since the previous sample) and the audio output skew's distance from its base (ppm). 16384 samples are enough for over 1 second of emulation at 16x speed between each drain. The field count and the
 // flags must match MelonEmulator.PERF_FRAME_*
-static constexpr std::size_t PERF_FRAME_SAMPLE_FIELDS = 8;
+static constexpr std::size_t PERF_FRAME_SAMPLE_FIELDS = 9;
 static const int64_t PERF_FRAME_FLAG_FAST_FORWARD = 1;
 static const int64_t PERF_FRAME_FLAG_AFTER_PAUSE = 2;
 // The frame's start was locked to the display's vsync grid. The refresh divisor (N) of locked frames is stored in the flags as well
@@ -743,7 +743,6 @@ Java_me_magnum_melonds_MelonEmulator_setFastForwardEnabled(JNIEnv* env, jobject 
 {
     float speedMultiplier = fastForwardSpeedMultiplier;
     isFastForwardEnabled = enabled;
-    MelonDSAndroid::setAudioFastForwardActive(enabled);
     if (enabled) {
         limitFps = speedMultiplier > 0;
         targetFps = (int) (EMULATOR_TARGET_FPS * speedMultiplier);
@@ -751,6 +750,9 @@ Java_me_magnum_melonds_MelonEmulator_setFastForwardEnabled(JNIEnv* env, jobject 
         limitFps = true;
         targetFps = EMULATOR_TARGET_FPS;
     }
+    // After the pacing changed: when fast-forward ends, the audio side trims the ring, and once more after the frame now running, which is the
+    // last one at fast-forward pace
+    MelonDSAndroid::setAudioFastForwardActive(enabled, speedMultiplier);
 
     if (performanceHintSession != nullptr) {
         if (enabled) {
@@ -790,6 +792,7 @@ Java_me_magnum_melonds_MelonEmulator_updateEmulatorConfiguration(JNIEnv* env, jo
     if (isFastForwardEnabled) {
         limitFps = speedMultiplier > 0;
         targetFps = (int) (EMULATOR_TARGET_FPS * speedMultiplier);
+        MelonDSAndroid::setAudioFastForwardActive(true, speedMultiplier);
 
         if (performanceHintSession != nullptr) {
             if (speedMultiplier > 0) {
@@ -966,6 +969,7 @@ static void pushPerfSample(double frameBeginTick, double frameEndTick, int64_t w
         flags,
         audioSample.fill,
         audioSample.silenceFrames,
+        audioSample.skewPpm,
     };
     perfFrameSamples.push(sample);
 }
