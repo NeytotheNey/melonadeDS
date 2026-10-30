@@ -289,6 +289,7 @@ namespace MelonDSAndroid
     u32 loop(int64_t presentDueTimeNs)
     {
         MPInterface::Get().Process();
+        runAudioOutputTrimBeforeFrame(*instance);
         u32 lines = instance->runFrame(presentDueTimeNs);
         runPendingAudioOutputTrim(*instance);
         return lines;

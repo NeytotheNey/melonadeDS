@@ -20,7 +20,7 @@ import java.nio.ByteBuffer
 
 object MelonEmulator {
     // The perf frame sample layout and the flags must match PERF_FRAME_* and PERF_STATE_FLAG_* in MelonDSAndroidJNI.cpp
-    const val PERF_FRAME_SAMPLE_FIELDS = 9
+    const val PERF_FRAME_SAMPLE_FIELDS = 10
     const val PERF_FRAME_FLAG_FAST_FORWARD = 1L
     const val PERF_FRAME_FLAG_AFTER_PAUSE = 2L
     const val PERF_FRAME_FLAG_PACING_LOCKED = 4L
@@ -199,8 +199,9 @@ object MelonEmulator {
      * frame end timestamp (ns, CLOCK_MONOTONIC), work duration (ns), sleep duration (ns), interval since the previous frame end (ns), emulated line
      * count, flags ([PERF_FRAME_FLAG_FAST_FORWARD], [PERF_FRAME_FLAG_AFTER_PAUSE], [PERF_FRAME_FLAG_PACING_LOCKED], the refresh divisor at
      * [PERF_FRAME_PACING_DIVISOR_SHIFT] and [PERF_FRAME_FLAG_AUDIO_BUFFER_FULL]), the audio buffer fill after the frame's sleep (frames), the
-     * frames the audio callback filled with silence or repeats since the previous sample, and how far the audio output skew is from its base
-     * (ppm, set by the callback's drift control).
+     * frames the audio callback filled with silence or repeats since the previous sample, how far the audio output skew is from its base
+     * (ppm, set by the callback's drift control), and the speed paced fast-forward really reached (thousandths, -1 if unknown or not
+     * fast-forwarding).
      */
     external fun drainPerformanceFrameSamples(buffer: LongArray): Int
 

@@ -238,7 +238,7 @@ class PerformanceLogger(
                 val logDestination = resolveDestination()
                 destination = logDestination
                 framesWriter = logDestination.openWriter("${filePrefix}_frames.csv").apply {
-                    write("frame,t_ms,work_ms,sleep_ms,interval_ms,lines,fast_forward,after_pause,paced,audio_fill,audio_silence,audio_full,audio_skew_ppm\n")
+                    write("frame,t_ms,work_ms,sleep_ms,interval_ms,lines,fast_forward,after_pause,paced,audio_fill,audio_silence,audio_full,audio_skew_ppm,audio_ff_speed\n")
                 }
                 displayWriter = logDestination.openWriter("${filePrefix}_display.csv").apply {
                     write("t_ms,render_ms,valid,new_frame,skipped_frames,paused,ds_sleep,fast_forward,prev_hold_refreshes\n")
@@ -332,6 +332,7 @@ class PerformanceLogger(
                     val audioFill = frameBuffer[offset + 6]
                     val audioSilence = frameBuffer[offset + 7]
                     val audioSkewPpm = frameBuffer[offset + 8]
+                    val audioFastForwardSpeedMilli = frameBuffer[offset + 9]
 
                     lineBuilder.append(stats.totalFrames).append(',')
                         .appendMillis(timestamp - startNs).append(',')
@@ -352,10 +353,16 @@ class PerformanceLogger(
                     if (audioFill >= 0) {
                         lineBuilder.append(audioSkewPpm)
                     }
+                    lineBuilder.append(',')
+                    // The speed paced fast-forward really reached, blank when unknown. Thousandths, so they're written like milliseconds
+                    if (audioFill >= 0 && audioFastForwardSpeedMilli >= 0) {
+                        lineBuilder.appendMillis(audioFastForwardSpeedMilli * 1000)
+                    }
                     lineBuilder.append('\n')
 
                     stats.trackFrame(workDuration, interval, isFastForward, isAfterPause, isPacingLocked, pacingDivisor)
                     stats.trackAudioFrame(audioFill, audioSilence, isAudioBufferFull, audioSkewPpm, isFastForward, isFastForward || isAfterPause)
+                    stats.trackAudioFastForwardSpeed(audioFastForwardSpeedMilli, isFastForward && audioFill >= 0)
                 }
                 writer.append(lineBuilder)
             } while (count == FRAME_DRAIN_BATCH_SIZE)
@@ -785,6 +792,11 @@ class PerformanceLogger(
             line("audio_skew_min_ppm", stats.audioSkewMinPpm.takeIf { hasAudioFill })
             line("audio_skew_avg_ppm", decimal(stats.averageAudioSkewPpm(), 0))
             line("audio_skew_max_ppm", stats.audioSkewMaxPpm.takeIf { hasAudioFill })
+            // The speed paced fast-forward really reached (smoothed over ~0.35 s), over the fast-forward frames where it was known. Its audio
+            // plays at this speed when it falls short of the multiplier
+            val hasFastForwardSpeed = stats.audioFastForwardSpeedSamples > 0
+            line("audio_ff_speed_min", decimal(if (hasFastForwardSpeed) stats.audioFastForwardSpeedMinMilli / 1000.0 else null, 3))
+            line("audio_ff_speed_avg", decimal(stats.averageAudioFastForwardSpeed(), 3))
             // The AAudio buffer (between the callback and the device): its size when the session started (or when the first stream opened during
             // the session started, if none was open at the start), now, and how often it grew after an xrun
             val audioBufferSizeStart = if (wasAudioStreamOpenAtStart) audioTotalsAtStart[MelonEmulator.AUDIO_TOTAL_BUFFER_SIZE] else firstAudioBufferSizeAtOpen
@@ -1054,6 +1066,11 @@ class PerformanceLogger(
         var audioSkewMaxPpm = Long.MIN_VALUE
             private set
         private var audioSkewSumPpm = 0L
+        var audioFastForwardSpeedSamples = 0L
+            private set
+        var audioFastForwardSpeedMinMilli = Long.MAX_VALUE
+            private set
+        private var audioFastForwardSpeedSumMilli = 0L
 
         fun trackAudioFrame(fill: Long, silenceFrames: Long, isBufferFull: Boolean, skewPpm: Long, isFastForward: Boolean, isExcluded: Boolean) {
             if (silenceFrames > 0) {
@@ -1076,6 +1093,20 @@ class PerformanceLogger(
             if (isBufferFull) {
                 audioBufferFullFrames++
             }
+        }
+
+        // [speedMilli] is -1 while the speed isn't known
+        fun trackAudioFastForwardSpeed(speedMilli: Long, isFastForward: Boolean) {
+            if (!isFastForward || speedMilli < 0) {
+                return
+            }
+            audioFastForwardSpeedSamples++
+            audioFastForwardSpeedSumMilli += speedMilli
+            audioFastForwardSpeedMinMilli = minOf(audioFastForwardSpeedMinMilli, speedMilli)
+        }
+
+        fun averageAudioFastForwardSpeed(): Double? {
+            return if (audioFastForwardSpeedSamples > 0) audioFastForwardSpeedSumMilli / 1000.0 / audioFastForwardSpeedSamples else null
         }
 
         fun averageAudioFill(): Double? {

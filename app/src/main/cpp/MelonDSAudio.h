@@ -34,6 +34,30 @@ namespace MelonDSAndroid
      * the ring. Costs one relaxed load otherwise.
      */
     extern void runPendingAudioOutputTrim(MelonInstance& instance);
+    /**
+     * Lock-free, for the output callback. Asks the emulator thread to trim the ring to OboeCallback::TRIM_BEFORE_FRAME_KEEP_FRAMES at the
+     * start of its next frame. Returns the request, for [isAudioOutputTrimBeforeFrameDone].
+     */
+    extern uint32_t requestAudioOutputTrimBeforeFrame();
+    // Lock-free, for the output callback. Whether the emulator thread ran the trim [request] asked for. Only the latest request is ever answered
+    extern bool isAudioOutputTrimBeforeFrameDone(uint32_t request);
+    /**
+     * Emulator thread, right before each frame. Runs the trim the output callback asked for. Costs two relaxed loads otherwise.
+     */
+    extern void runAudioOutputTrimBeforeFrame(MelonInstance& instance);
+    /**
+     * Emulator thread, after each frame's sleep. Measures the speed paced fast-forward really reaches from the frames' wall time [intervalMs].
+     * Only logged for now, for the time-stretching to come. [isPacedFastForward] is whether fast-forward is on with a speed limit,
+     * [requestedSpeed] that limit.
+     */
+    extern void onEmulatorFrameEnd(double intervalMs, bool isPacedFastForward, float requestedSpeed);
+    // Emulator thread, when it parks for a pause. The achieved speed starts over
+    extern void onEmulatorPaused();
+    /**
+     * Lock-free, for the diagnostics. The speed paced fast-forward really reaches (1 is normal speed), smoothed over
+     * about 0.35 s, or 0 if it isn't known yet for the current fast-forward state.
+     */
+    extern float getAudioAchievedSpeed();
     extern void setAudioActiveInstance(std::shared_ptr<MelonInstance> instance);
     extern void cleanupAudio();
     extern void startAudio();

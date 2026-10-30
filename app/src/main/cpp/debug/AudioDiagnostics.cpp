@@ -345,6 +345,8 @@ FrameSample onFrame(int fillAfterFrame, int fillBeforeNextFrame)
     // Without a running stream nothing drains the ring, so it being full means nothing
     sample.isBufferFull = isStreamRunning.load(std::memory_order_relaxed) && fillAfterFrame >= SPU_OUTPUT_BUFFER_FRAMES - 1;
     sample.skewPpm = driftState.skewPpm.load(std::memory_order_relaxed);
+    float achievedSpeed = MelonDSAndroid::getAudioAchievedSpeed();
+    sample.achievedSpeedMilli = achievedSpeed > 0 ? (int64_t) (achievedSpeed * 1000.0f + 0.5f) : -1;
     frameSilenceBaseline = silenceFrames;
 
     if (fillBeforeNextFrame < second.fillMin)
@@ -441,17 +443,24 @@ void logSecond(uint32_t frame)
     else
         snprintf(filteredFillText, sizeof(filteredFillText), "%d", filteredFill);
     int32_t currentBufferSize = isOpen ? bufferSize.load(std::memory_order_relaxed) : -1;
+    // The smoothed speed paced fast-forward reaches. Only logged: the audio still plays at the requested speed
+    float achievedSpeed = MelonDSAndroid::getAudioAchievedSpeed();
+    char achievedSpeedText[16];
+    if (achievedSpeed > 0)
+        snprintf(achievedSpeedText, sizeof(achievedSpeedText), "%.3f", achievedSpeed);
+    else
+        snprintf(achievedSpeedText, sizeof(achievedSpeedText), "n/a");
 
     __android_log_print(ANDROID_LOG_INFO, TAG,
             "audio frame=%u stream=%s callbacks=%lld frames=%lld cb_frames_avg=%.1f cb_frames_max=%lld cb_gap_max_ms=%.2f underruns=%lld silence_frames=%lld "
             "prime_wait_frames=%lld reprimes=%lld prime_trims=%lld prime_trim_frames=%lld xruns=%s fill_min=%d fill_avg=%d fill_max=%d fill_ms=%.1f/%.1f/%.1f buffer_full_frames=%d skew_ppm=%d "
-            "fill_filtered=%s buffer_size=%d buffer_ms=%.1f buffer_max=%d | total underruns=%lld silence_frames=%lld prime_wait_frames=%lld reprimes=%lld "
+            "fill_filtered=%s ff_speed=%s buffer_size=%d buffer_ms=%.1f buffer_max=%d | total underruns=%lld silence_frames=%lld prime_wait_frames=%lld reprimes=%lld "
             "prime_trims=%lld prime_trim_frames=%lld xruns=%s",
             frame, streamState, (long long) secondCallbacks, (long long) secondFrames, secondCallbacks > 0 ? (double) secondFrames / secondCallbacks : 0.0,
             (long long) maxFrames, maxGapNs / 1000000.0, (long long) (underruns - second.underruns), (long long) (silenceFrames - second.silenceFrames),
             (long long) (primeWaitFrames - second.primeWaitFrames), (long long) (reprimes - second.reprimes),
             (long long) (primeTrims - second.primeTrims), (long long) (primeTrimFrames - second.primeTrimFrames), xrunText, fillMin, fillAvg, fillMax, framesToMillis(fillMin), framesToMillis(fillAvg), framesToMillis(fillMax), second.fullFrames,
-            driftState.skewPpm.load(std::memory_order_relaxed), filteredFillText, currentBufferSize, framesToMillis(std::max(currentBufferSize, 0)),
+            driftState.skewPpm.load(std::memory_order_relaxed), filteredFillText, achievedSpeedText, currentBufferSize, framesToMillis(std::max(currentBufferSize, 0)),
             currentBufferSizeLimit, (long long) underruns, (long long) silenceFrames, (long long) primeWaitFrames, (long long) reprimes,
             (long long) primeTrims, (long long) primeTrimFrames, totalXRunText);
 

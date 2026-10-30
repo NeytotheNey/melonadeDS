@@ -3,8 +3,13 @@
 #include "debug/AudioDiagnostics.h"
 #include "mic_blow.h"
 #include "OboeCallback.h"
+#include "renderer/FramePacing.h"
 #include <oboe/Oboe.h>
+#include <algorithm>
 #include <atomic>
+#include <climits>
+#include <cmath>
+#include <cstdint>
 #include <mutex>
 
 #define MIC_BUFFER_SIZE 2048
@@ -43,6 +48,30 @@ std::atomic_bool areAudioOutputTrimsEnabled = true;
 // the usual threshold
 static constexpr int32_t POST_FRAME_TRIM_EXTRA_FRAMES = 400;
 std::atomic_bool isAudioTrimAfterFramePending = false;
+// The trim a (re)started stream's callback asks for when it finishes priming (OboeCallback): the callback bumps the request, the emulator thread
+// trims at the start of its next frame and stores the request it answered
+std::atomic<uint32_t> audioTrimBeforeFrameRequest = 0;
+std::atomic<uint32_t> audioTrimBeforeFrameDone = 0;
+// The speed paced fast-forward really reaches, smoothed, in thousandths (low 32 bits), with the audioRateGeneration it was measured under (high
+// 32 bits). Only the emulator thread writes it. A speed of 0 means unknown
+std::atomic<uint64_t> audioAchievedSpeed = 0;
+// Time constant of the achieved speed's smoothing. Short enough to follow a slow scene within a fraction of a second, long enough not to wobble
+// with the frame-to-frame pacing
+static constexpr double ACHIEVED_SPEED_SECONDS = 0.35;
+// The speed is only published once it covers this much wall time
+static constexpr double ACHIEVED_SPEED_MIN_SECONDS = 0.1;
+// Emulator thread only. Emulated frames and wall time, each decayed with ACHIEVED_SPEED_SECONDS, so their ratio is the frame rate over about
+// that long. Measured over wall time rather than per frame, since the frames come in bursts (work, then sleep)
+struct AchievedSpeedMeter
+{
+    bool isActive = false;
+    uint32_t rateGeneration = 0;
+    float requestedSpeed = 0;
+    double frames = 0;
+    double seconds = 0;
+    double observedSeconds = 0;
+};
+static AchievedSpeedMeter achievedSpeedMeter;
 std::mutex micBufferMutex;
 int actualMicSource = 0;
 bool isMicInputEnabled = true;
@@ -483,6 +512,94 @@ namespace MelonDSAndroid
             audioRateGeneration++;
     }
 
+    uint32_t requestAudioOutputTrimBeforeFrame()
+    {
+        return audioTrimBeforeFrameRequest.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+
+    bool isAudioOutputTrimBeforeFrameDone(uint32_t request)
+    {
+        // Acquire pairs with the release in runAudioOutputTrimBeforeFrame(), so the callback sees the trimmed ring
+        return audioTrimBeforeFrameDone.load(std::memory_order_acquire) == request;
+    }
+
+    void runAudioOutputTrimBeforeFrame(MelonInstance& instance)
+    {
+        // Only this thread writes the done value
+        uint32_t request = audioTrimBeforeFrameRequest.load(std::memory_order_relaxed);
+        if (request == audioTrimBeforeFrameDone.load(std::memory_order_relaxed)) [[likely]]
+            return;
+
+        // The frame's start is the ring's low point, and the callback has been playing silence while it primed, so the AAudio buffer is already
+        // full. The fill set here is where the following low points stay, whatever the phase the stream started at. A request left over from a
+        // stream that was replaced by a plain mode one (large bursts) is only answered: those never trim
+        if (areAudioOutputTrimsEnabled.load(std::memory_order_relaxed))
+        {
+            int droppedFrames = instance.trimAudioOutput(OboeCallback::TRIM_BEFORE_FRAME_KEEP_FRAMES, OboeCallback::TRIM_BEFORE_FRAME_KEEP_FRAMES);
+            if (droppedFrames > 0)
+                AudioDiagnostics::onPrimeTrim(droppedFrames);
+        }
+        audioTrimBeforeFrameDone.store(request, std::memory_order_release);
+    }
+
+    static void publishAchievedSpeed(uint32_t rateGeneration, double speed)
+    {
+        uint64_t speedMilli = speed > 0 ? (uint64_t) std::min(speed * 1000.0 + 0.5, (double) UINT32_MAX) : 0;
+        audioAchievedSpeed.store(((uint64_t) rateGeneration << 32) | speedMilli, std::memory_order_relaxed);
+    }
+
+    void onEmulatorFrameEnd(double intervalMs, bool isPacedFastForward, float requestedSpeed)
+    {
+        // A new fast-forward state (or speed, or unmute) bumps the generation, and so does a new session. The value published under the old one
+        // is ignored from then on, even if it lands after the bump
+        uint32_t rateGeneration = audioRateGeneration.load(std::memory_order_relaxed);
+        if (!isPacedFastForward)
+        {
+            if (achievedSpeedMeter.isActive)
+            {
+                achievedSpeedMeter.isActive = false;
+                publishAchievedSpeed(rateGeneration, 0);
+            }
+            return;
+        }
+
+        if (!achievedSpeedMeter.isActive || rateGeneration != achievedSpeedMeter.rateGeneration || requestedSpeed != achievedSpeedMeter.requestedSpeed)
+        {
+            // The frame that saw the change ran at least partly under the old state, so it isn't counted
+            achievedSpeedMeter = AchievedSpeedMeter();
+            achievedSpeedMeter.isActive = true;
+            achievedSpeedMeter.rateGeneration = rateGeneration;
+            achievedSpeedMeter.requestedSpeed = requestedSpeed;
+            publishAchievedSpeed(rateGeneration, 0);
+            return;
+        }
+
+        double seconds = intervalMs / 1000.0;
+        if (seconds <= 0)
+            return;
+        double decay = std::exp(-seconds / ACHIEVED_SPEED_SECONDS);
+        achievedSpeedMeter.frames = achievedSpeedMeter.frames * decay + 1.0;
+        achievedSpeedMeter.seconds = achievedSpeedMeter.seconds * decay + seconds;
+        achievedSpeedMeter.observedSeconds += seconds;
+        if (achievedSpeedMeter.observedSeconds >= ACHIEVED_SPEED_MIN_SECONDS)
+            publishAchievedSpeed(rateGeneration, achievedSpeedMeter.frames / achievedSpeedMeter.seconds / EMULATOR_TARGET_FPS);
+    }
+
+    void onEmulatorPaused()
+    {
+        // The speed starts over after the pause. Published now, so the old one isn't logged while the stream starts again
+        achievedSpeedMeter.isActive = false;
+        publishAchievedSpeed(audioRateGeneration.load(std::memory_order_relaxed), 0);
+    }
+
+    float getAudioAchievedSpeed()
+    {
+        uint64_t value = audioAchievedSpeed.load(std::memory_order_relaxed);
+        if ((uint32_t) (value >> 32) != audioRateGeneration.load(std::memory_order_relaxed))
+            return 0;
+        return (float) (uint32_t) value / 1000.0f;
+    }
+
     // Called from the real-time output callback. Must stay lock-free
     bool shouldMuteAudioOutput()
     {
@@ -501,7 +618,8 @@ namespace MelonDSAndroid
 
     uint32_t getAudioRateGeneration()
     {
-        return audioRateGeneration.load(std::memory_order_relaxed);
+        // Acquire pairs with the (sequentially consistent) increments, which all come after the state they announce was stored
+        return audioRateGeneration.load(std::memory_order_acquire);
     }
 
     uint32_t getAudioStartGeneration()

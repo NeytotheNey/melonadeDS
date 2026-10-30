@@ -138,19 +138,23 @@ void OboeCallback::updateOutputSkew(MelonDSAndroid::MelonInstance& instance, int
 {
     // The emulator runs 60 DS frames a second, slightly more than the DS's own rate
     double baseSkew = std::clamp(60.0 / INTERNAL_FRAME_RATE, 0.995, 1.005);
+    // Read before the fast-forward state, with acquire: the state is stored before the generation is bumped, so a new generation comes with
+    // the new state
+    uint32_t rateGeneration = MelonDSAndroid::getAudioRateGeneration();
     bool isSteering = canSteer;
     if (MelonDSAndroid::isAudioFastForwarding())
     {
         // Paced fast-forward plays its audio sped up (and pitched up). Muted fast-forward discards it, and unlimited fast-forward has no
         // known rate to follow, so both keep the plain base without steering
         float speed = MelonDSAndroid::getAudioFastForwardSpeed();
+        // A scene too heavy for the requested speed makes less audio per second, so the ring runs dry. Following the speed really reached
+        // (MelonDSAndroid::getAudioAchievedSpeed()) bent the pitch audibly, so that's left to time-stretching
         if (speed > 0 && !MelonDSAndroid::shouldMuteAudioOutput())
             baseSkew *= speed;
         else
             isSteering = false;
     }
 
-    uint32_t rateGeneration = MelonDSAndroid::getAudioRateGeneration();
     if (&instance != driftInstance || rateGeneration != driftRateGeneration || isSteering != isDriftSteering)
     {
         driftController.reset();
@@ -196,6 +200,7 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
         primeStartGeneration = startGeneration;
         isPrimed = false;
         isRepriming = false;
+        isWaitingForTrimBeforeFrame = false;
     }
 
     // Muted fast-forward keeps reading (and discarding) the ring below, primed or not
@@ -210,7 +215,24 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
     {
         // Wait for the ring to hold enough instead of playing every scrap the emulator makes as it comes: one clean gap rather than a
         // stuttery run of tiny ones
-        if (currentInstance->getAudioOutputBufferFill() < (isRepriming ? REPRIME_FRAMES : PRIME_FRAMES))
+        bool isReady;
+        if (isWaitingForTrimBeforeFrame)
+            isReady = MelonDSAndroid::isAudioOutputTrimBeforeFrameDone(trimBeforeFrameRequest);
+        else
+            isReady = currentInstance->getAudioOutputBufferFill() >= (isRepriming ? REPRIME_FRAMES : PRIME_FRAMES);
+
+        // The emulator keeps running while AAudio starts a stream (13-130 ms), so the ring is often full by now. Trimming it here lands at
+        // whatever phase of the emulator's frame this is: right after a frame's audio, the next low points sat ~500 frames under the target,
+        // and the skew at its limit for seconds. So a (re)started stream keeps priming until the emulator thread trimmed the ring at the start
+        // of its next frame (at most a frame away). The silence played meanwhile also fills the AAudio buffer, which a start empties
+        if (isReady && !isRepriming && !isWaitingForTrimBeforeFrame)
+        {
+            trimBeforeFrameRequest = MelonDSAndroid::requestAudioOutputTrimBeforeFrame();
+            isWaitingForTrimBeforeFrame = true;
+            isReady = false;
+        }
+
+        if (!isReady)
         {
             updateOutputSkew(*currentInstance, numFrames, stream->getSampleRate(), false, isDiagnosticsEnabled);
             // Counted even with the diagnostics off (it's rare), so the summary can show the startup prime from before a capture began
@@ -219,12 +241,16 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
             return oboe::DataCallbackResult::Continue;
         }
         isPrimed = true;
+        isWaitingForTrimBeforeFrame = false;
 
-        // The emulator keeps running while AAudio starts a stream (45-130 ms), so the ring can be well over the target by the first real
-        // callback. Trim it here, where playback really begins, and start the drift control from the trimmed fill
-        int droppedFrames = currentInstance->trimAudioOutput(TRIM_THRESHOLD_FRAMES, TRIM_KEEP_FRAMES);
-        if (droppedFrames > 0)
-            AudioDiagnostics::onPrimeTrim(droppedFrames);
+        // A reprime ends with whatever the emulator caught up with, which is rarely over the threshold. Trimmed here if it is
+        if (isRepriming)
+        {
+            int droppedFrames = currentInstance->trimAudioOutput(TRIM_THRESHOLD_FRAMES, TRIM_KEEP_FRAMES);
+            if (droppedFrames > 0)
+                AudioDiagnostics::onPrimeTrim(droppedFrames);
+        }
+        // The drift control starts from the primed fill
         driftController.reset();
     }
 

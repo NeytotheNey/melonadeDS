@@ -89,6 +89,10 @@ private:
     bool isRepriming = false;
     const MelonDSAndroid::MelonInstance* primeInstance = nullptr;
     uint32_t primeStartGeneration = 0;
+    // A (re)started stream that reached the prime target keeps priming until the emulator thread trimmed the ring at the start of a frame
+    // (MelonDSAndroid::requestAudioOutputTrimBeforeFrame())
+    bool isWaitingForTrimBeforeFrame = false;
+    uint32_t trimBeforeFrameRequest = 0;
 
     // Set from the stream's burst before it starts (setBurstFrames()). Priming mode (small bursts) primes, reprimes and trims at the fixed
     // thresholds below. Plain mode (large bursts) does none of it, like before priming existed, and only steers, to a target that leaves room
@@ -98,11 +102,14 @@ private:
     int32_t maxRepriminingCallbackFrames = MIN_REPRIMING_CALLBACK_LIMIT_FRAMES;
 
 public:
-    // Priming mode thresholds: prime at 960, reprime at 480, trim to 960 above 1200 when priming ends
+    // Priming mode thresholds: prime at 960, reprime at 480, trim to 960 above 1200 when repriming ends (and for fast-forward and mute changes)
     static constexpr int PRIME_FRAMES = 960;
     static constexpr int REPRIME_FRAMES = 480;
     static constexpr int TRIM_THRESHOLD_FRAMES = 1200;
     static constexpr int TRIM_KEEP_FRAMES = 960;
+    // A (re)started stream's ring is trimmed to this at the start of a frame, the low point. The low point sits ~130 frames under the filtered fill
+    // at normal speed and ~70 at 2x fast-forward, so this starts the drift control close to its target
+    static constexpr int TRIM_BEFORE_FRAME_KEEP_FRAMES = 840;
     // Streams with bursts up to this many frames use priming mode
     static constexpr int32_t MAX_PRIMING_BURST_FRAMES = 256;
     // Callbacks up to max(4 bursts, this) may reprime

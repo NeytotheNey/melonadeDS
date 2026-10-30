@@ -246,6 +246,8 @@ struct FrameSample
     bool isBufferFull = false;
     // The output skew's distance from its base (AudioDiagnostics::DriftState::skewPpm)
     int64_t skewPpm = 0;
+    // The speed paced fast-forward really reached (MelonDSAndroid::getAudioAchievedSpeed()), in thousandths. -1 if unknown or not fast-forwarding
+    int64_t achievedSpeedMilli = -1;
 };
 
 FrameSample onFrame(int fillAfterFrame, int fillBeforeNextFrame);
@@ -253,7 +255,7 @@ FrameSample onFrame(int fillAfterFrame, int fillBeforeNextFrame);
 /**
  * Emulator thread, from the debug log's heartbeat. Logs this second's audio line: callback count, frames and timing, underruns and silence
  * frames, xruns, the ring's fill (min and avg of the low points, max of the high points) with the frames that ended with it full, the drift
- * control's skew and filtered fill, and the stream's buffer size. Also logs the buffer size changes since the last line.
+ * control's skew and filtered fill, fast-forward's achieved speed, and the stream's buffer size. Also logs the buffer size changes since the last line.
  */
 void logSecond(uint32_t frame);
 
