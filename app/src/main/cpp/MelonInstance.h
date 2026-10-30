@@ -131,6 +131,9 @@ private:
     LuaEngine luaEngine;
     // EmulatorConfiguration::luaDrawingsInScreenshots, for the emulator thread. The configuration can be replaced on another thread
     std::atomic_bool luaDrawingsInScreenshots = false;
+    // EmulatorConfiguration::wideViewWidth from the launch. Configuration updates don't change it, since a new width only applies at the next
+    // game start. Applied to every OpenGL renderer that updateRenderer() sets up, since a new one starts at 256
+    int wideViewWidth;
 
     std::shared_ptr<EmulatorConfiguration> currentConfiguration;
     FrameQueue frameQueue;

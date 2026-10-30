@@ -13,5 +13,7 @@ data class RomConfigUiModel(
     val gbaSlotConfig: RomGbaSlotConfigUiModel = RomGbaSlotConfigUiModel(),
     val customName: String? = null,
     val mods: RomModsConfig = RomModsConfig(),
+    // Widescreen only works with the OpenGL renderer, which is a global setting
+    val isWidescreenSupported: Boolean = true,
     val luaScripts: RomLuaScriptsUiModel = RomLuaScriptsUiModel(),
 )

@@ -10,6 +10,9 @@ data class PresentFrameWrapper(
     // Real size of the frame texture, which grows with the internal resolution scaling of the OpenGL and Compute renderers
     var textureWidth: Int = 0,
     var textureHeight: Int = 0,
+    // Width of the top screen in DS pixels. Wider than SCREEN_WIDTH when widescreen widens the 3D view (OpenGL only). The bottom screen stays
+    // SCREEN_WIDTH wide, centred in the frame with black bars beside it
+    var topScreenWidth: Int = 0,
     // Lua drawings (melon.draw): a premultiplied texture in the frame texture's layout at 2x, and which screens have any in this frame
     // (OVERLAY_SCREEN_* bits). The texture is only meant to be drawn for those screens
     var overlayTextureId: Int = 0,

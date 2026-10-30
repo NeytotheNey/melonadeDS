@@ -28,6 +28,9 @@ struct Frame {
     GLuint frameTexture{};
     u32 width{};
     u32 height{};
+    // Width of the top screen in DS pixels: 256, or wider when WideMelon widens the 3D view (OpenGL only). The bottom screen stays 256 wide,
+    // centred in the frame with black bars beside it
+    u32 topScreenWidth = 256;
     // Lua drawings for this frame (scripting/LuaDraw.h), in the frame texture's layout at 2x and premultiplied. Only created once a frame has
     // drawings, and kept when the frame is reused
     GLuint overlayTexture{};

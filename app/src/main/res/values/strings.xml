@@ -358,6 +358,11 @@
     <string name="label_rom_config_gba_rom_path">GBA ROM path</string>
     <string name="label_rom_config_gba_save_path">GBA save path</string>
     <string name="label_rom_config_mods">Mods</string>
+    <string name="widescreen">Widescreen</string>
+    <string name="widescreen_enable">Use widescreen</string>
+    <string name="widescreen_description">Widens the 3D view. 2D, menus and touch stay the same. Some games show things popping in at the edges. Applies the next time the game starts.</string>
+    <string name="widescreen_aspect_ratio">Aspect ratio</string>
+    <string name="widescreen_needs_opengl">Needs the OpenGL renderer. With other renderers the game shows at its normal width.</string>
     <string name="lua_script_switched_off">Script %1$s was switched off: %2$s</string>
     <string name="lua_scripts">Scripts</string>
     <string name="lua_scripts_off_in_hardcore">Scripts are off in RetroAchievements hardcore mode, because RetroAchievements doesn\'t allow scripting</string>
@@ -591,6 +596,14 @@
         <item>None</item>
         <item>Blow</item>
         <item>Device microphone</item>
+    </string-array>
+
+    <!-- In the order of WidescreenAspect -->
+    <string-array name="widescreen_aspect_options">
+        <item>16:10</item>
+        <item>16:9</item>
+        <item>20:9</item>
+        <item>21:9</item>
     </string-array>
 
     <string-array name="gba_slot_options">

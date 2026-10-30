@@ -528,7 +528,8 @@ class AndroidEmulatorManager(
             useCustomBios = mustUseCustomBios,
             showBootScreen = baseConfiguration.showBootScreen && mustUseCustomBios,
             consoleType = getRomOptionOrDefault(rom.config.runtimeConsoleType, baseConfiguration.consoleType),
-            micSource = getRomOptionOrDefault(rom.config.runtimeMicSource, baseConfiguration.micSource)
+            micSource = getRomOptionOrDefault(rom.config.runtimeMicSource, baseConfiguration.micSource),
+            wideViewWidth = rom.config.mods.validWideViewWidth ?: 0,
         ).run { getPermissionAdjustedConfiguration(this) }
     }
 

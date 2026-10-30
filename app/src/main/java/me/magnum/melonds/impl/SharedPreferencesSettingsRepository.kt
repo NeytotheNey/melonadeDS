@@ -176,6 +176,8 @@ class SharedPreferencesSettingsRepository(
             useJit = isJitEnabled(),
             syncRtcToDevice = preferences.getBoolean(PreferenceKeys.SYNC_RTC_TO_DEVICE, true),
             luaDrawingsInScreenshots = preferences.getBoolean(PreferenceKeys.VIDEO_LUA_DRAWINGS_IN_STATE_PICTURES, false),
+            // Per game, set from the ROM's config when one is launched
+            wideViewWidth = 0,
             consoleType = consoleType,
             soundEnabled = isSoundEnabled(),
             muteFastForwardAudio = shouldMuteFastForwardAudio(),

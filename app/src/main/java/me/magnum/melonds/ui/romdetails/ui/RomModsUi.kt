@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,10 +48,12 @@ import me.magnum.melonds.impl.LuaScriptHeader
 import me.magnum.melonds.ui.common.MelonPreviewSet
 import me.magnum.melonds.ui.common.component.LuaScriptOptionControl
 import me.magnum.melonds.ui.common.component.text.CaptionText
+import me.magnum.melonds.ui.common.preference.SingleChoiceItem
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiModel
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiState
 import me.magnum.melonds.ui.romdetails.model.RomConfigUpdateEvent
 import me.magnum.melonds.ui.romdetails.model.RomLuaScriptsUiModel
+import me.magnum.melonds.ui.romdetails.model.WidescreenAspect
 import me.magnum.melonds.ui.theme.MelonTheme
 
 @Composable
@@ -91,8 +94,78 @@ private fun Content(
     Column(
         modifier = modifier.verticalScroll(rememberScrollState()).padding(contentPadding),
     ) {
-        // The widescreen section (Phase 2) goes here
+        WidescreenSection(romConfig, onConfigUpdate)
         LuaScriptsSection(romConfig, onConfigUpdate)
+    }
+}
+
+@Composable
+private fun WidescreenSection(
+    romConfig: RomConfigUiModel,
+    onConfigUpdate: (RomConfigUpdateEvent) -> Unit,
+) {
+    val wideViewWidth = romConfig.mods.validWideViewWidth
+
+    Text(
+        text = stringResource(id = R.string.widescreen),
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
+
+    // The width is still kept, for when the renderer is switched to OpenGL
+    if (!romConfig.isWidescreenSupported) {
+        CaptionText(
+            text = stringResource(id = R.string.widescreen_needs_opengl),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+    }
+
+    WidescreenSwitchItem(
+        isOn = wideViewWidth != null,
+        onToggle = { isOn -> onConfigUpdate(RomConfigUpdateEvent.WideViewWidthUpdate(if (isOn) WidescreenAspect.DEFAULT.viewWidth else null)) },
+    )
+
+    if (wideViewWidth != null) {
+        val aspectOptions = stringArrayResource(id = R.array.widescreen_aspect_options)
+        val aspect = WidescreenAspect.fromViewWidth(wideViewWidth)
+        SingleChoiceItem(
+            name = stringResource(id = R.string.widescreen_aspect_ratio),
+            value = aspectOptions[aspect.ordinal],
+            items = aspectOptions.toList(),
+            selectedItemIndex = aspect.ordinal,
+            onItemSelected = { onConfigUpdate(RomConfigUpdateEvent.WideViewWidthUpdate(WidescreenAspect.entries[it].viewWidth)) },
+        )
+    }
+}
+
+@Composable
+private fun WidescreenSwitchItem(
+    isOn: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggle(!isOn) }
+            .focusable()
+            .heightIn(min = 64.dp)
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(
+                text = stringResource(id = R.string.widescreen_enable),
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            CaptionText(text = stringResource(id = R.string.widescreen_description))
+        }
+        Switch(
+            checked = isOn,
+            onCheckedChange = null,
+        )
     }
 }
 
@@ -364,6 +437,7 @@ private fun PreviewRomModsUi() {
             romConfigUiState = RomConfigUiState.Ready(
                 RomConfigUiModel(
                     mods = RomModsConfig(
+                        wideViewWidth = WidescreenAspect.DEFAULT.viewWidth,
                         luaScripts = listOf(
                             RomLuaScript(fileName = "aim.lua", enabled = true, options = mapOf("speed" to "7")),
                             RomLuaScript(fileName = "turbo.lua", enabled = false),

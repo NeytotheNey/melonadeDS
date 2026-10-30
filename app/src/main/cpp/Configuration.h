@@ -89,6 +89,8 @@ typedef struct
     bool threaded2dRendering;
     // Puts the Lua scripts' drawings into savestate and rewind pictures
     bool luaDrawingsInScreenshots;
+    // WideMelon: width of the top screen's 3D view (even, 256..768). Anything else (0 when it's off) means 256. Only the OpenGL renderer uses it
+    int wideViewWidth;
     SdCardSettings dsiSdCardSettings;
     SdCardSettings dldiSdCardSettings;
     Renderer renderer;

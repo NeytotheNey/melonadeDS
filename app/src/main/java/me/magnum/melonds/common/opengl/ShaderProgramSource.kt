@@ -12,13 +12,13 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
     }
 
     companion object {
-        // The frame texture holds both screens stacked vertically, top screen first (from v = 0), with 2 empty lines between them. These sizes
-        // are in DS pixels. When the OpenGL or Compute renderer is upscaled the texture is that many times bigger, so the filters that work on
-        // texels (HQ2x, HQ4x, Quilez, xBR, Scale2x, FXAA, Sharp, MMPX) read the real size from the texSize uniform. Only LCD and scanlines
-        // keep using these, since they draw one line/subpixel group per DS pixel. The scalers can't stay on the DS grid: upscaled 3D isn't
-        // aligned to it (some games draw everything in 3D, sprites included), so DS-grid neighbours would make them copy pixels into the wrong
-        // places
-        private const val LOGICAL_TEXTURE_WIDTH = SCREEN_WIDTH
+        // The frame texture holds both screens stacked vertically, top screen first (from v = 0), with 2 empty lines between them. This height
+        // is in DS pixels, and so is the topScreenWidth uniform, the frame's width: SCREEN_WIDTH, or more when widescreen widens the top
+        // screen's 3D view. The bottom screen is then SCREEN_WIDTH wide in the middle, with black bars beside it. When the OpenGL or Compute
+        // renderer is upscaled the texture is that many times bigger, so the filters that work on texels (HQ2x, HQ4x, Quilez, xBR, Scale2x,
+        // FXAA, Sharp, MMPX) read the real size from the texSize uniform. Only LCD and scanlines use the DS size, since they draw one
+        // line/subpixel group per DS pixel. The scalers can't stay on the DS grid: upscaled 3D isn't aligned to it (some games draw everything
+        // in 3D, sprites included), so DS-grid neighbours would make them copy pixels into the wrong places
         private const val LOGICAL_TEXTURE_HEIGHT = FRAME_TEXTURE_HEIGHT
 
         // Fragment shader precision: high where the GPU supports it, medium otherwise
@@ -78,29 +78,53 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    gl_FragColor = vec4(finishColor(color.bgr), alpha);\n" +
                 "}"
 
+        // Keeps the samples of the screen that contains p off the black bars beside a wide frame's bottom screen. screenColumns() is the range
+        // of u coordinates (texel centres) they can use. Only that screen has anything beside it: everywhere else the range doesn't limit
+        // anything, since the texture's own edges (CLAMP_TO_EDGE) do the same, so nothing changes on a SCREEN_WIDTH frame. Needs texSize and
+        // topScreenWidth to be declared before it. sampleColumns() is for GLSL ES 1.00 filters that don't use sampleScreen(), and needs tex
+        private const val SCREEN_COLUMN_RANGE_FUNCTIONS = "vec2 screenColumns(vec2 p) {\n" +
+                "    if (p.y < 0.5 || topScreenWidth <= ${SCREEN_WIDTH}.0) {\n" +
+                "        return vec2(-1.0, 2.0);\n" +
+                "    }\n" +
+                "    float halfWidth = 0.5 * ${SCREEN_WIDTH}.0 / topScreenWidth;\n" +
+                "    float halfTexel = 0.5 / texSize.x;\n" +
+                "    return vec2(0.5 - halfWidth + halfTexel, 0.5 + halfWidth - halfTexel);\n" +
+                "}\n"
+
+        // When there's nothing to keep the samples off, p goes to the texture as it is, so that filters which sample straight at their uv
+        // still do: any maths on it can cost precision on GPUs that sample a plain varying at full precision
+        private const val SAMPLE_COLUMNS_FUNCTIONS = "vec4 sampleColumns(vec2 p, vec2 columns) {\n" +
+                "    if (columns.x < 0.0) {\n" +
+                "        return texture2D(tex, p);\n" +
+                "    }\n" +
+                "    return texture2D(tex, vec2(clamp(p.x, columns.x, columns.y), p.y));\n" +
+                "}\n"
+
         // Helpers for filters that sample far enough to reach past the gap between the screens. sampleScreen() keeps samples inside the screen
-        // that the fragment belongs to, so the other screen and the empty lines never bleed in. Needs tex and texSize to be declared before it.
-        // SCREEN_BAND_FUNCTIONS is for GLSL ES 1.00 shaders and SCREEN_BAND_FUNCTIONS_300 for #version 300 es ones, which have no texture2D()
+        // that the fragment belongs to, so the other screen, the empty lines and the black bars never bleed in. Needs tex, texSize and
+        // topScreenWidth to be declared before it. SCREEN_BAND_FUNCTIONS is for GLSL ES 1.00 shaders and SCREEN_BAND_FUNCTIONS_300 for
+        // #version 300 es ones, which have no texture2D()
         private const val SCREEN_BAND_RANGE_FUNCTIONS = "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${LOGICAL_TEXTURE_HEIGHT}.0;\n" +
                 "const float bottomScreenStart = ${SCREEN_HEIGHT + SCREEN_GAP}.0 / ${LOGICAL_TEXTURE_HEIGHT}.0;\n" +
+                SCREEN_COLUMN_RANGE_FUNCTIONS +
                 "" +
-                "// Range of v coordinates (texel centres) of the screen that contains p\n" +
-                "vec2 screenBand(vec2 p) {\n" +
+                "// Range of v (xy) and u (zw) coordinates (texel centres) of the screen that contains p\n" +
+                "vec4 screenBand(vec2 p) {\n" +
                 "    vec2 band = p.y < 0.5 ? vec2(0.0, topScreenEnd) : vec2(bottomScreenStart, 1.0);\n" +
                 "    float halfTexel = 0.5 / texSize.y;\n" +
-                "    return band + vec2(halfTexel, -halfTexel);\n" +
+                "    return vec4(band + vec2(halfTexel, -halfTexel), screenColumns(p));\n" +
                 "}\n"
 
         private const val SCREEN_BAND_FUNCTIONS = SCREEN_BAND_RANGE_FUNCTIONS +
                 "" +
-                "vec3 sampleScreen(vec2 p, vec2 band) {\n" +
-                "    return texture2D(tex, vec2(p.x, clamp(p.y, band.x, band.y))).bgr;\n" +
+                "vec3 sampleScreen(vec2 p, vec4 band) {\n" +
+                "    return texture2D(tex, vec2(clamp(p.x, band.z, band.w), clamp(p.y, band.x, band.y))).bgr;\n" +
                 "}\n"
 
         private const val SCREEN_BAND_FUNCTIONS_300 = SCREEN_BAND_RANGE_FUNCTIONS +
                 "" +
-                "vec3 sampleScreen(vec2 p, vec2 band) {\n" +
-                "    return texture(tex, vec2(p.x, clamp(p.y, band.x, band.y))).bgr;\n" +
+                "vec3 sampleScreen(vec2 p, vec4 band) {\n" +
+                "    return texture(tex, vec2(clamp(p.x, band.z, band.w), clamp(p.y, band.x, band.y))).bgr;\n" +
                 "}\n"
 
         val BackgroundShader = ShaderProgramSource(
@@ -161,10 +185,24 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             DEFAULT_FRAG_SHADER
         )
 
+        // The default shader with bilinear filtering, which blends in the next texel, so it's kept off the black bars of a wide frame
         val LinearShader = ShaderProgramSource(
             TextureFiltering.LINEAR,
             DEFAULT_VERT_SHADER,
-            DEFAULT_FRAG_SHADER
+            PRECISION_HEADER +
+                    "uniform sampler2D tex;\n" +
+                    "uniform vec2 texSize;\n" +
+                    "uniform float topScreenWidth;\n" +
+                    "varying vec2 uv;\n" +
+                    "varying float alpha;\n" +
+                    SCREEN_COLUMN_RANGE_FUNCTIONS +
+                    SAMPLE_COLUMNS_FUNCTIONS +
+                    COLOR_FUNCTIONS +
+                    "void main()\n" +
+                    "{\n" +
+                    "    vec4 color = sampleColumns(uv, screenColumns(uv));\n" +
+                    "    gl_FragColor = vec4(finishColor(color.bgr), alpha);\n" +
+                    "}"
         )
 
         // Author: Gigaherz
@@ -177,12 +215,13 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "varying vec2 uv;\n" +
                     "varying float alpha;\n" +
                     "varying vec2 omega;\n" +
+                    "uniform float topScreenWidth;\n" +
                     "" +
                     "void main() {\n" +
                     "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
                     "    uv = vUV;\n" +
                     "    alpha = vAlpha;\n" +
-                    "    omega = 3.141592654 * 2.0 * vec2($LOGICAL_TEXTURE_WIDTH, $LOGICAL_TEXTURE_HEIGHT);\n" +
+                    "    omega = 3.141592654 * 2.0 * vec2(topScreenWidth, $LOGICAL_TEXTURE_HEIGHT);\n" +
                     "}",
             PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
@@ -218,15 +257,16 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "varying vec2 uv;\n" +
                     "varying float alpha;\n" +
                     "varying vec2 omega;\n" +
-                    "" +
-                    "vec2 inputSize = vec2($LOGICAL_TEXTURE_WIDTH, $LOGICAL_TEXTURE_HEIGHT);\n" + // What is this?
-                    "vec2 outputSize = vec2($LOGICAL_TEXTURE_WIDTH, $LOGICAL_TEXTURE_HEIGHT);\n" + // What is this?
+                    "uniform float topScreenWidth;\n" +
                     "" +
                     "void main()\n" +
                     "{\n" +
+                    "    // In main(), since ES 1.00 globals can only start from constants\n" +
+                    "    vec2 inputSize = vec2(topScreenWidth, $LOGICAL_TEXTURE_HEIGHT);\n" + // What is this?
+                    "    vec2 outputSize = vec2(topScreenWidth, $LOGICAL_TEXTURE_HEIGHT);\n" + // What is this?
                     "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
                     "    uv = vUV;\n" +
-                    "    vec2 textureSize = vec2($LOGICAL_TEXTURE_WIDTH, $LOGICAL_TEXTURE_HEIGHT);\n" +
+                    "    vec2 textureSize = vec2(topScreenWidth, $LOGICAL_TEXTURE_HEIGHT);\n" +
                     "    alpha = vAlpha;\n" +
                     "    omega = vec2(3.1415 * outputSize.x * textureSize.x / inputSize.x, 2.0 * 3.1415 * textureSize.y);\n" +
                     "}",
@@ -273,8 +313,11 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "uniform vec2 texSize;\n" +
+                    "uniform float topScreenWidth;\n" +
                     "varying vec2 uv;\n" +
                     "varying float alpha;\n" +
+                    SCREEN_COLUMN_RANGE_FUNCTIONS +
+                    SAMPLE_COLUMNS_FUNCTIONS +
                     "" +
                     "const vec3 dtt = vec3(65536.0, 255.0, 1.0);\n" +
                     "" +
@@ -288,20 +331,21 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    vec2 up = vec2(0.0, -ps.y);\n" +
                     "    vec2 left = vec2(-ps.x, 0.0);\n" +
                     "    vec2 fp = fract(uv * texSize);\n" +
+                    "    vec2 columns = screenColumns(uv);\n" +
                     "" +
                     "    vec2 g1 = up * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0) +\n" +
                     "            left * (step(0.5, fp.x) - step(0.5, fp.y));\n" +
                     "    vec2 g2 = up * (step(0.5, fp.y) - step(0.5, fp.x)) +\n" +
                     "            left * (step(0.5, fp.x) + step(0.5, fp.y) - 1.0);\n" +
                     "" +
-                    "    vec3 B = texture2D(tex, uv + g1     ).bgr;\n" +
-                    "    vec3 C = texture2D(tex, uv + g1 - g2).bgr;\n" +
-                    "    vec3 D = texture2D(tex, uv      + g2).bgr;\n" +
-                    "    vec3 E = texture2D(tex, uv          ).bgr;\n" +
-                    "    vec3 F = texture2D(tex, uv      - g2).bgr;\n" +
-                    "    vec3 G = texture2D(tex, uv - g1 + g2).bgr;\n" +
-                    "    vec3 H = texture2D(tex, uv - g1     ).bgr;\n" +
-                    "    vec3 I = texture2D(tex, uv - g1 - g2).bgr;\n" +
+                    "    vec3 B = sampleColumns(uv + g1     , columns).bgr;\n" +
+                    "    vec3 C = sampleColumns(uv + g1 - g2, columns).bgr;\n" +
+                    "    vec3 D = sampleColumns(uv      + g2, columns).bgr;\n" +
+                    "    vec3 E = sampleColumns(uv          , columns).bgr;\n" +
+                    "    vec3 F = sampleColumns(uv      - g2, columns).bgr;\n" +
+                    "    vec3 G = sampleColumns(uv - g1 + g2, columns).bgr;\n" +
+                    "    vec3 H = sampleColumns(uv - g1     , columns).bgr;\n" +
+                    "    vec3 I = sampleColumns(uv - g1 - g2, columns).bgr;\n" +
                     "" +
                     "    float b = reduce(B);\n" +
                     "    float c = reduce(C);\n" +
@@ -345,8 +389,11 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "attribute vec2 vUV;\n" +
                     "attribute float vAlpha;\n" +
                     "uniform vec2 texSize;\n" +
+                    "uniform float topScreenWidth;\n" +
                     "varying vec4 uv[5];\n" +
                     "varying float alpha;\n" +
+                    "varying vec2 columns;\n" +
+                    SCREEN_COLUMN_RANGE_FUNCTIONS +
                     "" +
                     "void main() {\n" +
                     "    vec2 dg1 = 0.5 / texSize;\n" +
@@ -364,6 +411,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    uv[4].xy = vUV + dg2;\n" +
                     "    uv[4].zw = vUV - dx;\n" +
                     "    alpha = vAlpha;\n" +
+                    "    // The same for the whole quad, since a quad is one screen\n" +
+                    "    columns = screenColumns(vUV);\n" +
                     "" +
                     "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
                     "}",
@@ -371,6 +420,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "uniform sampler2D tex;\n" +
                     "varying vec4 uv[5];\n" +
                     "varying float alpha;\n" +
+                    "varying vec2 columns;\n" +
+                    SAMPLE_COLUMNS_FUNCTIONS +
                     "" +
                     "    const float mx = 0.325;      // start smoothing wt.\n" +
                     "    const float k = -0.250;      // wt. decrease factor\n" +
@@ -380,15 +431,15 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     COLOR_FUNCTIONS +
                     "" +
                     "void main() {\n" +
-                    "    vec3 c00 = texture2D(tex, uv[1].xy).xyz; \n" +
-                    "    vec3 c10 = texture2D(tex, uv[1].zw).xyz; \n" +
-                    "    vec3 c20 = texture2D(tex, uv[2].xy).xyz; \n" +
-                    "    vec3 c01 = texture2D(tex, uv[4].zw).xyz; \n" +
-                    "    vec3 c11 = texture2D(tex, uv[0].xy).xyz; \n" +
-                    "    vec3 c21 = texture2D(tex, uv[2].zw).xyz; \n" +
-                    "    vec3 c02 = texture2D(tex, uv[4].xy).xyz; \n" +
-                    "    vec3 c12 = texture2D(tex, uv[3].zw).xyz; \n" +
-                    "    vec3 c22 = texture2D(tex, uv[3].xy).xyz; \n" +
+                    "    vec3 c00 = sampleColumns(uv[1].xy, columns).xyz; \n" +
+                    "    vec3 c10 = sampleColumns(uv[1].zw, columns).xyz; \n" +
+                    "    vec3 c20 = sampleColumns(uv[2].xy, columns).xyz; \n" +
+                    "    vec3 c01 = sampleColumns(uv[4].zw, columns).xyz; \n" +
+                    "    vec3 c11 = sampleColumns(uv[0].xy, columns).xyz; \n" +
+                    "    vec3 c21 = sampleColumns(uv[2].zw, columns).xyz; \n" +
+                    "    vec3 c02 = sampleColumns(uv[4].xy, columns).xyz; \n" +
+                    "    vec3 c12 = sampleColumns(uv[3].zw, columns).xyz; \n" +
+                    "    vec3 c22 = sampleColumns(uv[3].xy, columns).xyz; \n" +
                     "    vec3 dt = vec3(1.0, 1.0, 1.0);\n" +
                     "" +
                     "    float md1 = dot(abs(c00 - c22), dt);\n" +
@@ -442,8 +493,11 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "attribute vec2 vUV;\n" +
                     "attribute float vAlpha;\n" +
                     "uniform vec2 texSize;\n" +
+                    "uniform float topScreenWidth;\n" +
                     "varying vec4 uv[7];\n" +
                     "varying float alpha;\n" +
+                    "varying vec2 columns;\n" +
+                    SCREEN_COLUMN_RANGE_FUNCTIONS +
                     "" +
                     "void main()\n" +
                     "{\n" +
@@ -469,11 +523,15 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    uv[3].zw = vUV + ddy;\n" +
                     "    uv[4].zw = vUV - ddx;\n" +
                     "    alpha = vAlpha;\n" +
+                    "    // The same for the whole quad, since a quad is one screen\n" +
+                    "    columns = screenColumns(vUV);\n" +
                     "}",
             PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "varying vec4 uv[7];\n" +
                     "varying float alpha;\n" +
+                    "varying vec2 columns;\n" +
+                    SAMPLE_COLUMNS_FUNCTIONS +
                     "" +
                     "const float mx = 1.00;      // start smoothing wt.\n" +
                     "const float k = -1.10;      // wt. decrease factor\n" +
@@ -484,19 +542,19 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "" +
                     "void main()\n" +
                     "{\n" +
-                    "    vec3 c  = texture2D(tex, uv[0].xy).bgr;\n" +
-                    "    vec3 i1 = texture2D(tex, uv[1].xy).bgr;\n" +
-                    "    vec3 i2 = texture2D(tex, uv[2].xy).bgr;\n" +
-                    "    vec3 i3 = texture2D(tex, uv[3].xy).bgr;\n" +
-                    "    vec3 i4 = texture2D(tex, uv[4].xy).bgr;\n" +
-                    "    vec3 o1 = texture2D(tex, uv[5].xy).bgr;\n" +
-                    "    vec3 o3 = texture2D(tex, uv[6].xy).bgr;\n" +
-                    "    vec3 o2 = texture2D(tex, uv[5].zw).bgr;\n" +
-                    "    vec3 o4 = texture2D(tex, uv[6].zw).bgr;\n" +
-                    "    vec3 s1 = texture2D(tex, uv[1].zw).bgr;\n" +
-                    "    vec3 s2 = texture2D(tex, uv[2].zw).bgr;\n" +
-                    "    vec3 s3 = texture2D(tex, uv[3].zw).bgr;\n" +
-                    "    vec3 s4 = texture2D(tex, uv[4].zw).bgr;\n" +
+                    "    vec3 c  = sampleColumns(uv[0].xy, columns).bgr;\n" +
+                    "    vec3 i1 = sampleColumns(uv[1].xy, columns).bgr;\n" +
+                    "    vec3 i2 = sampleColumns(uv[2].xy, columns).bgr;\n" +
+                    "    vec3 i3 = sampleColumns(uv[3].xy, columns).bgr;\n" +
+                    "    vec3 i4 = sampleColumns(uv[4].xy, columns).bgr;\n" +
+                    "    vec3 o1 = sampleColumns(uv[5].xy, columns).bgr;\n" +
+                    "    vec3 o3 = sampleColumns(uv[6].xy, columns).bgr;\n" +
+                    "    vec3 o2 = sampleColumns(uv[5].zw, columns).bgr;\n" +
+                    "    vec3 o4 = sampleColumns(uv[6].zw, columns).bgr;\n" +
+                    "    vec3 s1 = sampleColumns(uv[1].zw, columns).bgr;\n" +
+                    "    vec3 s2 = sampleColumns(uv[2].zw, columns).bgr;\n" +
+                    "    vec3 s3 = sampleColumns(uv[3].zw, columns).bgr;\n" +
+                    "    vec3 s4 = sampleColumns(uv[4].zw, columns).bgr;\n" +
                     "    vec3 dt = vec3(1.0,1.0,1.0);\n" +
                     "" +
                     "    float ko1=dot(abs(o1-c),dt);\n" +
@@ -536,8 +594,11 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "uniform vec2 texSize;\n" +
+                    "uniform float topScreenWidth;\n" +
                     "varying float alpha;\n" +
                     "varying vec2 uv;\n" +
+                    SCREEN_COLUMN_RANGE_FUNCTIONS +
+                    SAMPLE_COLUMNS_FUNCTIONS +
                     "" +
                     "vec4 getTexel(vec2 p) {\n" +
                     "    p = p * texSize + vec2(0.5);\n" +
@@ -548,7 +609,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    p = i + f;\n" +
                     "" +
                     "    p = (p - vec2(0.5)) / texSize;\n" +
-                    "    return texture2D(tex, p);\n" +
+                    "    return sampleColumns(p, screenColumns(uv));\n" +
                     "}\n" +
                     COLOR_FUNCTIONS +
                     "" +
@@ -567,6 +628,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "uniform vec2 texSize;\n" +
+                    "uniform float topScreenWidth;\n" +
                     "varying vec2 uv;\n" +
                     "varying float alpha;\n" +
                     SCREEN_BAND_FUNCTIONS +
@@ -574,7 +636,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "" +
                     "void main() {\n" +
                     "    vec2 ps = 1.0 / texSize;\n" +
-                    "    vec2 band = screenBand(uv);\n" +
+                    "    vec4 band = screenBand(uv);\n" +
                     "" +
                     "    //   A\n" +
                     "    // C P B\n" +
@@ -615,6 +677,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "uniform vec2 texSize;\n" +
+                    "uniform float topScreenWidth;\n" +
                     "varying vec2 uv;\n" +
                     SCREEN_BAND_FUNCTIONS +
                     "" +
@@ -628,7 +691,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "" +
                     "void main() {\n" +
                     "    vec2 rcpFrame = 1.0 / texSize;\n" +
-                    "    vec2 band = screenBand(uv);\n" +
+                    "    vec4 band = screenBand(uv);\n" +
                     "" +
                     "    vec3 rgbNW = sampleScreen(uv + vec2(-0.5, -0.5) * rcpFrame, band);\n" +
                     "    vec3 rgbNE = sampleScreen(uv + vec2(0.5, -0.5) * rcpFrame, band);\n" +
@@ -701,6 +764,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "precision highp float;\n" +
                     "uniform sampler2D tex;\n" +
                     "uniform vec2 texSize;\n" +
+                    "uniform float topScreenWidth;\n" +
                     "in vec2 uv;\n" +
                     "in float alpha;\n" +
                     "out vec4 fragColor;\n" +
@@ -765,6 +829,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "uniform vec2 texSize;\n" +
+                    "uniform float topScreenWidth;\n" +
                     "varying vec2 uv;\n" +
                     SCREEN_BAND_FUNCTIONS +
                     "" +
@@ -809,7 +874,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "" +
                     "void main() {\n" +
                     "    vec2 ps = 1.0 / texSize;\n" +
-                    "    vec2 band = screenBand(uv);\n" +
+                    "    vec4 band = screenBand(uv);\n" +
                     "" +
                     "    // Our current pixel\n" +
                     "    vec3 E = src(0.0, 0.0);\n" +

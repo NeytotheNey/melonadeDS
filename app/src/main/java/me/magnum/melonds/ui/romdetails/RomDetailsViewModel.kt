@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.UriPermissionManager
 import me.magnum.melonds.common.romprocessors.RomFileProcessorFactory
+import me.magnum.melonds.domain.model.VideoRenderer
 import me.magnum.melonds.domain.model.emulator.LuaLayoutChoice
 import me.magnum.melonds.domain.model.emulator.toLuaLayoutChoices
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
@@ -96,11 +97,14 @@ class RomDetailsViewModel @Inject constructor(
             val luaLayoutChoices = layoutsRepository.getLayouts()
                 .map<List<LayoutConfiguration>, List<LuaLayoutChoice>?> { it.toLuaLayoutChoices() }
                 .onStart { emit(null) }
-            combine(_romConfig, _luaScriptFolderState, _areLuaScriptsBlockedByHardcore, _luaScriptDataSizes, luaLayoutChoices) { romConfig, folderState, areLuaScriptsBlocked, dataSizes, layouts ->
+            // For the widescreen section. combine() takes up to 5 flows, so the renderer comes with the config
+            val romConfigAndRenderer = combine(_romConfig, settingsRepository.getVideoRenderer()) { romConfig, renderer -> romConfig to renderer }
+            combine(romConfigAndRenderer, _luaScriptFolderState, _areLuaScriptsBlockedByHardcore, _luaScriptDataSizes, luaLayoutChoices) { (romConfig, renderer), folderState, areLuaScriptsBlocked, dataSizes, layouts ->
                 val romConfigUiModel = romDetailsUiMapper.mapRomConfigToUi(romConfig)
                 // What was read from the previous folder says nothing about the new one
                 val currentFolderState = folderState?.takeIf { it.folderUri == romConfig.mods.luaScriptFolder }
                 romConfigUiModel.copy(
+                    isWidescreenSupported = renderer == VideoRenderer.OPENGL,
                     luaScripts = romConfigUiModel.luaScripts.copy(
                         isFolderMissing = currentFolderState?.isReadable == false,
                         isFolderEmpty = currentFolderState?.isReadable == true && romConfig.mods.luaScripts.isEmpty(),

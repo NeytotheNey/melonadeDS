@@ -33,6 +33,8 @@ private:
     // Draws the Lua overlay over the screenshot (see renderOverlay()). 0 if it couldn't be built
     GLuint overlayRenderShader = 0;
     GLuint overlayTextureUniformLocation;
+    // Frame::topScreenWidth that the vertex buffer's UVs crop for
+    int vertexBufferTopScreenWidth = 256;
     bool screenshotRequested;
     bool stopped;
 
@@ -40,6 +42,8 @@ private:
     // False if the screenshot shader couldn't be built
     bool setupShaders();
     void setupVertexBuffers();
+    // Fills the bound vertex buffer with the quads for a frame whose top screen is [topScreenWidth] wide (in DS pixels)
+    void fillVertexBuffer(int topScreenWidth);
     void setupOverlayShader();
     void renderOverlay(GLuint overlayTexture);
     void blendOverlay(const LuaOverlay& overlay);

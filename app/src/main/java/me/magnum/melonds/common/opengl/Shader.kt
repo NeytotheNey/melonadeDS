@@ -17,6 +17,8 @@ class Shader(
     val uniformTex: Int
     // Only declared by the filters that need to know the real size of the frame texture
     private val uniformTexSize: Int
+    // Only declared by the filters that need to know the frame's width in DS pixels (see ShaderProgramSource)
+    private val uniformTopScreenWidth: Int
 
     init {
         GLES30.glUseProgram(programId)
@@ -25,6 +27,7 @@ class Shader(
         attribAlpha = GLES30.glGetAttribLocation(programId, "vAlpha")
         uniformTex = GLES30.glGetUniformLocation(programId, "tex")
         uniformTexSize = GLES30.glGetUniformLocation(programId, "texSize")
+        uniformTopScreenWidth = GLES30.glGetUniformLocation(programId, "topScreenWidth")
         GLES30.glUseProgram(0)
     }
 
@@ -43,6 +46,16 @@ class Shader(
     fun setTextureSize(width: Int, height: Int) {
         if (uniformTexSize != INVALID_UNIFORM) {
             GLES30.glUniform2f(uniformTexSize, width.toFloat(), height.toFloat())
+        }
+    }
+
+    /**
+     * Sets the width of the frame's top screen in DS pixels (PresentFrameWrapper.topScreenWidth). Must be called after [use]. Does nothing if
+     * the shader doesn't need it.
+     */
+    fun setTopScreenWidth(width: Int) {
+        if (uniformTopScreenWidth != INVALID_UNIFORM) {
+            GLES30.glUniform1f(uniformTopScreenWidth, width.toFloat())
         }
     }
 

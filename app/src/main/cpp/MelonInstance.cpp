@@ -50,6 +50,7 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     inputMask = 0xFFF;
     frame = 0;
     luaDrawingsInScreenshots = configuration->luaDrawingsInScreenshots;
+    wideViewWidth = configuration->wideViewWidth;
 
     net->RegisterInstance(instanceId);
 
@@ -338,10 +339,15 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 
     int screenWidth;
     int screenHeight;
+    // In DS pixels. The bottom screen is always 256 wide, centred under it with black bars beside it when this is wider
+    int topScreenWidth = 256;
     if (currentRenderer == Renderer::OpenGl)
     {
-        int scale = static_cast<GLRenderer &>(nds->GPU.GetRenderer3D()).GetScaleFactor();
-        screenWidth = 256 * scale;
+        auto& glRenderer = static_cast<GLRenderer &>(nds->GPU.GetRenderer3D());
+        int scale = glRenderer.GetScaleFactor();
+        // The width the compositor draws this frame at, which can lag behind the requested one
+        topScreenWidth = glRenderer.GetOutputWidth();
+        screenWidth = topScreenWidth * scale;
         screenHeight = (192 + 1) * scale;
     }
     else if (currentRenderer == Renderer::Compute)
@@ -375,6 +381,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 
     // Validate frame after ensuring that the frame has finished presenting
     frameQueue.validateRenderFrame(renderFrame, screenWidth, screenHeight * 2);
+    renderFrame->topScreenWidth = topScreenWidth;
 
     [[unlikely]] if (nds->GPU.GetRenderer3D().NeedsShaderCompile())
     {
@@ -828,7 +835,10 @@ void MelonInstance::updateRenderer()
         case Renderer::OpenGl:
         {
             auto glRenderSettings = static_cast<OpenGlRenderSettings&>(*currentConfiguration->renderSettings);
-            static_cast<GLRenderer&>(nds->GPU.GetRenderer3D()).SetRenderSettings(glRenderSettings.betterPolygons, glRenderSettings.scale);
+            auto& glRenderer = static_cast<GLRenderer&>(nds->GPU.GetRenderer3D());
+            // Every time, since the renderer may be a new one at 256. Set first so that a new renderer's targets are only sized once
+            glRenderer.SetViewWidth(wideViewWidth);
+            glRenderer.SetRenderSettings(glRenderSettings.betterPolygons, glRenderSettings.scale);
             break;
         }
         case Renderer::Compute:

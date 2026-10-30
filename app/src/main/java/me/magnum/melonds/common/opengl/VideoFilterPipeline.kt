@@ -3,7 +3,6 @@ package me.magnum.melonds.common.opengl
 import android.opengl.GLES30
 import android.util.Log
 import me.magnum.melonds.domain.model.FRAME_TEXTURE_HEIGHT
-import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -37,8 +36,8 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     private companion object {
         const val TAG = "VideoFilterPipeline"
         val COLOR_ATTACHMENTS = intArrayOf(GLES30.GL_COLOR_ATTACHMENT0)
-        // Size of the frame texture when the 3D renderer isn't upscaled: both screens and the empty lines between them
-        const val NATIVE_TEXTURE_WIDTH = SCREEN_WIDTH
+        // Height of the frame texture when the 3D renderer isn't upscaled: both screens and the empty lines between them. The width can't tell,
+        // since widescreen makes the frame wider without upscaling it
         const val NATIVE_TEXTURE_HEIGHT = FRAME_TEXTURE_HEIGHT
     }
 
@@ -110,7 +109,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
             return output
         }
 
-        val isUpscaled = width > NATIVE_TEXTURE_WIDTH || height > NATIVE_TEXTURE_HEIGHT
+        val isUpscaled = height > NATIVE_TEXTURE_HEIGHT
         var inputTexture = frame.textureId
         var inputWidth = width
         var inputHeight = height
@@ -142,7 +141,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
                 break
             }
             GLES30.glViewport(0, 0, outputWidth, outputHeight)
-            pass.render(inputTexture, inputWidth, inputHeight)
+            pass.render(inputTexture, inputWidth, inputHeight, frame.topScreenWidth)
             inputTexture = pass.texture
             inputWidth = outputWidth
             inputHeight = outputHeight
@@ -275,10 +274,10 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         }
 
         /**
-         * Draws the input texture through this pass's shader into the target, with the input's size as the shader's texSize. The caller
-         * binds the quad and sets the viewport (to the target's size) and blending.
+         * Draws the input texture through this pass's shader into the target, with the input's size as the shader's texSize and the frame's
+         * [topScreenWidth]. The caller binds the quad and sets the viewport (to the target's size) and blending.
          */
-        fun render(inputTexture: Int, inputWidth: Int, inputHeight: Int) {
+        fun render(inputTexture: Int, inputWidth: Int, inputHeight: Int, topScreenWidth: Int) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
             // The quad covers every texel, so the old contents never have to be loaded
             GLES30.glInvalidateFramebuffer(GLES30.GL_FRAMEBUFFER, 1, COLOR_ATTACHMENTS, 0)
@@ -291,6 +290,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
             GLES30.glVertexAttribPointer(shader.attribUv, 2, GLES30.GL_FLOAT, false, 4 * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
             GLES30.glUniform1i(shader.uniformTex, 0)
             shader.setTextureSize(inputWidth, inputHeight)
+            shader.setTopScreenWidth(topScreenWidth)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         }
 

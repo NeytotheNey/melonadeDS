@@ -70,24 +70,84 @@ Phone check: open a game's details, see the empty Mods group, and toggle back an
 
 ## Phase 2: WideMelon (classic OpenGL)
 
-Core (`melonDS-android-lib/`):
-- Port the 7 WideMelon commits by hand. They're based on SapphireRhodonite's lib, not ours, so expect conflicts in `GPU3D_OpenGL.cpp` and `GPU_OpenGL.cpp`. Keep `WideMelon.h` with its SPDX header, and credit it in the commit.
-- The view width is set per instance at game start and doesn't change while running (same as WideMelon: it's locked at launch).
+Re-checked 2026-10-29 against core `38071a81` (threaded 2D landed) and the current app. Scratch clone with pruefsumme's branch and the 7 patches: session scratchpad `wm-core/` and `wm-patches/`.
+
+**How WideMelon works, in short.** The width W (even, 256..768) is set on both `GPU3D` and `GLRenderer`. Each vertex's clip-space X is squeezed by 256/W, so geometry the game would have clipped at the sides lands inside the view, and BoxTest corners get the same squeeze (PosTest doesn't). The GL renderer draws at `W × scale` and stretches X back. Display capture and `GetLine` only take the centre 256. The compositor's output is `W × scale` by `386 × scale`: the top screen's extra columns ("wings") show the 3D image, and the bottom screen sits in the centre with black bars.
+
+**Porting status.** The squashed diff (+199/−23) goes on with `--3way`. Left to do by hand:
+- `GPU.cpp`: keep our new `Sync2D()` line in `SetRenderer3D` next to theirs.
+- `GPU3D_OpenGL.cpp`: 3 conflicts, all fork drift. Drop their ConvertBgra/coverage-fix helpers and the coverage-fix block in `BuildPolygons`; put the wide X into our inline `x =` in `SetupVertex`. `GPU3D_OpenGL.h`: keep only `GetViewWidth()`.
+- `GPU_OpenGL.cpp` needs `gpu.SwapSelladoBuffer`, which only their fork has. This goes away with our own wings rule (below).
+
+**What we do better than WideMelon:**
+- **Wings rule per line, from the 2D renderer.** Theirs reads POWCNT1, DISPCNT and BLDCNT once at `Blit` time, so a mid-frame change gives wrong wings, and with threaded 2D the registers at line 192 aren't always what lines 0–191 showed. Instead, the 2D line renderer writes a "3D on BG0, show wings" flag plus the line's brightness effect into the free control-word bits 18–22 (`GPU2D_Soft.cpp:295`), from the same snapshot it draws the line from. The compositor reads it per line. This needs no latching, follows engine A to whichever screen it's on, and drops `SwapSelladoBuffer`.
+- **One source of truth for the width.** `GPU3D` asks the renderer for its width, so a GL fallback to 256 (width over `GL_MAX_TEXTURE_SIZE`) can't leave geometry squeezed with nothing wide behind it. `GL_MAX_TEXTURE_SIZE` is read once, not every frame.
+- **Off-centre viewports.** The stretch is around x = 0, not the viewport's centre (`GPU3D.cpp:1149`), so games with a viewport that isn't full-screen are misplaced. Map with the viewport centre instead.
+- `ProjectX` rounds instead of truncating. The 3D X scroll (`_3dxpos`) is applied to the wings.
+
+**Known limits we accept** (same as WideMelon): edge pop-in in games that cull on the CPU or with PosTest; ortho 3D HUDs and full-screen 3D quads stay 256 wide; 2D-only scenes get black wings; dual-screen 3D games flash the wings at 30 Hz, so widescreen isn't useful there; and BoxTest plus the polygon RAM limit make it a change the game can see. Wings show the 3D clear colour where 3D is transparent instead of the 2D layers behind it. Filling them with the 2D backdrop colour is a possible later fix.
+
+**The width can change at runtime.** Scale changes already reallocate the GL textures live. If it's changed, latch it at the 3D frame swap (`FlushRequest`, `GPU3D.cpp:2477`) so one frame doesn't mix widths. This phase still only sets it at launch, but the code shouldn't assume it can't change. Savestates don't store the width (correct); loading a state made at another width gives a frame or two of squeezed geometry, which is fine.
 
 Native (`cpp/`):
-- Pass the width through `EmulatorConfiguration` → `MelonInstance`. Only apply it when the renderer is `OpenGl`. On Compute or Software it falls back to 256, and the UI says it needs the OpenGL renderer.
-- `MelonInstance::runFrame()` and `FrameQueue::validateRenderFrame()`: the top screen becomes `width × scale`. The bottom screen stays `256 × scale` inside the same texture.
-- `renderer/ScreenshotRenderer.cpp`: decide whether screenshots and rewind thumbnails crop to the native centre or keep the wide image. Default: keep wide for screenshots, crop rewind thumbnails so their size stays fixed.
+- Pass the width through `EmulatorConfiguration` → JNI (`MelonDSAndroidConfiguration.cpp`, next to `luaDrawingsInScreenshots`) → `Configuration.h` → `MelonInstance`. `AndroidEmulatorManager.getRomEmulatorConfiguration` copies it from the ROM config. Only applied when the renderer is OpenGL; Compute and Software use 256.
+- **Trap:** the renderer is a global setting that can change mid-game, and `updateRenderer()` builds a new `GLRenderer` (width back to 256) and calls `SetRenderSettings` whenever any setting changes. Keep the launch width in `MelonInstance` and apply it on every `updateRenderer()` while the renderer is OpenGL.
+- `MelonInstance::runFrame` (`:339-358`, `:344`): the frame texture becomes `W × scale` wide on GL. `Frame` gets a `topWidth`, sent through the present callback (`MelonDSAndroidJNI.cpp:358`) to Kotlin.
+- Screenshots (savestate and rewind pictures): crop the top screen to the centre 256 and the bottom to its 256 part. Sizes stay 256×384, so the Kotlin converters and the overlay blend (which works in screenshot pixels) don't change. Quads at `ScreenshotRenderer.cpp:359-380`.
 
 App:
-- `ui/emulator/DSRenderer.kt` (`buildScreenVertexData` UVs): the top screen samples the full wide area, and the bottom screen samples only its 256-wide part.
-- The layout editor already has a 16:9 screen option (`LayoutEditorItemControls.kt`). With widescreen on, a 16:9 top screen shows real extra picture instead of a stretch. If the top screen's rect is 4:3 while widescreen is on, letterbox the wide image inside it rather than squashing it.
-- ROM details widescreen row: Off / 16:10 / 16:9 / 21:9. Width = `192 × aspect`, rounded to an even number (16:9 → 342) and clamped to 256..768. If compute widescreen comes later, round the internal width up to a multiple of 64 and crop (see the research findings).
-- Top-screen rect: use cngjd's approach. Widen the rect around its centre at draw time and shrink it if it doesn't fit. Saved layouts stay as they are, and a 16:9 layout still works as-is.
+- `DSRenderer.kt:241-257`: top screen samples the whole width, bottom screen samples the centre `256/W` (the core centres it). The UVs are baked into the VBO, so rebuild it when the frame's width changes.
+- **Top-screen rect:** widened around its centre at draw time in `DSRenderer.updateScreenCoordinates`, cngjd's way. If the layout's rect is already wide enough (a 16:9 layout), use it as is. Otherwise widen it up to the surface edge without covering the bottom screen's rect, and if that's not enough, shrink it to fit. Stored layouts don't change; fold, cover screen, swap and the external display all go through the same code. Touch is untouched (it maps the bottom view to 256×192).
+- **Lua overlay:** it's drawn with the screens' vertex data and its texture is fixed at 512×772. Give it its own quads: the centre 256 of the top screen's rect, and the bottom screen as now. The Lua API stays 256×192 per screen.
+- **Filters:** `VideoFilterPipeline.kt:113` decides "upscaled" from `width > 256`; use the height instead, or a 1× wide frame skips MMPX's pre-pass. In `ShaderProgramSource.kt`, `sampleScreen` needs a horizontal clamp so HQx/xBR/FXAA don't pull in the black bars, and LCD/scanlines need a logical-width uniform instead of `LOGICAL_TEXTURE_WIDTH = 256`.
+- **Mods tab** (`RomModsUi.kt:94`, where the placeholder is): a widescreen switch, with an aspect choice (16:10 / 16:9 / 21:9, default 16:9) shown when it's on. Width = `192 × aspect` rounded to even and clamped to 256..768 (16:10 → 308, 16:9 → 342, 21:9 → 448). When the global renderer isn't OpenGL, the row says it needs OpenGL (add the renderer to the `combine` in `RomDetailsViewModel.kt:99`). RA hardcore doesn't block it.
 
-Phone check: a 3D game with known WideMelon results at 16:9 on a 16:9 top-screen layout. Check that 2D/HUD stays centred, touch still maps right on the bottom screen, savestates load, rewind works, and switching renderer falls back cleanly.
+Order: core port + fixes (built and checked with a test game before the app side) → native frame path, screenshots and launch wiring → presentation (UVs, rect, overlay, filters) → Mods tab row. Each goes coder → reviewer → fixes → build.
 
-Later, not in this phase: the compute renderer. The cngjd/WatermelonDS fork says it supports Compute and Vulkan, so look at how they did it first.
+Phone check: a 3D game with known WideMelon results at 16:9, on both a 4:3 and a 16:9 top-screen layout, folded and unfolded. Check that 2D/HUD stays centred, the wings appear only in 3D scenes, touch still maps right, savestates and rewind work, a Lua script's drawings stay on the native area, the filters look right at the edges, and switching renderer mid-game falls back cleanly and comes back.
+
+**Built (2026-10-29), not yet phone-tested.** Core committed as `ee8d5374` in the submodule; app side uncommitted. The emulator can't run the OpenGL renderer, so only the Mods tab was checked there. What differs from the plan above, or wasn't in it:
+- Core: the width is latched at the polygon RAM swap (or while geometry is off), and the GL targets resize at `RenderFrame` to fit the polygons being drawn. `GetOutputWidth()` is the compositor's width and can lag the requested one; the app sizes its frame texture from it every frame. Forced-blank lines get white wings.
+- A top rect already wider than W:192 shows the frame centred at its exact aspect, not stretched. A bottom screen that shares rows with the top screen stops the widening at its near edge, so a picture-in-picture bottom screen gives a smaller letterboxed top instead.
+- HQ2x/HQ4x, xBR, Quilez and Linear got the horizontal clamp too, and only clamp when it's needed, so the 256 path samples exactly as before.
+- A stored width that's odd or outside 256..768 counts as off. Turning widescreen off forgets the aspect choice.
+
+Later, not in this phase: changing the width from the pause menu, and the compute renderer (widths must be multiples of 64 there; see the research findings).
+
+## Phase 2b: wide layouts
+
+Decided 2026-10-29 with the user: the player places the wide top screen themselves with the existing layout editor, not a second editor. A layout can be marked as a widescreen layout with a ratio, and each game picks a wide layout that's used while widescreen is on. The layout sets the ratio.
+
+Facts this rests on: `LayoutConfiguration` holds one `UILayout` per `UILayoutVariant` (size, insets, orientation, folds, displays), with rects in absolute pixels per variant, saved in `files/layouts.json` (part of the settings backup). The editor can already draw a screen at any shape; `ScreenAspectRatio` (4:3, 16:9, Free) is only a resize lock, and `guessAspectRatio` works it out again from the rect each time. `DSRenderer.getTopScreenDrawRect` already uses a rect as is (frame centred at its exact aspect) when it's at least as wide as the frame, and only widens it automatically otherwise.
+
+Data:
+- Move `WidescreenAspect` to the domain model (layouts need it) and give it a stable key ("16:10", "16:9", "20:9", "21:9") for storage instead of the ordinal.
+- `LayoutConfiguration.wideAspect: WidescreenAspect?` (null = a normal layout), through the DTO. Old `layouts.json` files without it load as normal layouts, so no migration; the coder checks that against the layout migrations in `migrations/legacy/layout/`.
+- `RomModsConfig.wideLayoutId: UUID?` through the DTO, parcelable, UI model and `RomConfigUpdateEvent`.
+
+Width and layout at launch:
+- Widescreen on, a wide layout picked and found, and the renderer is OpenGL: the game uses that layout, and the width comes from its `wideAspect`.
+- Widescreen on with no wide layout (none picked, or it was deleted, or it's no longer marked wide): the normal layout with automatic widening and the Mods tab's own ratio, as now.
+- Widescreen off, or another renderer at launch: the normal layout at 256.
+- Swapping in the layout happens in `EmulatorViewModel.startObservingLayoutForRom` (`wideLayoutId ?: layoutId`). `getPlayerLayoutPicks` treats whichever of the two is active as the ROM's own layout. Lua's `set_layout` and a player's layout pick still override it, as now.
+- The width stays fixed for the session. Picking another layout mid-game, or switching renderer, just letterboxes inside the rect.
+
+Renderer: no new flag. A wide layout's top rect is used as drawn through the existing "wide enough" branch. That check gets a 2 px tolerance so editor rounding doesn't push a hand-made rect into automatic widening. A variant the player never edited (generated from the default layout, so 4:3) still gets automatic widening, so a wide layout never shows a tiny letterboxed picture.
+
+Editor:
+- `LayoutPropertiesDialog`: a "Widescreen" row: Off / 16:10 / 16:9 / 20:9 / 21:9.
+- Setting it widens the top screen once in every saved variant, using the same rule as the automatic placement, so the layout starts from something usable. Changing the ratio later does the same from the current rects. Turning it off leaves the rects as they are.
+- In a wide layout, the top screen's aspect lock offers "Wide (20:9)" (the layout's ratio) next to 4:3, 16:9 and Free, and `guessAspectRatio` recognises it. The bottom screen's choices don't change.
+- The layouts list and the layout picker show a small "Wide 20:9" label on wide layouts.
+
+Mods tab, with widescreen on:
+- "Wide layout": "Automatic" plus the layouts marked wide, through `LayoutSelectorActivity` with a wide-only filter. If there aren't any yet, the row says to make one in the layout editor.
+- "Aspect ratio" only shows with Automatic. With a wide layout picked, the row shows the layout's ratio as text instead.
+- The "needs OpenGL" note stays.
+
+Phone check: make a wide layout (20:9) and place the top screen differently on the cover screen and unfolded, pick it for a game, and check it's used as drawn in both. Turn widescreen off and the normal layout comes back. Delete the wide layout and the game falls back to automatic. Change the layout's ratio and the game follows it at the next start. Old layouts and settings backups still load, and a Lua `set_layout` still works.
+
+Later: a pause-menu toggle that switches widescreen and the layout during play (the core already handles a width change).
 
 ## Phase 3: Lua engine and API (native)
 

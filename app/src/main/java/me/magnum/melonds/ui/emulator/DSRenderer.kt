@@ -12,6 +12,8 @@ import me.magnum.melonds.common.opengl.VideoFilterShaderProvider
 import me.magnum.melonds.domain.model.FRAME_TEXTURE_HEIGHT
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.RuntimeBackground
+import me.magnum.melonds.domain.model.SCREEN_HEIGHT
+import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.VideoFiltering
 import me.magnum.melonds.domain.model.layout.BackgroundMode
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_BOTTOM
@@ -62,8 +64,12 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var screensVao = 0
     private var screenIndices = 0
     // The DS screen of each quad in screensVbo, in draw order (OVERLAY_SCREEN_TOP or OVERLAY_SCREEN_BOTTOM), so that each one's Lua drawings
-    // can go right after it
+    // can go right after it. The Lua drawings' own quads follow the screens' ones in the buffer, in the same order
     private var screenQuadScreens = IntArray(0)
+    // PresentFrameWrapper.topScreenWidth of the frame that the quads were built for. They're built again when a frame of another width comes,
+    // so a SCREEN_WIDTH frame (widescreen off, another renderer, or a frame from before the width changed) always draws as without widescreen.
+    // Only accessed on the GL thread
+    private var frameTopScreenWidth = SCREEN_WIDTH
 
     private var shadowsVbo = 0
     private var shadowsVao = 0
@@ -237,63 +243,124 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         // The texture has 2 empty lines between the screens (SCREEN_GAP), one on each side of the middle. Take that into account when computing
         // UVs
         val lineRelativeSize = 1f / FRAME_TEXTURE_HEIGHT.toFloat()
+        val topScreenBottomV = 0.5f - lineRelativeSize
+        val bottomScreenTopV = 0.5f + lineRelativeSize
 
-        val topUvs = floatArrayOf(
-            0f, 0.5f - lineRelativeSize,
-            0f, 0f,
-            1f, 0f,
-            0f, 0.5f - lineRelativeSize,
-            1f, 0f,
-            1f, 0.5f - lineRelativeSize,
-        )
+        // The top screen takes the frame's whole width. In a frame wider than SCREEN_WIDTH (widescreen), the bottom screen is the middle
+        // SCREEN_WIDTH of it, with black bars beside it. The Lua drawings are always SCREEN_WIDTH wide
+        val bottomScreenLeftU = (frameTopScreenWidth - SCREEN_WIDTH) / (2f * frameTopScreenWidth)
+        val topUvs = buildScreenUvs(0f, 1f, 0f, topScreenBottomV)
+        val bottomUvs = buildScreenUvs(bottomScreenLeftU, 1f - bottomScreenLeftU, bottomScreenTopV, 1f)
+        val overlayBottomUvs = buildScreenUvs(0f, 1f, bottomScreenTopV, 1f)
 
-        val bottomUvs = floatArrayOf(
-            0f, 1f,
-            0f, 0.5f + lineRelativeSize,
-            1f, 0.5f + lineRelativeSize,
-            0f, 1f,
-            1f, 0.5f + lineRelativeSize,
-            1f, 1f,
-        )
+        // A wide top screen is drawn wider than its rect in the layout. Its Lua drawings stay on its middle SCREEN_WIDTH part, where the 2D is
+        val drawnTopScreenRect = topScreenRect?.let { getTopScreenDrawRect(it, bottomScreenRect, frameTopScreenWidth) }
+        val topScreenVertexData = drawnTopScreenRect?.let { buildScreenVertexData(it, topUvs, topAlpha) }
+        val bottomScreenVertexData = bottomScreenRect?.let { buildScreenVertexData(it, bottomUvs, bottomAlpha) }
+        val topOverlayVertexData = drawnTopScreenRect?.let { buildScreenVertexData(getNativeTopScreenRect(it, frameTopScreenWidth), topUvs, topAlpha) }
+        val bottomOverlayVertexData = bottomScreenRect?.let { buildScreenVertexData(it, overlayBottomUvs, bottomAlpha) }
 
-        val (overScreenVertexData, underScreenVertexData) = if (bottomOnTop) {
-            val over = bottomScreenRect?.let { buildScreenVertexData(it, bottomUvs, bottomAlpha) }
-            val under = topScreenRect?.let { buildScreenVertexData(it, topUvs, topAlpha) }
-            over to under
-        } else {
-            val over = topScreenRect?.let { buildScreenVertexData(it, topUvs, topAlpha) }
-            val under = bottomScreenRect?.let { buildScreenVertexData(it, bottomUvs, bottomAlpha) }
-            over to under
-        }
         val (overScreen, underScreen) = if (bottomOnTop) OVERLAY_SCREEN_BOTTOM to OVERLAY_SCREEN_TOP else OVERLAY_SCREEN_TOP to OVERLAY_SCREEN_BOTTOM
-        screenQuadScreens = listOfNotNull(
-            underScreenVertexData?.let { underScreen },
-            overScreenVertexData?.let { overScreen },
-        ).toIntArray()
+        screenQuadScreens = intArrayOf(underScreen, overScreen).filter {
+            (if (it == OVERLAY_SCREEN_TOP) topScreenVertexData else bottomScreenVertexData) != null
+        }.toIntArray()
+        val screenVertexData = screenQuadScreens.map { if (it == OVERLAY_SCREEN_TOP) topScreenVertexData!! else bottomScreenVertexData!! }
+        val overlayVertexData = screenQuadScreens.map { if (it == OVERLAY_SCREEN_TOP) topOverlayVertexData!! else bottomOverlayVertexData!! }
 
-        val vertexBufferSize = ((overScreenVertexData?.size ?: 0) + (underScreenVertexData?.size ?: 0)) * Float.SIZE_BYTES
+        val vertexBufferSize = (screenVertexData.sumOf { it.size } + overlayVertexData.sumOf { it.size }) * Float.SIZE_BYTES
         val vertexBuffer = ByteBuffer.allocateDirect(vertexBufferSize)
             .order(ByteOrder.nativeOrder())
             .asFloatBuffer()
             .apply {
-                underScreenVertexData?.let { put(it) }
-                overScreenVertexData?.let { put(it) }
+                screenVertexData.forEach { put(it) }
+                overlayVertexData.forEach { put(it) }
                 position(0)
             }
 
         GLES30.glBindVertexArray(screensVao)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, screensVbo)
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GLES30.GL_STATIC_DRAW)
-        screenIndices = vertexBuffer.capacity() / FLOATS_PER_VERTEX
+        screenIndices = screenQuadScreens.size * VERTICES_PER_SCREEN
 
-        updateShadowCoordinates()
+        updateShadowCoordinates(drawnTopScreenRect)
     }
 
-    private fun updateShadowCoordinates() {
+    /**
+     * Where the top screen is drawn when the frame's top screen is [topScreenWidth] DS pixels wide. At SCREEN_WIDTH that's [rect] itself. A
+     * wider one is drawn at its own aspect ratio: a rect that's already that wide or wider (a 16:9 layout) gets it in its middle, at the rect's
+     * height. A narrower one grows sideways around its centre, up to the surface's edges and the bottom screen's rect when it shares rows.
+     * If that's not enough room, it gets as wide as it can and shorter, in the middle of [rect]. Stored layouts and touch never change
+     */
+    private fun getTopScreenDrawRect(rect: Rect, bottomRect: Rect?, topScreenWidth: Int): Rect {
+        if (topScreenWidth <= SCREEN_WIDTH) {
+            return rect
+        }
+
+        val aspectRatio = topScreenWidth / SCREEN_HEIGHT.toFloat()
+        val centreX = rect.x + rect.width / 2f
+        val wantedWidth = rect.height * aspectRatio
+        if (rect.width >= wantedWidth) {
+            return buildCentredRect(centreX, rect.y.toFloat(), wantedWidth, rect.height.toFloat())
+        }
+
+        // A bottom screen that shares rows with the top screen stops it at its near edge, on whichever side its centre is. That edge never
+        // counts as further in than the top screen's own one, so a bottom screen that overlaps the rect only stops the growth on that side
+        var minX = 0f
+        var maxX = width
+        if (bottomRect != null && bottomRect.y < rect.bottom && rect.y < bottomRect.bottom) {
+            if (bottomRect.x + bottomRect.width / 2f >= centreX) {
+                maxX = minOf(maxX, maxOf(bottomRect.x, rect.right).toFloat())
+            } else {
+                minX = maxOf(minX, minOf(bottomRect.right, rect.x).toFloat())
+            }
+        }
+
+        // Never narrower than the layout's own rect, even if that's partly off the surface
+        val drawWidth = minOf(wantedWidth, 2f * minOf(centreX - minX, maxX - centreX)).coerceAtLeast(rect.width.toFloat())
+        val drawHeight = drawWidth / aspectRatio
+        return buildCentredRect(centreX, rect.y + (rect.height - drawHeight) / 2f, drawWidth, drawHeight)
+    }
+
+    /**
+     * The middle SCREEN_WIDTH part of a top screen that's [topScreenWidth] DS pixels wide and drawn at [drawRect]
+     */
+    private fun getNativeTopScreenRect(drawRect: Rect, topScreenWidth: Int): Rect {
+        if (topScreenWidth <= SCREEN_WIDTH) {
+            return drawRect
+        }
+
+        val nativeWidth = drawRect.width * SCREEN_WIDTH / topScreenWidth.toFloat()
+        return buildCentredRect(drawRect.x + drawRect.width / 2f, drawRect.y.toFloat(), nativeWidth, drawRect.height.toFloat())
+    }
+
+    private fun buildCentredRect(centreX: Float, top: Float, rectWidth: Float, rectHeight: Float): Rect {
+        // The edges are rounded rather than the sizes, so that the rect stays centred
+        val left = (centreX - rectWidth / 2f).roundToInt()
+        val right = (centreX + rectWidth / 2f).roundToInt()
+        val y = top.roundToInt()
+        return Rect(left, y, right - left, (top + rectHeight).roundToInt() - y)
+    }
+
+    private fun buildScreenUvs(left: Float, right: Float, top: Float, bottom: Float): FloatArray {
+        // Same vertex order as the screens
+        return floatArrayOf(
+            left, bottom,
+            left, top,
+            right, top,
+            left, bottom,
+            right, top,
+            right, bottom,
+        )
+    }
+
+    /**
+     * @param drawnTopScreenRect Where the top screen is drawn, which is wider than its rect while widescreen is on
+     */
+    private fun updateShadowCoordinates(drawnTopScreenRect: Rect?) {
         // Empty when the setting is off, so nothing is drawn
         val shadowVertexData = if (rendererConfiguration?.screenShadow == true) {
             listOfNotNull(
-                topScreenRect?.let { buildShadowVertexData(it, topAlpha) },
+                drawnTopScreenRect?.let { buildShadowVertexData(it, topAlpha) },
                 bottomScreenRect?.let { buildShadowVertexData(it, bottomAlpha) },
             )
         } else {
@@ -409,6 +476,11 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
     override fun drawFrame(presentFrameWrapper: PresentFrameWrapper) {
         synchronized(configurationLock) {
+            // The screens' UVs and the top screen's rect follow the width of the frame being presented
+            if (presentFrameWrapper.isValidFrame && presentFrameWrapper.topScreenWidth != frameTopScreenWidth) {
+                frameTopScreenWidth = presentFrameWrapper.topScreenWidth
+                mustUpdateConfiguration = true
+            }
             if (mustUpdateConfiguration) {
                 applyRendererConfiguration()
                 mustUpdateConfiguration = false
@@ -447,19 +519,19 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             val overlayScreens = if (presentFrameWrapper.overlayTextureId != 0) presentFrameWrapper.overlayScreens else 0
 
             if (overlayScreens == 0) {
-                useScreenShader(shader, screenTextureId, screenTextureWidth, screenTextureHeight)
+                useScreenShader(shader, screenTextureId, screenTextureWidth, screenTextureHeight, presentFrameWrapper.topScreenWidth)
                 GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, screenIndices)
             } else {
                 // Each screen, then its Lua drawings, so that a screen drawn over the other one also covers the other one's drawings
                 screenQuadScreens.forEachIndexed { index, screen ->
                     val firstVertex = index * VERTICES_PER_SCREEN
-                    useScreenShader(shader, screenTextureId, screenTextureWidth, screenTextureHeight)
+                    useScreenShader(shader, screenTextureId, screenTextureWidth, screenTextureHeight, presentFrameWrapper.topScreenWidth)
                     GLES30.glDrawArrays(GLES30.GL_TRIANGLES, firstVertex, VERTICES_PER_SCREEN)
 
                     if (overlayScreens and screen != 0) {
                         useOverlayShader(presentFrameWrapper.overlayTextureId)
                         GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-                        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, firstVertex, VERTICES_PER_SCREEN)
+                        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, screenIndices + firstVertex, VERTICES_PER_SCREEN)
                         // Everything else (the other screen, and the next frame's background and shadows) is blended with straight alpha
                         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
                     }
@@ -471,7 +543,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         }
     }
 
-    private fun useScreenShader(shader: Shader, textureId: Int, textureWidth: Int, textureHeight: Int) {
+    private fun useScreenShader(shader: Shader, textureId: Int, textureWidth: Int, textureHeight: Int, topScreenWidth: Int) {
         shader.use()
 
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
@@ -482,6 +554,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         setScreenVertexAttributes(shader)
         GLES30.glUniform1i(shader.uniformTex, 0)
         shader.setTextureSize(textureWidth, textureHeight)
+        shader.setTopScreenWidth(topScreenWidth)
     }
 
     private fun useOverlayShader(overlayTextureId: Int) {

@@ -49,6 +49,8 @@ void ScreenshotRenderer::renderScreenshot(GPU* gpu, Renderer renderer, Frame* re
 
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        if (renderFrame->topScreenWidth != vertexBufferTopScreenWidth)
+            fillVertexBuffer(renderFrame->topScreenWidth);
         glEnableVertexAttribArray(posAttribLocation);
         glEnableVertexAttribArray(texCoordAttribLocation);
         glVertexAttribPointer(posAttribLocation, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
@@ -358,33 +360,43 @@ void ScreenshotRenderer::setupOverlayShader()
 
 void ScreenshotRenderer::setupVertexBuffers()
 {
-    float margin = 1.0f / 192.0f;
-    // Image is vertically flipped
-    const float vertices[] = {
-        //Position        // UV
-        -1.0f,  -1.0f,    0.0f, 0.0f,
-        -1.0f,  0.0f,     0.0f, 0.5f - margin,
-        1.0f,  0.0f,      1.0f, 0.5f - margin,
-
-        -1.0f,  -1.0f,    0.0f, 0.0f,
-        1.0f,  0.0f,      1.0f, 0.5f - margin,
-        1.0f, -1.0f,      1.0f, 0.0f,
-
-        -1.0f, 0.0f,      0.0f, 0.5f + margin,
-        -1.0f, 1.0f,      0.0f, 1.0f,
-        1.0f, 1.0f,       1.0f, 1.0f,
-
-        -1.0f, 0.0f,      0.0f, 0.5f + margin,
-        1.0f, 1.0f,       1.0f, 1.0f,
-        1.0f, 0.0f,       1.0f, 0.5f + margin,
-    };
-
     glGenBuffers(1, &vbo);
     glGenVertexArrays(1, &vao);
 
     glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    fillVertexBuffer(256);
+}
+
+void ScreenshotRenderer::fillVertexBuffer(int topScreenWidth)
+{
+    float margin = 1.0f / 192.0f;
+    // Both screens take the centre 256 columns of the frame: all of a 256 wide top screen, or the middle of a wider one, which is also where the
+    // bottom screen is
+    float left = (topScreenWidth - 256) / (2.0f * topScreenWidth);
+    float right = 1.0f - left;
+    // Image is vertically flipped
+    const float vertices[] = {
+        //Position        // UV
+        -1.0f,  -1.0f,    left, 0.0f,
+        -1.0f,  0.0f,     left, 0.5f - margin,
+        1.0f,  0.0f,      right, 0.5f - margin,
+
+        -1.0f,  -1.0f,    left, 0.0f,
+        1.0f,  0.0f,      right, 0.5f - margin,
+        1.0f, -1.0f,      right, 0.0f,
+
+        -1.0f, 0.0f,      left, 0.5f + margin,
+        -1.0f, 1.0f,      left, 1.0f,
+        1.0f, 1.0f,       right, 1.0f,
+
+        -1.0f, 0.0f,      left, 0.5f + margin,
+        1.0f, 1.0f,       right, 1.0f,
+        1.0f, 0.0f,       right, 0.5f + margin,
+    };
+
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    vertexBufferTopScreenWidth = topScreenWidth;
 }
 
 void ScreenshotRenderer::notifyScreenshotReady()
