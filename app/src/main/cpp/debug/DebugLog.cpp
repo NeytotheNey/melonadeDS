@@ -1,5 +1,6 @@
 #include "DebugLog.h"
 
+#include "AudioDiagnostics.h"
 #include <android/log.h>
 #include <cstdio>
 #include <cstring>
@@ -83,6 +84,8 @@ static void advanceCoreWindow(int64_t nowNs)
 
 void setEnabled(bool isEnabled)
 {
+    AudioDiagnostics::setDebugLogEnabled(isEnabled);
+
     std::lock_guard<std::mutex> lock(coreLogMutex);
     if (!isEnabled)
         reportCoreRepeats();
@@ -330,6 +333,7 @@ static void resetFrameState()
     arm9Watch = CpuWatch();
     arm7Watch = CpuWatch();
     hasGpuSnapshot = false;
+    AudioDiagnostics::resetForDebugLog();
 }
 
 static GpuSnapshot takeGpuSnapshot(NDS& nds)
@@ -388,6 +392,7 @@ void onFrame(NDS& nds, bool isFastForward, float fps, int64_t lastFrameWorkNs)
             arm7.R[15], arm7.CPSR, getModeName(arm7.CPSR), (arm7.CPSR & 0x20) ? " thumb" : "", arm7.Halted,
             nds.IME[0], nds.IE[0], nds.IF[0], nds.IME[1], nds.IE[1], nds.IF[1], nds.CPUStop);
     logGpuState(nds, gpuSnapshot, "gpu", frame);
+    AudioDiagnostics::logSecond(frame);
     flushCoreLogSummary(nowNs);
 }
 

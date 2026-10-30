@@ -305,6 +305,11 @@ namespace MelonDSAndroid
         return instance ? instance->getGpu2DThreadId() : 0;
     }
 
+    int getAudioOutputBufferFill()
+    {
+        return instance ? instance->getAudioOutputBufferFill() : 0;
+    }
+
     Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs)
     {
         // The caller must keep holding the lock while it uses the frame

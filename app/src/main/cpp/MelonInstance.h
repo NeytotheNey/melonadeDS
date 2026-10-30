@@ -59,6 +59,8 @@ public:
     void releaseKey(u32 key);
     int readAudioOutput(s16* buffer, int length);
     void setAudioOutputSkew(double skew);
+    // Frames waiting in the SPU output ring, for the audio diagnostics. Takes the SPU's audio lock
+    int getAudioOutputBufferFill();
     bool takeScreenshot();
     void loadCheats(std::list<Cheat> cheats);
     int sendNetPacket(u8* data, int length);

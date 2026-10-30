@@ -109,6 +109,10 @@ namespace MelonDSAndroid {
      * loop()
      */
     extern pid_t getGpu2DThreadId();
+    /**
+     * Frames waiting in the SPU output ring, for the audio diagnostics. Must only be called by the emulator thread, between frames
+     */
+    extern int getAudioOutputBufferFill();
     extern Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs);
     extern bool isSleeping();
     extern void pause();

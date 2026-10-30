@@ -14,6 +14,10 @@ OboeCallback::OboeCallback(int volume, void (*onErrorCallback)(oboe::AudioStream
 
 oboe::DataCallbackResult
 OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t numFrames) {
+    bool isDiagnosticsEnabled = AudioDiagnostics::isEnabled();
+    if (isDiagnosticsEnabled) [[unlikely]]
+        AudioDiagnostics::onCallback(diagnosticsClock, numFrames);
+
     auto currentInstance = activeInstance.lock();
 
     if (!currentInstance)
@@ -31,6 +35,8 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
     if (len_in > numFrames) len_in = numFrames;
 
     int num_in = currentInstance->readAudioOutput((s16*) audioData, len_in);
+    if (isDiagnosticsEnabled && num_in < numFrames) [[unlikely]]
+        AudioDiagnostics::onUnderrun(numFrames - std::max(num_in, 0), MelonDSAndroid::isAudioFastForwarding());
 
     // When muted (fast-forward with the mute setting on), the SPU output was still read above and is
     // discarded here. Leaving it in the SPU buffer would play it as a stale burst once fast-forward ends
@@ -63,6 +69,7 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
 
 void OboeCallback::onErrorAfterClose(oboe::AudioStream* stream, oboe::Result result)
 {
+    AudioDiagnostics::onStreamError(result);
     if (result == oboe::Result::ErrorDisconnected && onErrorCallback != nullptr) {
         onErrorCallback(stream);
     }

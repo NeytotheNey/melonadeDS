@@ -577,6 +577,11 @@ void MelonInstance::setAudioOutputSkew(double skew)
     nds->SPU.SetOutputSkew(skew);
 }
 
+int MelonInstance::getAudioOutputBufferFill()
+{
+    return nds->SPU.GetOutputSize();
+}
+
 bool MelonInstance::takeScreenshot()
 {
     return screenshotRenderer->takeScreenshot();

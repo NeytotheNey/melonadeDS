@@ -27,6 +27,11 @@ object DebugLog {
     fun setEnabled(enabled: Boolean) {
         isEnabled = enabled
         MelonEmulator.setDebugLogEnabled(enabled)
+        if (enabled) {
+            synchronized(currentStates) {
+                currentStates.forEach { (key, value) -> Log.i(TAG, "$key: $value") }
+            }
+        }
     }
 
     /**
@@ -35,6 +40,21 @@ object DebugLog {
     inline fun event(message: () -> String) {
         if (isEnabled) {
             Log.i(TAG, message())
+        }
+    }
+
+    // Last value reported through stateChange() for each key, kept while the debug log is off so that a new recording starts with them
+    private val currentStates = LinkedHashMap<String, String>()
+
+    /**
+     * Logs "[key]: [value]" if [value] differs from the last value reported for [key], such as the fold posture or the display in use.
+     */
+    fun stateChange(key: String, value: String) {
+        synchronized(currentStates) {
+            if (currentStates.put(key, value) == value || !isEnabled) {
+                return
+            }
+            Log.i(TAG, "$key: $value")
         }
     }
 

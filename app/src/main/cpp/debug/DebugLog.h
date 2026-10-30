@@ -29,7 +29,8 @@ void setEnabled(bool isEnabled);
 void logCoreMessage(melonDS::Platform::LogLevel level, const char* format, va_list args);
 
 /**
- * Called on the emulator thread after every frame while the debug log is on. Logs a CPU heartbeat and the GPU state once per second, and logs
+ * Called on the emulator thread after every frame while the debug log is on. Logs a CPU heartbeat, the GPU state and the audio stats (see
+ * AudioDiagnostics) once per second, and logs
  * right away (rate limited) when a CPU enters an abort/undefined mode, stops at an exception vector or is about to run code below 0x20 that isn't
  * a vector (a null pointer call), or when the VRAM or display setup changes.
  */

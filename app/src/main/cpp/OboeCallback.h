@@ -4,6 +4,7 @@
 #include <oboe/Oboe.h>
 #include <fstream>
 #include "MelonInstance.h"
+#include "debug/AudioDiagnostics.h"
 
 class OboeCallback : public oboe::AudioStreamCallback {
 private:
@@ -11,6 +12,7 @@ private:
     void (*onErrorCallback)(oboe::AudioStream* stream);
     std::ostream* _recordingStream;
     float audioSampleFrac;
+    AudioDiagnostics::CallbackClock diagnosticsClock;
 
 public:
     std::weak_ptr<MelonDSAndroid::MelonInstance> activeInstance;

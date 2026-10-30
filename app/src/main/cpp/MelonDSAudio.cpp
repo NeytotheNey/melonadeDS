@@ -1,5 +1,6 @@
 #include "MelonDSAudio.h"
 #include "MicInputOboeCallback.h"
+#include "debug/AudioDiagnostics.h"
 #include "mic_blow.h"
 #include "OboeCallback.h"
 #include <oboe/Oboe.h>
@@ -39,8 +40,9 @@ namespace MelonDSAndroid
 
     void resetAudioOutputStream(oboe::AudioStream* erroredStream);
 
-    // setupAudioOutputStream(), cleanupAudioOutputStream() and recreateAudioOutputStream() must be called with audioOutputMutex held
-    void setupAudioOutputStream(int audioLatency, int volume)
+    // setupAudioOutputStream(), cleanupAudioOutputStream() and recreateAudioOutputStream() must be called with audioOutputMutex held. [reason]
+    // is for the audio diagnostics
+    void setupAudioOutputStream(int audioLatency, int volume, const char* reason)
     {
         oboe::PerformanceMode performanceMode;
         switch (audioLatency) {
@@ -77,15 +79,18 @@ namespace MelonDSAndroid
         if (result != oboe::Result::OK) {
             Log(Error, "Failed to init audio stream");
             outputCallback = nullptr;
+            AudioDiagnostics::onStreamOpenFailed(result, audioLatency, reason);
         } else {
             audioStream->setPerformanceHintEnabled(true);
             audioStream->setBufferSizeInFrames(std::min(audioStream->getBufferCapacityInFrames(), 2048));
+            AudioDiagnostics::onStreamOpened(*audioStream, audioLatency, reason);
         }
     }
 
     void cleanupAudioOutputStream()
     {
         if (audioStream) {
+            AudioDiagnostics::onStreamClosing(*audioStream);
             oboe::StreamState state = audioStream->getState();
             if (state < oboe::StreamState::Closing) {
                 audioStream->requestStop();
@@ -101,10 +106,10 @@ namespace MelonDSAndroid
         }
     }
 
-    void recreateAudioOutputStream(int audioLatency, int volume)
+    void recreateAudioOutputStream(int audioLatency, int volume, const char* reason)
     {
         cleanupAudioOutputStream();
-        setupAudioOutputStream(audioLatency, volume);
+        setupAudioOutputStream(audioLatency, volume, reason);
     }
 
     // Starts the output stream. Must be called with audioOutputMutex held. A stream that got
@@ -113,14 +118,24 @@ namespace MelonDSAndroid
     void startAudioOutputStream(int audioLatency, int volume)
     {
         if (audioStream && audioStream->getState() == oboe::StreamState::Disconnected) {
-            recreateAudioOutputStream(audioLatency, volume);
+            recreateAudioOutputStream(audioLatency, volume, "disconnected while stopped");
         }
 
-        if (audioStream && audioStream->requestStart() == oboe::Result::ErrorDisconnected) {
-            recreateAudioOutputStream(audioLatency, volume);
-            if (audioStream)
-                audioStream->requestStart();
+        if (!audioStream)
+            return;
+
+        AudioDiagnostics::onStreamStarting();
+        oboe::Result result = audioStream->requestStart();
+        if (result == oboe::Result::ErrorDisconnected) {
+            recreateAudioOutputStream(audioLatency, volume, "disconnected on start");
+            if (!audioStream)
+                return;
+            AudioDiagnostics::onStreamStarting();
+            result = audioStream->requestStart();
         }
+
+        if (result == oboe::Result::OK)
+            AudioDiagnostics::onStreamStarted();
     }
 
     void resetAudioOutputStream(oboe::AudioStream* erroredStream)
@@ -133,10 +148,23 @@ namespace MelonDSAndroid
         if (erroredStream != audioStream.get())
             return;
 
-        recreateAudioOutputStream(currentAudioSettings.audioLatency, currentAudioSettings.volume);
+        recreateAudioOutputStream(currentAudioSettings.audioLatency, currentAudioSettings.volume, "restart after error");
         if (audioStream && isAudioRunning) {
-            audioStream->requestStart();
+            AudioDiagnostics::onStreamStarting();
+            if (audioStream->requestStart() == oboe::Result::OK)
+                AudioDiagnostics::onStreamStarted();
         }
+    }
+
+    bool pollAudioOutputXRuns()
+    {
+        std::unique_lock<std::mutex> lock(audioOutputMutex, std::try_to_lock);
+        if (!lock.owns_lock())
+            return false;
+
+        if (audioStream)
+            AudioDiagnostics::onXRunCount(*audioStream);
+        return true;
     }
 
     // MICROPHONE
@@ -299,7 +327,7 @@ namespace MelonDSAndroid
         currentAudioSettings = audioSettings;
 
         if (audioSettings.soundEnabled)
-            setupAudioOutputStream(audioSettings.audioLatency, audioSettings.volume);
+            setupAudioOutputStream(audioSettings.audioLatency, audioSettings.volume, "setup");
 
         if (audioSettings.micSource == 2)
             setupMicInputStream();
@@ -313,10 +341,10 @@ namespace MelonDSAndroid
 
         if (audioSettings.soundEnabled && audioSettings.volume > 0) {
             if (!audioStream) {
-                setupAudioOutputStream(audioSettings.audioLatency, audioSettings.volume);
+                setupAudioOutputStream(audioSettings.audioLatency, audioSettings.volume, "settings change");
             } else if (currentAudioSettings.audioLatency != audioSettings.audioLatency || currentAudioSettings.volume != audioSettings.volume) {
                 // Recreate audio stream with new settings
-                recreateAudioOutputStream(audioSettings.audioLatency, audioSettings.volume);
+                recreateAudioOutputStream(audioSettings.audioLatency, audioSettings.volume, "settings change");
             }
 
             // A newly created stream is stopped. Start it if audio is supposed to be playing. Don't
@@ -353,6 +381,11 @@ namespace MelonDSAndroid
         return isAudioFastForwardActive.load(std::memory_order_relaxed) && muteFastForwardAudio.load(std::memory_order_relaxed);
     }
 
+    bool isAudioFastForwarding()
+    {
+        return isAudioFastForwardActive.load(std::memory_order_relaxed);
+    }
+
     void setAudioActiveInstance(std::shared_ptr<MelonInstance> instance)
     {
         std::lock_guard<std::mutex> lock(audioOutputMutex);
@@ -384,7 +417,7 @@ namespace MelonDSAndroid
         // A device disconnect closes the stream, and reopening it can fail while the app is in the
         // background. Try again now, otherwise audio stays off for the rest of the session
         if (!audioStream && currentAudioSettings.soundEnabled && currentAudioSettings.volume > 0)
-            setupAudioOutputStream(currentAudioSettings.audioLatency, currentAudioSettings.volume);
+            setupAudioOutputStream(currentAudioSettings.audioLatency, currentAudioSettings.volume, "reopen on start");
 
         startAudioOutputStream(currentAudioSettings.audioLatency, currentAudioSettings.volume);
 
@@ -397,8 +430,10 @@ namespace MelonDSAndroid
 
         isAudioRunning = false;
 
-        if (audioStream)
+        if (audioStream) {
             audioStream->requestPause();
+            AudioDiagnostics::onStreamPaused();
+        }
 
         if (micInputStream)
             micInputStream->requestStop();

@@ -1,6 +1,7 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <jni.h>
+#include <algorithm>
 #include <atomic>
 #include <string>
 #include <sstream>
@@ -24,6 +25,7 @@
 #include "performancehint/ThreadSafePerformanceHintSession.h"
 #include "performancehint/PerformanceHintManagerFactory.h"
 #include "perf/FrameSampleRing.h"
+#include "debug/AudioDiagnostics.h"
 #include "debug/DebugLog.h"
 #include "renderer/FramePacing.h"
 
@@ -74,13 +76,16 @@ static const int64_t FRAME_DURATION_1000FPS_NS = 1000000; // 1ms. Used as frame 
 ThreadSafePerformanceHintSession* performanceHintSession = nullptr;
 
 // Performance logging. Each frame sample contains: frame end timestamp, work duration, sleep duration, interval since the previous frame end (all in
-// ns), emulated line count and flags. 16384 samples are enough for over 1 second of emulation at 16x speed between each drain. The field count
-// and the flags must match MelonEmulator.PERF_FRAME_*
-static constexpr std::size_t PERF_FRAME_SAMPLE_FIELDS = 6;
+// ns), emulated line count, flags, audio buffer fill (frames, after the frame's sleep) and audio silence frames (filled by the output callback
+// since the previous sample). 16384 samples are enough for over 1 second of emulation at 16x speed between each drain. The field count and the
+// flags must match MelonEmulator.PERF_FRAME_*
+static constexpr std::size_t PERF_FRAME_SAMPLE_FIELDS = 8;
 static const int64_t PERF_FRAME_FLAG_FAST_FORWARD = 1;
 static const int64_t PERF_FRAME_FLAG_AFTER_PAUSE = 2;
 // The frame's start was locked to the display's vsync grid. The refresh divisor (N) of locked frames is stored in the flags as well
 static const int64_t PERF_FRAME_FLAG_PACING_LOCKED = 4;
+// The audio buffer was full after the frame, so some of its samples were dropped
+static const int64_t PERF_FRAME_FLAG_AUDIO_BUFFER_FULL = 8;
 static const int PERF_FRAME_PACING_DIVISOR_SHIFT = 8;
 // Returned by getPerformanceEmulationStateFlags(). Must match MelonEmulator.PERF_STATE_FLAG_*
 static const jint PERF_STATE_FLAG_PAUSED = 1;
@@ -380,6 +385,7 @@ Java_me_magnum_melonds_MelonEmulator_setPerformanceCaptureEnabled(JNIEnv* env, j
         // Drop samples left over from a previous capture. This must be called from the same thread that drains the samples
         perfFrameSamples.discardAll();
     }
+    AudioDiagnostics::setPerfCaptureEnabled(enabled);
     isPerfCaptureEnabled = enabled;
 }
 
@@ -405,6 +411,44 @@ JNIEXPORT jlong JNICALL
 Java_me_magnum_melonds_MelonEmulator_getDroppedPerformanceFrameSampleCount(JNIEnv* env, jobject thiz)
 {
     return (jlong) perfFrameSamples.getDroppedSampleCount();
+}
+
+JNIEXPORT void JNICALL
+Java_me_magnum_melonds_MelonEmulator_getAudioDiagnosticsTotals(JNIEnv* env, jobject thiz, jlongArray totals)
+{
+    int64_t values[AudioDiagnostics::TOTAL_COUNT];
+    AudioDiagnostics::getTotals(values);
+    jsize count = std::min(env->GetArrayLength(totals), (jsize) AudioDiagnostics::TOTAL_COUNT);
+    env->SetLongArrayRegion(totals, 0, count, (const jlong*) values);
+}
+
+JNIEXPORT jstring JNICALL
+Java_me_magnum_melonds_MelonEmulator_getAudioStreamInfo(JNIEnv* env, jobject thiz)
+{
+    char info[AudioDiagnostics::MAX_STREAM_INFO_LENGTH];
+    if (AudioDiagnostics::getStreamInfo(info, sizeof(info)) == 0)
+        return nullptr;
+    return env->NewStringUTF(info);
+}
+
+JNIEXPORT jint JNICALL
+Java_me_magnum_melonds_MelonEmulator_drainAudioStreamEvents(JNIEnv* env, jobject thiz, jlongArray timestamps, jobjectArray names, jobjectArray details)
+{
+    AudioDiagnostics::StreamEvent events[AudioDiagnostics::MAX_PENDING_EVENTS];
+    std::size_t maxEvents = std::min({ (std::size_t) env->GetArrayLength(timestamps), (std::size_t) env->GetArrayLength(names), (std::size_t) env->GetArrayLength(details), AudioDiagnostics::MAX_PENDING_EVENTS });
+    std::size_t count = AudioDiagnostics::takeEvents(events, maxEvents);
+    for (std::size_t i = 0; i < count; i++)
+    {
+        jlong timestamp = events[i].timestampNs;
+        env->SetLongArrayRegion(timestamps, (jsize) i, 1, &timestamp);
+        jstring name = env->NewStringUTF(events[i].name);
+        jstring detail = env->NewStringUTF(events[i].detail);
+        env->SetObjectArrayElement(names, (jsize) i, name);
+        env->SetObjectArrayElement(details, (jsize) i, detail);
+        env->DeleteLocalRef(name);
+        env->DeleteLocalRef(detail);
+    }
+    return (jint) count;
 }
 
 JNIEXPORT jint JNICALL
@@ -905,11 +949,13 @@ static double runTimerLimiter(double& frameLimitError, u32 nLines, double delay,
  * Records the frame that just ran for the performance logger. [frameBeginTick], [frameEndTick] and [sleepDuration] are in ms. [isFrameLocked]
  * and [frameDivisor] are whether the frame started on the vsync grid, and its refresh divisor.
  */
-static void pushPerfSample(double frameBeginTick, double frameEndTick, int64_t workNs, double sleepDuration, u32 nLines, bool isFirstFrameAfterPause, bool isFrameLocked, int frameDivisor)
+static void pushPerfSample(double frameBeginTick, double frameEndTick, int64_t workNs, double sleepDuration, u32 nLines, bool isFirstFrameAfterPause, bool isFrameLocked, int frameDivisor, const AudioDiagnostics::FrameSample& audioSample)
 {
     int64_t flags = (isFastForwardEnabled.load(std::memory_order_relaxed) ? PERF_FRAME_FLAG_FAST_FORWARD : 0) | (isFirstFrameAfterPause ? PERF_FRAME_FLAG_AFTER_PAUSE : 0);
     if (isFrameLocked)
         flags |= PERF_FRAME_FLAG_PACING_LOCKED | ((int64_t) frameDivisor << PERF_FRAME_PACING_DIVISOR_SHIFT);
+    if (audioSample.isBufferFull)
+        flags |= PERF_FRAME_FLAG_AUDIO_BUFFER_FULL;
 
     const int64_t sample[PERF_FRAME_SAMPLE_FIELDS] = {
         (int64_t) (frameEndTick * 1000000.0),
@@ -918,6 +964,8 @@ static void pushPerfSample(double frameBeginTick, double frameEndTick, int64_t w
         (int64_t) ((frameEndTick - frameBeginTick) * 1000000.0),
         (int64_t) nLines,
         flags,
+        audioSample.fill,
+        audioSample.silenceFrames,
     };
     perfFrameSamples.push(sample);
 }
@@ -1055,6 +1103,9 @@ void* emulate(void*)
         u32 nLines = MelonDSAndroid::loop(frameDueNs);
 
         int64_t workNs = std::chrono::nanoseconds(std::chrono::steady_clock::now() - frameStart).count();
+        // The audio buffer's high point, before the frame's sleep drains it
+        bool isAudioDiagnosticsEnabled = AudioDiagnostics::isEnabled();
+        int audioFillAfterFrame = isAudioDiagnosticsEnabled ? MelonDSAndroid::getAudioOutputBufferFill() : 0;
         if (performanceHintSession != nullptr)
         {
             // The 2D thread starts or stops at the start of a frame (when the setting changes), and its ID is known once it runs
@@ -1101,8 +1152,12 @@ void* emulate(void*)
             lastTick = getCurrentMillis();
         }
 
+        AudioDiagnostics::FrameSample audioSample;
+        if (isAudioDiagnosticsEnabled) [[unlikely]]
+            audioSample = AudioDiagnostics::onFrame(audioFillAfterFrame, MelonDSAndroid::getAudioOutputBufferFill());
+
         if (isPerfCaptureEnabled.load(std::memory_order_relaxed)) [[unlikely]]
-            pushPerfSample(frameBeginTick, lastTick, workNs, sleepDuration, nLines, isFirstFrameAfterPause, isFrameLocked, frameDivisor);
+            pushPerfSample(frameBeginTick, lastTick, workNs, sleepDuration, nLines, isFirstFrameAfterPause, isFrameLocked, frameDivisor, audioSample);
         isFirstFrameAfterPause = false;
 
         if (DebugLog::isEnabled()) [[unlikely]]

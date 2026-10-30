@@ -20,16 +20,31 @@ import java.nio.ByteBuffer
 
 object MelonEmulator {
     // The perf frame sample layout and the flags must match PERF_FRAME_* and PERF_STATE_FLAG_* in MelonDSAndroidJNI.cpp
-    const val PERF_FRAME_SAMPLE_FIELDS = 6
+    const val PERF_FRAME_SAMPLE_FIELDS = 8
     const val PERF_FRAME_FLAG_FAST_FORWARD = 1L
     const val PERF_FRAME_FLAG_AFTER_PAUSE = 2L
     const val PERF_FRAME_FLAG_PACING_LOCKED = 4L
+    const val PERF_FRAME_FLAG_AUDIO_BUFFER_FULL = 8L
     // Locked frames also store their refresh divisor (how many display refreshes each frame lasts) in these bits of the flags
     const val PERF_FRAME_PACING_DIVISOR_SHIFT = 8
     const val PERF_FRAME_PACING_DIVISOR_MASK = 0xFFL
     const val PERF_STATE_FLAG_PAUSED = 1
     const val PERF_STATE_FLAG_DS_SLEEP = 2
     const val PERF_STATE_FLAG_FAST_FORWARD = 4
+    // The layout of getAudioDiagnosticsTotals() must match AudioDiagnostics::Total in AudioDiagnostics.h
+    const val AUDIO_TOTAL_CALLBACKS = 0
+    const val AUDIO_TOTAL_CALLBACK_FRAMES = 1
+    const val AUDIO_TOTAL_UNDERRUN_CALLBACKS = 2
+    const val AUDIO_TOTAL_SILENCE_FRAMES = 3
+    const val AUDIO_TOTAL_MAX_CALLBACK_GAP_NS = 4
+    const val AUDIO_TOTAL_MAX_CALLBACK_FRAMES = 5
+    const val AUDIO_TOTAL_XRUNS = 6
+    const val AUDIO_TOTAL_STREAM_OPENS = 7
+    const val AUDIO_TOTAL_STREAM_ERRORS = 8
+    const val AUDIO_TOTAL_FAST_FORWARD_UNDERRUN_CALLBACKS = 9
+    const val AUDIO_TOTAL_FAST_FORWARD_SILENCE_FRAMES = 10
+    const val AUDIO_TOTAL_COUNT = 11
+    const val AUDIO_MAX_STREAM_EVENTS = 32
 
     enum class LoadResult(val isTerminal: Boolean) {
         SUCCESS(false),
@@ -167,8 +182,9 @@ object MelonEmulator {
     /**
      * Copies pending frame samples into [buffer] and returns the number of samples copied. Each sample takes [PERF_FRAME_SAMPLE_FIELDS] entries:
      * frame end timestamp (ns, CLOCK_MONOTONIC), work duration (ns), sleep duration (ns), interval since the previous frame end (ns), emulated line
-     * count and flags ([PERF_FRAME_FLAG_FAST_FORWARD], [PERF_FRAME_FLAG_AFTER_PAUSE], [PERF_FRAME_FLAG_PACING_LOCKED] and the refresh divisor
-     * at [PERF_FRAME_PACING_DIVISOR_SHIFT]).
+     * count, flags ([PERF_FRAME_FLAG_FAST_FORWARD], [PERF_FRAME_FLAG_AFTER_PAUSE], [PERF_FRAME_FLAG_PACING_LOCKED], the refresh divisor at
+     * [PERF_FRAME_PACING_DIVISOR_SHIFT] and [PERF_FRAME_FLAG_AUDIO_BUFFER_FULL]), the audio buffer fill after the frame's sleep (frames) and the
+     * frames the audio callback filled with silence or repeats since the previous sample.
      */
     external fun drainPerformanceFrameSamples(buffer: LongArray): Int
 
@@ -176,6 +192,24 @@ object MelonEmulator {
      * Number of frame samples that were dropped because the capture buffer was full since capture was last enabled.
      */
     external fun getDroppedPerformanceFrameSampleCount(): Long
+
+    /**
+     * Fills [totals] ([AUDIO_TOTAL_COUNT] entries, see AUDIO_TOTAL_*) with the audio output counters. They're only counted while the debug log
+     * or a performance capture is on, and add up over the whole process, apart from the maxima, which restart with each capture. The xrun count
+     * is -1 if no stream could report it.
+     */
+    external fun getAudioDiagnosticsTotals(totals: LongArray)
+
+    /**
+     * The audio output stream's facts as space-separated key=value pairs, or null if no stream is open.
+     */
+    external fun getAudioStreamInfo(): String?
+
+    /**
+     * Takes the audio stream events (opens, open failures, errors) recorded since the performance capture started, up to the size of the
+     * arrays. Fills [timestamps] (ns, CLOCK_MONOTONIC), [names] and [details], and returns how many there were.
+     */
+    external fun drainAudioStreamEvents(timestamps: LongArray, names: Array<String?>, details: Array<String?>): Int
 
     /**
      * Current emulation state as [PERF_STATE_FLAG_PAUSED], [PERF_STATE_FLAG_DS_SLEEP] and [PERF_STATE_FLAG_FAST_FORWARD] flags. Used by the
