@@ -77,6 +77,14 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     __system_property_get("debug.melonade.defercap", defercapProperty);
     nds->GPU.DeferCapture2D = defercapProperty[0] != '0';
 
+    // `adb shell setprop debug.melonade.earlyflush 0` before starting a game stops the glFlush after the 3D frame (line 215) and its
+    // capture readback (line 0) while display capture lines are held, so they wait for the frame-end flush again, for A/B tests.
+    // Unset or 1 keeps the early flushes
+    char earlyflushProperty[PROP_VALUE_MAX] = {};
+    __system_property_get("debug.melonade.earlyflush", earlyflushProperty);
+    nds->GPU.EarlyFlushCapture = earlyflushProperty[0] != '0';
+    Platform::Log(Platform::LogLevel::Info, "Debug switches: defercap=%d earlyflush=%d\n", nds->GPU.DeferCapture2D, nds->GPU.EarlyFlushCapture);
+
     // `adb shell setprop debug.melonade.threaded2d 1` (or 0) forces threaded 2D on (or off) over the setting, for testing. Clear it with an
     // empty value: `adb shell setprop debug.melonade.threaded2d ""`
     char threaded2dProperty[PROP_VALUE_MAX] = {};
