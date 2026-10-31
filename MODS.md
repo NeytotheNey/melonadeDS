@@ -121,4 +121,5 @@ OpenGL, and so all WideMelon output, is phone-only: the emulator has no GLES 3.2
 ## Remaining
 
 - On-disk script savestate slots, if anyone asks.
+- WideMelon on the software renderer is shelved; notes in `WIDEMELON-SOFTWARE.md`.
 - Smaller ideas: a pause-menu widescreen/layout toggle (the core handles a width change), filling transparent wings with the 2D backdrop.
