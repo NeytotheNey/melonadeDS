@@ -2,7 +2,9 @@
 
 ## Status (2026-10-31)
 
-All four batches are coded, reviewed and compile (host build of the core, GLSL validated with glslang). Core branch `claude/friendly-heisenberg-3eipz2` at `ec83461`, 17 commits on top of `melonade` (e72c421); melonadeDS's submodule points at it. **Not yet done: the Android build and every phone check below.** Do those before merging the core branch into `melonade`.
+All four batches are coded, reviewed and compile (host build of the core, GLSL validated with glslang). Core branch `claude/friendly-heisenberg-3eipz2` at `87594b0`, 19 commits on top of `melonade` (8b1f1cd, which already carries compute WideMelon, the OpenGL depth-equal margin, the compute overflow/rebuild/framebuffer fixes and the capture readback wait); melonadeDS's submodule points at it, on top of `material3` (efd458c).
+
+The pre-rebase branch (core e72c421 + 17 commits) passed on the phone (SM-F971U, Android 17): arm64 build, 140 unit tests, Migration4to5Test, GL and compute shaders linked on first start, HASH2D threaded on/off matched over ~2,890 frames on GL and on compute, v13 states rejected cleanly, v14 save/load worked, soft/GL/compute switching mid-game had no crash; no game logged DISP3DCNT bit 14. The rebase changed three things that need a **retest**: the two-program GL shader is re-applied over the depth-margin code (each draw now sets its own depth bias explicitly), the compute clear bitmap addresses native pixels with the WideMelon X origin fold like the GL path, and the compute capture-framebuffer fix came from `melonade` instead of this branch.
 
 Phone checklist, in order:
 1. Build arm64, install. First GL and compute start: both renderers' shaders link (look for `RenderShaderZ`/`RenderShaderW`/`ClearShaderBitmap` errors in the log).
