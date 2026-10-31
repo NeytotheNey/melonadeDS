@@ -1,5 +1,20 @@
 # Plan: borrow from upstream's blackmagic3, don't port it
 
+## Status (2026-10-31)
+
+All four batches are coded, reviewed and compile (host build of the core, GLSL validated with glslang). Core branch `claude/friendly-heisenberg-3eipz2` at `ec83461`, 17 commits on top of `melonade` (e72c421); melonadeDS's submodule points at it. **Not yet done: the Android build and every phone check below.** Do those before merging the core branch into `melonade`.
+
+Phone checklist, in order:
+1. Build arm64, install. First GL and compute start: both renderers' shaders link (look for `RenderShaderZ`/`RenderShaderW`/`ClearShaderBitmap` errors in the log).
+2. Batch 2 measurement: White 2 usual spot, OpenGL 4x, `_summary.txt` + simpleperf vs the 10-28 clean A/B. Expect less GPU/CPU time per frame from the dirty-only texture upload and the frame skip; if nothing moves, say so in `PERF-NOTES.md` and keep the change anyway (it is also a correctness improvement for unmapped slots).
+3. HASH2D threaded on vs off: must still match (Batch 4 moved state into the snapshot).
+4. Savestate save/load and rewind across the `SAVESTATE_MAJOR` 13→14 bump (old states are rejected, as intended).
+5. Renderer switch soft↔GL↔compute mid-game (dirty bits are now consumed by every renderer; the software 3D renderer forces one frame after a switch).
+6. Before/after screenshots: White 2 overworld gradient (green LSB), a mosaic-heavy scene (Batch 4 sprite order and mosaic latch), the capture scene at 60 fps.
+7. Watch the log for `DISP3DCNT bit 14` to find a clear-bitmap game, then compare soft vs GL vs compute there.
+
+Follow-ups found on the way (not done): the parked VCount state machine would also give the 9-bit mask on `SetVCount` byte writes; upstream reloads affine refs at HBlank 262 only for enabled layers, ours reloads both at line 0.
+
 ## Context
 
 Upstream melonDS merged "blackmagic3" (PR #2553, 172 commits) on 2026-01-31. It is mainly a **new OpenGL 2D renderer** (`GPU2D_OpenGL.cpp`, ~1.9k lines plus ~1k lines of 2D GLSL) and a restructure where one `Renderer` object owns both 2D units and the 3D renderer. On top of that it adds hi-res display capture, 3D clear bitmap support, some 2D accuracy fixes, a more accurate VCount state machine and POWCNT1 bit 0.
