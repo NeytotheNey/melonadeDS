@@ -12,15 +12,6 @@
                 android:defaultValue="true" />
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="@string/settings_section_rendering">
-
-        <SwitchPreference
-                android:key="enable_threaded_rendering"
-                android:title="@string/threaded_rendering"
-                android:summary="@string/threaded_rendering_summary"
-                android:defaultValue="true" />
-    </PreferenceCategory>
-
     <PreferenceCategory
             android:key="category_performance_device"
             android:title="@string/settings_section_device">

@@ -23,7 +23,14 @@
                 android:defaultValue="1"/>
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="@string/settings_section_2d_rendering">
+    <PreferenceCategory android:title="@string/settings_section_threading">
+
+        <!-- Only used by the software renderer, so it's turned off for the others (set up in VideoPreferencesFragment) -->
+        <SwitchPreference
+                android:key="enable_threaded_rendering"
+                android:title="@string/threaded_rendering"
+                android:summary="@string/threaded_rendering_summary"
+                android:defaultValue="true" />
 
         <SwitchPreference
                 android:key="video_threaded_2d"

@@ -173,7 +173,7 @@
     <string name="settings_about">About</string>
     <string name="settings_about_summary">Version, credits and licences</string>
     <string name="settings_section_3d_rendering">3D rendering</string>
-    <string name="settings_section_2d_rendering">2D rendering</string>
+    <string name="settings_section_threading">Threading</string>
     <string name="settings_section_image">Image</string>
     <string name="settings_section_on_screen_info">On-screen info</string>
     <string name="settings_section_frame_pacing">Frame pacing</string>
@@ -184,7 +184,6 @@
     <string name="settings_section_quality">Quality</string>
     <string name="settings_section_microphone">Microphone</string>
     <string name="settings_section_emulation">Emulation</string>
-    <string name="settings_section_rendering">Rendering</string>
     <string name="settings_section_device">Device</string>
     <string name="settings_section_speed">Speed</string>
     <string name="settings_section_diagnostics">Diagnostics</string>
@@ -201,7 +200,7 @@
     <string name="settings_section_look">Look</string>
     <string name="settings_section_backup_restore">Back up and restore</string>
     <string name="custom_bios_firmware_summary">Use your own DS and DSi BIOS and firmware</string>
-    <string name="threaded_rendering_software_only">Only used by the Software renderer. Change the renderer in Display.</string>
+    <string name="threaded_rendering_software_only">Only used by the Software renderer.</string>
     <string name="backup_settings_summary">Save settings, controls, layouts and game settings to a folder</string>
     <string name="restore_settings_summary">Load them back from a backup folder</string>
     <string name="settings_restore_confirmation">Your settings, controls, custom layouts and game settings will be replaced with the ones in the backup folder you pick. Your RetroAchievements login, ROM and save folders and BIOS folders stay as they are.\n\nmelonadeDS restarts when it\'s done, which closes any game that\'s running.</string>
@@ -265,13 +264,13 @@
     <string name="settings_backup_error">Failed to backup settings</string>
     <string name="settings_restore_success">Settings restored.\n\nThe following were unchanged:\n&#8226; RetroAchievements session\n&#8226; ROM/save directories\n&#8226; DS BIOS directory\n&#8226; DSi BIOS directory</string>
     <string name="settings_restore_error">Failed to restore settings</string>
-    <string name="threaded_rendering">Threaded rendering</string>
+    <string name="threaded_rendering">Threaded 3D rendering</string>
     <string name="fps_counter_position">FPS counter position</string>
     <string name="show_status_bar">Show status bar</string>
     <string name="show_status_bar_summary">Show the clock and battery while playing</string>
-    <string name="threaded_rendering_summary">Improves performance on 3D games when enabled but may cause graphical glitches.</string>
+    <string name="threaded_rendering_summary">Draws 3D on extra CPU cores. Software renderer only. Faster, but can cause glitches.</string>
     <string name="threaded_2d_rendering">Threaded 2D rendering</string>
-    <string name="threaded_2d_rendering_summary">Draw the 2D graphics on another CPU core, which leaves more time for emulation</string>
+    <string name="threaded_2d_rendering_summary">Draws 2D on a separate CPU core, leaving more time for emulation. Works with any renderer.</string>
     <string name="filter">Filter</string>
     <string name="ds_screen_colors">DS screen colours</string>
     <string name="screen_shadow">Screen shadow</string>

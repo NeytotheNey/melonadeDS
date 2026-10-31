@@ -7,6 +7,7 @@ import androidx.core.content.getSystemService
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
+import androidx.preference.SwitchPreference
 import dagger.hilt.android.AndroidEntryPoint
 import me.magnum.melonds.R
 import me.magnum.melonds.common.PreferenceKeys
@@ -24,12 +25,15 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
     // Only the OpenGL and compute renderers have an internal resolution
     private lateinit var internalResolutionPreference: Preference
     private lateinit var renderingCategory: PreferenceCategory
+    // Threaded 3D rendering is only used by the software renderer
+    private lateinit var threadedRenderingPreference: SwitchPreference
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.pref_video, rootKey)
         renderingCategory = findPreference(PreferenceKeys.CATEGORY_DISPLAY_3D_RENDERING)!!
 
         internalResolutionPreference = findPreference("video_internal_resolution")!!
+        threadedRenderingPreference = findPreference("enable_threaded_rendering")!!
 
         val rendererPreference = findPreference<ListPreference>("video_renderer")!!
 
@@ -65,7 +69,12 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
 
     private fun onRendererPreferenceChanged(rendererValue: String) {
         val newRenderer = enumValueOfIgnoreCase<VideoRenderer>(rendererValue)
-        internalResolutionPreference.isVisible = newRenderer != VideoRenderer.SOFTWARE
+        val isSoftwareRenderer = newRenderer == VideoRenderer.SOFTWARE
+        internalResolutionPreference.isVisible = !isSoftwareRenderer
+        threadedRenderingPreference.isEnabled = isSoftwareRenderer
+        threadedRenderingPreference.setSummary(
+            if (isSoftwareRenderer) R.string.threaded_rendering_summary else R.string.threaded_rendering_software_only
+        )
         // The renderer option is hidden on devices without GLES 3.2, which can leave the section empty
         updateGroupVisibility(renderingCategory)
     }
