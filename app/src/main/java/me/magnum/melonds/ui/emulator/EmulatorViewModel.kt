@@ -976,9 +976,10 @@ class EmulatorViewModel @Inject constructor(
      */
     private suspend fun getWidescreenLaunch(rom: Rom): WidescreenLaunch {
         val mods = rom.config.mods
-        val isOpenGlRenderer = settingsRepository.getVideoRenderer().first() == VideoRenderer.OPENGL
+        // The software renderer only does the normal width
+        val isWideRenderer = settingsRepository.getVideoRenderer().first() != VideoRenderer.SOFTWARE
         val wideLayout = mods.wideLayoutId?.let { layoutsRepository.getLayout(it) }
-        return WidescreenLaunch.resolve(mods, wideLayout, isOpenGlRenderer)
+        return WidescreenLaunch.resolve(mods, wideLayout, isWideRenderer)
     }
 
     private fun getGlobalLayoutFlow(): Flow<LayoutConfiguration> {

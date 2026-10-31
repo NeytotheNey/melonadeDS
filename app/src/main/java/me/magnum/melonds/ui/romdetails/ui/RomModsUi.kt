@@ -122,10 +122,10 @@ private fun WidescreenSection(
         color = MaterialTheme.colorScheme.primary,
     )
 
-    // The width is still kept, for when the renderer is switched to OpenGL
+    // The width is still kept, for when the renderer is switched to OpenGL or Compute
     if (!romConfig.isWidescreenSupported) {
         CaptionText(
-            text = stringResource(id = R.string.widescreen_needs_opengl),
+            text = stringResource(id = R.string.widescreen_needs_hardware_renderer),
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
     }

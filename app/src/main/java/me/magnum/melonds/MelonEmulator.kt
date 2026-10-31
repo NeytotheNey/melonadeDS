@@ -287,7 +287,7 @@ object MelonEmulator {
 
     /**
      * A new width for the top screen's 3D view during play (like EmulatorConfiguration.wideViewWidth, 0 for the normal width). Applied before
-     * the next frame. Only the OpenGL renderer uses it
+     * the next frame. Only the OpenGL and Compute renderers use it
      */
     external fun setWideViewWidth(width: Int)
 }

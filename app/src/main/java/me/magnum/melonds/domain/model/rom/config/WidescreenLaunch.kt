@@ -9,8 +9,8 @@ import java.util.UUID
  * switching renderer mid-game only changes how the frame fits in the layout's rect. The width itself follows the layout shown (see
  * [getViewWidth]).
  *
- * @param automaticViewWidth The Mods tab's width, used with a normal layout. 0 when the session is never wide (widescreen off, or another
- * renderer than OpenGL at launch)
+ * @param automaticViewWidth The Mods tab's width, used with a normal layout. 0 when the session is never wide (widescreen off, or the
+ * software renderer at launch)
  * @param wideLayoutId The wide layout the game uses instead of its normal one, or null to use the normal one
  * @param viewWidth The width the game starts at (EmulatorConfiguration.wideViewWidth), or 0 for the normal width. The variant shown isn't
  * known yet then, so a wide layout starts at its ratio if all its wide variants share one, and the width is corrected once it's shown
@@ -39,12 +39,12 @@ data class WidescreenLaunch(val automaticViewWidth: Int, val wideLayoutId: UUID?
         val OFF = WidescreenLaunch(0, null, 0)
 
         /**
-         * With widescreen on and the OpenGL renderer, the game's wide layout if [wideLayout] (what RomModsConfig.wideLayoutId points to, or
+         * With widescreen on and the OpenGL or Compute renderer, the game's wide layout if [wideLayout] (what RomModsConfig.wideLayoutId points to, or
          * null if it wasn't found) is still wide. Otherwise the normal layout, with the Mods tab's own ratio
          */
-        fun resolve(mods: RomModsConfig, wideLayout: LayoutConfiguration?, isOpenGlRenderer: Boolean): WidescreenLaunch {
+        fun resolve(mods: RomModsConfig, wideLayout: LayoutConfiguration?, isWideRenderer: Boolean): WidescreenLaunch {
             val automaticWidth = mods.validWideViewWidth
-            if (!isOpenGlRenderer || automaticWidth == null) {
+            if (!isWideRenderer || automaticWidth == null) {
                 return OFF
             }
 

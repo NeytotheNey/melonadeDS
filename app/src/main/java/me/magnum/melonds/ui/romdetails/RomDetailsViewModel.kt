@@ -103,7 +103,7 @@ class RomDetailsViewModel @Inject constructor(
                 // What was read from the previous folder says nothing about the new one
                 val currentFolderState = folderState?.takeIf { it.folderUri == romConfig.mods.luaScriptFolder }
                 romConfigUiModel.copy(
-                    isWidescreenSupported = renderer == VideoRenderer.OPENGL,
+                    isWidescreenSupported = renderer != VideoRenderer.SOFTWARE,
                     wideLayouts = layouts?.filter { it.isWide },
                     luaScripts = romConfigUiModel.luaScripts.copy(
                         isFolderMissing = currentFolderState?.isReadable == false,

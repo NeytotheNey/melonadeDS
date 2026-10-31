@@ -375,13 +375,16 @@ void MelonInstance::reset()
 
 u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 {
-    // A width change only needs the existing GL renderer told. If the renderer is about to be set up again, updateRenderer() applies it
+    // A width change only needs the existing GL or Compute renderer told. If the renderer is about to be set up again, updateRenderer()
+    // applies it
     int requestedWidth = requestedWideViewWidth.load(std::memory_order_relaxed);
     if (requestedWidth != wideViewWidth)
     {
         wideViewWidth = requestedWidth;
         if (!isRenderConfigurationDirty && currentRenderer == Renderer::OpenGl)
             static_cast<GLRenderer&>(nds->GPU.GetRenderer3D()).SetViewWidth(wideViewWidth);
+        else if (!isRenderConfigurationDirty && currentRenderer == Renderer::Compute)
+            static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D()).SetViewWidth(wideViewWidth);
     }
 
     if (isRenderConfigurationDirty)
@@ -407,7 +410,9 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     {
         auto computeRenderSettings = static_cast<ComputeRenderSettings&>(*currentConfiguration->renderSettings);
         int scale = computeRenderSettings.scale;
-        screenWidth = 256 * scale;
+        // Same as OpenGL, the compositor's width can lag behind the requested one
+        topScreenWidth = static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D()).GetOutputWidth();
+        screenWidth = topScreenWidth * scale;
         screenHeight = (192 + 1) * scale;
     }
     else
@@ -907,7 +912,10 @@ void MelonInstance::updateRenderer()
         case Renderer::Compute:
         {
             auto computeRenderSettings = static_cast<ComputeRenderSettings&>(*currentConfiguration->renderSettings);
-            static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D()).SetRenderSettings(computeRenderSettings.scale,computeRenderSettings.highResCoordinates);
+            auto& computeRenderer = static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D());
+            // Like OpenGL, every time and first, so that a new renderer's shaders are only compiled once
+            computeRenderer.SetViewWidth(wideViewWidth);
+            computeRenderer.SetRenderSettings(computeRenderSettings.scale,computeRenderSettings.highResCoordinates);
             break;
         }
         default: __builtin_unreachable();

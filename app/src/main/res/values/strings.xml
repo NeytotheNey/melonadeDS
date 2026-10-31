@@ -363,7 +363,7 @@
     <string name="widescreen_enable">Use widescreen</string>
     <string name="widescreen_description">Widens the 3D view. 2D, menus and touch stay the same. Some games show things popping in at the edges. Applies the next time the game starts.</string>
     <string name="widescreen_aspect_ratio">Aspect ratio</string>
-    <string name="widescreen_needs_opengl">Needs the OpenGL renderer. With other renderers the game shows at its normal width.</string>
+    <string name="widescreen_needs_hardware_renderer">Needs the OpenGL or Compute renderer. With the software renderer the game shows at its normal width.</string>
     <string name="wide_layout">Wide layout</string>
     <string name="wide_layout_automatic">Automatic</string>
     <string name="wide_layout_none">To place the wide screen yourself, tap Wide layout and add one with +. Or copy a layout you use and pick a ratio with the top screen\'s Wide button in the copy, so your usual layout stays as it is.</string>
