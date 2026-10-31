@@ -156,6 +156,8 @@ private:
     std::unique_ptr<ScreenshotRenderer> screenshotRenderer;
     RewindManager rewindManager;
     Renderer currentRenderer;
+    // The requested renderer whose New() failed, so the software fallback is in use. Only tried again once a different renderer is asked for
+    std::optional<Renderer> failedRenderer;
     bool isRenderConfigurationDirty;
     // Debug builds only: debug.melonade.threaded2d forces threaded 2D on (1) or off (0). -1 when the property isn't set
     int threaded2dOverride = -1;

@@ -874,30 +874,51 @@ void MelonInstance::updateRenderer()
 {
     Renderer newRenderer = currentConfiguration->renderer;
 
-    if (newRenderer != currentRenderer)
+    // A renderer that failed is only tried again once something else was asked for in between
+    if (failedRenderer && *failedRenderer != newRenderer)
+        failedRenderer.reset();
+
+    if (newRenderer != currentRenderer && !failedRenderer)
     {
+        std::unique_ptr<Renderer3D> renderer;
         switch (newRenderer)
         {
             case Renderer::Software:
-                nds->GPU.SetRenderer3D(std::make_unique<SoftRenderer>());
+                renderer = std::make_unique<SoftRenderer>();
                 break;
             case Renderer::OpenGl:
-                nds->GPU.SetRenderer3D(GLRenderer::New());
+                renderer = GLRenderer::New();
                 break;
             case Renderer::Compute:
-                nds->GPU.SetRenderer3D(ComputeRenderer::New());
+                renderer = ComputeRenderer::New();
                 break;
             default: __builtin_unreachable();
         }
-        currentRenderer = newRenderer;
+        // New() returns nullptr if the GL setup failed, and the core puts a software renderer in its place. Track that, so nothing below
+        // casts it to the renderer that was asked for, and remember it so other settings changes don't run the failing New() again
+        if (!renderer && newRenderer != Renderer::Software)
+        {
+            Platform::Log(Platform::LogLevel::Error, "Failed to create the %s renderer, using the software renderer\n", newRenderer == Renderer::OpenGl ? "OpenGL" : "Compute");
+            currentRenderer = Renderer::Software;
+            failedRenderer = newRenderer;
+        }
+        else
+        {
+            currentRenderer = newRenderer;
+        }
+        nds->GPU.SetRenderer3D(std::move(renderer));
     }
 
-    switch (newRenderer)
+    switch (currentRenderer)
     {
         case Renderer::Software:
         {
-            auto softwareRenderSettings = static_cast<SoftwareRenderSettings&>(*currentConfiguration->renderSettings);
-            static_cast<SoftRenderer&>(nds->GPU.GetRenderer3D()).SetThreaded(softwareRenderSettings.threadedRendering, nds->GPU);
+            // The settings are only software ones if that's the renderer that was asked for, not the fallback
+            if (newRenderer == Renderer::Software)
+            {
+                auto softwareRenderSettings = static_cast<SoftwareRenderSettings&>(*currentConfiguration->renderSettings);
+                static_cast<SoftRenderer&>(nds->GPU.GetRenderer3D()).SetThreaded(softwareRenderSettings.threadedRendering, nds->GPU);
+            }
             break;
         }
         case Renderer::OpenGl:
