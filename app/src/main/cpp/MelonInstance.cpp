@@ -110,9 +110,15 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     __system_property_get("debug.melonade.shadowlog", shadowlogProperty);
     int shadowlogFrames = atoi(shadowlogProperty);
     nds->GPU.ShadowLogFrames = (shadowlogFrames == 1) ? 300 : std::max(shadowlogFrames, 0);
-    Platform::Log(Platform::LogLevel::Info, "Debug switches: defercap=%d earlyflush=%d shadowfix=%d maskdepth=%d equaldepth=%d shadowlog=%d\n",
+
+    // `adb shell setprop debug.melonade.computedirect 0` makes the compute renderer use the GPU-written indirect dispatches for SortWork
+    // and Rasterise again, which the Adreno driver waits on, for A/B tests. Unset or 1 keeps the direct dispatches
+    char computedirectProperty[PROP_VALUE_MAX] = {};
+    __system_property_get("debug.melonade.computedirect", computedirectProperty);
+    nds->GPU.ComputeDirectDispatch = computedirectProperty[0] != '0';
+    Platform::Log(Platform::LogLevel::Info, "Debug switches: defercap=%d earlyflush=%d shadowfix=%d maskdepth=%d equaldepth=%d shadowlog=%d computedirect=%d\n",
                   nds->GPU.DeferCapture2D, nds->GPU.EarlyFlushCapture, nds->GPU.ShadowMaskLineClear, nds->GPU.ShadowMaskDepthTest,
-                  nds->GPU.EqualDepthMargin, nds->GPU.ShadowLogFrames);
+                  nds->GPU.EqualDepthMargin, nds->GPU.ShadowLogFrames, nds->GPU.ComputeDirectDispatch);
 
     // `adb shell setprop debug.melonade.threaded2d 1` (or 0) forces threaded 2D on (or off) over the setting, for testing. Clear it with an
     // empty value: `adb shell setprop debug.melonade.threaded2d ""`
