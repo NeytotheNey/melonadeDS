@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cstdlib>
 #include <ctime>
 #include <chrono>
 #include <EGL/egl.h>
@@ -83,7 +85,34 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     char earlyflushProperty[PROP_VALUE_MAX] = {};
     __system_property_get("debug.melonade.earlyflush", earlyflushProperty);
     nds->GPU.EarlyFlushCapture = earlyflushProperty[0] != '0';
-    Platform::Log(Platform::LogLevel::Info, "Debug switches: defercap=%d earlyflush=%d\n", nds->GPU.DeferCapture2D, nds->GPU.EarlyFlushCapture);
+
+    // `adb shell setprop debug.melonade.shadowfix 0` before starting a game makes the classic OpenGL renderer clear the shadow mask over
+    // the whole screen for every mask again, instead of per line like the software renderer, for A/B tests. Unset or 1 keeps the fix
+    char shadowfixProperty[PROP_VALUE_MAX] = {};
+    __system_property_get("debug.melonade.shadowfix", shadowfixProperty);
+    nds->GPU.ShadowMaskLineClear = shadowfixProperty[0] != '0';
+
+    // `adb shell setprop debug.melonade.maskdepth 0` makes the classic OpenGL renderer draw depth-equal shadow masks and shadows with a
+    // plain GL_LESS/GL_LEQUAL again, without the DS depth margin, for A/B tests. Unset or 1 keeps the margin
+    char maskdepthProperty[PROP_VALUE_MAX] = {};
+    __system_property_get("debug.melonade.maskdepth", maskdepthProperty);
+    nds->GPU.ShadowMaskDepthTest = maskdepthProperty[0] != '0';
+
+    // `adb shell setprop debug.melonade.equaldepth 0` makes the classic OpenGL renderer draw all other depth-equal polygons with a plain
+    // GL_LEQUAL again, without the DS depth margin, for A/B tests. Unset or 1 keeps the margin
+    char equaldepthProperty[PROP_VALUE_MAX] = {};
+    __system_property_get("debug.melonade.equaldepth", equaldepthProperty);
+    nds->GPU.EqualDepthMargin = equaldepthProperty[0] != '0';
+
+    // `adb shell setprop debug.melonade.shadowlog 1` makes the classic OpenGL renderer log the first 300 frames (another number logs
+    // that many): a SHADOWSTATS line of polygon counts every frame, and a SHADOWLOG line with the shadow masks and shadows, if any
+    char shadowlogProperty[PROP_VALUE_MAX] = {};
+    __system_property_get("debug.melonade.shadowlog", shadowlogProperty);
+    int shadowlogFrames = atoi(shadowlogProperty);
+    nds->GPU.ShadowLogFrames = (shadowlogFrames == 1) ? 300 : std::max(shadowlogFrames, 0);
+    Platform::Log(Platform::LogLevel::Info, "Debug switches: defercap=%d earlyflush=%d shadowfix=%d maskdepth=%d equaldepth=%d shadowlog=%d\n",
+                  nds->GPU.DeferCapture2D, nds->GPU.EarlyFlushCapture, nds->GPU.ShadowMaskLineClear, nds->GPU.ShadowMaskDepthTest,
+                  nds->GPU.EqualDepthMargin, nds->GPU.ShadowLogFrames);
 
     // `adb shell setprop debug.melonade.threaded2d 1` (or 0) forces threaded 2D on (or off) over the setting, for testing. Clear it with an
     // empty value: `adb shell setprop debug.melonade.threaded2d ""`
