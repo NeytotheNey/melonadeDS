@@ -80,6 +80,10 @@ public:
     void logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs) { DebugLog::onFrame(*nds, isFastForward, fps, lastFrameWorkNs); }
     // The kernel thread ID of the core's 2D render thread, or 0 while threaded 2D is off (or the thread hasn't started yet). Emulator thread only
     pid_t getGpu2DThreadId();
+#ifdef MELONADE_DEBUG_TOOLS
+    // The capture readback stats the 3D renderer summed since the last call (compute renderer only), then zeroes them. Emulator thread only
+    void takeCaptureStats(CaptureStats& stats);
+#endif
 
     void updateConfiguration(std::shared_ptr<EmulatorConfiguration> newConfiguration);
     void requestNdsSaveWrite(const u8* saveData, u32 saveLength, u32 writeOffset, u32 writeLength);

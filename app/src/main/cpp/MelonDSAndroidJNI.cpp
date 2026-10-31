@@ -1061,6 +1061,11 @@ void* emulate(void*)
     auto manager = PerformanceHintManagerFactory::create(jniEnvHandler);
     performanceHintSession = new ThreadSafePerformanceHintSession(std::move(manager));
     performanceHintSession->createSession(gettid(), FRAME_DURATION_60FPS_NS);
+#ifdef MELONADE_DEBUG_TOOLS
+    // The compute renderer's capture readback stats, logged as a CAPWAIT line (tag melonDS) every 300 frames that had any
+    MelonDSAndroid::CaptureStats captureStatsSum;
+    int captureStatsFrames = 0;
+#endif
     // The core's 2D render thread does part of each frame's work, so it joins the session while threaded 2D is on
     pid_t sessionGpu2DThreadId = 0;
 
@@ -1131,6 +1136,26 @@ void* emulate(void*)
 
             performanceHintSession->reportActualWorkDuration(workNs);
         }
+
+#ifdef MELONADE_DEBUG_TOOLS
+        {
+            MelonDSAndroid::CaptureStats captureStats;
+            MelonDSAndroid::takeCaptureStats(captureStats);
+            captureStatsSum.maps += captureStats.maps;
+            captureStatsSum.waitNs += captureStats.waitNs;
+            captureStatsSum.spinNs += captureStats.spinNs;
+            captureStatsSum.spanNs += captureStats.spanNs;
+            if (++captureStatsFrames == 300)
+            {
+                if (captureStatsSum.maps > 0)
+                    __android_log_print(ANDROID_LOG_INFO, "melonDS", "CAPWAIT frames=%d maps=%lld wait_ms_f=%.3f spin_ms_f=%.3f span_ms_map=%.3f",
+                                        captureStatsFrames, (long long) captureStatsSum.maps, captureStatsSum.waitNs / 1e6 / captureStatsFrames,
+                                        captureStatsSum.spinNs / 1e6 / captureStatsFrames, captureStatsSum.spanNs / 1e6 / captureStatsSum.maps);
+                captureStatsSum = {};
+                captureStatsFrames = 0;
+            }
+        }
+#endif
 
         double currentTick = getCurrentMillis();
         double delay = currentTick - lastTick;

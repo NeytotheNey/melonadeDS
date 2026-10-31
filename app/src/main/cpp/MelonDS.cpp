@@ -308,6 +308,16 @@ namespace MelonDSAndroid
         return instance ? instance->getGpu2DThreadId() : 0;
     }
 
+#ifdef MELONADE_DEBUG_TOOLS
+    void takeCaptureStats(CaptureStats& stats)
+    {
+        // Same as above
+        stats = {};
+        if (instance)
+            instance->takeCaptureStats(stats);
+    }
+#endif
+
     int getAudioOutputBufferFill()
     {
         return instance ? instance->getAudioOutputBufferFill() : 0;

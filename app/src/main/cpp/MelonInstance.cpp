@@ -116,9 +116,20 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     char computedirectProperty[PROP_VALUE_MAX] = {};
     __system_property_get("debug.melonade.computedirect", computedirectProperty);
     nds->GPU.ComputeDirectDispatch = computedirectProperty[0] != '0';
-    Platform::Log(Platform::LogLevel::Info, "Debug switches: defercap=%d earlyflush=%d shadowfix=%d maskdepth=%d equaldepth=%d shadowlog=%d computedirect=%d\n",
+
+    // `adb shell setprop debug.melonade.blitflush 0` stops the compute renderer's GPU flush right after the line-192 Blit in frames that hold
+    // capture lines (GPU::StartScanline), for A/B tests. Unset or 1 keeps it. `debug.melonade.capspin 0` makes the compute renderer sleep in the capture
+    // readback's map again instead of polling a fence first (ComputeRenderer::GetLine); another value sets the poll's limit in µs
+    // (default 6000, clamped to 20000)
+    char blitflushProperty[PROP_VALUE_MAX] = {};
+    __system_property_get("debug.melonade.blitflush", blitflushProperty);
+    nds->GPU.BlitFlushCapture = blitflushProperty[0] != '0';
+    char capspinProperty[PROP_VALUE_MAX] = {};
+    if (__system_property_get("debug.melonade.capspin", capspinProperty) > 0)
+        nds->GPU.CaptureSpinUs = std::clamp(atoi(capspinProperty), 0, 20000);
+    Platform::Log(Platform::LogLevel::Info, "Debug switches: defercap=%d earlyflush=%d shadowfix=%d maskdepth=%d equaldepth=%d shadowlog=%d computedirect=%d blitflush=%d capspin=%d\n",
                   nds->GPU.DeferCapture2D, nds->GPU.EarlyFlushCapture, nds->GPU.ShadowMaskLineClear, nds->GPU.ShadowMaskDepthTest,
-                  nds->GPU.EqualDepthMargin, nds->GPU.ShadowLogFrames, nds->GPU.ComputeDirectDispatch);
+                  nds->GPU.EqualDepthMargin, nds->GPU.ShadowLogFrames, nds->GPU.ComputeDirectDispatch, nds->GPU.BlitFlushCapture, nds->GPU.CaptureSpinUs);
 
     // `adb shell setprop debug.melonade.threaded2d 1` (or 0) forces threaded 2D on (or off) over the setting, for testing. Clear it with an
     // empty value: `adb shell setprop debug.melonade.threaded2d ""`
@@ -958,6 +969,21 @@ pid_t MelonInstance::getGpu2DThreadId()
     Platform::Thread* thread = nds->GPU.Get2DThread();
     return thread ? Platform::GetThreadTid(thread) : 0;
 }
+
+#ifdef MELONADE_DEBUG_TOOLS
+void MelonInstance::takeCaptureStats(CaptureStats& stats)
+{
+    melonDS::Renderer3D& renderer = nds->GPU.GPU3D.GetCurrentRenderer();
+    stats.maps = renderer.CaptureMapCount;
+    stats.waitNs = renderer.CaptureMapWaitNs;
+    stats.spinNs = renderer.CaptureSpinNs;
+    stats.spanNs = renderer.CaptureSpanNs;
+    renderer.CaptureMapCount = 0;
+    renderer.CaptureMapWaitNs = 0;
+    renderer.CaptureSpinNs = 0;
+    renderer.CaptureSpanNs = 0;
+}
+#endif
 
 void MelonInstance::setBatteryLevels()
 {
