@@ -417,6 +417,9 @@ class EmulatorActivity : AppCompatActivity() {
             binding.textFps.updateLayoutParams<ConstraintLayout.LayoutParams> {
                 setMargins(fpsInsets.left, fpsInsets.top, fpsInsets.right, fpsInsets.bottom)
             }
+            // The layouts deliberately ignore the status bar, so only the controls are nudged out from under it. Zero while it's hidden or only
+            // swiped in for a moment. The controls view fills the window, so the inset applies to it as is
+            binding.viewLayoutControls.setTopSystemBarInset(windowInsets.getInsets(WindowInsetsCompat.Type.statusBars()).top)
 
             val uiInsets = Insets(insets.left, insets.top, insets.right, insets.bottom)
             viewModel.setUiInsets(uiInsets)

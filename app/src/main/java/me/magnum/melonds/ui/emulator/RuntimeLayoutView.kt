@@ -16,7 +16,9 @@ import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.input.SoftInputBehaviour
 import me.magnum.melonds.domain.model.layout.LayoutComponent
+import me.magnum.melonds.domain.model.layout.UILayout
 import me.magnum.melonds.domain.model.layout.getScreensDrawing
+import me.magnum.melonds.ui.common.LayoutComponentView
 import me.magnum.melonds.ui.common.LayoutView
 import me.magnum.melonds.ui.common.view.RaisedButtonView
 import me.magnum.melonds.ui.emulator.input.ButtonsInputHandler
@@ -51,6 +53,11 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     private var isCarryingTouches = false
     // The pointers that were down when the layout was rebuilt. Any other pointer went down after, before the new views had a place
     private val carriedPointerIds = mutableSetOf<Int>()
+
+    // How far a shown status bar reaches down into this view. The layouts are sized for the whole window, so controls under it get pushed down
+    private var topSystemBarInset = 0
+    // The top of each control as the layout placed it, so the push is always worked out from there and going back to 0 puts them back exactly
+    private val layoutTops = mutableMapOf<LayoutComponent, Int>()
 
     fun setFrontendInputHandler(frontendInputHandler: FrontendInputHandler) {
         this.frontendInputHandler = TouchCarryingInputListener(frontendInputHandler)
@@ -97,6 +104,65 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     fun setLayoutComponentToggleState(layoutComponent: LayoutComponent, isEnabled: Boolean) {
         val buttonView = getLayoutComponentView(layoutComponent)?.view as? RaisedButtonView ?: return
         buttonView.setToggleState(isEnabled)
+    }
+
+    /**
+     * Pushes the controls that would sit under the status bar down to just below it, so taps on them don't go to the system instead. The screens
+     * stay where the layout put them. 0 (no status bar) leaves everything as laid out
+     */
+    fun setTopSystemBarInset(inset: Int) {
+        if (inset == topSystemBarInset) {
+            return
+        }
+        topSystemBarInset = inset
+        applyTopSystemBarInset()
+    }
+
+    override fun instantiateLayout(layoutConfiguration: UILayout, layoutTarget: LayoutTarget) {
+        super.instantiateLayout(layoutConfiguration, layoutTarget)
+        applyTopSystemBarInset()
+    }
+
+    override fun destroyLayout() {
+        super.destroyLayout()
+        layoutTops.clear()
+    }
+
+    override fun onLayoutComponentViewAdded(layoutComponentView: LayoutComponentView) {
+        super.onLayoutComponentViewAdded(layoutComponentView)
+        // The view was just made with the layout's position, before anything moved it
+        (layoutComponentView.view.layoutParams as? LayoutParams)?.let {
+            layoutTops[layoutComponentView.component] = it.topMargin
+        }
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (h != oldh) {
+            // How far a control can be pushed depends on the height
+            applyTopSystemBarInset()
+        }
+    }
+
+    private fun applyTopSystemBarInset() {
+        views.values.forEach { componentView ->
+            if (componentView.component.isScreen()) {
+                return@forEach
+            }
+            val layoutTop = layoutTops[componentView.component] ?: return@forEach
+            val params = componentView.view.layoutParams as? LayoutParams ?: return@forEach
+
+            // With no inset the layout's position is kept as is, even a control placed a little above the top
+            var top = if (topSystemBarInset > 0) maxOf(layoutTop, topSystemBarInset) else layoutTop
+            if (height > 0) {
+                // Not pushed off the bottom of the view, and never moved up from where the layout put it
+                top = top.coerceAtMost(height - params.height).coerceAtLeast(layoutTop)
+            }
+            if (params.topMargin != top) {
+                params.topMargin = top
+                componentView.view.layoutParams = params
+            }
+        }
     }
 
     fun instantiateLayout(runtimeLayout: RuntimeInputLayoutConfiguration, layoutTarget: LayoutTarget) {
