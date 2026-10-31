@@ -1,0 +1,123 @@
+# Per-game mods (WideMelon + Lua)
+
+Two mods, both set per game in ROM details → Mods tab and stored in `RomConfig.mods` (`RomModsConfig`): **WideMelon** widens the 3D view, and **Lua scripts** can read and change input and memory, draw on the screens and control a few emulator settings. Nothing runs unless it's switched on for that game. Paths below are under `app/src/main/` unless they start with `melonDS-android-lib/`; the core submodule has its own repo.
+
+## Decisions to keep
+
+- **Our own Lua API, no compatibility.** MelonMix (KHMelonMix's per-game C++ plugins) and DraStic script compatibility are dropped. DraStic (`C:\Dev\drastic`, readme section 8) is a design reference only; old DraStic scripts get ported by hand.
+- **RetroAchievements hardcore:** Lua is fully off, read-only scripts included (RA bans scripting outright). It's gated next to cheats (`impl/emulator/EmulatorSession.kt`), the Mods tab disables the switches and says why, and `melon.state.load` checks hardcore again anyway. WideMelon stays allowed: RA exempts widescreen hacks. Its one game-visible effect is that BoxTest is squeezed too.
+- **One linked SAF folder per game**, picked in the Mods tab (`OpenDocumentTree`, persisted read permission), not copied. Top-level `.lua` files are the scripts; subfolders hold modules and images. New scripts start switched off. The app never writes to or deletes from the folder.
+- Lua 5.4.9 from lua.org under `cpp/lua/`, unchanged except `cpp/lua/patched/lstrlib.c` (a work budget in pattern matching and plain find). `cpp/lua/LICENSE` says how to redo the patch on an upgrade.
+- WideMelon is from pruefsumme's `melonDS-android-lib` `widemelon` branch, GPL-3.0-or-later, reworked (per-line wings rule, one width source, off-centre viewports). Classic OpenGL renderer only.
+
+## Script folder and the Mods tab
+
+- `LuaScriptFolderSync` keeps `luaScripts` (file name, switch, options) in step with the folder: top-level `.lua` only, sorted by name. It runs when the Mods tab shows, when ROM details resumes, and at game start. A gone file's entry is dropped. If the folder can't be read (not a directory, provider throws, cursor still loading or errored, permission lost) the list is kept and the tab offers to pick the folder again.
+- Changing or removing the folder clears the list and releases the permission, unless another ROM or one of the app's own folders (ROMs, BIOS, saves, perf log) uses the same tree. Picking the same folder again keeps the switches.
+- At game start only switched-on scripts that exist are read (1 MB cap each) and sent to native with their options, storage blob, modules and images (`LuaScriptSetup` array over JNI). Native never opens script files. Edits take effect at the next game start.
+- Header (`impl/LuaScriptHeader.kt`, reads at most 8 KB of the leading comment block): `-- description: ...` is shown under the name (otherwise the block's first comment line). Options:
+  ```
+  -- option: speed type=number min=1 max=10 step=1 default=5 label="Aim speed"
+  -- option: hud type=toggle default=true label="Show HUD"
+  -- option: mode type=choice values=easy,normal,hard default=normal label="Difficulty"
+  -- option: map_layout type=layout label="Layout while the map is open"
+  ```
+  At most 16 options; key `[a-z_][a-z0-9_]{0,31}`; label up to 60 chars; choice up to 8 values of up to 24 chars; numbers finite, min < max, at most 1000 steps. `step` defaults to 1; `default` to min, false or the first choice; an off-step default snaps to the nearest step. Unknown attributes or bad lines make the line unreadable, and the tab says how many were skipped. Layout options have no default and store a layout UUID ("Don't change" = none). Stored values are `RomLuaScript.options: Map<String, String>`; a missing or invalid value falls back to the default.
+- Pause menu → Mods lists every script loaded this session with its description, error or "Switched off", plus scripts that couldn't be read (with the reason, can't be switched on). Switching off/on is for this session only and never changes the ROM config; on means a fresh state and `on_load`. "Options…" saves to the ROM config and restarts the script with the new values (its savestate slots are kept).
+- Saved data: the Mods tab shows "Saved data: N KB" with Clear (ignored for the running game).
+
+## Lua runtime
+
+- `cpp/scripting/LuaEngine.{h,cpp}`, owned by `MelonInstance`, emulator thread only. One Lua state per script, 32 MB each.
+- Sandbox: only `base`, `table`, `string`, `math`, `utf8`. No `io`, `os`, `package`, `debug`, `dofile`, `loadfile`, `warn`; `load` takes text only; `print` goes to the log; `setmetatable` refuses `__gc`; `collectgarbage` only takes collect/count/step/isrunning; `string.rep` and `table.move/insert/remove/sort` have size caps.
+- Limits per call: 1M instructions (10M for the main chunk plus `on_load`), and a work budget of 20 steps per instruction charged by pattern matching, table functions, allocation, drawing, storage and `require`. Once either runs out, everything left in that call fails, so `pcall` can't keep a script alive. An error or a limit switches the script off for the session and shows a message. The goal is that a buggy script can't freeze the game, not defence against a hostile one.
+- When a script stops, the swap, controls, fast-forward and layout it set go back to the player's values (`ui/emulator/LuaUiOverrides.kt`, unit-tested). Newest request from a running script wins; a change the player makes by hand clears the requests and becomes the baseline. Fast-forward's baseline is off at each session start. Only a real player layout pick clears layout requests.
+- Reset reloads every running script (`on_unload`, fresh state, main chunk, `on_load`); switched-off scripts stay off. Sticks are forwarded to native only while a script is active and zeroed when the last one stops.
+- Events to Kotlin go through the native event pipe (one write, at most 512 bytes of data) and carry the script's index. Screen and fast-forward requests are coalesced per call; Kotlin applies them only when they differ from the UI's state.
+
+### Callbacks
+
+| Callback | When |
+|---|---|
+| `on_load(game_code)` | End of `MelonInstance::start()`, after the main chunk |
+| `on_frame()` | Just before `nds->RunFrame()`. Input changes apply to this frame |
+| `on_frame_end()` | After `RunFrame` (and the software upload), before the overlay upload. Own instruction budget; `melon.frame()` is the frame that just ran; `press`/`release` apply to the next frame |
+| `on_state_loaded()` | On the emulator thread before the next frame after a savestate or rewind load (those run on IO/UI threads and only set a flag), or a script load |
+| `on_unload()` | `stop()`, reset, switch-off; then the state is closed |
+
+### API (`melon`)
+
+- `melon.game.code()`, `melon.game.title()`, `melon.frame()`, `melon.log(...)` (logcat tag `melonDS-lua`, only while the debug log is on; script errors are always logged).
+- Input: `melon.input.held()`, `press(mask)`, `release(mask)` (last one frame), `touch()` → `x, y, down`, `set_touch(x, y)` (held until `clear_touch()`), `clear_touch()`, `stick("left"|"right")` → `x, y`. Final mask each frame is `(user & ~release) | press`; the UI's own `pressKey`/`releaseKey` are untouched.
+- `melon.KEY.*`: pressed = bit set. A=0, B=1, SELECT=2, START=3, RIGHT=4, LEFT=5, UP=6, DOWN=7, R=8, L=9, X=10, Y=11, TOUCH=12. The engine flips it to the core's active-low mask.
+- Memory: `melon.mem.read8/16/32(addr)`, `read_s8/s16/s32`, `write8/16/32(addr, v)`, and `melon.mem.arm7.*` with the same names. Goes through the NDS bus (JIT-safe, like AR cheats). ARM9 checks ITCM/DTCM first (ITCM writes invalidate the JIT). Reads in 0x04xxxxxx raise an error on both CPUs (I/O reads have side effects).
+- `melon.screen.swap(bool)`, `show_controls(bool)`, `set_layout(key)`: `key` names a `type=layout` option; Kotlin resolves its UUID. `set_layout(nil)` goes back to the player's layout. A key that isn't a layout option is an error; "Don't change" or a deleted layout does nothing. Scripts see layout options in `melon.options` as a boolean (picked or not).
+- `melon.emu.fast_forward(bool)`.
+- `melon.options`: plain table built at each load, typed values (boolean, integer when integral, number, string); undeclared keys are nil.
+- `melon.state.save(slot)` → true, or false plus an error; `load(slot)`; `has(slot)`. Slots 1–4 per script, in memory only (survive reset and option restarts, freed on switch-off, gone at session end, never touch the player's slots). One save per 30 frames per script; saves and loads cost 1M work steps; all script slots together are capped at 64 MB. `load` runs after every script's `on_frame`, backs up first like a player load, drops that frame's input override, resets the achievements display, and makes `on_state_loaded` run before the next `on_frame`. A queued load is dropped if the player loads or resets first. `Savestate` stays out of `LuaEngine` through a small callback interface in `MelonInstance`.
+- `melon.storage`: `get(key)`, `set(key, value)` (nil deletes), `keys()`, `clear()`, `flush()`, `size()` → bytes used, limit. Keys are strings up to 256 bytes. Values: strings, numbers (integers and floats kept apart), booleans, tables (up to 16 deep, string or integer keys, no cycles); `set` deep-copies, `get` returns a fresh copy. 256 KB per script, encoded; going over is a catchable error. 1 work step per byte encoded or decoded.
+- `require("lib.util")` loads `lib/util.lua` (`lib` → `lib/init.lua`; `x.lua` wins over `x/init.lua`). Text only, chunk name `=lib/util.lua`, called with name and path like stock Lua, cached per state, loops caught, 1 work step per source byte, errors keep their traceback. No `package` table. Top-level `.lua` files can't be required.
+- Images: `melon.image.load("img/hud.png")` → image, or nil plus an error; `melon.image.new(w, h, argb_string)` (4 bytes per pixel, 0xAARRGGBB little-endian); `img:size()` → `w, h`.
+
+### Drawing (`melon.draw`)
+
+- `pixel(screen, x, y, color)`, `line(screen, x1, y1, x2, y2, color)`, `rect(screen, x, y, w, h, color[, filled])`, `circle(screen, cx, cy, r, color[, filled])`, `text(screen, x, y, str, color[, bg[, size]])` → width in DS pixels, `image(screen, x, y, img[, opts])` with `opts = { scale = 1, src = {x, y, w, h}, alpha = 1 }`.
+- `screen` is `"top"` or `"bottom"` (the DS screen, so drawings follow swap). Coordinates are DS pixels (256×192); fractions land on the nearest half pixel (the overlay is 2×). Shapes are one DS pixel thick, off-screen parts are clipped. Rect outlines sit inside the rect; zero/negative size draws nothing; lines include both ends. A circle's centre is a pixel corner like `rect`'s x/y; the outline is pixels whose centre is between r−1 and r from the middle; r ≤ 0 draws nothing; radii capped at 2^28.
+- Text: melonDS's OSD font (`melonDS-android-lib/src/frontend/qt_sdl/font.h`), lines 7 DS pixels apart, `\n` starts a line, non-ASCII draws `?` per code point, `size` 1–4, `bg` is one box around all lines.
+- Image `scale` is a multiple of 0.5 from 0.5 to 8 (0.5 = one image pixel per overlay pixel), nearest neighbour; `src` outside the image is transparent.
+- Colours are `0xAARRGGBB` masked to 32 bits (-1 = opaque white). `0xFF0000` has alpha 0 and draws nothing.
+- Auto-clear: a frame shows only what `on_frame` and `on_frame_end` drew for it. Draws anywhere else do nothing. There's no `clear()`.
+- Costs: 32 work steps per command plus 1 per clipped pixel at 2× (2 for images), plus 1 per byte of text; circles also 2 per visible row. Caps per script per frame: 4096 commands and 64 KB of text, across both callbacks. Fully off-screen draws aren't recorded or counted.
+- The app's FPS counter sits over the top-left of the top screen.
+
+### Folder content caps
+
+Kotlin (`impl/LuaScriptFolderContent.kt`) walks the subfolders at launch when any script is on: at most 4 levels, 64 folders (root not counted), 4096 files found, one children query per folder. Path parts outside `[A-Za-z0-9_-]` are skipped (modules and images). Modules: 1 MB each, 2 MB and 256 files total. PNGs: each ≤ 1024×1024, at most 128 files and 4M pixels total, decoded unpremultiplied and sent as ARGB ints. Caps are taken in path order; once one file doesn't fit a total, later ones are left out too, and their names are sent so the error says why.
+
+## Code facts
+
+- **Draw path:** draw calls only record commands into a per-script list (text in a per-script string store, outside the Lua memory cap). `LuaEngine::endFrame()` runs `on_frame_end` and then rasterises (`scripting/LuaDraw.{h,cpp}`) every running script's lists into the shared buffer in script order (later on top). A script that errors mid-frame shows nothing that frame. `endFrame()` runs whenever `runLuaFrame` ran, so a stopped script is still cleared. A drawn image is anchored in a per-frame registry table until rasterised.
+- **Overlay texture:** one per `Frame` (`renderer/FrameQueue.{h,cpp}`), 512×772 (the frame layout at 2×, bottom screen from row 388), created lazily and zero-filled, uploaded on the emulator thread after `RunFrame` and before the frame's `renderFence`, so it can't lag the game image. Only rows with content now or last time are uploaded. `DSRenderer` draws it per screen with a passthrough premultiplied shader (filters never touch it), interleaved: under-screen, its overlay, over-screen, its overlay. With WideMelon it uses the screen's native rect, so it stays on the centre 256. `ExternalPresentation` draws it too.
+- **Overlay in savestate/rewind pictures:** Settings → Display "Show script drawings in save state pictures", off by default, an atomic for the emulator thread. `ScreenshotRenderer` blends it with a 2×2 average (no swizzle: the textures share byte order there); the software path blends on the CPU.
+- **Images:** folder PNGs are premultiplied by native and shared, immutable, for the session outside the Lua memory cap (`LuaFolderContent`). `new` images live in Lua's allocator and count. The image metatable is hidden from `getmetatable`.
+- **Storage:** `scripting/LuaStorage.{h,cpp}`, a versioned binary codec; the key → encoded map lives in `LuaEngine::Script`, not the Lua state, so it survives reset and switch off/on. A corrupt blob starts empty (logged) and isn't overwritten until the script writes. Snapshots are encoded only when changed: on `flush()` (end of frame), every 600 frames, when the emulator thread parks for a pause, when a script stops, and at `stop()` after `on_unload`. They go into a global outbox (mutex, outside `MelonInstance`, since `stopEmulation` destroys the instance); an event wakes Kotlin to drain it on IO, and a final drain runs before `stopEmulator()` returns. A snapshot that can't be handed over JNI goes back into the outbox. `impl/LuaScriptDataStore.kt` writes `files/lua-data/<gameKey>/<script>.bin` (temp file + rename). Game key is the game code if it's 4 uppercase letters/digits and not `0000`, otherwise `homebrew-<first 16 hex digits of SHA-256 of the ROM URI>`; if the header can't be read, storage is session-only. An empty store deletes its file; a file over 256 KB is ignored. Not in savestates or rewind; not deleted when the script leaves the folder.
+- **Host test:** `app/src/test/cpp/LuaStorageTest.cpp` tests the codec. Built by hand with MinGW (command at the top of the file), not wired into Gradle.
+- Layout rebuilds (fold, rotation, swap, script layout switch) carry held touches over to the new controls, so a held button isn't released.
+
+## WideMelon
+
+**How it works.** A width W (even, 256..768; anything else counts as off, `WideMelon::SanitizeWidth`) is set on the GL renderer, and `GPU3D` asks the renderer for it, so a GL fallback to 256 (W over `GL_MAX_TEXTURE_SIZE`, read once) can't leave geometry squeezed. Each vertex's clip-space X is squeezed by 256/W around the viewport centre (`WideMelon::ProjectX`, rounded), so what the game would clip at the sides lands in the extra space; BoxTest gets the same squeeze, PosTest doesn't. The width is latched at the polygon RAM swap (or while geometry is off), and the GL targets resize at `RenderFrame`. Display capture and `GetLine` take only the centre 256. The compositor outputs `W × scale` by `386 × scale`: the 3D screen's extra columns ("wings") show the 3D image (with `_3dxpos` scroll), the other screen sits centred with black bars. `GetOutputWidth()` is the compositor's width and can lag the requested one; the app sizes its frame texture from it every frame. Savestates don't store the width.
+
+**Code:** core `WideMelon.h`, `GPU3D.*`, `GPU3D_OpenGL.*`, `GPU_OpenGL.*` (compositor, wing hold), `GPU_OpenGL_shaders.h`, `GPU2D_Soft.cpp` (per-line flags), `GPU.cpp`. App: width through `EmulatorConfiguration` → JNI → `Configuration.h` → `MelonInstance` (kept there and re-applied on every `updateRenderer()`, which builds a fresh `GLRenderer`); `Frame` carries `topWidth` to Kotlin; `DSRenderer.kt` (UVs, top rect via `getTopScreenDrawRect`); `VideoFilterPipeline.kt` and `ShaderProgramSource.kt` (filters clamp horizontally only when needed and use a logical width); `ScreenshotRenderer` crops to 256×384 so savestate/rewind pictures are unchanged. Width is only applied on OpenGL; Compute and Software use 256.
+
+**Wings rule, per line.** The 2D line renderer writes flags into the line's control word (`dst[256*3]` in `GPU2D_Soft.cpp`) from the same snapshot it draws the line from, so mid-frame changes and threaded 2D are handled and the wings follow unit A to either screen: bit 18 = 3D in the wings, bits 19–20 = its BLDCNT fade (BG0 as first target) with EVY in bits 8–12 (only read with bit 18), bit 21 = white wings (screen off or forced blank), bit 22 = unit A drew 3D on BG0 this line, whatever the windows do (only used by the wing hold). Master brightness leaves bits 5–13 free.
+
+**Windows.** With wide view on, native columns 0 and 255 take their neighbour's window mask, which removes a 1-px backdrop seam (also in capture). With any window on, a line gets 3D wings only if BG0 shows at column 0 or 255 (WINOUT and the OBJ window included), so a window letterbox blacks the wings out with the middle. One wings bit per line: BG0 at one edge gives 3D on both sides. A window cutting BG0 mid-line doesn't affect the wings, and the wings' fade ignores the window's effect-enable bit.
+
+**Dual-screen wing hold.** Games with 3D on both screens (Phantom Hourglass, Mario Kart DS) move unit A every frame, so each screen's wings would flash at 30 Hz. The GL compositor keeps a copy of the output's wing columns (`HeldWingsTex`, blitted after drawing while both halves have had 3D lately). When unit A's wings appear in the other half, a half that had its own in the last 2 frames reuses them, only on lines that had bit 18 in the copy and would be black now, for at most 2 frames in a row; a width or scale change drops the copy. The half unit A is in comes from bit 22, so a window blacking out all of unit A's wings doesn't stop the hold. Single-screen 3D games never copy or hold.
+
+**Adreno gotcha:** held lines reach the shader as **bit 13 of the line's control word**, in a copy of the 384 control words the compositor uploads over the frame's (`GLCompositor::PrepareWingHold`). It used to be a `uvec4 uWingHold[3]` bit mask, but Adreno never applied the hold to word 0 (top lines 0–31), which gave black flickering corner notches on Phantom Hourglass's top screen (lines 21–31). Keep the flag in the control word.
+
+**Lesson:** for wing bugs, a per-line dump on the phone (reading back the output, the held texture and the 3D texture, plus each line's control bits) found the Adreno bug when code reasoning didn't. The dump was temporary and is gone; write a new one rather than guessing.
+
+**Known limits:** edge pop-in in games that cull on the CPU or with PosTest; ortho 3D HUDs and full-screen 3D quads stay 256 wide; 2D-only scenes get black wings; wings show the 3D clear colour where 3D is transparent (filling them with the 2D backdrop is a possible fix); BoxTest and the polygon RAM limit make it visible to the game; loading a state made at another width gives a frame or two of squeezed geometry.
+
+### Wide layouts
+
+The player places the wide top screen in the normal layout editor. Each layout variant (`UILayout`: folded/unfolded, portrait/landscape, displays) has its own `wideAspect: WidescreenAspect?` (null = normal 4:3 at 256). `WidescreenAspect` has stable keys 16:10, 16:9, 20:9, 21:9 → widths 308, 342, 426, 448 (`192 × ratio`, rounded to even). A layout is "wide" when any saved variant has a ratio. Old layout-level `wideAspect` values are copied to the saved variants on load.
+
+- Editor: the top screen's Wide chip sets and re-shapes only the variant being edited (same rule as automatic placement); its aspect lock offers the variant's ratio next to 4:3, 16:9 and Free. Lists show "Wide 20:9", or "Wide" when variants differ.
+- Mods tab with widescreen on: "Wide layout" is Automatic or a layout marked wide (`LayoutSelectorActivity`, wide-only filter). Automatic uses the tab's own ratio (16:9 default) with automatic widening; with a wide layout the ratio is "set by the layout". The row says it needs OpenGL when the global renderer isn't.
+- Launch: widescreen on + wide layout found + OpenGL → that layout (`EmulatorViewModel.startObservingLayoutForRom`, `wideLayoutId ?: layoutId`). No wide layout found → normal layout with automatic widening. Widescreen off or another renderer → 256 for the session. Lua `set_layout` and player picks still override.
+- During play the width follows the active variant: on fold, unfold or rotation Kotlin sends the new width, applied on the emulator thread through `GLRenderer::SetViewWidth` (no rebuild); a frame or two shows the old width in the new rect.
+- Top rect: a rect at least as wide as the frame (2 px tolerance) is used as drawn, frame centred at its exact aspect. Otherwise it's widened around its centre up to the surface edge without covering the bottom screen's rect, then shrunk to fit; a bottom screen sharing rows with the top stops the widening at its near edge. An unedited variant (from the default 4:3 layout) still gets automatic widening. Touch is untouched.
+
+## Testing
+
+OpenGL, and so all WideMelon output, is phone-only: the emulator has no GLES 3.2, so there it can only check the Mods tab and layout UI. Phone-tested: Mods tab and per-game config, scripts UI and hardcore, `melon.draw` (OpenGL 4x with filters), linked folders. Emulator-only so far: the Lua extras (text size, circles, `on_frame_end`, save-state pictures, `require`, images, storage, options, `set_layout`, script savestates). The dual-screen wing hold is phone-tested (Phantom Hourglass, Mario Kart DS). The wings' window handling isn't phone-tested yet.
+
+## Remaining
+
+- WideMelon on the compute renderer. Its dispatches use integer division (`GPU3D_Compute.cpp`, e.g. `ScreenWidth/CoarseTileW`), so use widths that are multiples of 64 or round up and crop.
+- On-disk script savestate slots, if anyone asks.
+- Smaller ideas: a pause-menu widescreen/layout toggle (the core handles a width change), filling transparent wings with the 2D backdrop.
