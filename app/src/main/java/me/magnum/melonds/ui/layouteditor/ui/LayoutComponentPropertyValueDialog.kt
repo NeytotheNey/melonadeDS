@@ -3,6 +3,8 @@ package me.magnum.melonds.ui.layouteditor.ui
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -19,14 +21,20 @@ fun LayoutComponentPropertyValueDialog(
     onCancel: () -> Unit,
 ) {
     val dialogState = rememberTextInputDialogState()
+    val currentOnValueChanged by rememberUpdatedState(onValueChanged)
+    val currentOnCancel by rememberUpdatedState(onCancel)
 
     LaunchedEffect(editableProperty) {
         if (editableProperty != null) {
             dialogState.show(
                 initialText = initialValue.toString(),
-                onConfirm = { onValueChanged(it.toInt()) },
-                onCancel = onCancel,
+                onConfirm = { currentOnValueChanged(it.toInt()) },
+                onCancel = { currentOnCancel() },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, keyboardType = KeyboardType.Number),
+                // Typing replaces the current value
+                highlightInitialText = true,
+                showKeyboard = true,
+                singleLine = true,
             )
         }
     }

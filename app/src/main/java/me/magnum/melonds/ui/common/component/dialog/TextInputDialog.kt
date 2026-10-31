@@ -15,13 +15,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
+import kotlinx.coroutines.flow.first
 import me.magnum.melonds.R
 
 @Composable
@@ -55,12 +59,20 @@ fun TextInputDialog(
                             hasError = !textValidator(it.text)
                         },
                         isError = hasError,
+                        singleLine = dialogState.singleLine,
                         keyboardOptions = dialogState.keyboardOptions,
                         keyboardActions = KeyboardActions(onDone = { if (!hasError) dialogState.confirm() }),
                     )
 
+                    val keyboardController = LocalSoftwareKeyboardController.current
+                    val windowInfo = LocalWindowInfo.current
                     LaunchedEffect(Unit) {
                         focusRequester.requestFocus()
+                        if (dialogState.showKeyboard) {
+                            // The keyboard is only shown for a focused window, and the dialog's window can get its focus after its first frame
+                            snapshotFlow { windowInfo.isWindowFocused }.first { it }
+                            keyboardController?.show()
+                        }
                     }
                 }
             },
@@ -100,6 +112,8 @@ class TextInputDialogState {
     internal var isDialogVisible by mutableStateOf(false)
     internal var textField by mutableStateOf(TextFieldValue())
     internal var keyboardOptions by mutableStateOf(KeyboardOptions(imeAction = ImeAction.Done))
+    internal var showKeyboard by mutableStateOf(false)
+    internal var singleLine by mutableStateOf(false)
     private var onConfirmCallback by mutableStateOf<((String) -> Unit)?>(null)
     private var onCancelCallback by mutableStateOf<(() -> Unit)?>(null)
 
@@ -109,6 +123,10 @@ class TextInputDialogState {
         onCancel: () -> Unit = { },
         keyboardOptions: KeyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         highlightInitialText: Boolean = false,
+        // Opens the keyboard straight away. Otherwise the field is only focused
+        showKeyboard: Boolean = false,
+        // Enter does the keyboard action instead of adding a new line
+        singleLine: Boolean = false,
     ) {
         if (isDialogVisible) return
 
@@ -122,6 +140,8 @@ class TextInputDialogState {
         onConfirmCallback = onConfirm
         onCancelCallback = onCancel
         this.keyboardOptions = keyboardOptions
+        this.showKeyboard = showKeyboard
+        this.singleLine = singleLine
         isDialogVisible = true
     }
 

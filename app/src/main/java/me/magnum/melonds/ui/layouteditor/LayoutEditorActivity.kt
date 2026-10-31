@@ -27,9 +27,11 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import me.magnum.melonds.R
+import me.magnum.melonds.domain.model.Point
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.input.ControllerStyle
 import me.magnum.melonds.domain.model.layout.Insets
+import me.magnum.melonds.domain.model.layout.LayoutDisplayPair
 import me.magnum.melonds.domain.model.layout.ScreenFold
 import me.magnum.melonds.domain.model.ui.Orientation
 import me.magnum.melonds.domain.repositories.SettingsRepository
@@ -47,6 +49,8 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class LayoutEditorActivity : AppCompatActivity() {
     companion object {
+        private const val EDITOR_SETTLE_TIMEOUT_MS = 1000L
+
         const val KEY_LAYOUT_ID = "layout_id"
         // For a new layout: makes it a wide layout at this ratio (WidescreenAspect.key), with its top screen widened
         const val KEY_NEW_LAYOUT_WIDE_ASPECT = "new_layout_wide_aspect"
@@ -138,7 +142,40 @@ class LayoutEditorActivity : AppCompatActivity() {
         override fun onExit() {
             finish()
         }
+
+        override fun onEditorDialogShown() {
+            shownEditorDialogs++
+            isWaitingForEditorToSettle = false
+            layoutEditorManager.removeCallbacks(editorSettledRunnable)
+        }
+
+        override fun onEditorDialogHidden() {
+            if (shownEditorDialogs == 0) return
+            shownEditorDialogs--
+            if (shownEditorDialogs > 0) return
+
+            isWaitingForEditorToSettle = true
+            // In case the editor doesn't get back to its size, because something else changed it meanwhile
+            layoutEditorManager.postDelayed(editorSettledRunnable, EDITOR_SETTLE_TIMEOUT_MS)
+            checkEditorSettled()
+        }
     }
+
+    // The layout shown is picked for the editor's size, insets, folds, orientation and the connected displays. While one of the editors has a
+    // dialog open, those aren't updated: its keyboard makes Android show the navigation bar, which shrinks the editor, and the layout picked for
+    // that size would replace the one being edited (deselecting the item a value is being entered for). They're caught up once the dialogs are
+    // closed and the editor has settled
+    private var shownEditorDialogs = 0
+    private var isWaitingForEditorToSettle = false
+    private val editorSettledRunnable = Runnable { onEditorSettled() }
+    private var latestUiInsets: Insets? = null
+    private var latestFolds: List<ScreenFold>? = null
+    private var latestDisplays: LayoutDisplayPair? = null
+    private var reportedUiSize: Point? = null
+    private var reportedDisplays: LayoutDisplayPair? = null
+    private var reportedUiInsets: Insets? = null
+    private var reportedFolds: List<ScreenFold>? = null
+    private var reportedOrientation: Orientation? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -154,9 +191,9 @@ class LayoutEditorActivity : AppCompatActivity() {
         setContentView(container)
         ViewCompat.setOnApplyWindowInsetsListener(container) { _, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout())
-            val uiInsets = Insets(insets.left, insets.top, insets.right, insets.bottom)
-            storeLayoutChanges()
-            viewModel.setUiInsets(uiInsets)
+            latestUiInsets = Insets(insets.left, insets.top, insets.right, insets.bottom)
+            updateLayoutVariantInputs()
+            checkEditorSettled()
 
             // Do not consume insets here
             windowInsets
@@ -176,13 +213,13 @@ class LayoutEditorActivity : AppCompatActivity() {
             val viewHeight = bottom - top
 
             if (viewWidth != oldWith || viewHeight != oldHeight) {
-                storeLayoutChanges()
-                viewModel.setCurrentUiSize(viewWidth, viewHeight)
+                updateLayoutVariantInputs()
+                checkEditorSettled()
             }
         }
 
         setupFullscreen()
-        updateOrientation(resources.configuration)
+        updateLayoutVariantInputs()
 
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -236,8 +273,8 @@ class LayoutEditorActivity : AppCompatActivity() {
                         }
                     }
 
-                    storeLayoutChanges()
-                    viewModel.setScreenFolds(folds)
+                    latestFolds = folds
+                    updateLayoutVariantInputs()
                     // The folds are only on this display, so the editor on an external display doesn't get them
                     layoutEditorManager.layoutEditorView.setScreenFolds(folds)
                 }
@@ -262,28 +299,90 @@ class LayoutEditorActivity : AppCompatActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        storeLayoutChanges()
-        updateOrientation(newConfig)
+        updateLayoutVariantInputs()
         handler.post {
             updateDisplays()
         }
     }
 
-    private fun updateOrientation(configuration: Configuration) {
-        val orientation = if (configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
+    private fun getSystemOrientation(configuration: Configuration): Orientation {
+        return if (configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
             Orientation.PORTRAIT
         } else {
             Orientation.LANDSCAPE
         }
-        viewModel.setCurrentSystemOrientation(orientation)
+    }
+
+    /**
+     * Gives the view model what the layout shown is picked for, after storing the changes made to the layout shown so far. Only done when one of
+     * them changed, since storing shows the layout again, which deselects the selected item. Held while an editor dialog is open, see
+     * [shownEditorDialogs]
+     */
+    private fun updateLayoutVariantInputs() {
+        if (shownEditorDialogs > 0 || isWaitingForEditorToSettle) return
+
+        val uiSize = Point(layoutEditorManager.width, layoutEditorManager.height).takeIf { it.x > 0 && it.y > 0 && it != reportedUiSize }
+        val uiInsets = latestUiInsets?.takeIf { it != reportedUiInsets }
+        val folds = latestFolds?.takeIf { it != reportedFolds }
+        val orientation = getSystemOrientation(resources.configuration).takeIf { it != reportedOrientation }
+        val displays = latestDisplays?.takeIf { it != reportedDisplays }
+        if (uiSize == null && uiInsets == null && folds == null && orientation == null && displays == null) return
+
+        // Stored first, so that the changes go to the variant they were made in
+        storeLayoutChanges()
+        uiSize?.let {
+            reportedUiSize = it
+            viewModel.setCurrentUiSize(it.x, it.y)
+        }
+        uiInsets?.let {
+            reportedUiInsets = it
+            viewModel.setUiInsets(it)
+        }
+        folds?.let {
+            reportedFolds = it
+            viewModel.setScreenFolds(it)
+        }
+        orientation?.let {
+            reportedOrientation = it
+            viewModel.setCurrentSystemOrientation(it)
+        }
+        displays?.let {
+            reportedDisplays = it
+            viewModel.setConnectedDisplays(it)
+        }
+    }
+
+    /**
+     * Once the editor dialogs are closed, waits for the keyboard to go: the editor is back to the size of the layout shown, or the navigation bar
+     * that Android shows with the keyboard is gone (the editor always hides it). If the size changed for another reason, the new layout is shown then.
+     */
+    private fun checkEditorSettled() {
+        if (!isWaitingForEditorToSettle || shownEditorDialogs > 0) return
+
+        val insets = ViewCompat.getRootWindowInsets(layoutEditorManager)
+        val isKeyboardShown = insets != null && (insets.isVisible(WindowInsetsCompat.Type.ime()) || insets.isVisible(WindowInsetsCompat.Type.navigationBars()))
+        val uiSize = Point(layoutEditorManager.width, layoutEditorManager.height)
+        if (uiSize == reportedUiSize || !isKeyboardShown) {
+            // Posted so that the views are laid out at their new size first
+            layoutEditorManager.removeCallbacks(editorSettledRunnable)
+            layoutEditorManager.post(editorSettledRunnable)
+        }
+    }
+
+    private fun onEditorSettled() {
+        isWaitingForEditorToSettle = false
+        layoutEditorManager.removeCallbacks(editorSettledRunnable)
+        layoutEditorManager.onEditorSettled()
+        externalLayoutEditorPresentation?.layoutEditorManager?.onEditorSettled()
+        updateLayoutVariantInputs()
     }
 
     private fun updateDisplays() {
         val currentDisplay = ContextCompat.getDisplayOrDefault(this)
         val secondaryDisplay = secondaryDisplaySelector.getSecondaryDisplay(this)
 
-        val displays = deviceLayoutDisplayMapper.mapDisplaysToLayoutDisplays(currentDisplay, secondaryDisplay)
-        viewModel.setConnectedDisplays(displays)
+        latestDisplays = deviceLayoutDisplayMapper.mapDisplaysToLayoutDisplays(currentDisplay, secondaryDisplay)
+        updateLayoutVariantInputs()
 
         showExternalLayoutEditor(secondaryDisplay)
     }

@@ -13,6 +13,7 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -76,7 +77,14 @@ class LayoutEditorManagerView(
         fun onSaveLayout()
         fun onSaveLayoutAndExit()
         fun onExit()
+        // One of the editor's own dialogs was opened or closed. The keyboard can resize the editor meanwhile, which mustn't show another layout.
+        // Once it's settled again, onEditorSettled() must be called
+        fun onEditorDialogShown()
+        fun onEditorDialogHidden()
     }
+
+    // The item the value dialog was opened for, and the ratio its size was locked to then
+    private class EditablePropertyTarget(val component: LayoutComponent, val screenAspectRatio: Float?)
 
     private val binding: ViewLayoutEditorManagerBinding
     private val viewModel: LayoutEditorViewModel by lazy {
@@ -96,6 +104,10 @@ class LayoutEditorManagerView(
     private var showLayoutPropertiesDialog by mutableStateOf(initialEditorState?.isPropertiesDialogShown ?: false)
     private var showBackgroundPropertiesDialog by mutableStateOf(initialEditorState?.isBackgroundPropertiesDialogShown ?: false)
     private var shownEditablePropertyDialog by mutableStateOf<LayoutComponentEditableProperty?>(null)
+    private var editablePropertyTarget: EditablePropertyTarget? = null
+    // The editor's size when its dialogs were opened, which is the size of the layout shown until the host calls onEditorSettled(). The keyboard can
+    // shrink the editor meanwhile, and a value entered then is applied for this size instead, so an item near an edge isn't squeezed or moved
+    private var editorSizeBeforeDialogs: Pair<Int, Int>? = null
     private val nameInputDialogState = TextInputDialogState()
 
     val layoutEditorView get() = binding.viewLayoutEditor
@@ -109,6 +121,27 @@ class LayoutEditorManagerView(
         val composeView = ComposeView(context).apply {
             setContent {
                 MelonTheme {
+                    val isEditorDialogShown = showLayoutPropertiesDialog || showBackgroundPropertiesDialog || shownEditablePropertyDialog != null ||
+                            nameInputDialogState.isDialogVisible
+                    if (isEditorDialogShown) {
+                        DisposableEffect(Unit) {
+                            val editor = binding.viewLayoutEditor
+                            if (editorSizeBeforeDialogs == null && editor.width > 0 && editor.height > 0) {
+                                editorSizeBeforeDialogs = editor.width to editor.height
+                            }
+                            listener?.onEditorDialogShown()
+                            onDispose {
+                                val currentListener = listener
+                                if (currentListener != null) {
+                                    currentListener.onEditorDialogHidden()
+                                } else {
+                                    // Nothing would say when it has settled
+                                    onEditorSettled()
+                                }
+                            }
+                        }
+                    }
+
                     if (showLayoutPropertiesDialog) {
                         val layoutConfiguration by viewModel.currentLayoutConfiguration.collectAsStateWithLifecycle()
                         val currentConfiguration = layoutConfiguration
@@ -155,11 +188,20 @@ class LayoutEditorManagerView(
                     LayoutComponentPropertyValueDialog(
                         editableProperty = currentlyShownEditablePropertyDialog,
                         initialValue = currentlyShownEditablePropertyDialog?.let { itemControls.getPropertyValue(it) } ?: 0,
-                        onValueChanged = {
-                            currentlyShownEditablePropertyDialog?.let { property -> itemControls.setPropertyValue(property, it) }
+                        onValueChanged = { value ->
+                            val target = editablePropertyTarget
+                            if (currentlyShownEditablePropertyDialog != null && target != null) {
+                                val editor = binding.viewLayoutEditor
+                                val (editorWidth, editorHeight) = editorSizeBeforeDialogs ?: (editor.width to editor.height)
+                                itemControls.setPropertyValue(target.component, currentlyShownEditablePropertyDialog, value, target.screenAspectRatio, editorWidth, editorHeight)
+                            }
+                            editablePropertyTarget = null
                             shownEditablePropertyDialog = null
                         },
-                        onCancel = { shownEditablePropertyDialog = null },
+                        onCancel = {
+                            editablePropertyTarget = null
+                            shownEditablePropertyDialog = null
+                        },
                     )
 
                     TextInputDialog(
@@ -174,7 +216,12 @@ class LayoutEditorManagerView(
 
         itemControls = LayoutEditorItemControls(
             binding = binding,
-            onEditPropertyValue = { shownEditablePropertyDialog = it },
+            onEditPropertyValue = {
+                editablePropertyTarget = itemControls.selectedComponent?.let { component ->
+                    EditablePropertyTarget(component, itemControls.selectedScreenAspectRatio)
+                }
+                shownEditablePropertyDialog = it
+            },
             getWideAspect = { viewModel.currentLayout.value?.layout?.wideAspect },
             onWideAspectPicked = { wideAspect ->
                 // Widening works from the stored rects, and the editor on the other display may have changed meanwhile
@@ -244,6 +291,14 @@ class LayoutEditorManagerView(
         } else {
             openMenu()
         }
+    }
+
+    /**
+     * Called by the host once the dialogs are closed and the editor is back to the size of the layout shown, or that layout has been replaced. See
+     * [LayoutEditorManagerListener.onEditorDialogHidden]
+     */
+    fun onEditorSettled() {
+        editorSizeBeforeDialogs = null
     }
 
     fun saveEditorState(): ScreenEditorState {

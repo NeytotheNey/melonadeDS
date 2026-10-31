@@ -12,6 +12,7 @@ import android.widget.SeekBar
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.graphics.Insets
+import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.preference.PreferenceManager
 import com.google.android.material.color.MaterialColors
@@ -78,6 +79,7 @@ class LayoutEditorItemControls(
     private val scaleButtons = mapOf(1 to binding.buttonScale1x, 2 to binding.buttonScale2x, 3 to binding.buttonScale3x)
 
     val isShown get() = selectedView != null
+    val selectedComponent get() = selectedView?.component
 
     init {
         tintIcons()
@@ -159,11 +161,43 @@ class LayoutEditorItemControls(
         }
     }
 
-    fun setPropertyValue(property: LayoutComponentEditableProperty, value: Int) {
-        val view = selectedView ?: return
-        when (property) {
-            LayoutComponentEditableProperty.SIZE, LayoutComponentEditableProperty.WIDTH -> editor.resizeSelectedView(value.toFloat(), view.getHeight().toFloat())
-            LayoutComponentEditableProperty.HEIGHT -> editor.resizeSelectedView(view.getWidth().toFloat(), value.toFloat())
+    /**
+     * The ratio the selected screen's size is locked to, or null if it's free or a control is selected. Kept with a value entered in the value
+     * dialog, since the item may not be selected anymore when it's applied
+     */
+    val selectedScreenAspectRatio: Float? get() = if (selectedView?.component?.isScreen() == true) lockedRatio else null
+
+    /**
+     * Sets a value entered in the value dialog on [component], the item the dialog was opened for, even if it's not selected anymore. If the layout
+     * was shown again meanwhile, which deselects it, it's selected again. [ratioWhenOpened] is the ratio it was locked to when the dialog was opened,
+     * and the size is worked out for an editor of [editorWidth] by [editorHeight] (see LayoutEditorView.resizeView)
+     */
+    fun setPropertyValue(component: LayoutComponent, property: LayoutComponentEditableProperty, value: Int, ratioWhenOpened: Float?, editorWidth: Int, editorHeight: Int) {
+        val view = editor.getLayoutComponentView(component) ?: return
+        // A view that was just shown again has no size or position until it's laid out. Selecting it before that would pick its anchor and ratio
+        // from an empty rect
+        view.view.doOnLayout {
+            if (editor.getLayoutComponentView(component) !== view) return@doOnLayout
+            // While it's still selected, its controls have the latest ratio
+            val wasSelected = selectedView === view
+            val ratio = if (wasSelected) lockedRatio else ratioWhenOpened
+            editor.reselectIfDeselectedByLayout(component)
+            if (!wasSelected && selectedView === view && view.component.isScreen()) {
+                // Selecting it guessed the ratio from its shape, which can't tell an explicit Free from a 4:3 shape. Put back the one it had
+                screenAspectRatio = getScreenAspectRatio(ratio)
+                editor.selectedScreenAspectRatio = lockedRatio
+                if (isExpanded) {
+                    fillPanel()
+                }
+            }
+            when (property) {
+                LayoutComponentEditableProperty.SIZE, LayoutComponentEditableProperty.WIDTH -> {
+                    editor.resizeView(view, value.toFloat(), view.getHeight().toFloat(), ratio, editorWidth, editorHeight)
+                }
+                LayoutComponentEditableProperty.HEIGHT -> {
+                    editor.resizeView(view, view.getWidth().toFloat(), value.toFloat(), ratio, editorWidth, editorHeight)
+                }
+            }
         }
     }
 
@@ -445,6 +479,19 @@ class LayoutEditorItemControls(
 
     private fun getWideAspectName(aspect: WidescreenAspect): String {
         return context.resources.getStringArray(R.array.widescreen_aspect_options).getOrElse(aspect.ordinal) { aspect.key }
+    }
+
+    /**
+     * Returns the choice whose locked ratio is [ratio], the reverse of [lockedRatio]. Null is Free.
+     */
+    private fun getScreenAspectRatio(ratio: Float?): ScreenAspectRatio {
+        val currentWideAspect = wideAspect
+        return when {
+            ratio == null -> ScreenAspectRatio.UNRESTRICTED
+            currentWideAspect != null && ratio == currentWideAspect.aspectRatio -> ScreenAspectRatio.WIDE
+            currentWideAspect == null && ratio == ScreenAspectRatio.RATIO_16_9.ratio -> ScreenAspectRatio.RATIO_16_9
+            else -> ScreenAspectRatio.RATIO_4_3
+        }
     }
 
     /**

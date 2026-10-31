@@ -72,6 +72,8 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     private var selectedView: LayoutComponentView? = null
     // See reselectAfterNextLayout()
     private var componentToReselect: LayoutComponent? = null
+    // The item that was selected when the layout was last shown again, until something is selected or deselected. See reselectIfDeselectedByLayout()
+    private var componentDeselectedByLayout: LayoutComponent? = null
     private var selectedViewAnchor = Anchor.TOP_LEFT
     private var modifiedByUser = false
     private var resizeGesture: ResizeGesture? = null
@@ -164,12 +166,22 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
         componentToReselect?.let { component ->
             componentToReselect = null
-            views[component]?.let {
-                it.view.alpha = 1f
-                it.setHighlighted(true)
-                selectView(it)
-            }
+            selectComponent(component)
         }
+    }
+
+    /**
+     * Selects [component], if the layout shown has it. Returns whether it's selected.
+     */
+    fun selectComponent(component: LayoutComponent): Boolean {
+        val view = views[component] ?: return false
+        if (selectedView === view) return true
+
+        deselectSelectedView()
+        view.view.alpha = 1f
+        view.setHighlighted(true)
+        selectView(view)
+        return true
     }
 
     /**
@@ -181,8 +193,20 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
     override fun destroyLayout() {
         // The selected view is about to be destroyed. Deselect it so that the item controls and handles don't stay on a stale view
+        val deselectedComponent = selectedView?.component ?: componentDeselectedByLayout
         deselectSelectedView()
+        componentDeselectedByLayout = deselectedComponent
         super.destroyLayout()
+    }
+
+    /**
+     * Selects [component] again if it was only deselected because the layout was shown again, not because something else was selected or it was
+     * deselected by hand since.
+     */
+    fun reselectIfDeselectedByLayout(component: LayoutComponent) {
+        if (selectedView == null && componentDeselectedByLayout == component) {
+            selectComponent(component)
+        }
     }
 
     fun setOnViewSelectedListener(listener: (LayoutComponentView) -> Unit) {
@@ -206,8 +230,9 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     }
 
     fun buildCurrentLayout(): List<PositionedLayoutComponent> {
+        // From the layout params, so a change made just before is kept even if the views haven't been laid out again yet
         return views.values.map {
-            PositionedLayoutComponent(it.getRect(), it.component, it.baseAlpha, it.onTop, it.spacing)
+            PositionedLayoutComponent(getParamsRect(it), it.component, it.baseAlpha, it.onTop, it.spacing)
         }
     }
 
@@ -456,8 +481,8 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
      * Snaps an item that was moved, or resized to an explicit size: controls put their centre on the grid, screens put their nearest edge on a
      * line.
      */
-    private fun snapPosition(view: LayoutComponentView, rect: Rect): Rect {
-        val (xAxis, yAxis) = getSnapAxes(view)
+    private fun snapPosition(view: LayoutComponentView, rect: Rect, editorWidth: Int = width, editorHeight: Int = height): Rect {
+        val (xAxis, yAxis) = getSnapAxes(view, editorWidth, editorHeight)
         return if (view.component.isScreen()) {
             rect.copy(x = LayoutEditorSnapping.snapEdges(rect.x, rect.width, xAxis), y = LayoutEditorSnapping.snapEdges(rect.y, rect.height, yAxis))
         } else {
@@ -468,14 +493,14 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     /**
      * Returns the snap lines for the given item along the x and y axes. A screen can also line up with the other screen.
      */
-    private fun getSnapAxes(view: LayoutComponentView): Pair<SnapAxis, SnapAxis> {
+    private fun getSnapAxes(view: LayoutComponentView, editorWidth: Int = width, editorHeight: Int = height): Pair<SnapAxis, SnapAxis> {
         val otherScreen = when (view.component) {
             LayoutComponent.TOP_SCREEN -> views[LayoutComponent.BOTTOM_SCREEN]
             LayoutComponent.BOTTOM_SCREEN -> views[LayoutComponent.TOP_SCREEN]
             else -> null
         }?.getRect()
-        val xAxis = SnapAxis(width, gridCellSize, getFoldGaps(vertical = true), otherScreen?.let { SnapSpan(it.x, it.width) })
-        val yAxis = SnapAxis(height, gridCellSize, getFoldGaps(vertical = false), otherScreen?.let { SnapSpan(it.y, it.height) })
+        val xAxis = SnapAxis(editorWidth, gridCellSize, getFoldGaps(vertical = true), otherScreen?.let { SnapSpan(it.x, it.width) })
+        val yAxis = SnapAxis(editorHeight, gridCellSize, getFoldGaps(vertical = false), otherScreen?.let { SnapSpan(it.y, it.height) })
         return xAxis to yAxis
     }
 
@@ -508,7 +533,10 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
      * Clamps a size to the minimum component size and to the given maximum. With a locked aspect ratio the height is derived from the width.
      */
     private fun constrainSize(view: LayoutComponentView, desiredWidth: Float, desiredHeight: Float, maxWidth: Int, maxHeight: Int): Pair<Int, Int> {
-        val ratio = getLockedAspectRatio(view)
+        return constrainSize(getLockedAspectRatio(view), desiredWidth, desiredHeight, maxWidth, maxHeight)
+    }
+
+    private fun constrainSize(ratio: Float?, desiredWidth: Float, desiredHeight: Float, maxWidth: Int, maxHeight: Int): Pair<Int, Int> {
         return if (ratio == null) {
             val newWidth = desiredWidth.roundToInt().coerceAtMost(maxWidth).coerceAtLeast(minComponentSize)
             val newHeight = desiredHeight.roundToInt().coerceAtMost(maxHeight).coerceAtLeast(minComponentSize)
@@ -623,6 +651,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
     private fun selectView(view: LayoutComponentView) {
         selectedView = view
+        componentDeselectedByLayout = null
         spacingBaseline = null
         updateSelectedViewAnchor()
         invalidate()
@@ -634,11 +663,17 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
      */
     private fun updateSelectedViewAnchor() {
         val view = selectedView ?: return
-        val rect = view.getRect()
+        selectedViewAnchor = getNearestAnchor(view.getRect(), width, height)
+    }
+
+    /**
+     * Returns the corner of an editor of the given size that's closest to [rect].
+     */
+    private fun getNearestAnchor(rect: Rect, editorWidth: Int, editorHeight: Int): Anchor {
         val distanceLeft = rect.x.toDouble()
-        val distanceRight = (width - rect.right).toDouble()
+        val distanceRight = (editorWidth - rect.right).toDouble()
         val distanceTop = rect.y.toDouble()
-        val distanceBottom = (height - rect.bottom).toDouble()
+        val distanceBottom = (editorHeight - rect.bottom).toDouble()
 
         val anchorDistances = mapOf(
             Anchor.TOP_LEFT to distanceLeft.pow(2) + distanceTop.pow(2),
@@ -646,7 +681,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
             Anchor.BOTTOM_LEFT to distanceLeft.pow(2) + distanceBottom.pow(2),
             Anchor.BOTTOM_RIGHT to distanceRight.pow(2) + distanceBottom.pow(2),
         )
-        selectedViewAnchor = anchorDistances.minBy { it.value }.key
+        return anchorDistances.minBy { it.value }.key
     }
 
     /**
@@ -664,6 +699,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
             onViewDeselectedListener?.invoke(it)
         }
         selectedView = null
+        componentDeselectedByLayout = null
         resizeGesture = null
         spacingBaseline = null
         invalidate()
@@ -703,10 +739,10 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     /**
      * Moves a rect back inside the editor. One that's bigger than the editor sticks out on the left or top.
      */
-    private fun clampInside(rect: Rect): Rect {
+    private fun clampInside(rect: Rect, editorWidth: Int = width, editorHeight: Int = height): Rect {
         return rect.copy(
-            x = rect.x.coerceAtLeast(0).coerceAtMost(width - rect.width),
-            y = rect.y.coerceAtLeast(0).coerceAtMost(height - rect.height),
+            x = rect.x.coerceAtLeast(0).coerceAtMost(editorWidth - rect.width),
+            y = rect.y.coerceAtLeast(0).coerceAtMost(editorHeight - rect.height),
         )
     }
 
@@ -804,13 +840,27 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
      */
     fun resizeSelectedView(newWidth: Float, newHeight: Float) {
         val view = selectedView ?: return
-        val (constrainedWidth, constrainedHeight) = constrainSize(view, newWidth, newHeight, width, height)
+        resizeView(view, newWidth, newHeight, getLockedAspectRatio(view), selectedViewAnchor, width, height)
+    }
+
+    /**
+     * Resizes [view] to a size entered in the value dialog, whether it's selected or not. Its nearest corner stays in place. [screenAspectRatio] is
+     * the ratio a screen was locked to when the value was entered (controls keep their own). The size and position are worked out for an editor of
+     * [editorWidth] by [editorHeight], the size the layout shown was picked for, which the editor may not be back to yet.
+     */
+    fun resizeView(view: LayoutComponentView, newWidth: Float, newHeight: Float, screenAspectRatio: Float?, editorWidth: Int, editorHeight: Int) {
+        val ratio = if (view.component.isScreen()) screenAspectRatio else view.aspectRatio
+        resizeView(view, newWidth, newHeight, ratio, getNearestAnchor(view.getRect(), editorWidth, editorHeight), editorWidth, editorHeight)
+    }
+
+    private fun resizeView(view: LayoutComponentView, newWidth: Float, newHeight: Float, ratio: Float?, anchor: Anchor, editorWidth: Int, editorHeight: Int) {
+        val (constrainedWidth, constrainedHeight) = constrainSize(ratio, newWidth, newHeight, editorWidth, editorHeight)
         val rect = view.getRect()
 
-        val x = if (selectedViewAnchor.isLeft) rect.x else rect.right - constrainedWidth
-        val y = if (selectedViewAnchor.isTop) rect.y else rect.bottom - constrainedHeight
-        val newRect = clampInside(Rect(x, y, constrainedWidth, constrainedHeight))
-        applyRect(view, if (isSnapEnabled) snapPosition(view, newRect) else newRect)
+        val x = if (anchor.isLeft) rect.x else rect.right - constrainedWidth
+        val y = if (anchor.isTop) rect.y else rect.bottom - constrainedHeight
+        val newRect = clampInside(Rect(x, y, constrainedWidth, constrainedHeight), editorWidth, editorHeight)
+        applyRect(view, if (isSnapEnabled) snapPosition(view, newRect, editorWidth, editorHeight) else newRect)
     }
 
     /**
