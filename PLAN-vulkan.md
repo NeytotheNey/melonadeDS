@@ -56,6 +56,55 @@ Recorded as the reason. What it implies, honestly:
 - **Design consequences for Phase 2:** Vulkan 1.1 core features only; no dependence on dynamic descriptor indexing or timeline semaphores (keep their fallbacks, `W/src/VulkanContext.cpp SetCapabilityOverrides`); no Adreno-only tuning; every pipeline must pass on the x86_64 emulator's SwiftShader, which is the strictest conformant implementation we can run without a tester; validation layers clean before any phone test.
 - **Testers.** Compatibility cannot be shown on one Snapdragon phone. Before Phase 2 ends, name one Mali tester (a Samsung Exynos or MediaTek Dimensity phone) and, if possible, one PowerVR; parity screenshots on their devices are part of the Phase 2 exit.
 
+### Profile recipe (Phase 0, one phone session, ~1 hour)
+
+One simpleperf capture of the emulator thread, split four ways. It answers Goals 2 and 3 above and the separate question of whether JIT or 2D work would pay. Numbers go into `PERF-NOTES.md` (local, git-excluded) under "Phase 0 profile", and the conclusion into **Stated goal** above.
+
+Setup, same as the 10-31 A/B: fresh app start, White 2 at the usual overworld spot, OpenGL 4x, JIT on, fast-forward off, performance logging on so `_summary.txt` comes out of the same run. Debug build (`gitHubProdDebug`, package `me.magnum.melonds.dev`): it is debuggable, so simpleperf attaches without root, and native code is RelWithDebInfo with symbols (`app/build.gradle.kts:70`; keep the unstripped `.so` from `app/build/intermediates/merged_native_libs/` for `--symfs`). Two runs: threaded 2D off, then on.
+
+```bash
+adb shell pidof me.magnum.melonds.dev
+```
+
+```bash
+adb shell "ps -T -p $(adb shell pidof me.magnum.melonds.dev) | grep -E 'EmulatorThread|GPU2DThread'"
+```
+
+```bash
+adb shell simpleperf record --app me.magnum.melonds.dev -t <EmulatorThread tid>,<GPU2DThread tid> -e cpu-clock -f 4000 --duration 60 -o /data/local/tmp/melon.data
+```
+
+```bash
+adb pull /data/local/tmp/melon.data && simpleperf report -i melon.data --symfs <dir with unstripped libmelonDS-android-frontend.so> --tids <EmulatorThread tid> --sort dso,symbol -n | head -80
+```
+
+In parallel during the 60 s, GPU clock and busy from the Adreno sysfs, once a second:
+
+```bash
+adb shell 'for i in $(seq 60); do echo "$(cat /sys/class/kgsl/kgsl-3d0/gpuclk) $(cat /sys/class/kgsl/kgsl-3d0/gpubusy)"; sleep 1; done'
+```
+
+(`gpubusy` prints busy and total cycles; busy % is the ratio. Also note which core `EmulatorThread` sits on from `ps -T -o tid,psr,comm`, and that core's `scaling_cur_freq`, so a clock drop is not read as a code change.)
+
+Bucket the `EmulatorThread` report by dso and symbol prefix; everything should land in one of these:
+
+| Bucket | What counts |
+|---|---|
+| JIT-generated code | samples in anonymous executable memory (dso shown as `[anon]`/unknown, no symbol); that is the recompiled ARM code |
+| Bus, memory and interpreter fallbacks | `ARMJIT_Memory`, `NDS::ARM9Read/Write*`, `ARM7Read/Write*`, `ARMv5::`, `ARMv4::`, `ARMInterpreter::`, `CP15`, `DMA`, `ARMJIT::` (block lookup, invalidation, compile) |
+| 2D | `GPU2D::SoftRenderer`, `GPU2D::Unit`, `GPU::Snapshot2D*`, `Sync2D`; with threaded 2D on, report `GPU2DThread` separately and count only what stays on `EmulatorThread` |
+| 3D geometry (CPU) | `GPU3D::` except the renderer classes: `SubmitVertex`, `SubmitPolygon`, clipping, `ExecuteCommand`, `VCount144` |
+| GL renderer + driver | `GLRenderer::`, `GLCompositor::`, `Texcache`, plus the vendor libraries `libGLESv2_adreno.so`, `libllvm-glnext.so`, `libgsl.so`, `libEGL_adreno.so`, `libEGL.so`, `libGLESv2.so` |
+| Other | SPU, audio, JNI, Lua, `libc` memcpy (attribute to the bucket of its caller if `--call-graph fp` is added), kernel |
+
+Reading it:
+
+- **GL renderer + driver** ≥ 15% of `EmulatorThread`: Goal 2 holds, a Vulkan renderer can take a real slice. Under 10%: it cannot, and the renderer decision rests on compatibility alone.
+- **GPU busy** under ~50% at the lowest `gpuclk` at 4x: Goal 3 fails at 4x; repeat at 8x and WideMelon 768 before concluding.
+- **JIT-generated code** ≥ 50%: the ceiling is codegen quality, which is the hard project described in the chat of 2026-11-01 and not planned. Between 20 and 50% with a fat **bus/memory** bucket: the cheaper work is in the memory handlers and block lookup, not the backend.
+- **2D** ≥ 25% with threaded 2D off and the `GPU2DThread` run showing it moved off the emulator thread with `work_avg_ms` down: make threaded 2D the default.
+- `work_avg_ms` from `_summary.txt` under ~10 ms at 4x with `fps_1pct_low` at 60: the phone has headroom and none of this is needed for speed on it.
+
 ## Rules
 
 - Same workflow as before: coder subagent → fresh reviewer → fixes → host build → phone. Core first (`melonDS-android-lib`, branch off `melonade`), then the submodule bump here.
