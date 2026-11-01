@@ -202,7 +202,7 @@ struct LuaDrawApi
     static void rasterize(const LuaScript& script, LuaOverlay& overlay);
 
 private:
-    static LuaDrawCommand* addDrawCommand(lua_State* L, int64_t pixelCount, size_t textLength = 0);
+    static LuaDrawCommand* addDrawCommand(lua_State* L, LuaDrawCommand::Type type, LuaOverlay::Screen screen, int64_t x0, int64_t y0, int64_t x1, int64_t y1, melonDS::u32 color, int64_t pixelCount, size_t textLength = 0);
     static int pixel(lua_State* L);
     static int line(lua_State* L);
     static int rect(lua_State* L);

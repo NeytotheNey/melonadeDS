@@ -112,11 +112,12 @@ static u32 checkColor(lua_State* L, int argument)
 }
 
 /**
- * Adds a draw command for the running script and charges its work. Returns null when there's nothing to draw: outside on_frame() and
- * on_frame_end(), or when none of it can be seen ([pixelCount] is 0). Raises an error once the script has drawn too much this frame (both
- * callbacks together): too many calls, or more than kMaxDrawTextBytes of text once [textLength] more is added
+ * Records a draw command of [pixelCount] pixels for the running script and charges its work. (x0, y0, x1, y1) are what [type] keeps in the
+ * command's geometry fields, and must fit in an int. Returns null when there's nothing to draw: outside on_frame() and on_frame_end(), or when
+ * none of it can be seen ([pixelCount] is 0). Raises an error once the script has drawn too much this frame (both callbacks together): too many
+ * calls, or more than kMaxDrawTextBytes of text once [textLength] more is added
  */
-LuaDrawCommand* LuaDrawApi::addDrawCommand(lua_State* L, int64_t pixelCount, size_t textLength)
+LuaDrawCommand* LuaDrawApi::addDrawCommand(lua_State* L, LuaDrawCommand::Type type, LuaOverlay::Screen screen, int64_t x0, int64_t y0, int64_t x1, int64_t y1, u32 color, int64_t pixelCount, size_t textLength)
 {
     LuaScript& script = getScript(L);
     if (!script.engine->isDrawingAllowed || pixelCount == 0)
@@ -128,7 +129,15 @@ LuaDrawCommand* LuaDrawApi::addDrawCommand(lua_State* L, int64_t pixelCount, siz
         LuaSandbox::raiseLimitError(L, script, kDrawTextLimitError);
 
     melonade_charge_work(L, kDrawCallCost + pixelCount);
-    return &script.drawCommands.emplace_back();
+    LuaDrawCommand& command = script.drawCommands.emplace_back();
+    command.type = type;
+    command.screen = screen;
+    command.x0 = (int) x0;
+    command.y0 = (int) y0;
+    command.x1 = (int) x1;
+    command.y1 = (int) y1;
+    command.color = color;
+    return &command;
 }
 
 int LuaDrawApi::pixel(lua_State* L)
@@ -142,8 +151,7 @@ int LuaDrawApi::pixel(lua_State* L)
     if (color == 0 || rect.isEmpty())
         return 0;
 
-    if (LuaDrawCommand* command = addDrawCommand(L, (rect.x1 - rect.x0) * (rect.y1 - rect.y0)))
-        *command = { LuaDrawCommand::Type::Rect, screen, (int) rect.x0, (int) rect.y0, (int) rect.x1, (int) rect.y1, color };
+    addDrawCommand(L, LuaDrawCommand::Type::Rect, screen, rect.x0, rect.y0, rect.x1, rect.y1, color, (rect.x1 - rect.x0) * (rect.y1 - rect.y0));
     return 0;
 }
 
@@ -159,8 +167,7 @@ int LuaDrawApi::line(lua_State* L)
     if (color == 0 || !LuaOverlay::clipLine(x0, y0, x1, y1))
         return 0;
 
-    if (LuaDrawCommand* command = addDrawCommand(L, LuaOverlay::linePixelCount(x0, y0, x1, y1)))
-        *command = { LuaDrawCommand::Type::Line, screen, (int) x0, (int) y0, (int) x1, (int) y1, color };
+    addDrawCommand(L, LuaDrawCommand::Type::Line, screen, x0, y0, x1, y1, color, LuaOverlay::linePixelCount(x0, y0, x1, y1));
     return 0;
 }
 
@@ -187,8 +194,7 @@ int LuaDrawApi::rect(lua_State* L)
     if (isFilled)
     {
         LuaOverlay::Rect clipped = LuaOverlay::clipToScreen(rect);
-        if (LuaDrawCommand* command = addDrawCommand(L, LuaOverlay::clippedArea(rect)))
-            *command = { LuaDrawCommand::Type::Rect, screen, (int) clipped.x0, (int) clipped.y0, (int) clipped.x1, (int) clipped.y1, color };
+        addDrawCommand(L, LuaDrawCommand::Type::Rect, screen, clipped.x0, clipped.y0, clipped.x1, clipped.y1, color, LuaOverlay::clippedArea(rect));
     }
     else
     {
@@ -200,17 +206,12 @@ int LuaDrawApi::rect(lua_State* L)
 
         // Capped to just outside the screen: the sides that can be seen stay where they are
         const int64_t margin = LuaOverlay::kScale;
-        if (LuaDrawCommand* command = addDrawCommand(L, pixelCount))
-        {
-            *command = {
-                LuaDrawCommand::Type::Outline, screen,
-                (int) std::clamp<int64_t>(rect.x0, -margin, LuaOverlay::kScreenWidth + margin),
-                (int) std::clamp<int64_t>(rect.y0, -margin, LuaOverlay::kScreenHeight + margin),
-                (int) std::clamp<int64_t>(rect.x1, -margin, LuaOverlay::kScreenWidth + margin),
-                (int) std::clamp<int64_t>(rect.y1, -margin, LuaOverlay::kScreenHeight + margin),
-                color,
-            };
-        }
+        addDrawCommand(L, LuaDrawCommand::Type::Outline, screen,
+                       std::clamp<int64_t>(rect.x0, -margin, LuaOverlay::kScreenWidth + margin),
+                       std::clamp<int64_t>(rect.y0, -margin, LuaOverlay::kScreenHeight + margin),
+                       std::clamp<int64_t>(rect.x1, -margin, LuaOverlay::kScreenWidth + margin),
+                       std::clamp<int64_t>(rect.y1, -margin, LuaOverlay::kScreenHeight + margin),
+                       color, pixelCount);
     }
     return 0;
 }
@@ -237,10 +238,12 @@ int LuaDrawApi::text(lua_State* L)
         // The box's area covers the glyphs as well as the background. Text whose box can be seen starts at an int: a frame's text is at most
         // kMaxDrawTextBytes, and glyphs are at most 14 pixels wide at size 1
         LuaOverlay::Rect box = { x, y, x + width, y + size.lineCount * LuaOverlay::kLineHeight * textSize };
-        if (LuaDrawCommand* command = addDrawCommand(L, LuaOverlay::clippedArea(box), length))
+        if (LuaDrawCommand* command = addDrawCommand(L, LuaDrawCommand::Type::Text, screen, x, y, textSize, 0, color, LuaOverlay::clippedArea(box), length))
         {
             LuaScript& script = getScript(L);
-            *command = { LuaDrawCommand::Type::Text, screen, (int) x, (int) y, (int) textSize, 0, color, background, script.drawText.size(), length };
+            command->background = background;
+            command->textOffset = script.drawText.size();
+            command->textLength = length;
             script.drawText.append(text, length);
         }
     }
@@ -275,8 +278,7 @@ int LuaDrawApi::circle(lua_State* L)
     int64_t rowCount = std::clamp<int64_t>(middleY + radius, 0, LuaOverlay::kScreenHeight) - std::clamp<int64_t>(middleY - radius, 0, LuaOverlay::kScreenHeight);
     melonade_charge_work(L, kDrawCallCost + 2 * rowCount);
 
-    if (LuaDrawCommand* command = addDrawCommand(L, LuaOverlay::circlePixelCount(middleX, middleY, radius, isFilled)))
-        *command = { LuaDrawCommand::Type::Circle, screen, (int) middleX, (int) middleY, (int) radius, isFilled ? 1 : 0, color };
+    addDrawCommand(L, LuaDrawCommand::Type::Circle, screen, middleX, middleY, radius, isFilled ? 1 : 0, color, LuaOverlay::circlePixelCount(middleX, middleY, radius, isFilled));
     return 0;
 }
 
@@ -368,9 +370,8 @@ int LuaDrawApi::image(lua_State* L)
     lua_pop(L, 1);
 
     // The destination can be seen, so its top left is at most an image's width (1024 * kMaxImageScale) outside the screen, and fits in an int
-    if (LuaDrawCommand* command = addDrawCommand(L, pixelCount * kImageStepsPerPixel))
+    if (LuaDrawCommand* command = addDrawCommand(L, LuaDrawCommand::Type::Image, screen, destinationX, destinationY, scale, 0, alpha, pixelCount * kImageStepsPerPixel))
     {
-        *command = { LuaDrawCommand::Type::Image, screen, (int) destinationX, (int) destinationY, scale, 0, alpha };
         command->imagePixels = image->pixels + clippedY0 * image->width + clippedX0;
         command->imageStride = image->width;
         command->imageWidth = (int) (clippedX1 - clippedX0);
