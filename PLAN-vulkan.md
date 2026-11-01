@@ -46,6 +46,16 @@ Write down in this section, before Phase 2 starts, which of these the renderer i
 
 Gate: proceed to Phase 2 if (1) is wanted, or (2)/(3) show a measurable cost, or (4) has a named tester. Otherwise stop after Phase 1 (which is cheap and harmless) and park the rest.
 
+### Stated goal (2026-11-01): compatibility with more hardware, and a modern API
+
+Recorded as the reason. What it implies, honestly:
+
+- **Vulkan does not reach devices GLES 3.2 misses.** Android devices that ship Vulkan 1.1 (2018 onward) all have GLES 3.2; the devices our settings screen hides the GL renderer from (`VideoPreferencesFragment.kt:22,43`, `reqGlEsVersion < 0x30002`) are older ones that have GLES 3.0/3.1 and at best Vulkan 1.0. The cheaper compatibility win is independent of Vulkan: our GL renderer uses nothing 3.2-specific. The shaders are `#version 320 es` by habit (`O/src/GPU3D_OpenGL_shaders.h:22`, `GPU_OpenGL_shaders.h:24,52`) and the only 3.2 entry point is `glFramebufferTexture`, which `glFramebufferTexture2D` replaces (`O/src/GPU3D_OpenGL.cpp:431-439, 1409, 1455`, `GPU_OpenGL.cpp:304, 390, 535`). Drop the GL renderer's gate to 3.0 (compute stays 3.1 and Qualcomm). That is a one-day item and goes first, as **Phase 1 item 0**.
+- **Where Vulkan does help compatibility** is driver quality, not device count: a native Vulkan path on devices whose vendor GLES is buggy (the Adreno wing-hold word-0 bug in `MODS.md` is the kind of thing), and custom Turnip drivers on Qualcomm phones whose stock driver is broken for a game. So Phase 3 stays in scope for the gitHub flavour. The counterweight: on cheap Mali and PowerVR the Vulkan driver is often worse than the GLES one, so Vulkan is offered next to OpenGL, never instead of it, and OpenGL stays the default.
+- **"Modern" has a concrete form.** Google made Vulkan Android's official graphics API in 2025, with GLES increasingly served through ANGLE on top of Vulkan. On such devices our GL path runs through a translation layer and inherits ANGLE's bugs. Test this now, on the Fold: Developer options → "Enable ANGLE" for melonadeDS (Android 15+), run the Phase 2 checklist scenes on the OpenGL renderer and note what breaks. That is the best preview we have of future phones, and any breakage there is a point for the Vulkan path.
+- **Design consequences for Phase 2:** Vulkan 1.1 core features only; no dependence on dynamic descriptor indexing or timeline semaphores (keep their fallbacks, `W/src/VulkanContext.cpp SetCapabilityOverrides`); no Adreno-only tuning; every pipeline must pass on the x86_64 emulator's SwiftShader, which is the strictest conformant implementation we can run without a tester; validation layers clean before any phone test.
+- **Testers.** Compatibility cannot be shown on one Snapdragon phone. Before Phase 2 ends, name one Mali tester (a Samsung Exynos or MediaTek Dimensity phone) and, if possible, one PowerVR; parity screenshots on their devices are part of the Phase 2 exit.
+
 ## Rules
 
 - Same workflow as before: coder subagent → fresh reviewer → fixes → host build → phone. Core first (`melonDS-android-lib`, branch off `melonade`), then the submodule bump here.
@@ -60,6 +70,8 @@ Gate: proceed to Phase 2 if (1) is wanted, or (2)/(3) show a measurable cost, or
 ## Phase 1: foundation (device-free, ~1 week)
 
 Borrow, trim, compile. Nothing renders yet.
+
+0. **Lower the GL renderer's gate to GLES 3.0** (see Stated goal): `#version 300 es` where nothing 3.1+ is used, `glFramebufferTexture2D`, gate `0x30000` for OpenGL and `0x30001` for compute; check the compositor's integer textures and `texelFetch` are 3.0 (they are). One day, its own commit, phone check that White 2 still renders identically.
 
 1. **Loader and device.** Take `W/src/VulkanDispatch.{h,cpp}` and `VulkanContext.{h,cpp}` into `O/src/`. Trim `VulkanContext`: drop the hard requirement on `VK_KHR_android_surface`/`VK_KHR_swapchain` (`W/src/VulkanContext.cpp:19-26`; we do not present with Vulkan in this plan) and the dedicated present queue; keep Vulkan 1.1 (cpp:200), the device profile (Adreno/Mali/PowerVR flags), `FindMemoryType`, the queue mutex, timeline-semaphore detection, and the `DriverConfiguration` hook for Phase 3. Add detection for the three extensions Phase 2 needs: `VK_ANDROID_external_memory_android_hardware_buffer`, `VK_KHR_external_semaphore_fd`, `VK_KHR_external_fence_fd` (all mandatory on Android 9+ devices that ship Vulkan 1.1, but gate on them anyway). ~1,600 lines after trimming.
 2. **Texture cache loader.** Take `W/src/GPU3D_TexcacheVulkan.{h,cpp}` as is (RGBA8UI array images, 8 staging slots with fences, CPU mirror). Take the dirty-mask index fix from `W/src/GPU3D_Texcache.h` (`vramSize / VRAMDirtyGranularity / 64`) **after checking it against upstream melonDS** `src/GPU3D_Texcache.h`; if upstream has the same bug it is a separate commit that also helps compute. Skip `UpdateWithInvalidationCallback` unless Phase 2 needs it.
