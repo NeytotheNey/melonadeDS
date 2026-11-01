@@ -17,6 +17,7 @@
 #include "retroachievements/RetroAchievementsManager.h"
 #include "net/Net.h"
 #include "debug/DebugLog.h"
+#include "debug/DebugProperties.h"
 #include "scripting/LuaEngine.h"
 
 using namespace melonDS;
@@ -172,10 +173,10 @@ private:
     // The requested renderer whose New() failed, so the software fallback is in use. Only tried again once a different renderer is asked for
     std::optional<Renderer> failedRenderer;
     bool isRenderConfigurationDirty;
-    // Debug builds only: debug.melonade.threaded2d forces threaded 2D on (1) or off (0). -1 when the property isn't set
-    int threaded2dOverride = -1;
-    // Debug builds only: debug.melonade.hirescap forces upscaled display capture on (1) or off (0). -1 when the property isn't set
-    int hiresCaptureOverride = -1;
+#ifdef MELONADE_DEBUG_TOOLS
+    // The debug.melonade.* switches that override settings (see DebugProperties.h)
+    DebugProperties::Overrides debugOverrides;
+#endif
     int frame;
     // The frame of the rewind state whose screenshot is still being read back, or -1
     int pendingRewindScreenshotFrame = -1;

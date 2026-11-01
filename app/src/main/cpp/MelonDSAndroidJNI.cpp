@@ -34,6 +34,7 @@
 #include <sched.h>
 #include <sys/system_properties.h>
 #include <android/log.h>
+#include "debug/DebugProperties.h"
 #endif
 
 enum GbaSlotType {
@@ -958,18 +959,14 @@ static void pushPerfSample(double frameBeginTick, double frameEndTick, int64_t w
 
 #ifdef MELONADE_DEBUG_TOOLS
 /**
- * Debug builds only, for the core-placement experiment: `adb shell setprop debug.melonade.cpusemu 6,7` pins the emulator thread to those
- * CPUs, and `debug.melonade.cpus2d` the core's 2D render thread. Each is a comma-separated list of CPU ids, read when the thread is pinned.
- * Unset or empty means no pinning (clear with `adb shell "setprop debug.melonade.cpusemu ''"`). Only the affinity is set; the ADPF hint
- * session is left alone.
- * Threads inherit the mask of the thread that creates them, and the emulator thread creates the core's threads, so cpusemu also pins
- * its children (the software 3D render thread among them). The 2D thread is the exception: it's reset to every CPU when cpus2d is unset.
- * Returns whether the thread was pinned.
+ * Debug builds only: pins [tid] to the CPUs listed in the debug.melonade.[property] switch (see DebugProperties.h) and returns whether it did.
+ * Only the affinity is set; the ADPF hint session is left alone. Threads inherit the mask of the thread that creates them, so cpusemu also
+ * pins the core threads the emulator thread creates. The 2D thread is the exception: it's reset to every CPU when cpus2d is unset.
  */
 static bool debugPinThreadToCpus(const char* property, pid_t tid, const char* threadName)
 {
-    char value[PROP_VALUE_MAX] = {};
-    if (__system_property_get(property, value) <= 0 || value[0] == '\0')
+    char value[PROP_VALUE_MAX];
+    if (!DebugProperties::read(property, value))
         return false;
 
     cpu_set_t cpus;
@@ -1024,7 +1021,7 @@ void* emulate(void*)
 {
 #ifdef MELONADE_DEBUG_TOOLS
     // Before the core's threads exist, so they inherit the mask (see debugPinThreadToCpus)
-    bool emulatorThreadPinned = debugPinThreadToCpus("debug.melonade.cpusemu", gettid(), "EmulatorThread");
+    bool emulatorThreadPinned = debugPinThreadToCpus("cpusemu", gettid(), "EmulatorThread");
 #endif
 
     double startTick = getCurrentMillis();
@@ -1108,7 +1105,7 @@ void* emulate(void*)
 #ifdef MELONADE_DEBUG_TOOLS
                 // A new 2D thread (it's re-created when the setting changes), so it's pinned again. Without cpus2d it would
                 // keep the emulator thread's cpusemu mask, which it inherited, so it's reset to every CPU instead
-                if (gpu2DThreadId != 0 && !debugPinThreadToCpus("debug.melonade.cpus2d", gpu2DThreadId, "GPU2DThread") && emulatorThreadPinned)
+                if (gpu2DThreadId != 0 && !debugPinThreadToCpus("cpus2d", gpu2DThreadId, "GPU2DThread") && emulatorThreadPinned)
                     debugUnpinThread(gpu2DThreadId, "GPU2DThread");
 #endif
                 sessionGpu2DThreadId = gpu2DThreadId;

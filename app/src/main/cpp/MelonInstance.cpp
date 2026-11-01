@@ -26,7 +26,7 @@
 #include "debug/DebugLog.h"
 #ifdef MELONADE_DEBUG_TOOLS
 #include <android/log.h>
-#include <sys/system_properties.h>
+#include "debug/DebugProperties.h"
 #endif
 
 using namespace std;
@@ -70,99 +70,7 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     }
 
 #ifdef MELONADE_DEBUG_TOOLS
-    // Debug builds only: `adb shell setprop debug.melonade.hash2d 1` before starting a game logs a checksum of the 2D output every frame
-    char hash2dProperty[PROP_VALUE_MAX] = {};
-    __system_property_get("debug.melonade.hash2d", hash2dProperty);
-    nds->GPU.Hash2DLogging = hash2dProperty[0] == '1';
-
-    // `adb shell setprop debug.melonade.defercap 0` before starting a game draws display capture lines at their HBlank again, as before
-    // they were held until line 192 with the OpenGL renderer (GPU::Begin2DJob), for A/B tests. Unset or 1 keeps them held
-    char defercapProperty[PROP_VALUE_MAX] = {};
-    __system_property_get("debug.melonade.defercap", defercapProperty);
-    nds->GPU.DeferCapture2D = defercapProperty[0] != '0';
-
-    // `adb shell setprop debug.melonade.earlyflush 0` before starting a game stops the glFlush after the 3D frame (line 215) and its
-    // capture readback (line 0) while display capture lines are held, so they wait for the frame-end flush again, for A/B tests.
-    // Unset or 1 keeps the early flushes
-    char earlyflushProperty[PROP_VALUE_MAX] = {};
-    __system_property_get("debug.melonade.earlyflush", earlyflushProperty);
-    nds->GPU.EarlyFlushCapture = earlyflushProperty[0] != '0';
-
-    // `adb shell setprop debug.melonade.shadowfix 0` before starting a game makes the classic OpenGL renderer clear the shadow mask over
-    // the whole screen for every mask again, instead of per line like the software renderer, for A/B tests. Unset or 1 keeps the fix
-    char shadowfixProperty[PROP_VALUE_MAX] = {};
-    __system_property_get("debug.melonade.shadowfix", shadowfixProperty);
-    nds->GPU.ShadowMaskLineClear = shadowfixProperty[0] != '0';
-
-    // `adb shell setprop debug.melonade.maskdepth 0` makes the classic OpenGL renderer draw depth-equal shadow masks and shadows with a
-    // plain GL_LESS/GL_LEQUAL again, without the DS depth margin, for A/B tests. Unset or 1 keeps the margin
-    char maskdepthProperty[PROP_VALUE_MAX] = {};
-    __system_property_get("debug.melonade.maskdepth", maskdepthProperty);
-    nds->GPU.ShadowMaskDepthTest = maskdepthProperty[0] != '0';
-
-    // `adb shell setprop debug.melonade.equaldepth 0` makes the classic OpenGL renderer draw all other depth-equal polygons with a plain
-    // GL_LEQUAL again, without the DS depth margin, for A/B tests. Unset or 1 keeps the margin
-    char equaldepthProperty[PROP_VALUE_MAX] = {};
-    __system_property_get("debug.melonade.equaldepth", equaldepthProperty);
-    nds->GPU.EqualDepthMargin = equaldepthProperty[0] != '0';
-
-    // `adb shell setprop debug.melonade.shadowlog 1` makes the classic OpenGL renderer log the first 300 frames (another number logs
-    // that many): a SHADOWSTATS line of polygon counts every frame, and a SHADOWLOG line with the shadow masks and shadows, if any
-    char shadowlogProperty[PROP_VALUE_MAX] = {};
-    __system_property_get("debug.melonade.shadowlog", shadowlogProperty);
-    int shadowlogFrames = atoi(shadowlogProperty);
-    nds->GPU.ShadowLogFrames = (shadowlogFrames == 1) ? 300 : std::max(shadowlogFrames, 0);
-
-    // `adb shell setprop debug.melonade.computedirect 0` makes the compute renderer use the GPU-written indirect dispatches for SortWork
-    // and Rasterise again, which the Adreno driver waits on, for A/B tests. Unset or 1 keeps the direct dispatches
-    char computedirectProperty[PROP_VALUE_MAX] = {};
-    __system_property_get("debug.melonade.computedirect", computedirectProperty);
-    nds->GPU.ComputeDirectDispatch = computedirectProperty[0] != '0';
-
-    // `adb shell setprop debug.melonade.blitflush 0` stops the compute renderer's GPU flush right after the line-192 Blit in frames that hold
-    // capture lines (GPU::StartScanline), for A/B tests. Unset or 1 keeps it. `debug.melonade.capspin 0` makes the compute renderer sleep in the capture
-    // readback's map again instead of polling a fence first (ComputeRenderer::GetLine); another value sets the poll's limit in µs
-    // (default 6000, clamped to 20000)
-    char blitflushProperty[PROP_VALUE_MAX] = {};
-    __system_property_get("debug.melonade.blitflush", blitflushProperty);
-    nds->GPU.BlitFlushCapture = blitflushProperty[0] != '0';
-    char capspinProperty[PROP_VALUE_MAX] = {};
-    if (__system_property_get("debug.melonade.capspin", capspinProperty) > 0)
-        nds->GPU.CaptureSpinUs = std::clamp(atoi(capspinProperty), 0, 20000);
-
-    // `adb shell setprop debug.melonade.hirescap 0` (or 1) forces upscaled display capture off (or on) over the setting. `log` turns it on
-    // and logs a HIRESCAP line once a second (passes, VRAM display lines shown hi-res, skipped captures by reason); `check` also runs the
-    // capture pass at 1x and compares its copy with the native capture every 30 passes (a `HIRESCAP check` line). Clear it with an empty value
-    char hirescapProperty[PROP_VALUE_MAX] = {};
-    __system_property_get("debug.melonade.hirescap", hirescapProperty);
-    if (strcmp(hirescapProperty, "0") == 0)
-        hiresCaptureOverride = 0;
-    else if (strcmp(hirescapProperty, "1") == 0)
-        hiresCaptureOverride = 1;
-    else if (strcmp(hirescapProperty, "log") == 0)
-    {
-        hiresCaptureOverride = 1;
-        nds->GPU.HiresCaptureDebug = 1;
-    }
-    else if (strcmp(hirescapProperty, "check") == 0)
-    {
-        hiresCaptureOverride = 1;
-        nds->GPU.HiresCaptureDebug = 2;
-    }
-
-    Platform::Log(Platform::LogLevel::Info, "Debug switches: defercap=%d earlyflush=%d shadowfix=%d maskdepth=%d equaldepth=%d shadowlog=%d computedirect=%d blitflush=%d capspin=%d hirescap=%d hirescapdebug=%d\n",
-                  nds->GPU.DeferCapture2D, nds->GPU.EarlyFlushCapture, nds->GPU.ShadowMaskLineClear, nds->GPU.ShadowMaskDepthTest,
-                  nds->GPU.EqualDepthMargin, nds->GPU.ShadowLogFrames, nds->GPU.ComputeDirectDispatch, nds->GPU.BlitFlushCapture, nds->GPU.CaptureSpinUs,
-                  hiresCaptureOverride, nds->GPU.HiresCaptureDebug);
-
-    // `adb shell setprop debug.melonade.threaded2d 1` (or 0) forces threaded 2D on (or off) over the setting, for testing. Clear it with an
-    // empty value: `adb shell setprop debug.melonade.threaded2d ""`
-    char threaded2dProperty[PROP_VALUE_MAX] = {};
-    __system_property_get("debug.melonade.threaded2d", threaded2dProperty);
-    if (threaded2dProperty[0] == '1')
-        threaded2dOverride = 1;
-    else if (threaded2dProperty[0] == '0')
-        threaded2dOverride = 0;
+    debugOverrides = DebugProperties::apply(nds->GPU);
 #endif
 
     if (configuration->userInternalFirmwareAndBios)
@@ -1036,12 +944,17 @@ void MelonInstance::updateRenderer()
         default: __builtin_unreachable();
     }
 
+    bool threaded2d = currentConfiguration->threaded2dRendering;
+    bool hiresCapture = currentConfiguration->hiresCapture;
+#ifdef MELONADE_DEBUG_TOOLS
+    if (debugOverrides.threaded2d >= 0)
+        threaded2d = debugOverrides.threaded2d == 1;
+    if (debugOverrides.hiresCapture >= 0)
+        hiresCapture = debugOverrides.hiresCapture == 1;
+#endif
     // Runs between frames, so the 2D thread can start or stop right away
-    bool threaded2d = threaded2dOverride >= 0 ? threaded2dOverride == 1 : currentConfiguration->threaded2dRendering;
     nds->GPU.SetThreaded2D(threaded2d);
-
     // Only the OpenGL and compute renderers use it (the core ignores it for software). A change drops the hi-res copies
-    bool hiresCapture = hiresCaptureOverride >= 0 ? hiresCaptureOverride == 1 : currentConfiguration->hiresCapture;
     nds->GPU.SetHiresCapture(hiresCapture);
 }
 

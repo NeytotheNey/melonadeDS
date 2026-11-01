@@ -69,6 +69,7 @@ add_library(
         ${ANDROID-CPP}/UriFileHandler.cpp
         ${ANDROID-CPP}/debug/AudioDiagnostics.cpp
         ${ANDROID-CPP}/debug/DebugLog.cpp
+        ${ANDROID-CPP}/debug/DebugProperties.cpp
         ${ANDROID-CPP}/performancehint/JniPerformanceHintManager.cpp
         ${ANDROID-CPP}/performancehint/NdkPerformanceHintManager.cpp
         ${ANDROID-CPP}/performancehint/PerformanceHintManagerFactory.cpp
