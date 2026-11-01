@@ -18,7 +18,9 @@ Read this, then `PLAN-blackmagic3.md`. The plan has the reasoning, the per-item 
 
 ## What is left
 
-### A. Batch 2 item 3: GL texture cache (measure first)
+### A. Batch 2 item 3: GL texture cache (skipped after measuring)
+
+**Measured 10-31, decision: skip.** In a clean OpenGL 4x A/B on the Fold (before vs after blackmagic3, White 2 overworld and intro), Batch 2 cut emulator-thread cycles per frame by 16% and GPU cycles by 11–15%. But the GPU stayed at its lowest clock (160 MHz) and was at most 43% busy, so fragment texture decode can't limit fps. Wall time barely moved, because the governor lowered the clocks to match. The numbers are in `PERF-NOTES.md` (local, git-excluded) under "blackmagic3 Batch 2". Reopen only if a texture-heavy 3D game pushes the GPU clock up. The notes below stay for that case.
 
 The only plan item not done. Upstream's GL renderer decodes textures through `TexcacheOpenGL` into RGBA8UI array textures and samples with one `texture()`; ours decodes every format in the fragment shader with 2–6 `texelFetch`es (`GPU3D_OpenGL_shaders.h`, `FinalColor`/texture functions). Our compute renderer already uses the same texcache, so the loader exists.
 
@@ -26,7 +28,7 @@ Do it only if a GPU profile on the phone shows the fragment texture decode as a 
 
 If it goes ahead: strip upstream's capture-texture branches (`captureinfo`, `Capture128/256`), use sampler objects like our compute does instead of upstream's per-batch `glTexParameteri`, keep `.bgra`, ES precision headers, `layout(location)` outputs, the depth-stencil detach in the fog/edge pass, and the `uDepthBias`/`uRenderMode` scheme. ~300–400 lines plus a render FS rewrite. Batches split on texture, so re-check the shadow-mask sequence in `RenderSceneChunk` after the change.
 
-The Batch 2 measurement (plan checklist item 2) was not recorded: there is no `PERF-NOTES.md` anywhere. Do it with the recipe above and start the file with it, so the A/B against the 10-28 numbers exists.
+The Batch 2 measurement (plan checklist item 2) is done; see above. `PERF-NOTES.md` exists on the user's PC but is git-excluded, so cloud sessions don't see it.
 
 ### B. Small follow-ups (each under an hour)
 
