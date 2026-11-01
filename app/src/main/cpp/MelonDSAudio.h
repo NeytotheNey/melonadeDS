@@ -45,19 +45,6 @@ namespace MelonDSAndroid
      * Emulator thread, right before each frame. Runs the trim the output callback asked for. Costs two relaxed loads otherwise.
      */
     extern void runAudioOutputTrimBeforeFrame(MelonInstance& instance);
-    /**
-     * Emulator thread, after each frame's sleep. Measures the speed paced fast-forward really reaches from the frames' wall time [intervalMs].
-     * Only logged for now, for the time-stretching to come. [isPacedFastForward] is whether fast-forward is on with a speed limit,
-     * [requestedSpeed] that limit.
-     */
-    extern void onEmulatorFrameEnd(double intervalMs, bool isPacedFastForward, float requestedSpeed);
-    // Emulator thread, when it parks for a pause. The achieved speed starts over
-    extern void onEmulatorPaused();
-    /**
-     * Lock-free, for the diagnostics. The speed paced fast-forward really reaches (1 is normal speed), smoothed over
-     * about 0.35 s, or 0 if it isn't known yet for the current fast-forward state.
-     */
-    extern float getAudioAchievedSpeed();
     extern void setAudioActiveInstance(std::shared_ptr<MelonInstance> instance);
     extern void cleanupAudio();
     extern void startAudio();

@@ -31,6 +31,14 @@ struct ComputeRenderSettings : public RenderSettings
     bool highResCoordinates;
 };
 
+// Must match AudioLatency.latencyValue in AudioLatency.kt
+enum class AudioLatency
+{
+    Low = 0,
+    Medium = 1,
+    High = 2,
+};
+
 struct AudioSettings
 {
     bool soundEnabled;
@@ -38,7 +46,7 @@ struct AudioSettings
     int volume;
     int audioInterpolation;
     int audioBitrate;
-    int audioLatency;
+    AudioLatency audioLatency;
     int micSource;
 };
 

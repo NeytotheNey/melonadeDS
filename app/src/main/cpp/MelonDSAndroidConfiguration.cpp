@@ -96,7 +96,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
         .volume = volume,
         .audioInterpolation = audioInterpolation,
         .audioBitrate = audioBitrate,
-        .audioLatency = audioLatency,
+        .audioLatency = (MelonDSAndroid::AudioLatency) audioLatency,
         .micSource = micSource
     };
     finalEmulatorConfiguration.firmwareConfiguration = buildFirmwareConfiguration(env, firmwareConfigurationObject);

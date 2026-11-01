@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <atomic>
 #include <climits>
-#include <cmath>
 #include <cstdint>
 #include <mutex>
 
@@ -19,63 +18,41 @@ static constexpr int32_t MAX_OUTPUT_BUFFER_FRAMES = 2048;
 // 2 ms bursts
 static constexpr int32_t INITIAL_LOW_LATENCY_BUFFER_BURSTS = 3;
 
-std::weak_ptr<MelonDSAndroid::MelonInstance> activeInstance;
+static std::weak_ptr<MelonDSAndroid::MelonInstance> activeInstance;
 
-// Guards audioStream, outputCallback and isAudioRunning. They are touched from the JNI thread and
-// from the thread Oboe spawns to report stream errors (resetAudioOutputStream()). Never taken
-// in the real-time data callback.
-std::mutex audioOutputMutex;
-std::shared_ptr<oboe::AudioStream> audioStream;
-std::shared_ptr<OboeCallback> outputCallback;
-// Whether the app wants audio playing. A stream reset after a device disconnect must not start
-// playback while the emulator is paused.
-bool isAudioRunning = false;
+// Guards audioStream, outputCallback and isAudioRunning. They are touched from the JNI thread and from the thread Oboe spawns to report stream
+// errors (resetAudioOutputStream()). Never taken in the real-time data callback
+static std::mutex audioOutputMutex;
+static std::shared_ptr<oboe::AudioStream> audioStream;
+static std::shared_ptr<OboeCallback> outputCallback;
+// Whether the app wants audio playing. A stream reset after a device disconnect must not start playback while the emulator is paused
+static bool isAudioRunning = false;
 
-std::shared_ptr<oboe::AudioStream> micInputStream;
-std::shared_ptr<MicInputOboeCallback> micInputCallback;
+static std::shared_ptr<oboe::AudioStream> micInputStream;
+static std::shared_ptr<MicInputOboeCallback> micInputCallback;
 
-MelonDSAndroid::AudioSettings currentAudioSettings;
+static MelonDSAndroid::AudioSettings currentAudioSettings;
 // Read lock-free by the output data callback to decide whether to output silence while fast-forwarding
-std::atomic_bool isAudioFastForwardActive = false;
-std::atomic_bool muteFastForwardAudio = false;
-std::atomic<float> audioFastForwardSpeed = 0;
-std::atomic<uint32_t> audioRateGeneration = 0;
-std::atomic<uint32_t> audioStartGeneration = 0;
+static std::atomic_bool isAudioFastForwardActive = false;
+static std::atomic_bool muteFastForwardAudio = false;
+static std::atomic<float> audioFastForwardSpeed = 0;
+static std::atomic<uint32_t> audioRateGeneration = 0;
+static std::atomic<uint32_t> audioStartGeneration = 0;
 // Whether the current output stream trims the ring (priming mode, small bursts: OboeCallback::isPrimingModeBurst()). Set when it opens
-std::atomic_bool areAudioOutputTrimsEnabled = true;
+static std::atomic_bool areAudioOutputTrimsEnabled = true;
 // Set when fast-forward ends, for the emulator thread to trim once more after the frame it was running. That trim only fires this far over
 // the usual threshold
 static constexpr int32_t POST_FRAME_TRIM_EXTRA_FRAMES = 400;
-std::atomic_bool isAudioTrimAfterFramePending = false;
+static std::atomic_bool isAudioTrimAfterFramePending = false;
 // The trim a (re)started stream's callback asks for when it finishes priming (OboeCallback): the callback bumps the request, the emulator thread
 // trims at the start of its next frame and stores the request it answered
-std::atomic<uint32_t> audioTrimBeforeFrameRequest = 0;
-std::atomic<uint32_t> audioTrimBeforeFrameDone = 0;
-// The speed paced fast-forward really reaches, smoothed, in thousandths (low 32 bits), with the audioRateGeneration it was measured under (high
-// 32 bits). Only the emulator thread writes it. A speed of 0 means unknown
-std::atomic<uint64_t> audioAchievedSpeed = 0;
-// Time constant of the achieved speed's smoothing. Short enough to follow a slow scene within a fraction of a second, long enough not to wobble
-// with the frame-to-frame pacing
-static constexpr double ACHIEVED_SPEED_SECONDS = 0.35;
-// The speed is only published once it covers this much wall time
-static constexpr double ACHIEVED_SPEED_MIN_SECONDS = 0.1;
-// Emulator thread only. Emulated frames and wall time, each decayed with ACHIEVED_SPEED_SECONDS, so their ratio is the frame rate over about
-// that long. Measured over wall time rather than per frame, since the frames come in bursts (work, then sleep)
-struct AchievedSpeedMeter
-{
-    bool isActive = false;
-    uint32_t rateGeneration = 0;
-    float requestedSpeed = 0;
-    double frames = 0;
-    double seconds = 0;
-    double observedSeconds = 0;
-};
-static AchievedSpeedMeter achievedSpeedMeter;
-std::mutex micBufferMutex;
-int actualMicSource = 0;
-bool isMicInputEnabled = true;
-bool isMicOn = false;
-int micBufferReadPos = 0;
+static std::atomic<uint32_t> audioTrimBeforeFrameRequest = 0;
+static std::atomic<uint32_t> audioTrimBeforeFrameDone = 0;
+static std::mutex micBufferMutex;
+static int actualMicSource = 0;
+static bool isMicInputEnabled = true;
+static bool isMicOn = false;
+static int micBufferReadPos = 0;
 
 namespace MelonDSAndroid
 {
@@ -112,17 +89,14 @@ namespace MelonDSAndroid
 
     // setupAudioOutputStream(), cleanupAudioOutputStream() and recreateAudioOutputStream() must be called with audioOutputMutex held. [reason]
     // is for the audio diagnostics
-    void setupAudioOutputStream(int audioLatency, int volume, const char* reason)
+    void setupAudioOutputStream(AudioLatency audioLatency, int volume, const char* reason)
     {
         oboe::PerformanceMode performanceMode;
         switch (audioLatency) {
-            case 0:
+            case AudioLatency::Low:
                 performanceMode = oboe::PerformanceMode::LowLatency;
                 break;
-            case 1:
-                performanceMode = oboe::PerformanceMode::None;
-                break;
-            case 2:
+            case AudioLatency::High:
                 performanceMode = oboe::PerformanceMode::PowerSaving;
                 break;
             default:
@@ -153,11 +127,11 @@ namespace MelonDSAndroid
         } else {
             audioStream->setPerformanceHintEnabled(true);
 
-            // A low latency stream starts with a small buffer that grows by a burst on every xrun, up to the size every stream used to get.
-            // The other modes, or a stream that can't count its xruns, get that size from the start
+            // A low latency stream starts with a small buffer that grows by a burst on every xrun, up to MAX_OUTPUT_BUFFER_FRAMES. The other
+            // modes, or a stream that can't count its xruns, get that size from the start
             int32_t bufferSizeLimit = std::min(audioStream->getBufferCapacityInFrames(), MAX_OUTPUT_BUFFER_FRAMES);
             int32_t burstFrames = audioStream->getFramesPerBurst();
-            // Small bursts prime, reprime and trim. Large ones (no low latency path, Bluetooth, say) only steer, as before priming existed
+            // Small bursts prime, reprime and trim. Large ones (no low latency path, Bluetooth, say) only steer
             outputCallback->setBurstFrames(burstFrames);
             areAudioOutputTrimsEnabled = OboeCallback::isPrimingModeBurst(burstFrames);
             bool isBufferTuned = audioStream->getPerformanceMode() == oboe::PerformanceMode::LowLatency && burstFrames > 0
@@ -190,7 +164,7 @@ namespace MelonDSAndroid
         }
     }
 
-    void recreateAudioOutputStream(int audioLatency, int volume, const char* reason)
+    void recreateAudioOutputStream(AudioLatency audioLatency, int volume, const char* reason)
     {
         cleanupAudioOutputStream();
         setupAudioOutputStream(audioLatency, volume, reason);
@@ -199,7 +173,7 @@ namespace MelonDSAndroid
     // Starts the output stream. Must be called with audioOutputMutex held. A stream that got
     // disconnected without an error callback (e.g. while paused) can't be started again, so it's
     // recreated with the given settings instead
-    void startAudioOutputStream(int audioLatency, int volume)
+    void startAudioOutputStream(AudioLatency audioLatency, int volume)
     {
         if (audioStream && audioStream->getState() == oboe::StreamState::Disconnected) {
             recreateAudioOutputStream(audioLatency, volume, "disconnected while stopped");
@@ -539,64 +513,6 @@ namespace MelonDSAndroid
                 AudioDiagnostics::onPrimeTrim(droppedFrames);
         }
         audioTrimBeforeFrameDone.store(request, std::memory_order_release);
-    }
-
-    static void publishAchievedSpeed(uint32_t rateGeneration, double speed)
-    {
-        uint64_t speedMilli = speed > 0 ? (uint64_t) std::min(speed * 1000.0 + 0.5, (double) UINT32_MAX) : 0;
-        audioAchievedSpeed.store(((uint64_t) rateGeneration << 32) | speedMilli, std::memory_order_relaxed);
-    }
-
-    void onEmulatorFrameEnd(double intervalMs, bool isPacedFastForward, float requestedSpeed)
-    {
-        // A new fast-forward state (or speed, or unmute) bumps the generation, and so does a new session. The value published under the old one
-        // is ignored from then on, even if it lands after the bump
-        uint32_t rateGeneration = audioRateGeneration.load(std::memory_order_relaxed);
-        if (!isPacedFastForward)
-        {
-            if (achievedSpeedMeter.isActive)
-            {
-                achievedSpeedMeter.isActive = false;
-                publishAchievedSpeed(rateGeneration, 0);
-            }
-            return;
-        }
-
-        if (!achievedSpeedMeter.isActive || rateGeneration != achievedSpeedMeter.rateGeneration || requestedSpeed != achievedSpeedMeter.requestedSpeed)
-        {
-            // The frame that saw the change ran at least partly under the old state, so it isn't counted
-            achievedSpeedMeter = AchievedSpeedMeter();
-            achievedSpeedMeter.isActive = true;
-            achievedSpeedMeter.rateGeneration = rateGeneration;
-            achievedSpeedMeter.requestedSpeed = requestedSpeed;
-            publishAchievedSpeed(rateGeneration, 0);
-            return;
-        }
-
-        double seconds = intervalMs / 1000.0;
-        if (seconds <= 0)
-            return;
-        double decay = std::exp(-seconds / ACHIEVED_SPEED_SECONDS);
-        achievedSpeedMeter.frames = achievedSpeedMeter.frames * decay + 1.0;
-        achievedSpeedMeter.seconds = achievedSpeedMeter.seconds * decay + seconds;
-        achievedSpeedMeter.observedSeconds += seconds;
-        if (achievedSpeedMeter.observedSeconds >= ACHIEVED_SPEED_MIN_SECONDS)
-            publishAchievedSpeed(rateGeneration, achievedSpeedMeter.frames / achievedSpeedMeter.seconds / EMULATOR_TARGET_FPS);
-    }
-
-    void onEmulatorPaused()
-    {
-        // The speed starts over after the pause. Published now, so the old one isn't logged while the stream starts again
-        achievedSpeedMeter.isActive = false;
-        publishAchievedSpeed(audioRateGeneration.load(std::memory_order_relaxed), 0);
-    }
-
-    float getAudioAchievedSpeed()
-    {
-        uint64_t value = audioAchievedSpeed.load(std::memory_order_relaxed);
-        if ((uint32_t) (value >> 32) != audioRateGeneration.load(std::memory_order_relaxed))
-            return 0;
-        return (float) (uint32_t) value / 1000.0f;
     }
 
     // Called from the real-time output callback. Must stay lock-free

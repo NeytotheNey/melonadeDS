@@ -95,8 +95,7 @@ private:
     uint32_t trimBeforeFrameRequest = 0;
 
     // Set from the stream's burst before it starts (setBurstFrames()). Priming mode (small bursts) primes, reprimes and trims at the fixed
-    // thresholds below. Plain mode (large bursts) does none of it, like before priming existed, and only steers, to a target that leaves room
-    // for a burst
+    // thresholds below. Plain mode (large bursts) only steers, to a target that leaves room for a burst
     bool isPrimingMode = true;
     // A callback larger than this never reprimes when it comes up short. It's just padded
     int32_t maxRepriminingCallbackFrames = MIN_REPRIMING_CALLBACK_LIMIT_FRAMES;

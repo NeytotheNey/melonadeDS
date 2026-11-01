@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <oboe/Oboe.h>
+#include "Configuration.h"
 #include "MonotonicClock.h"
 
 /**
@@ -216,8 +217,8 @@ void onAudioSessionStart();
 /**
  * [bufferSizeLimit] is the largest size the buffer may grow to, [isBufferTuned] whether it grows on xruns (low latency streams).
  */
-void onStreamOpened(oboe::AudioStream& stream, int requestedLatency, const char* reason, int32_t bufferSizeLimit, bool isBufferTuned);
-void onStreamOpenFailed(oboe::Result result, int requestedLatency, const char* reason);
+void onStreamOpened(oboe::AudioStream& stream, MelonDSAndroid::AudioLatency requestedLatency, const char* reason, int32_t bufferSizeLimit, bool isBufferTuned);
+void onStreamOpenFailed(oboe::Result result, MelonDSAndroid::AudioLatency requestedLatency, const char* reason);
 void onStreamClosing(oboe::AudioStream& stream);
 // Before requestStart(). Callbacks still running from before a pause then can't bridge the pause
 void onStreamStarting();
@@ -244,11 +245,24 @@ struct FrameSample
     bool isBufferFull = false;
     // The output skew's distance from its base (AudioDiagnostics::DriftState::skewPpm)
     int64_t skewPpm = 0;
-    // The speed paced fast-forward really reached (MelonDSAndroid::getAudioAchievedSpeed()), in thousandths. -1 if unknown or not fast-forwarding
+    // The speed paced fast-forward really reached (getAchievedSpeed()), in thousandths. -1 if unknown or not fast-forwarding
     int64_t achievedSpeedMilli = -1;
 };
 
 FrameSample onFrame(int fillAfterFrame, int fillBeforeNextFrame);
+
+/**
+ * Emulator thread, after each frame's sleep. Measures the speed paced fast-forward really reaches from the frames' wall time [intervalMs].
+ * [isPacedFastForward] is whether fast-forward is on with a speed limit, [requestedSpeed] that limit.
+ */
+void onEmulatorFrameEnd(double intervalMs, bool isPacedFastForward, float requestedSpeed);
+// Emulator thread, when it parks for a pause. The achieved speed starts over
+void onEmulatorPaused();
+/**
+ * Lock-free. The speed paced fast-forward really reaches (1 is normal speed), smoothed over about 0.35 s, or 0 if it isn't known yet for the
+ * current fast-forward state. Only logged: the audio plays at the requested speed.
+ */
+float getAchievedSpeed();
 
 /**
  * Emulator thread, from the debug log's heartbeat. Logs this second's audio line: callback count, frames and timing, underruns and silence

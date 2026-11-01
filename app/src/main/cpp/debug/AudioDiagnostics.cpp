@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -86,20 +87,41 @@ struct SecondStats
 static SecondStats second;
 static int64_t frameSilenceBaseline = 0;
 
+// The speed paced fast-forward really reaches, smoothed, in thousandths (low 32 bits), with the audio rate generation it was measured under
+// (high 32 bits). Only the emulator thread writes it. A speed of 0 means unknown
+static std::atomic<uint64_t> achievedSpeed = 0;
+// Time constant of the achieved speed's smoothing. Short enough to follow a slow scene within a fraction of a second, long enough not to wobble
+// with the frame-to-frame pacing
+static constexpr double ACHIEVED_SPEED_SECONDS = 0.35;
+// The speed is only published once it covers this much wall time
+static constexpr double ACHIEVED_SPEED_MIN_SECONDS = 0.1;
+// Emulator thread only. Emulated frames and wall time, each decayed with ACHIEVED_SPEED_SECONDS, so their ratio is the frame rate over about
+// that long. Measured over wall time rather than per frame, since the frames come in bursts (work, then sleep)
+struct AchievedSpeedMeter
+{
+    bool isActive = false;
+    uint32_t rateGeneration = 0;
+    float requestedSpeed = 0;
+    double frames = 0;
+    double seconds = 0;
+    double observedSeconds = 0;
+};
+static AchievedSpeedMeter achievedSpeedMeter;
+
 static double framesToMillis(int64_t frames)
 {
     return frames * 1000.0 / SPU_OUTPUT_SAMPLE_RATE;
 }
 
-static const char* getLatencyName(int audioLatency)
+static const char* getLatencyName(MelonDSAndroid::AudioLatency audioLatency)
 {
     switch (audioLatency)
     {
-        case 0: return "LOW";
-        case 1: return "MEDIUM";
-        case 2: return "HIGH";
-        default: return "unknown";
+        case MelonDSAndroid::AudioLatency::Low: return "LOW";
+        case MelonDSAndroid::AudioLatency::Medium: return "MEDIUM";
+        case MelonDSAndroid::AudioLatency::High: return "HIGH";
     }
+    return "unknown";
 }
 
 // Must be called with stateMutex held
@@ -217,7 +239,7 @@ void setPerfCaptureEnabled(bool isEnabled)
     updateEnabled();
 }
 
-void onStreamOpened(oboe::AudioStream& stream, int requestedLatency, const char* reason, int32_t sizeLimit, bool isBufferTuned)
+void onStreamOpened(oboe::AudioStream& stream, MelonDSAndroid::AudioLatency requestedLatency, const char* reason, int32_t sizeLimit, bool isBufferTuned)
 {
     bool isAAudio = stream.getAudioApi() == oboe::AudioApi::AAudio;
     // Only AAudio streams can tell. The extension casts the underlying stream to an AAudio one
@@ -257,7 +279,7 @@ void onStreamOpened(oboe::AudioStream& stream, int requestedLatency, const char*
     recordEvent("audio_stream", streamInfo);
 }
 
-void onStreamOpenFailed(oboe::Result result, int requestedLatency, const char* reason)
+void onStreamOpenFailed(oboe::Result result, MelonDSAndroid::AudioLatency requestedLatency, const char* reason)
 {
     std::lock_guard<std::mutex> lock(stateMutex);
     char detail[96];
@@ -337,7 +359,7 @@ FrameSample onFrame(int fillAfterFrame, int fillBeforeNextFrame)
     // Without a running stream nothing drains the ring, so it being full means nothing
     sample.isBufferFull = isStreamRunning.load(std::memory_order_relaxed) && fillAfterFrame >= SPU_OUTPUT_BUFFER_FRAMES - 1;
     sample.skewPpm = driftState.skewPpm.load(std::memory_order_relaxed);
-    float achievedSpeed = MelonDSAndroid::getAudioAchievedSpeed();
+    float achievedSpeed = getAchievedSpeed();
     sample.achievedSpeedMilli = achievedSpeed > 0 ? (int64_t) (achievedSpeed * 1000.0f + 0.5f) : -1;
     frameSilenceBaseline = silenceFrames;
 
@@ -351,6 +373,64 @@ FrameSample onFrame(int fillAfterFrame, int fillBeforeNextFrame)
         second.fullFrames++;
 
     return sample;
+}
+
+static void publishAchievedSpeed(uint32_t rateGeneration, double speed)
+{
+    uint64_t speedMilli = speed > 0 ? (uint64_t) std::min(speed * 1000.0 + 0.5, (double) UINT32_MAX) : 0;
+    achievedSpeed.store(((uint64_t) rateGeneration << 32) | speedMilli, std::memory_order_relaxed);
+}
+
+void onEmulatorFrameEnd(double intervalMs, bool isPacedFastForward, float requestedSpeed)
+{
+    // A new fast-forward state (or speed, or unmute) bumps the generation, and so does a new session. The value published under the old one
+    // is ignored from then on, even if it lands after the bump
+    uint32_t rateGeneration = MelonDSAndroid::getAudioRateGeneration();
+    if (!isPacedFastForward)
+    {
+        if (achievedSpeedMeter.isActive)
+        {
+            achievedSpeedMeter.isActive = false;
+            publishAchievedSpeed(rateGeneration, 0);
+        }
+        return;
+    }
+
+    if (!achievedSpeedMeter.isActive || rateGeneration != achievedSpeedMeter.rateGeneration || requestedSpeed != achievedSpeedMeter.requestedSpeed)
+    {
+        // The frame that saw the change ran at least partly under the old state, so it isn't counted
+        achievedSpeedMeter = AchievedSpeedMeter();
+        achievedSpeedMeter.isActive = true;
+        achievedSpeedMeter.rateGeneration = rateGeneration;
+        achievedSpeedMeter.requestedSpeed = requestedSpeed;
+        publishAchievedSpeed(rateGeneration, 0);
+        return;
+    }
+
+    double seconds = intervalMs / 1000.0;
+    if (seconds <= 0)
+        return;
+    double decay = std::exp(-seconds / ACHIEVED_SPEED_SECONDS);
+    achievedSpeedMeter.frames = achievedSpeedMeter.frames * decay + 1.0;
+    achievedSpeedMeter.seconds = achievedSpeedMeter.seconds * decay + seconds;
+    achievedSpeedMeter.observedSeconds += seconds;
+    if (achievedSpeedMeter.observedSeconds >= ACHIEVED_SPEED_MIN_SECONDS)
+        publishAchievedSpeed(rateGeneration, achievedSpeedMeter.frames / achievedSpeedMeter.seconds / EMULATOR_TARGET_FPS);
+}
+
+void onEmulatorPaused()
+{
+    // The speed starts over after the pause. Published now, so the old one isn't logged while the stream starts again
+    achievedSpeedMeter.isActive = false;
+    publishAchievedSpeed(MelonDSAndroid::getAudioRateGeneration(), 0);
+}
+
+float getAchievedSpeed()
+{
+    uint64_t value = achievedSpeed.load(std::memory_order_relaxed);
+    if ((uint32_t) (value >> 32) != MelonDSAndroid::getAudioRateGeneration())
+        return 0;
+    return (float) (uint32_t) value / 1000.0f;
 }
 
 // Starts a new second from the current counters
@@ -435,8 +515,7 @@ void logSecond(uint32_t frame)
     else
         snprintf(filteredFillText, sizeof(filteredFillText), "%d", filteredFill);
     int32_t currentBufferSize = isOpen ? bufferSize.load(std::memory_order_relaxed) : -1;
-    // The smoothed speed paced fast-forward reaches. Only logged: the audio still plays at the requested speed
-    float achievedSpeed = MelonDSAndroid::getAudioAchievedSpeed();
+    float achievedSpeed = getAchievedSpeed();
     char achievedSpeedText[16];
     if (achievedSpeed > 0)
         snprintf(achievedSpeedText, sizeof(achievedSpeedText), "%.3f", achievedSpeed);

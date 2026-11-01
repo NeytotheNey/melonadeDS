@@ -1052,7 +1052,7 @@ void* emulate(void*)
             pthread_mutex_lock(&emuThreadMutex);
         }
         if (paused) {
-            MelonDSAndroid::onEmulatorPaused();
+            AudioDiagnostics::onEmulatorPaused();
             isThreadReallyPaused = true;
             while (paused && !stop)
                 pthread_cond_wait(&emuThreadCond, &emuThreadMutex);
@@ -1153,8 +1153,8 @@ void* emulate(void*)
             lastTick = getCurrentMillis();
         }
 
-        // The speed paced fast-forward really reaches, for the audio diagnostics (and later time-stretching)
-        MelonDSAndroid::onEmulatorFrameEnd(lastTick - frameBeginTick, isFpsLimited && isFastForwardEnabled.load(std::memory_order_relaxed),
+        // The speed paced fast-forward really reaches, for the audio diagnostics
+        AudioDiagnostics::onEmulatorFrameEnd(lastTick - frameBeginTick, isFpsLimited && isFastForwardEnabled.load(std::memory_order_relaxed),
                 fastForwardSpeedMultiplier.load(std::memory_order_relaxed));
 
         AudioDiagnostics::FrameSample audioSample;

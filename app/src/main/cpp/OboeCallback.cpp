@@ -148,7 +148,7 @@ void OboeCallback::updateOutputSkew(MelonDSAndroid::MelonInstance& instance, int
         // known rate to follow, so both keep the plain base without steering
         float speed = MelonDSAndroid::getAudioFastForwardSpeed();
         // A scene too heavy for the requested speed makes less audio per second, so the ring runs dry. Following the speed really reached
-        // (MelonDSAndroid::getAudioAchievedSpeed()) bent the pitch audibly, so that's left to time-stretching
+        // (AudioDiagnostics::getAchievedSpeed()) instead bent the pitch audibly
         if (speed > 0 && !MelonDSAndroid::shouldMuteAudioOutput())
             baseSkew *= speed;
         else
@@ -207,7 +207,7 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
     bool isMuted = MelonDSAndroid::shouldMuteAudioOutput();
     if (!isPrimed && !isPrimingMode)
     {
-        // Plain mode (large bursts): play whatever there is, as before priming existed
+        // Plain mode (large bursts): play whatever there is
         isPrimed = true;
         driftController.reset();
     }
