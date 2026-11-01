@@ -75,6 +75,7 @@ add_library(
         ${ANDROID-CPP}/performancehint/PerformanceHintManagerFactory.cpp
         ${ANDROID-CPP}/performancehint/ThreadSafePerformanceHintSession.cpp
         ${ANDROID-CPP}/renderer/FrameQueue.cpp
+        ${ANDROID-CPP}/renderer/FramePacing.cpp
         ${ANDROID-CPP}/renderer/ScreenshotRenderer.cpp
         ${ANDROID-CPP}/retroachievements/RetroAchievementsManager.cpp
         ${ANDROID-CPP}/scripting/LuaDraw.cpp

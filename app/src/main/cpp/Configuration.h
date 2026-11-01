@@ -4,6 +4,9 @@
 #include <memory>
 #include "renderer/Renderer.h"
 
+// Frame rate the emulator runs at without fast-forward. Must match EMULATOR_TARGET_FPS in NDS.kt
+constexpr int EMULATOR_TARGET_FPS = 60;
+
 namespace MelonDSAndroid
 {
 

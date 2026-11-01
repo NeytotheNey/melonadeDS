@@ -3,7 +3,6 @@
 #include "debug/AudioDiagnostics.h"
 #include "mic_blow.h"
 #include "OboeCallback.h"
-#include "renderer/FramePacing.h"
 #include <oboe/Oboe.h>
 #include <algorithm>
 #include <atomic>
