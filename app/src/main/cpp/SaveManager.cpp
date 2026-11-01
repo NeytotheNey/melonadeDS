@@ -265,11 +265,3 @@ bool SaveManager::FlushSecondaryBuffer()
     Platform::Mutex_Unlock(FlushLock);
     return flushed;
 }
-
-bool SaveManager::NeedsFlush()
-{
-    Platform::Mutex_Lock(SecondaryBufferLock);
-    bool needsFlush = FlushVersion != PreviousFlushVersion;
-    Platform::Mutex_Unlock(SecondaryBufferLock);
-    return needsFlush;
-}
