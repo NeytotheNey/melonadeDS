@@ -137,32 +137,9 @@ public:
 struct LuaScript;
 
 /**
- * Runs the game's Lua scripts (API v1, the `melon` module). Each script gets its own sandboxed Lua state, so one that fails can be switched off
- * without touching the others. A script that throws an error or runs for too long in a callback is switched off for the session, and the app
- * is told why. Scripts are told apart by their position in the list given to [setScripts] (their id).
- *
- * Callbacks, all optional: on_load(game_code) once the game starts, on_frame() just before each frame runs (the only place where input and
- * memory changes line up with the frame), on_frame_end() just after it has run (melon.frame() is still that frame, and press()/release() there
- * apply to the next one), on_state_loaded() after a savestate or rewind state is loaded, and on_unload() when the emulator stops.
- * When the console is reset, every running script is reloaded from scratch (on_unload(), then the main chunk and on_load() again).
- * melon.input.press()/release() only last for the next frame, so on_frame() calls them every frame. melon.input.set_touch() keeps its position
- * until clear_touch(), and moves the touch (the player's, or one pressed with KEY.TOUCH). held() and touch() are the player's own input.
- * require(name) loads a module from the script folder's subfolders (see LuaFolderContent), once per state. melon.image.load(path) gives an
- * image from the folder, and melon.image.new(w, h, argb) one made from a string.
- * melon.options holds the script's option values, built at each load. melon.storage keeps data between sessions (see LuaStorage). It lives
- * outside the Lua state, so it survives reloads, and is snapshotted into LuaStorage's outbox when it changed: on flush() (at the end of the
- * frame), every 600 frames, when the emulator pauses ([flushStorage]), when the script stops, and at [stop]. The app saves the snapshots.
- * melon.screen.* and melon.emu.* requests are sent to the app once the callback returns (the last value of each kind wins), and are ignored
- * during on_unload(). melon.screen.set_layout(key) names one of the script's layout options, and the app works out which layout that is.
- * melon.state.save/load/has(slot) use four savestate slots per script, kept in memory (outside the Lua state, so they survive reloads) until
- * the script is switched off or the session ends, and never the player's slots. save() runs right away through the LuaSavestateHost, at most
- * once every kStateSaveInterval frames per script. load() is queued and runs once every script's on_frame() has run: that frame's input
- * changes are dropped, and on_state_loaded() runs before the next on_frame(). melon.draw.* calls are only recorded during on_frame() and on_frame_end() (they do nothing anywhere else,
- * on_state_loaded() included), and drawn into [getOverlay] once every script's on_frame_end() has run, in script order (each script's on_frame()
- * drawings, then its on_frame_end() ones). Each frame shows only what was drawn for it, and a script that stops during the frame shows nothing.
- *
- * Everything runs on the emulator thread, except [setScripts] (before the emulator thread starts), [notifyStateLoaded], [notifyReset],
- * [disableScript], [enableScript], [restartScript] and [updateSticks] (any thread).
+ * Runs the game's Lua scripts: one sandboxed Lua state per script, their callbacks around each frame, and the `melon` module they see
+ * (MODS.md, "Lua runtime" and "API"). Everything runs on the emulator thread, except [setScripts] (before the emulator thread starts),
+ * [notifyStateLoaded], [notifyReset], [disableScript], [enableScript], [restartScript] and [updateSticks] (any thread).
  */
 class LuaEngine
 {
