@@ -454,16 +454,17 @@ class LayoutEditorItemControls(
         val currentWideAspect = wideAspect
         // android.widget.PopupMenu, since the external display presentation has no AppCompat theme
         val menu = PopupMenu(context, binding.buttonAspectRatioWide)
+        // Item ids start at 1, since 0 is Menu.NONE
         WidescreenAspect.entries.forEach {
-            menu.menu.add(Menu.NONE, it.ordinal, Menu.NONE, getWideAspectName(it))
+            menu.menu.add(Menu.NONE, it.ordinal + 1, Menu.NONE, getWideAspectName(it))
         }
         if (currentWideAspect != null) {
             menu.menu.add(Menu.NONE, WIDE_ASPECT_MENU_OFF, Menu.NONE, R.string.layout_widescreen_off)
         }
         menu.menu.setGroupCheckable(Menu.NONE, true, true)
-        currentWideAspect?.let { menu.menu.findItem(it.ordinal)?.isChecked = true }
+        currentWideAspect?.let { menu.menu.findItem(it.ordinal + 1)?.isChecked = true }
         menu.setOnMenuItemClickListener { item ->
-            val pickedAspect = WidescreenAspect.entries.getOrNull(item.itemId)
+            val pickedAspect = WidescreenAspect.entries.getOrNull(item.itemId - 1)
             // The controls are refreshed when the ratio changes (see refresh), or the top screen is selected again with the layout
             onWideAspectPicked(pickedAspect)
             true
