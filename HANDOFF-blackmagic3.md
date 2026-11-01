@@ -4,6 +4,7 @@ Read this, then `PLAN-blackmagic3.md`. The plan has the reasoning, the per-item 
 
 ## Where things stand (2026-11-01)
 
+- **Update, later the same day.** The two device-free follow-ups below are done in core commit `1bd01df` (VCOUNT 9-bit mask, dead `line > 192` check), submodule bumped here. That commit also fixes a second VCOUNT bug found on the way: a byte write with no write pending merged into the all-ones `NextVCount` sentinel, so a lone low-byte write became `0xFF00 | value`; it now merges into the current `VCount` instead (upstream merges into its persistent write latch; the difference only shows on the first byte of a split write). Host build and `.claude/shadercheck/check.sh` pass; not yet run on the phone. Also: `PERF-NOTES.md` does not exist in either repo or their history, so the Batch 2 A/B against the 10-28 numbers was never written down and the 10-28 numbers themselves live only in the earlier session's output. The next phone measurement should create that file.
 - **Merged.** The borrow work (all four batches of the plan) is in `material3` (merge `af137c8e`) and in the core's `melonade` (`87594b0`, 19 commits). The branch `claude/friendly-heisenberg-3eipz2` in both repos is finished; start new work from `material3` / `melonade`, not from it.
 - **Verified on the phone** (SM-F971U, Android 17): arm64 build, 140 unit tests, Migration4to5Test, GL and compute shaders link on first start, HASH2D threaded on/off identical over ~2,890 frames on GL and on compute, v13 savestates rejected, v14 save/load works, soft/GL/compute switching mid-game, and the post-rebase retest.
 - **Decision on record:** no port of upstream's GL 2D renderer. The hi-res capture only pays off with 2D on the GPU; see the plan's Context for the triggers that reopen that decision.
@@ -25,14 +26,14 @@ Do it only if a GPU profile on the phone shows the fragment texture decode as a 
 
 If it goes ahead: strip upstream's capture-texture branches (`captureinfo`, `Capture128/256`), use sampler objects like our compute does instead of upstream's per-batch `glTexParameteri`, keep `.bgra`, ES precision headers, `layout(location)` outputs, the depth-stencil detach in the fog/edge pass, and the `uDepthBias`/`uRenderMode` scheme. ~300–400 lines plus a render FS rewrite. Batches split on texture, so re-check the shadow-mask sequence in `RenderSceneChunk` after the change.
 
-Also confirm whether the Batch 2 measurement (plan checklist item 2) was recorded in `PERF-NOTES.md`; if not, do it with the same recipe so the A/B against the 10-28 numbers exists.
+The Batch 2 measurement (plan checklist item 2) was not recorded: there is no `PERF-NOTES.md` anywhere. Do it with the recipe above and start the file with it, so the A/B against the 10-28 numbers exists.
 
 ### B. Small follow-ups (each under an hour)
 
 - **Affine ref reload rule.** Upstream reloads the running refs at the HBlank 262 PostDraw and only for layers with the `LayerEnable` bit; ours reloads both at line 0 in `VBlankEnd` unconditionally (`GPU2D.cpp`). Visible only to a game that enables an affine BG mid-frame without rewriting BGxX/Y. Change only with a reproducing game.
-- **VCOUNT byte write mask.** `SetVCount` merges byte writes without the 9-bit mask upstream applies; a byte write of 0x02 to 0x04000007 can put 0x200+ into `NextVCount`. Comes free with the parked VCount state machine, or add `& 0x1FF` on its own.
+- ~~**VCOUNT byte write mask.**~~ Done in core `1bd01df` (see the update above). Needs the usual phone smoke test only.
 - **Clear bitmap test game.** No game has logged DISP3DCNT bit 14 yet. Keep playing through the library; when one fires, compare software vs GL vs compute in that scene, then remove or demote the log. Known gap kept on purpose (same as upstream): GL's translucent-against-zero-alpha pass tests `RenderClearAttr1` alpha, not the per-pixel bitmap alpha.
-- **Dead `if (line > 192) return;`** at the top of `Unit::PostDrawScanline`; it is only called for `line < 192`.
+- ~~**Dead `if (line > 192) return;`**~~ Removed in core `1bd01df`.
 
 ### C. Parked, with triggers
 
