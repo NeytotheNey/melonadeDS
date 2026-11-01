@@ -1079,7 +1079,7 @@ class EmulatorViewModel @Inject constructor(
         val savedValues = emulatorManager.getLuaScripts().getOrNull(scriptId)?.optionValues ?: optionValues
         viewModelScope.launch {
             // The config may have changed since launch (the script list is synced then), so the newest one is updated
-            val currentRom = romsRepository.getRomAtUri(rom.uri) ?: rom
+            val currentRom = getLibraryRom(rom) ?: return@launch
             val mods = currentRom.config.mods
             val luaScripts = mods.luaScripts.map {
                 if (it.fileName == script.name) it.copy(options = it.options + savedValues) else it
