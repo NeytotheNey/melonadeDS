@@ -633,8 +633,7 @@ void LuaEngine::runPendingStateLoad()
     isScriptStateLoaded = true;
     if (eventMessenger)
         eventMessenger->onLuaStateLoaded();
-    if (DebugLog::isEnabled()) [[unlikely]]
-        LOG_INFO(TAG, "%s: loaded state %d", script.source.name.c_str(), slot + 1);
+    LOG_DEBUGLOG(TAG, "%s: loaded state %d", script.source.name.c_str(), slot + 1);
 }
 
 void LuaEngine::freeStateSlots(Script& script)
@@ -694,8 +693,7 @@ void LuaEngine::saveStorage(Script& script)
     if (wasOutboxEmpty && eventMessenger)
         eventMessenger->onLuaStorageSaved();
 
-    if (DebugLog::isEnabled()) [[unlikely]]
-        LOG_INFO(TAG, "%s: storage saved (%zu bytes)", script.source.name.c_str(), script.storage.size);
+    LOG_DEBUGLOG(TAG, "%s: storage saved (%zu bytes)", script.source.name.c_str(), script.storage.size);
 }
 
 void LuaEngine::stop()
@@ -769,8 +767,7 @@ bool LuaEngine::loadScript(Script& script)
     if (!runProtected(script, setupScript, &script.source, kLoadInstructionLimit))
         return false;
 
-    if (DebugLog::isEnabled()) [[unlikely]]
-        LOG_INFO(TAG, "%s: loaded (%zu bytes)", script.source.name.c_str(), script.source.source.size());
+    LOG_DEBUGLOG(TAG, "%s: loaded (%zu bytes)", script.source.name.c_str(), script.source.source.size());
 
     return true;
 }
@@ -853,8 +850,8 @@ void LuaEngine::applyPendingScriptSwitches()
                 callCallback(script, "on_load", gameCode.c_str(), kLoadInstructionLimit);
         }
 
-        if ((mustStop || mustStart) && DebugLog::isEnabled()) [[unlikely]]
-            LOG_INFO(TAG, "%s: %s by the player", script.source.name.c_str(), isRestart ? "restarted with new options" : (mustStart ? "switched on" : "switched off"));
+        if (mustStop || mustStart)
+            LOG_DEBUGLOG(TAG, "%s: %s by the player", script.source.name.c_str(), isRestart ? "restarted with new options" : (mustStart ? "switched on" : "switched off"));
     }
 }
 
@@ -1497,8 +1494,7 @@ int LuaEngine::luaStateSave(lua_State* L)
     if (error)
         return pushStateFailure(L, error);
 
-    if (DebugLog::isEnabled()) [[unlikely]]
-        LOG_INFO(TAG, "%s: saved state %d (%zu bytes)", script.source.name.c_str(), slot + 1, script.stateSlots[slot].size());
+    LOG_DEBUGLOG(TAG, "%s: saved state %d (%zu bytes)", script.source.name.c_str(), slot + 1, script.stateSlots[slot].size());
     lua_pushboolean(L, 1);
     return 1;
 }

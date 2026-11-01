@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdarg>
 #include <cstdint>
+#include "MelonLog.h"
 #include "Platform.h"
 
 namespace melonDS { class NDS; }
@@ -22,6 +23,16 @@ inline bool isEnabled()
 }
 
 void setEnabled(bool isEnabled);
+
+/**
+ * LOG_INFO([tag], ...) while the debug log is on, and nothing otherwise
+ */
+#define LOG_DEBUGLOG(tag, ...) \
+    do \
+    { \
+        if (::DebugLog::isEnabled()) [[unlikely]] \
+            LOG_INFO(tag, __VA_ARGS__); \
+    } while (0)
 
 /**
  * Writes a message from the core (melonDS::Platform::Log) to logcat with the melonade-core tag. Identical lines in a row are collapsed into a
