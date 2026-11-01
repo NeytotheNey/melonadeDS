@@ -508,29 +508,8 @@ Java_me_magnum_melonds_MelonEmulator_resumeEmulation(JNIEnv* env, jobject thiz)
     MelonDSAndroid::resume();
 }
 
-JNIEXPORT void JNICALL
-Java_me_magnum_melonds_MelonEmulator_resetEmulation(JNIEnv* env, jobject thiz) {
-    pthread_mutex_lock(&emuThreadMutex);
-    if (!stop) {
-        if (paused) {
-            pthread_mutex_unlock(&emuThreadMutex);
-        } else {
-            pthread_mutex_unlock(&emuThreadMutex);
-            Java_me_magnum_melonds_MelonEmulator_pauseEmulation(env, thiz);
-        }
-
-        // Make sure that the thread is really paused to avoid data corruption
-        while (!isThreadReallyPaused);
-        MelonDSAndroid::reset();
-        Java_me_magnum_melonds_MelonEmulator_resumeEmulation(env, thiz);
-    } else {
-        // If the emulation is stopping, just ignore it
-        pthread_mutex_unlock(&emuThreadMutex);
-    }
-}
-
 /**
- * Pauses the emulator and waits for its thread to park between frames, like a reset does. A frame can save or load a Lua script's state, so
+ * Pauses the emulator and waits for its thread to park between frames. A frame can save or load a Lua script's state, so
  * a player's save or load must not run alongside one. Returns false if the emulator isn't running or is stopping, and sets wasPaused to
  * whether it was already paused.
  * The thread parks once its frame and the Lua storage flush are done, and neither of them waits on the caller. A save state's screenshot
@@ -557,6 +536,17 @@ static bool pauseAndWaitForEmulatorThread(JNIEnv* env, jobject thiz, bool& wasPa
         std::this_thread::yield();
 
     return isThreadReallyPaused;
+}
+
+JNIEXPORT void JNICALL
+Java_me_magnum_melonds_MelonEmulator_resetEmulation(JNIEnv* env, jobject thiz) {
+    bool wasPaused = false;
+    if (!pauseAndWaitForEmulatorThread(env, thiz, wasPaused))
+        return;
+
+    MelonDSAndroid::reset();
+    // A reset always resumes
+    Java_me_magnum_melonds_MelonEmulator_resumeEmulation(env, thiz);
 }
 
 JNIEXPORT jboolean JNICALL
@@ -597,16 +587,9 @@ JNIEXPORT jboolean JNICALL
 Java_me_magnum_melonds_MelonEmulator_loadRewindState(JNIEnv* env, jobject thiz, jobject rewindSaveState) {
     bool result = true;
 
-    pthread_mutex_lock(&emuThreadMutex);
-    if (!stop) {
-        bool wasPaused = paused;
-        if (paused) {
-            pthread_mutex_unlock(&emuThreadMutex);
-        } else {
-            pthread_mutex_unlock(&emuThreadMutex);
-            Java_me_magnum_melonds_MelonEmulator_pauseEmulation(env, thiz);
-        }
-
+    // Ignored while the emulation is stopping
+    bool wasPaused = false;
+    if (pauseAndWaitForEmulatorThread(env, thiz, wasPaused)) {
         jclass rewindSaveStateClass = env->FindClass("me/magnum/melonds/ui/emulator/rewind/model/RewindSaveState");
         jfieldID bufferField = env->GetFieldID(rewindSaveStateClass, "buffer", "Ljava/nio/ByteBuffer;");
         jfieldID bufferContentSizeField = env->GetFieldID(rewindSaveStateClass, "bufferContentSize", "J");
@@ -616,9 +599,6 @@ Java_me_magnum_melonds_MelonEmulator_loadRewindState(JNIEnv* env, jobject thiz, 
         jlong bufferContentSize = env->GetLongField(rewindSaveState, bufferContentSizeField);
         jobject screenshotBuffer = env->GetObjectField(rewindSaveState, screenshotBufferField);
         jint frame = (int) env->GetIntField(rewindSaveState, frameField);
-
-        // Make sure that the thread is really paused to avoid data corruption
-        while (!isThreadReallyPaused);
 
         melonDS::RewindSaveState state = melonDS::RewindSaveState {
             .buffer = (u8*) env->GetDirectBufferAddress(buffer),
@@ -635,9 +615,6 @@ Java_me_magnum_melonds_MelonEmulator_loadRewindState(JNIEnv* env, jobject thiz, 
         if (!wasPaused) {
             Java_me_magnum_melonds_MelonEmulator_resumeEmulation(env, thiz);
         }
-    } else {
-        // If the emulation is stopping, just ignore it
-        pthread_mutex_unlock(&emuThreadMutex);
     }
 
     return result;
