@@ -120,6 +120,8 @@ class PerformanceLogger(
                 val previousSessionFinished = withTimeoutOrNull(PREVIOUS_SESSION_TIMEOUT_MS) { previousSessionJob.join() } != null
                 if (!previousSessionFinished) {
                     Log.w(TAG, "Previous performance log session is taking too long to finish. Skipping session for $sessionName")
+                    // Forgotten right away, so that isSessionActive() lets the caller start a new one later
+                    clearSession(session)
                     // Keep waiting so that the next session doesn't overlap with the one that is still running
                     previousSessionJob.join()
                     return@launch
@@ -146,6 +148,13 @@ class PerformanceLogger(
     @Synchronized
     fun isSessionActive(): Boolean {
         return currentSession != null
+    }
+
+    @Synchronized
+    private fun clearSession(session: Session) {
+        if (currentSession === session) {
+            currentSession = null
+        }
     }
 
     /**
