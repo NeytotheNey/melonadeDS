@@ -51,7 +51,7 @@ public:
     void updateMotionData(float ax, float ay, float az, float rx, float ry, float rz);
     /**
      * A new width for the top screen's 3D view (even, 256..768, anything else means 256), applied before the next frame on the OpenGL
-     * renderer. The core starts drawing at it once the polygons being drawn were built for it. Safe to call from any thread
+     * and compute renderers. The core starts drawing at it once the polygons being drawn were built for it. Safe to call from any thread
      */
     void setWideViewWidth(int width) { requestedWideViewWidth.store(width, std::memory_order_relaxed); }
     float getMotionData(MotionQueryType type);

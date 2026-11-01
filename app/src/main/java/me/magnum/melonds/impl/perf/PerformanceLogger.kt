@@ -203,7 +203,7 @@ class PerformanceLogger(
 
         private val stats = SessionStatistics()
         private var settingsSnapshot = emptyList<Pair<String, String>>()
-        // The rate the display reported at session start. Only used for the display stats until the display samples carry their own vsync period
+        // The rate the display reported at session start, used when no display sample was counted
         private var displayRefreshRate: Float? = null
         // Re-read at session start and before every periodic summary. Not re-read for the final summary, since by then the emulator screen may be
         // gone and the display back at its normal rate
