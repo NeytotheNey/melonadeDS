@@ -2,7 +2,9 @@
 
 ## Status (2026-11-01)
 
-Review only, nothing applied yet. Five read-only reviews covered the whole branch against its fork point `c42995ca` (88 commits, 644 files, +63k/-10k): the emulator UI and GL code, the layout editor and shared views, settings/impl/perf logging and tests, the native code (excluding vendored Lua and the submodules), and resources/build/scripts/docs. Every "unused" claim below was grep-verified by the reviewer; line numbers are against the `material3` tip `fff6a01e`.
+Phase 1 applied on `claude/friendly-heisenberg-3eipz2` (20 commits, one per item group, from "Remove the gitHub flavour's dead update-install path" to "List Lua and credit WideMelon in the open source licences"). It was written in a container without the Android SDK, so it still needs the Phase 1 verification below: a debug and release build, the JVM tests, and the phone checklist (reset and rewind load for the pause-helper change, a Wide ratio pick in the layout editor, the pixel and flat button styles, a Lua script options save from the pause menu). Two departures from the list: `MelonDSAndroidJNI.cpp` keeps a `<ctime>` include, since `clock_gettime` needs it, and the Lua licence text comes from `lua.h`, not `cpp/lua/LICENSE`, which is a provenance note. Phases 2 to 7 are not started.
+
+Five read-only reviews covered the whole branch against its fork point `c42995ca` (88 commits, 644 files, +63k/-10k): the emulator UI and GL code, the layout editor and shared views, settings/impl/perf logging and tests, the native code (excluding vendored Lua and the submodules), and resources/build/scripts/docs. Every "unused" claim below was grep-verified by the reviewer; line numbers are against the `material3` tip `fff6a01e`.
 
 Headline numbers:
 
