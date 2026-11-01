@@ -24,9 +24,9 @@
 #include "Platform.h"
 
 // Retry backoff after a failed flush, in worker ticks (100ms each): 1, 2, 4, ... up to the cap.
-static const u32 MaxRetryDelayTicks = 32;
+static const u32 MAX_RETRY_DELAY_TICKS = 32;
 // A flush that keeps failing is logged on the first attempt and then every this many attempts.
-static const u32 FlushFailureLogInterval = 10;
+static const u32 FLUSH_FAILURE_LOG_INTERVAL = 10;
 
 SaveManager::SaveManager(std::string path)
 {
@@ -200,10 +200,10 @@ void SaveManager::run()
         {
             // The data is still pending, so it gets retried once the backoff runs out.
             failedAttempts++;
-            retryDelayTicks = retryDelayTicks ? std::min(retryDelayTicks * 2, MaxRetryDelayTicks) : 1;
+            retryDelayTicks = retryDelayTicks ? std::min(retryDelayTicks * 2, MAX_RETRY_DELAY_TICKS) : 1;
             ticksUntilRetry = retryDelayTicks;
 
-            if (failedAttempts == 1 || (failedAttempts % FlushFailureLogInterval) == 0)
+            if (failedAttempts == 1 || (failedAttempts % FLUSH_FAILURE_LOG_INTERVAL) == 0)
                 Log(LogLevel::Error, "SaveManager: Failed to write save to %s (%u attempts), will retry\n", Path.c_str(), failedAttempts);
         }
     }

@@ -7,6 +7,8 @@
 // messagePipes[0] -> read
 // messagePipes[1] -> write
 static int messagePipes[2] = { -1, -1 };
+// Must match DATA_SIZE_BYTES in EmulatorMessageQueue.kt, which checks it at startup
+static constexpr int MAX_DATA_LENGTH = 512;
 
 extern "C"
 {
@@ -51,11 +53,9 @@ namespace MelonDSAndroid {
             return;
         }
 
-        // Must match DATA_SIZE_BYTES in EmulatorMessageQueue.kt
-        constexpr int kMaxDataLength = 512;
         if (data == nullptr || dataLength < 0)
             dataLength = 0;
-        if (dataLength > kMaxDataLength)
+        if (dataLength > MAX_DATA_LENGTH)
         {
             melonDS::Platform::Log(melonDS::Platform::LogLevel::Error, "Emulator event %d dropped: %d bytes of data is over the limit", type, dataLength);
             return;
@@ -64,7 +64,7 @@ namespace MelonDSAndroid {
         struct {
             int type;
             int dataLength;
-            char data[kMaxDataLength];
+            char data[MAX_DATA_LENGTH];
         } event = { type, dataLength };
         if (dataLength > 0)
             memcpy(event.data, data, dataLength);

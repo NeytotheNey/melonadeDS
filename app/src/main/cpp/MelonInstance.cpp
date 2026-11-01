@@ -36,8 +36,8 @@ using namespace melonDS::Platform;
 namespace MelonDSAndroid
 {
 
-const int kRewindBufferSize = 1024 * 1024 * 20; // Use 20MB per savestate
-const int kRewindScreenshotSize = 256 * 384 * 4;
+const int REWIND_BUFFER_SIZE = 1024 * 1024 * 20; // Use 20MB per savestate
+const int REWIND_SCREENSHOT_SIZE = 256 * 384 * 4;
 
 // The player's touch in one word (MelonInstance::userTouch): a down flag, x and y
 struct PackedTouch
@@ -58,7 +58,7 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     net(net),
     screenshotRenderer(std::move(screenshotRenderer)),
     consoleType(consoleType),
-    rewindManager(configuration->rewindEnabled, configuration->rewindLengthSeconds, configuration->rewindCaptureSpacingSeconds, kRewindBufferSize, kRewindScreenshotSize)
+    rewindManager(configuration->rewindEnabled, configuration->rewindLengthSeconds, configuration->rewindCaptureSpacingSeconds, REWIND_BUFFER_SIZE, REWIND_SCREENSHOT_SIZE)
 {
     // Software renderer is always used during initialisation. Actual renderer will be set of first frame run
     currentRenderer = Renderer::Software;
@@ -1051,8 +1051,8 @@ void MelonInstance::syncDateTimeToDevice()
         return;
 
     // Ignore small differences so that a quick pause doesn't touch the clock
-    const std::time_t kMinDriftSeconds = 5;
-    if (deviceWallClock - dsWallClock >= kMinDriftSeconds)
+    const std::time_t MIN_DRIFT_SECONDS = 5;
+    if (deviceWallClock - dsWallClock >= MIN_DRIFT_SECONDS)
         setDateTime();
 }
 
