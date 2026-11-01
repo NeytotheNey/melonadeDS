@@ -10,7 +10,6 @@ import androidx.annotation.RequiresApi
 import androidx.core.content.edit
 import androidx.core.content.getSystemService
 import me.magnum.melonds.common.PreferenceKeys
-import me.magnum.melonds.domain.repositories.SettingsRepository
 import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -21,12 +20,11 @@ import java.util.Locale
  * keeps (Android 11 and up). Each one goes to melonade_exit_<timestamp>.txt in the log folder, with the system's trace when it has one: the thread
  * dump for an ANR, or the native tombstone (Android 12 and up), which is saved next to it as melonade_exit_<timestamp>_tombstone.pb.
  *
- * It only runs while the debug log is on. The first time, it looks back [FIRST_RUN_LOOKBACK_MS], since the debug log is usually turned on right
- * after a problem.
+ * [DebugLogRecorder] runs it while the debug log is on. The first time, it looks back [FIRST_RUN_LOOKBACK_MS], since the debug log is usually
+ * turned on right after a problem.
  */
 class ExitReasonReporter(
     private val context: Context,
-    private val settingsRepository: SettingsRepository,
     private val preferences: SharedPreferences,
     private val logFolder: LogFolder,
 ) {
@@ -40,9 +38,6 @@ class ExitReasonReporter(
     @Synchronized
     fun reportNewExits() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            return
-        }
-        if (!settingsRepository.isDebugLogEnabled()) {
             return
         }
 

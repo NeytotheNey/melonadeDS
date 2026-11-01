@@ -44,7 +44,7 @@ class DebugLogRecorder(
     }
 
     private val logFolder = LogFolder(context, settingsRepository)
-    private val exitReasonReporter = ExitReasonReporter(context, settingsRepository, preferences, logFolder)
+    private val exitReasonReporter = ExitReasonReporter(context, preferences, logFolder)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var session: Session? = null
 
