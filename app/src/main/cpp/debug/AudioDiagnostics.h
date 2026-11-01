@@ -24,7 +24,7 @@ namespace AudioDiagnostics
 constexpr int SPU_OUTPUT_SAMPLE_RATE = 48000;
 constexpr int SPU_OUTPUT_BUFFER_FRAMES = 2048;
 
-// Layout of getTotals(). Must match MelonEmulator.AUDIO_TOTAL_*
+// Layout of getTotals(). Must match MelonEmulator.AUDIO_TOTAL_* (the count is checked at startup)
 enum Total
 {
     TOTAL_CALLBACKS = 0,

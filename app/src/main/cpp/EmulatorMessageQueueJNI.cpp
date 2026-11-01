@@ -32,6 +32,12 @@ Java_me_magnum_melonds_impl_emulator_EmulatorMessageQueue_initMessagePipe(JNIEnv
     return messagePipes[0];
 }
 
+JNIEXPORT jint JNICALL
+Java_me_magnum_melonds_impl_emulator_EmulatorMessageQueue_getMaxDataSize(JNIEnv* env, jobject thiz)
+{
+    return MAX_DATA_LENGTH;
+}
+
 JNIEXPORT void JNICALL
 Java_me_magnum_melonds_impl_emulator_EmulatorMessageQueue_closeMessagePipe(JNIEnv* env, jobject thiz)
 {

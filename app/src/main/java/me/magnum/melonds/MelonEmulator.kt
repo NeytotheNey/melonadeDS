@@ -19,7 +19,8 @@ import me.magnum.melonds.ui.emulator.rewind.model.RewindWindow
 import java.nio.ByteBuffer
 
 object MelonEmulator {
-    // The perf frame sample layout and the flags must match PERF_FRAME_* and PERF_STATE_FLAG_* in MelonDSAndroidJNI.cpp
+    // The perf frame sample layout and the flags must match PERF_FRAME_* and PERF_STATE_FLAG_* in MelonDSAndroidJNI.cpp. The field count is
+    // checked below
     const val PERF_FRAME_SAMPLE_FIELDS = 10
     const val PERF_FRAME_FLAG_FAST_FORWARD = 1L
     const val PERF_FRAME_FLAG_AFTER_PAUSE = 2L
@@ -31,7 +32,7 @@ object MelonEmulator {
     const val PERF_STATE_FLAG_PAUSED = 1
     const val PERF_STATE_FLAG_DS_SLEEP = 2
     const val PERF_STATE_FLAG_FAST_FORWARD = 4
-    // The layout of getAudioDiagnosticsTotals() must match AudioDiagnostics::Total in AudioDiagnostics.h
+    // The layout of getAudioDiagnosticsTotals() must match AudioDiagnostics::Total in AudioDiagnostics.h. The count is checked below
     const val AUDIO_TOTAL_CALLBACKS = 0
     const val AUDIO_TOTAL_CALLBACK_FRAMES = 1
     const val AUDIO_TOTAL_UNDERRUN_CALLBACKS = 2
@@ -60,6 +61,12 @@ object MelonEmulator {
     const val AUDIO_TOTAL_SESSION_PRIME_TRIM_FRAMES = 21
     const val AUDIO_TOTAL_COUNT = 22
     const val AUDIO_MAX_STREAM_EVENTS = 32
+
+    init {
+        // The layouts above are mirrored by hand, so a mismatch fails here instead of producing garbled logs
+        check(getPerformanceFrameSampleFieldCount() == PERF_FRAME_SAMPLE_FIELDS) { "PERF_FRAME_SAMPLE_FIELDS doesn't match MelonDSAndroidJNI.cpp" }
+        check(getAudioDiagnosticsTotalCount() == AUDIO_TOTAL_COUNT) { "AUDIO_TOTAL_COUNT doesn't match AudioDiagnostics.h" }
+    }
 
     enum class LoadResult(val isTerminal: Boolean) {
         SUCCESS(false),
@@ -209,6 +216,10 @@ object MelonEmulator {
      * Number of frame samples that were dropped because the capture buffer was full since capture was last enabled.
      */
     external fun getDroppedPerformanceFrameSampleCount(): Long
+
+    private external fun getPerformanceFrameSampleFieldCount(): Int
+
+    private external fun getAudioDiagnosticsTotalCount(): Int
 
     /**
      * Fills [totals] ([AUDIO_TOTAL_COUNT] entries, see AUDIO_TOTAL_*) with the audio output counters. They're only counted while the debug log

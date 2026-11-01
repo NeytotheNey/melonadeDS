@@ -22,7 +22,7 @@ class EmulatorMessageQueue(private val eventHandler: EventHandler) {
 
     companion object {
         private const val EVENT_SIZE_BYTES = 8 // 2 ints (type, data length)
-        private const val DATA_SIZE_BYTES = 512 // Up to 512 bytes of arbitrary data. Must match kMaxDataLength in EmulatorMessageQueueJNI.cpp
+        private const val DATA_SIZE_BYTES = 512 // Up to 512 bytes of arbitrary data. Must match MAX_DATA_LENGTH in EmulatorMessageQueueJNI.cpp (checked in start())
 
         /**
          * Initialize the native message pipe and returns the file descriptor through which the messages will be sent.
@@ -36,6 +36,12 @@ class EmulatorMessageQueue(private val eventHandler: EventHandler) {
          */
         @JvmStatic
         private external fun closeMessagePipe()
+
+        /**
+         * The largest event data size the native side writes, for the check against [DATA_SIZE_BYTES].
+         */
+        @JvmStatic
+        private external fun getMaxDataSize(): Int
     }
 
     private val handlerThread = HandlerThread("EmulatorMessageQueue").apply { start() }
@@ -52,6 +58,7 @@ class EmulatorMessageQueue(private val eventHandler: EventHandler) {
      * Lua script's on_load(), say) aren't dropped. Must not be called from the queue's own thread.
      */
     fun start() {
+        check(getMaxDataSize() == DATA_SIZE_BYTES) { "DATA_SIZE_BYTES doesn't match EmulatorMessageQueueJNI.cpp" }
         val pipeReady = CountDownLatch(1)
         val isPosted = handler.post {
             try {

@@ -79,7 +79,7 @@ ThreadSafePerformanceHintSession* performanceHintSession = nullptr;
 // ns), emulated line count, flags, audio buffer fill (frames, after the frame's sleep), audio silence frames (filled by the output callback
 // since the previous sample), the audio output skew's distance from its base (ppm) and the speed paced fast-forward really reached (thousandths,
 // -1 if unknown or not fast-forwarding). 16384 samples are enough for over 1 second of emulation at 16x speed between each drain. The field count and the
-// flags must match MelonEmulator.PERF_FRAME_*
+// flags must match MelonEmulator.PERF_FRAME_* (the count is checked at startup)
 static constexpr std::size_t PERF_FRAME_SAMPLE_FIELDS = 10;
 static const int64_t PERF_FRAME_FLAG_FAST_FORWARD = 1;
 static const int64_t PERF_FRAME_FLAG_AFTER_PAUSE = 2;
@@ -412,6 +412,18 @@ JNIEXPORT jlong JNICALL
 Java_me_magnum_melonds_MelonEmulator_getDroppedPerformanceFrameSampleCount(JNIEnv* env, jobject thiz)
 {
     return (jlong) perfFrameSamples.getDroppedSampleCount();
+}
+
+JNIEXPORT jint JNICALL
+Java_me_magnum_melonds_MelonEmulator_getPerformanceFrameSampleFieldCount(JNIEnv* env, jobject thiz)
+{
+    return (jint) PERF_FRAME_SAMPLE_FIELDS;
+}
+
+JNIEXPORT jint JNICALL
+Java_me_magnum_melonds_MelonEmulator_getAudioDiagnosticsTotalCount(JNIEnv* env, jobject thiz)
+{
+    return (jint) AudioDiagnostics::TOTAL_COUNT;
 }
 
 JNIEXPORT void JNICALL
