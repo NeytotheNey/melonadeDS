@@ -235,7 +235,7 @@ class PerformanceLogger(
 
             try {
                 settingsSnapshot = buildSettingsSnapshot()
-                displayRefreshRate = getDisplayRefreshRate()
+                displayRefreshRate = getDefaultDisplay()?.refreshRate
                 stats.setInitialRefreshRate(displayRefreshRate)
                 sampleDisplayState()
 
@@ -876,10 +876,6 @@ class PerformanceLogger(
                 isLock60HzEnabled = settingsRepository.isFramePacingLock60HzEnabled(),
                 lock60HzMode = display.find60HzMode(),
             )
-        }
-
-        private fun getDisplayRefreshRate(): Float? {
-            return getDefaultDisplay()?.refreshRate
         }
 
         private fun getDefaultDisplay(): Display? {
