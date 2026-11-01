@@ -189,7 +189,7 @@ object MelonEmulator {
     external fun setPerformanceCaptureEnabled(enabled: Boolean)
 
     /**
-     * Turns the native side of the debug log on or off: core messages under the melonDS-core tag (with repeats collapsed), the once per second
+     * Turns the native side of the debug log on or off: core messages under the melonade-core tag (with repeats collapsed), the once per second
      * CPU heartbeat and the exception checks. Off by default, in which case they cost one flag check.
      */
     external fun setDebugLogEnabled(enabled: Boolean)

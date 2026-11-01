@@ -1,12 +1,13 @@
 #include "AudioDiagnostics.h"
 
 #include <algorithm>
-#include <android/log.h>
 #include <climits>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
 #include "MelonDSAudio.h"
+#include "MelonLog.h"
+#include "MonotonicClock.h"
 
 namespace AudioDiagnostics
 {
@@ -15,8 +16,6 @@ std::atomic_bool enabled = false;
 CallbackCounters counters;
 DriftState driftState;
 std::atomic<uint32_t> callbackClockGeneration = 0;
-
-static const char* const TAG = "melonade-audio";
 
 // Guards everything below that isn't atomic, apart from the emulator thread's stats. Never taken in the output callback. When it's taken
 // together with audioOutputMutex, audioOutputMutex is always taken first
@@ -87,13 +86,6 @@ struct SecondStats
 static SecondStats second;
 static int64_t frameSilenceBaseline = 0;
 
-static int64_t getMonotonicNanos()
-{
-    timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    return (int64_t) now.tv_sec * 1000000000LL + now.tv_nsec;
-}
-
 static double framesToMillis(int64_t frames)
 {
     return frames * 1000.0 / SPU_OUTPUT_SAMPLE_RATE;
@@ -135,7 +127,7 @@ static void recordEvent(const char* name, const char* detail, int64_t timestampN
     }
 
     StreamEvent& event = pendingEvents[(pendingEventStart + pendingEventCount) % MAX_PENDING_EVENTS];
-    event.timestampNs = timestampNs != 0 ? timestampNs : getMonotonicNanos();
+    event.timestampNs = timestampNs != 0 ? timestampNs : monotonicNanos();
     snprintf(event.name, sizeof(event.name), "%s", name);
     snprintf(event.detail, sizeof(event.detail), "%s", detail);
     pendingEventCount++;
@@ -162,7 +154,7 @@ void onBufferSizeChanged(int32_t oldSize, int32_t newSize, int32_t xruns)
         return;
 
     BufferSizeChange& change = bufferSizeChanges[writeCount % MAX_BUFFER_SIZE_CHANGES];
-    change.timestampNs = getMonotonicNanos();
+    change.timestampNs = monotonicNanos();
     change.oldSize = oldSize;
     change.newSize = newSize;
     change.xruns = xruns;
@@ -178,7 +170,7 @@ static void takeBufferSizeChanges()
     if (readCount == writeCount)
         return;
 
-    int64_t nowNs = getMonotonicNanos();
+    int64_t nowNs = monotonicNanos();
     for (; readCount != writeCount; readCount++)
     {
         const BufferSizeChange& change = bufferSizeChanges[readCount % MAX_BUFFER_SIZE_CHANGES];
@@ -186,7 +178,7 @@ static void takeBufferSizeChanges()
         snprintf(detail, sizeof(detail), "old=%d new=%d new_ms=%.1f xruns=%d", change.oldSize, change.newSize, framesToMillis(change.newSize),
                 change.xruns);
         if (isDebugLogOn)
-            __android_log_print(ANDROID_LOG_INFO, TAG, "audio buffer grew after an xrun %.0f ms ago: %d -> %d frames (%.1f -> %.1f ms), xruns=%d",
+            LOG_INFO(LOG_TAG_AUDIO, "audio buffer grew after an xrun %.0f ms ago: %d -> %d frames (%.1f -> %.1f ms), xruns=%d",
                     (nowNs - change.timestampNs) / 1000000.0, change.oldSize, change.newSize, framesToMillis(change.oldSize),
                     framesToMillis(change.newSize), change.xruns);
         recordEvent("audio_buffer_size", detail, change.timestampNs);
@@ -258,7 +250,7 @@ void onStreamOpened(oboe::AudioStream& stream, int requestedLatency, const char*
 
     if (isDebugLogOn)
     {
-        __android_log_print(ANDROID_LOG_INFO, TAG, "audio stream opened (%s): %s", reason, streamInfo);
+        LOG_INFO(LOG_TAG_AUDIO, "audio stream opened (%s): %s", reason, streamInfo);
         lastLoggedStreamKey = streamOpens;
     }
     recordEvent("audio_stream_open", reason);
@@ -271,7 +263,7 @@ void onStreamOpenFailed(oboe::Result result, int requestedLatency, const char* r
     char detail[96];
     snprintf(detail, sizeof(detail), "%s: %s requested_latency=%s", reason, oboe::convertToText(result), getLatencyName(requestedLatency));
     if (isDebugLogOn)
-        __android_log_print(ANDROID_LOG_WARN, TAG, "audio stream open failed (%s)", detail);
+        LOG_WARN(LOG_TAG_AUDIO, "audio stream open failed (%s)", detail);
     recordEvent("audio_stream_open_failed", detail);
 }
 
@@ -315,7 +307,7 @@ void onStreamError(oboe::Result result)
     std::lock_guard<std::mutex> lock(stateMutex);
     streamErrors++;
     if (isDebugLogOn)
-        __android_log_print(ANDROID_LOG_WARN, TAG, "audio stream error: %s (stream closed by Oboe)", oboe::convertToText(result));
+        LOG_WARN(LOG_TAG_AUDIO, "audio stream error: %s (stream closed by Oboe)", oboe::convertToText(result));
     recordEvent("audio_stream_error", oboe::convertToText(result));
 }
 
@@ -451,7 +443,7 @@ void logSecond(uint32_t frame)
     else
         snprintf(achievedSpeedText, sizeof(achievedSpeedText), "n/a");
 
-    __android_log_print(ANDROID_LOG_INFO, TAG,
+    LOG_INFO(LOG_TAG_AUDIO,
             "audio frame=%u stream=%s callbacks=%lld frames=%lld cb_frames_avg=%.1f cb_frames_max=%lld cb_gap_max_ms=%.2f underruns=%lld silence_frames=%lld "
             "prime_wait_frames=%lld reprimes=%lld prime_trims=%lld prime_trim_frames=%lld xruns=%s fill_min=%d fill_avg=%d fill_max=%d fill_ms=%.1f/%.1f/%.1f buffer_full_frames=%d skew_ppm=%d "
             "fill_filtered=%s ff_speed=%s buffer_size=%d buffer_ms=%.1f buffer_max=%d | total underruns=%lld silence_frames=%lld prime_wait_frames=%lld reprimes=%lld "
@@ -490,9 +482,9 @@ void resetForDebugLog()
     if (isLogged)
         return;
     if (isOpen)
-        __android_log_print(ANDROID_LOG_INFO, TAG, "audio stream (current): %s", info);
+        LOG_INFO(LOG_TAG_AUDIO, "audio stream (current): %s", info);
     else
-        __android_log_print(ANDROID_LOG_INFO, TAG, "audio stream (current): none open");
+        LOG_INFO(LOG_TAG_AUDIO, "audio stream (current): none open");
 }
 
 void getTotals(int64_t* totals)

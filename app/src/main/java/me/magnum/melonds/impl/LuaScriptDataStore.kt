@@ -113,7 +113,7 @@ class LuaScriptDataStore(private val context: Context) {
     }
 
     companion object {
-        private const val TAG = "melonDS-lua"
+        private const val TAG = "melonade-lua"
         private const val DATA_FOLDER = "lua-data"
         private const val TEMP_PREFIX = "data"
         private const val TEMP_SUFFIX = ".tmp"

@@ -180,7 +180,7 @@ class DebugLogRecorder(
             append("pid: ").append(Process.myPid()).append('\n')
             append("command: ").append(logcatCommand).append('\n')
             append("tags: ").append(DebugLog.TAG).append(" (markers, game configuration, fold and display changes), melonade-cpu (heartbeat, exceptions, GPU state), ")
-                .append("melonade-audio (audio stream, dropouts, buffer fill), melonDS-core (emulator core messages)\n")
+                .append("melonade-audio (audio stream, dropouts, buffer fill), melonade-lua (scripts), melonade-core (emulator core messages)\n")
             append("---\n")
         }
     }

@@ -32,7 +32,7 @@ Run as `bash C:/Dev/melonDS-android/.claude/emulator/emu.sh <command>`.
 | `tap-text <text> [n]` | Tap the n-th node whose label contains `<text>`. Prefix with `=` for an exact label match: `tap-text "=Settings"` won't hit "Rom settings". The same `=` works for `ui =<text>`. |
 | `tap x y`, `hold x y [ms]`, `swipe x1 y1 x2 y2 [ms]`, `key KEYCODE_X`, `back`, `text <s>` | Raw input, in real panel pixels. |
 | `shot <name> [--full]` | Screenshot of the active panel to `logs/emulator/shots/`. By default it also writes and prints a **half-size** copy: read that one, and multiply coordinates read off it by 2 before tapping. `--full` only when you need fine detail. |
-| `crash` / `log [n]` / `logclear` | Crash buffer and errors / the app's `melonDS` log tag / clear logcat. |
+| `crash` / `log [n]` / `logclear` | Crash buffer and errors / the app's `melonade*` log tags / clear logcat. |
 | `adb <args>` | Raw adb against the emulator. |
 
 ## Saving context (important)

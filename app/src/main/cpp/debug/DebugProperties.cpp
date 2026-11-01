@@ -100,7 +100,7 @@ Overrides apply(GPU& gpu)
         length += snprintf(summary + length, sizeof(summary) - length, " %s=%d", boolSwitch.name, gpu.*boolSwitch.target ? 1 : 0);
     snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d hirescap=%d hirescapdebug=%d threaded2d=%d",
              gpu.ShadowLogFrames, gpu.CaptureSpinUs, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.threaded2d);
-    LOG_INFO("melonade-debug", "%s", summary);
+    LOG_INFO(LOG_TAG_DEBUG, "%s", summary);
     return overrides;
 }
 

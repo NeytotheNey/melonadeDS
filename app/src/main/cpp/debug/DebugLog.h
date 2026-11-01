@@ -23,7 +23,7 @@ inline bool isEnabled()
 void setEnabled(bool isEnabled);
 
 /**
- * Writes a message from the core (melonDS::Platform::Log) to logcat with the melonDS-core tag. Identical lines in a row are collapsed into a
+ * Writes a message from the core (melonDS::Platform::Log) to logcat with the melonade-core tag. Identical lines in a row are collapsed into a
  * "repeated N times" line, and new lines are capped per second, so a core that spams the log can't flood logcat or slow the emulator down.
  */
 void logCoreMessage(melonDS::Platform::LogLevel level, const char* format, va_list args);

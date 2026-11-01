@@ -1,11 +1,11 @@
 #include "DebugLog.h"
 
 #include "AudioDiagnostics.h"
-#include <android/log.h>
 #include <cstdio>
 #include <cstring>
-#include <ctime>
 #include <mutex>
+#include "MelonLog.h"
+#include "MonotonicClock.h"
 #include "NDSCart.h"
 
 using namespace melonDS;
@@ -17,8 +17,6 @@ std::atomic_bool enabled = false;
 // Set when the debug log is turned on, so that the emulator thread starts its per-frame checks from scratch on the next frame
 static std::atomic_bool frameStateResetPending = false;
 
-static const char* const CORE_TAG = "melonDS-core";
-static const char* const STATE_TAG = "melonade-cpu";
 static const int64_t ONE_SECOND_NS = 1000000000LL;
 // New (not repeated) core lines allowed per second. Anything above that is dropped and counted
 static const uint32_t MAX_CORE_LINES_PER_SECOND = 200;
@@ -27,13 +25,6 @@ static const uint32_t MAX_CORE_LINES_PER_SECOND = 200;
 static const uint32_t MAX_EXCEPTION_REPORTS_PER_SECOND = 10;
 static const uint32_t MAX_GPU_CHANGE_REPORTS_PER_SECOND = 5;
 static const std::size_t MAX_LINE_LENGTH = 1024;
-
-static int64_t getMonotonicNanos()
-{
-    timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    return (int64_t) now.tv_sec * ONE_SECOND_NS + now.tv_nsec;
-}
 
 // Core message dedupe. The core logs from the emulator thread and from others (audio, render), so this is guarded by a mutex. It's only taken
 // while the debug log is on
@@ -64,7 +55,7 @@ static void reportCoreRepeats()
     if (coreRepeatCount == 0)
         return;
 
-    __android_log_print(lastCorePriority, CORE_TAG, "(previous line repeated %u more times)", coreRepeatCount);
+    __android_log_print(lastCorePriority, LOG_TAG_CORE, "(previous line repeated %u more times)", coreRepeatCount);
     coreRepeatCount = 0;
 }
 
@@ -75,7 +66,7 @@ static void advanceCoreWindow(int64_t nowNs)
         return;
 
     if (coreDroppedLines > 0)
-        __android_log_print(ANDROID_LOG_WARN, CORE_TAG, "(%u core lines dropped, over %u lines per second)", coreDroppedLines, MAX_CORE_LINES_PER_SECOND);
+        LOG_WARN(LOG_TAG_CORE, "(%u core lines dropped, over %u lines per second)", coreDroppedLines, MAX_CORE_LINES_PER_SECOND);
 
     coreWindowStartNs = nowNs;
     coreWindowLines = 0;
@@ -111,7 +102,7 @@ void logCoreMessage(Platform::LogLevel level, const char* format, va_list args)
         message[--end] = '\0';
 
     int priority = toAndroidPriority(level);
-    int64_t nowNs = getMonotonicNanos();
+    int64_t nowNs = monotonicNanos();
 
     std::lock_guard<std::mutex> lock(coreLogMutex);
     if (priority == lastCorePriority && strcmp(message, lastCoreMessage) == 0)
@@ -135,7 +126,7 @@ void logCoreMessage(Platform::LogLevel level, const char* format, va_list args)
     }
 
     coreWindowLines++;
-    __android_log_write(priority, CORE_TAG, message);
+    __android_log_write(priority, LOG_TAG_CORE, message);
     memcpy(lastCoreMessage, message, end + 1);
     lastCorePriority = priority;
     lastCoreRepeatReportNs = nowNs;
@@ -187,7 +178,7 @@ public:
         if (nowNs - windowStartNs >= ONE_SECOND_NS)
         {
             if (dropped > 0)
-                __android_log_print(ANDROID_LOG_WARN, STATE_TAG, "(%u %s reports dropped)", dropped, label);
+                LOG_WARN(LOG_TAG_CPU, "(%u %s reports dropped)", dropped, label);
 
             windowStartNs = nowNs;
             count = 0;
@@ -266,7 +257,7 @@ static void checkCpuExceptionState(const ARM& cpu, CpuWatch& watch, u32 frame, i
         {
             // In ABT/UND mode, R13/R14 are that mode's banked registers and the third banked slot holds its SPSR
             u32 spsr = mode == 0x17 ? cpu.R_ABT[2] : (mode == 0x1B ? cpu.R_UND[2] : 0);
-            __android_log_print(ANDROID_LOG_WARN, STATE_TAG, "ARM%d %s: frame=%u mode=%s vector=%s r15=%08X r14=%08X r13=%08X cpsr=%08X spsr=%08X exception_base=%08X",
+            LOG_WARN(LOG_TAG_CPU, "ARM%d %s: frame=%u mode=%s vector=%s r15=%08X r14=%08X r13=%08X cpsr=%08X spsr=%08X exception_base=%08X",
                     cpu.Num ? 7 : 9, isNewState ? "entered exception state" : "still in exception state", frame, getModeName(cpu.CPSR), vector ? vector : "none",
                     cpu.R[15], cpu.R[14], cpu.R[13], cpu.CPSR, spsr, cpu.ExceptionBase);
             watch.lastReportNs = nowNs;
@@ -274,7 +265,7 @@ static void checkCpuExceptionState(const ARM& cpu, CpuWatch& watch, u32 frame, i
     }
     else if (watch.wasFlagged)
     {
-        __android_log_print(ANDROID_LOG_INFO, STATE_TAG, "ARM%d left exception state: frame=%u mode=%s r15=%08X", cpu.Num ? 7 : 9, frame, getModeName(cpu.CPSR), cpu.R[15]);
+        LOG_INFO(LOG_TAG_CPU, "ARM%d left exception state: frame=%u mode=%s r15=%08X", cpu.Num ? 7 : 9, frame, getModeName(cpu.CPSR), cpu.R[15]);
     }
 
     watch.wasFlagged = isFlagged;
@@ -317,7 +308,7 @@ static void checkCpuLowAddress(const ARM& cpu, CpuWatch& watch, u32 frame, int64
         bool shouldReport = isNew ? exceptionReportLimiter.take(nowNs) : nowNs - watch.lastLowAddressReportNs >= ONE_SECOND_NS;
         if (shouldReport)
         {
-            __android_log_print(ANDROID_LOG_WARN, STATE_TAG, "ARM%d %s: frame=%u next_pc=%08X r15=%08X r14=%08X r13=%08X cpsr=%08X mode=%s%s exception_base=%08X",
+            LOG_WARN(LOG_TAG_CPU, "ARM%d %s: frame=%u next_pc=%08X r15=%08X r14=%08X r13=%08X cpsr=%08X mode=%s%s exception_base=%08X",
                     cpu.Num ? 7 : 9, isNew ? "jumped to low memory" : "still in low memory", frame, nextAddress, cpu.R[15], cpu.R[14], cpu.R[13], cpu.CPSR,
                     getModeName(cpu.CPSR), (cpu.CPSR & 0x20) ? " thumb" : "", cpu.ExceptionBase);
             watch.lastLowAddressReportNs = nowNs;
@@ -352,7 +343,7 @@ static void logGpuState(NDS& nds, const GpuSnapshot& snapshot, const char* label
     const auto& b = nds.GPU.GPU2D_B;
     const u8* v = snapshot.vramCnt;
     // POWCNT1 bit 15 set means engine A is on the top screen
-    __android_log_print(ANDROID_LOG_INFO, STATE_TAG,
+    LOG_INFO(LOG_TAG_CPU,
             "%s frame=%u powcnt1=%04X dispcnt_a=%08X dispcnt_b=%08X bgcnt_a=%04X,%04X,%04X,%04X bgcnt_b=%04X,%04X,%04X,%04X vramcnt=%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X",
             label, frame, snapshot.powerControl, snapshot.dispCntA, snapshot.dispCntB, a.BGCnt[0], a.BGCnt[1], a.BGCnt[2], a.BGCnt[3],
             b.BGCnt[0], b.BGCnt[1], b.BGCnt[2], b.BGCnt[3], v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]);
@@ -363,7 +354,7 @@ void onFrame(NDS& nds, bool isFastForward, float fps, int64_t lastFrameWorkNs)
     if (frameStateResetPending.exchange(false, std::memory_order_relaxed)) [[unlikely]]
         resetFrameState();
 
-    int64_t nowNs = getMonotonicNanos();
+    int64_t nowNs = monotonicNanos();
     u32 frame = nds.NumFrames;
 
     checkCpuExceptionState(nds.ARM9, arm9Watch, frame, nowNs);
@@ -384,7 +375,7 @@ void onFrame(NDS& nds, bool isFastForward, float fps, int64_t lastFrameWorkNs)
     nextHeartbeatNs = nowNs + ONE_SECOND_NS;
     const ARM& arm9 = nds.ARM9;
     const ARM& arm7 = nds.ARM7;
-    __android_log_print(ANDROID_LOG_INFO, STATE_TAG,
+    LOG_INFO(LOG_TAG_CPU,
             "heartbeat frame=%u fps=%.1f work_ms=%.2f jit=%d ff=%d | arm9 r15=%08X cpsr=%08X %s%s halted=%u | arm7 r15=%08X cpsr=%08X %s%s halted=%u | "
             "ime9=%u ie9=%08X if9=%08X ime7=%u ie7=%08X if7=%08X cpustop=%08X",
             frame, fps, lastFrameWorkNs / 1000000.0, nds.IsJITEnabled() ? 1 : 0, isFastForward ? 1 : 0,
@@ -400,7 +391,7 @@ void logGameStart(NDS& nds, const char* reason, bool hasRomCrc32, uint32_t romCr
 {
     resetFrameState();
 
-    __android_log_print(ANDROID_LOG_INFO, STATE_TAG, "core %s: console=%s jit=%d arm9_bios=%s arm7_bios=%s arm9_exception_base=%08X",
+    LOG_INFO(LOG_TAG_CPU, "core %s: console=%s jit=%d arm9_bios=%s arm7_bios=%s arm9_exception_base=%08X",
             reason, nds.ConsoleType == 1 ? "DSi" : "DS", nds.IsJITEnabled() ? 1 : 0,
             nds.IsLoadedARM9BIOSKnownNative() ? "native" : "not native (FreeBIOS or unknown)",
             nds.IsLoadedARM7BIOSKnownNative() ? "native" : "not native (FreeBIOS or unknown)", nds.ARM9.ExceptionBase);
@@ -408,7 +399,7 @@ void logGameStart(NDS& nds, const char* reason, bool hasRomCrc32, uint32_t romCr
     const NDSCart::CartCommon* cart = nds.GetNDSCart();
     if (cart == nullptr)
     {
-        __android_log_print(ANDROID_LOG_INFO, STATE_TAG, "core %s: no cart inserted", reason);
+        LOG_INFO(LOG_TAG_CPU, "core %s: no cart inserted", reason);
         return;
     }
 
@@ -432,7 +423,7 @@ void logGameStart(NDS& nds, const char* reason, bool hasRomCrc32, uint32_t romCr
     if (hasRomCrc32)
         snprintf(crcText, sizeof(crcText), "%08X", romCrc32);
 
-    __android_log_print(ANDROID_LOG_INFO, STATE_TAG, "core %s: cart title=\"%s\" game_code=%s rom_version=%u header_crc16=%04X rom_size=%u rom_file_crc32=%s dsi_ware=%d",
+    LOG_INFO(LOG_TAG_CPU, "core %s: cart title=\"%s\" game_code=%s rom_version=%u header_crc16=%04X rom_size=%u rom_file_crc32=%s dsi_ware=%d",
             reason, title, gameCode, header.ROMVersion, header.HeaderCRC16, cart->GetROMLength(), crcText, header.IsDSiWare() ? 1 : 0);
 }
 

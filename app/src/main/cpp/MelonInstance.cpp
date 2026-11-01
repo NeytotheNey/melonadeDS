@@ -25,7 +25,7 @@
 #include "SDCardArgsBuilder.h"
 #include "debug/DebugLog.h"
 #ifdef MELONADE_DEBUG_TOOLS
-#include <android/log.h>
+#include "MelonLog.h"
 #include "debug/DebugProperties.h"
 #endif
 
@@ -506,7 +506,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 #ifdef MELONADE_DEBUG_TOOLS
         // Mostly the core's savestate copy (~20 MB in DSi mode)
         double captureMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - captureStart).count();
-        __android_log_print(ANDROID_LOG_INFO, "melonDS", "REWIND frame=%d capture_ms=%.3f size=%u", frame, captureMs, nextRewindState->bufferContentSize);
+        LOG_INFO(LOG_TAG_DEBUG, "REWIND frame=%d capture_ms=%.3f size=%u", frame, captureMs, nextRewindState->bufferContentSize);
 #endif
     }
 

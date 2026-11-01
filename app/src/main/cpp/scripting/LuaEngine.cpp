@@ -18,7 +18,7 @@ namespace MelonDSAndroid
 // Threat model: scripts are files the player picked and installed. The limits below are there so that a buggy or careless script can't freeze
 // the emulator thread or the app (it gets switched off instead). They aren't meant to stop a script written to hang its own player's game.
 
-static const char* const TAG = "melonDS-lua";
+static const char* const TAG = LOG_TAG_LUA;
 
 // VM instructions a script may run per call. The main chunk and on_load() get more room, since they may build tables
 static const int kLoadInstructionLimit = 10'000'000;

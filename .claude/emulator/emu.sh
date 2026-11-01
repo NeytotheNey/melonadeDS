@@ -108,7 +108,7 @@ case "${1:-help}" in
     # crash: recent crashes and fatal errors from this app
     $A logcat -d -b crash | tail -40
     $A logcat -d '*:E' | grep -iE "melonds|FATAL|AndroidRuntime" | tail -20 ;;
-  log)   $A logcat -d -s melonDS:* | tail -"${2:-30}" ;;
+  log)   $A logcat -d -s melonade:* melonade-core:* melonade-cpu:* melonade-audio:* melonade-lua:* melonade-gl:* melonade-debug:* | tail -"${2:-30}" ;;
   logclear) $A logcat -c ;;
   adb)   shift; $A "$@" ;;
   *)

@@ -325,16 +325,16 @@ namespace Platform
         switch (level)
         {
             case LogLevel::Debug:
-                __android_log_vprint(ANDROID_LOG_DEBUG, "melonDS", fmt, args);
+                __android_log_vprint(ANDROID_LOG_DEBUG, LOG_TAG, fmt, args);
                 break;
             case LogLevel::Info:
-                __android_log_vprint(ANDROID_LOG_INFO, "melonDS", fmt, args);
+                __android_log_vprint(ANDROID_LOG_INFO, LOG_TAG, fmt, args);
                 break;
             case LogLevel::Warn:
-                __android_log_vprint(ANDROID_LOG_WARN, "melonDS", fmt, args);
+                __android_log_vprint(ANDROID_LOG_WARN, LOG_TAG, fmt, args);
                 break;
             case LogLevel::Error:
-                __android_log_vprint(ANDROID_LOG_ERROR, "melonDS", fmt, args);
+                __android_log_vprint(ANDROID_LOG_ERROR, LOG_TAG, fmt, args);
                 break;
         }
 

@@ -62,7 +62,7 @@ bool ScreenshotRenderer::finishScreenshotReadback(u8* destination, bool wait)
     else
     {
         // Blank rather than the reused state's old screenshot
-        LOG_ERROR("OpenGL", "Failed to map the screenshot pixel buffer");
+        LOG_ERROR(LOG_TAG_GL, "Failed to map the screenshot pixel buffer");
         memset(destination, 0, SCREENSHOT_WIDTH * SCREENSHOT_HEIGHT * 4);
     }
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
@@ -295,7 +295,7 @@ bool ScreenshotRenderer::setupShaders()
         if (shaderResult < 1) shaderResult = 1024;
         char* log = new char[shaderResult + 1];
         glGetShaderInfoLog(screenshotRenderVertexShader, shaderResult + 1, NULL, log);
-        LOG_ERROR("OpenGL", "Failed to compile vertex shader: %s", log);
+        LOG_ERROR(LOG_TAG_GL, "Failed to compile vertex shader: %s", log);
         delete[] log;
 
         glDeleteShader(screenshotRenderVertexShader);
@@ -314,7 +314,7 @@ bool ScreenshotRenderer::setupShaders()
         if (shaderResult < 1) shaderResult = 1024;
         char* log = new char[shaderResult + 1];
         glGetShaderInfoLog(screenshotRenderFragmentShader, shaderResult + 1, NULL, log);
-        LOG_ERROR("OpenGL", "Failed to compile fragment shader: %s", log);
+        LOG_ERROR(LOG_TAG_GL, "Failed to compile fragment shader: %s", log);
         delete[] log;
 
         glDeleteShader(screenshotRenderVertexShader);
@@ -334,7 +334,7 @@ bool ScreenshotRenderer::setupShaders()
         if (shaderResult < 1) shaderResult = 1024;
         char* log = new char[shaderResult + 1];
         glGetProgramInfoLog(screenshotRenderShader, shaderResult + 1, NULL, log);
-        LOG_ERROR("OpenGL", "Failed to link shader program: %s", log);
+        LOG_ERROR(LOG_TAG_GL, "Failed to link shader program: %s", log);
         delete[] log;
 
         glDeleteShader(screenshotRenderVertexShader);
@@ -362,7 +362,7 @@ static GLuint compileShader(GLenum type, const char* source)
     {
         char log[1024];
         glGetShaderInfoLog(shader, sizeof(log), nullptr, log);
-        LOG_ERROR("OpenGL", "Failed to compile screenshot overlay shader: %s", log);
+        LOG_ERROR(LOG_TAG_GL, "Failed to compile screenshot overlay shader: %s", log);
         glDeleteShader(shader);
         return 0;
     }
@@ -417,7 +417,7 @@ void ScreenshotRenderer::setupOverlayShader()
         {
             char log[1024];
             glGetProgramInfoLog(program, sizeof(log), nullptr, log);
-            LOG_ERROR("OpenGL", "Failed to link screenshot overlay shader: %s", log);
+            LOG_ERROR(LOG_TAG_GL, "Failed to link screenshot overlay shader: %s", log);
             glDeleteProgram(program);
         }
     }

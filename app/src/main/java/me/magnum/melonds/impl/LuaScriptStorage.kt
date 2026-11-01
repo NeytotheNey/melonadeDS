@@ -259,7 +259,7 @@ class LuaScriptStorage(private val context: Context) {
     }
 
     companion object {
-        private const val TAG = "melonDS-lua"
+        private const val TAG = "melonade-lua"
         private const val OLD_SCRIPTS_FOLDER = "scripts"
         private const val LUA_EXTENSION = ".lua"
         const val MAX_SCRIPT_SIZE = 1024 * 1024

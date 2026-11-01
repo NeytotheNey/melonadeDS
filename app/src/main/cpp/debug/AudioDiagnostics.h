@@ -4,8 +4,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <ctime>
 #include <oboe/Oboe.h>
+#include "MonotonicClock.h"
 
 /**
  * Opt-in audio output diagnostics, on while the debug log or a performance capture is. While they're off, the output callback only pays for the
@@ -133,9 +133,7 @@ inline void storeMax(std::atomic<int64_t>& target, int64_t value)
  */
 inline void onCallback(CallbackClock& clock, int32_t numFrames)
 {
-    timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    int64_t nowNs = (int64_t) now.tv_sec * 1000000000LL + now.tv_nsec;
+    int64_t nowNs = monotonicNanos();
 
     counters.callbacks.fetch_add(1, std::memory_order_relaxed);
     counters.frames.fetch_add(numFrames, std::memory_order_relaxed);

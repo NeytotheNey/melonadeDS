@@ -26,6 +26,8 @@
 #include "debug/AudioDiagnostics.h"
 #include "debug/DebugLog.h"
 #include "renderer/FramePacing.h"
+#include "MelonLog.h"
+#include "MonotonicClock.h"
 
 #include "Platform.h"
 #ifdef MELONADE_DEBUG_TOOLS
@@ -33,7 +35,6 @@
 #include <cstring>
 #include <sched.h>
 #include <sys/system_properties.h>
-#include <android/log.h>
 #include "debug/DebugProperties.h"
 #endif
 
@@ -814,15 +815,7 @@ MelonDSAndroid::RomGbaSlotConfig* buildGbaSlotConfig(GbaSlotType slotType, const
 }
 
 static double getCurrentMillis() {
-    timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    return (now.tv_sec * 1000.0) + now.tv_nsec / 1000000.0;
-}
-
-static int64_t getCurrentNanos() {
-    timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    return (int64_t) now.tv_sec * 1000000000LL + now.tv_nsec;
+    return monotonicNanos() / 1000000.0;
 }
 
 // Frame pacing state of the emulator thread, carried from one frame to the next
@@ -866,7 +859,7 @@ static bool schedulePacedFrame(FramePacingState& pacing, int64_t workNs, double&
 {
     int64_t lastVsyncNs = displayVsyncTracker.getLastVsyncNs();
     int64_t refreshPeriodNs = displayVsyncTracker.getRefreshPeriodNs();
-    int64_t currentNs = getCurrentNanos();
+    int64_t currentNs = monotonicNanos();
     int pacingDivisor = VsyncFramePacer::getRefreshDivisor(currentNs, lastVsyncNs, refreshPeriodNs);
     if (pacingDivisor <= 0)
         return false;
@@ -980,7 +973,7 @@ static bool debugPinThreadToCpus(const char* property, pid_t tid, const char* th
         long cpu = strtol(cursor, &end, 10);
         if (end == cursor || cpu < 0 || cpu >= CPU_SETSIZE || (*end != ',' && *end != '\0'))
         {
-            __android_log_print(ANDROID_LOG_WARN, "melonDS", "debug: %s=\"%s\" isn't a list of CPU ids, %s not pinned", property, value, threadName);
+            LOG_WARN(LOG_TAG_DEBUG, "%s=\"%s\" isn't a list of CPU ids, %s not pinned", property, value, threadName);
             return false;
         }
         CPU_SET(cpu, &cpus);
@@ -993,10 +986,10 @@ static bool debugPinThreadToCpus(const char* property, pid_t tid, const char* th
 
     if (sched_setaffinity(tid, sizeof(cpus), &cpus) != 0)
     {
-        __android_log_print(ANDROID_LOG_WARN, "melonDS", "debug: couldn't pin %s (tid %d) to CPUs %s (mask 0x%llx): %s", threadName, tid, value, mask, strerror(errno));
+        LOG_WARN(LOG_TAG_DEBUG, "couldn't pin %s (tid %d) to CPUs %s (mask 0x%llx): %s", threadName, tid, value, mask, strerror(errno));
         return false;
     }
-    __android_log_print(ANDROID_LOG_INFO, "melonDS", "debug: pinned %s (tid %d) to CPUs %s (mask 0x%llx)", threadName, tid, value, mask);
+    LOG_INFO(LOG_TAG_DEBUG, "pinned %s (tid %d) to CPUs %s (mask 0x%llx)", threadName, tid, value, mask);
     return true;
 }
 
@@ -1012,9 +1005,9 @@ static void debugUnpinThread(pid_t tid, const char* threadName)
         CPU_SET(cpu, &cpus);
 
     if (sched_setaffinity(tid, sizeof(cpus), &cpus) != 0)
-        __android_log_print(ANDROID_LOG_WARN, "melonDS", "debug: couldn't reset %s (tid %d) to all %ld CPUs: %s", threadName, tid, cpuCount, strerror(errno));
+        LOG_WARN(LOG_TAG_DEBUG, "couldn't reset %s (tid %d) to all %ld CPUs: %s", threadName, tid, cpuCount, strerror(errno));
     else
-        __android_log_print(ANDROID_LOG_INFO, "melonDS", "debug: reset %s (tid %d) to all %ld CPUs (it inherited the emulator thread's mask)", threadName, tid, cpuCount);
+        LOG_INFO(LOG_TAG_DEBUG, "reset %s (tid %d) to all %ld CPUs (it inherited the emulator thread's mask)", threadName, tid, cpuCount);
 }
 #endif
 
@@ -1040,7 +1033,7 @@ void* emulate(void*)
     performanceHintSession = new ThreadSafePerformanceHintSession(std::move(manager));
     performanceHintSession->createSession(gettid(), FRAME_DURATION_60FPS_NS);
 #ifdef MELONADE_DEBUG_TOOLS
-    // The compute renderer's capture readback stats, logged as a CAPWAIT line (tag melonDS) every 300 frames that had any
+    // The compute renderer's capture readback stats, logged as a CAPWAIT line every 300 frames that had any
     MelonDSAndroid::CaptureStats captureStatsSum;
     int captureStatsFrames = 0;
 #endif
@@ -1124,7 +1117,7 @@ void* emulate(void*)
             if (++captureStatsFrames == 300)
             {
                 if (captureStatsSum.maps > 0)
-                    __android_log_print(ANDROID_LOG_INFO, "melonDS", "CAPWAIT frames=%d maps=%lld wait_ms_f=%.3f spin_ms_f=%.3f span_ms_map=%.3f",
+                    LOG_INFO(LOG_TAG_DEBUG, "CAPWAIT frames=%d maps=%lld wait_ms_f=%.3f spin_ms_f=%.3f span_ms_map=%.3f",
                                         captureStatsFrames, (long long) captureStatsSum.maps, captureStatsSum.waitNs / 1e6 / captureStatsFrames,
                                         captureStatsSum.spinNs / 1e6 / captureStatsFrames, captureStatsSum.spanNs / 1e6 / captureStatsSum.maps);
                 captureStatsSum = {};
