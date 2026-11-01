@@ -211,6 +211,16 @@ static void failRestOfCall(LuaEngine::Script& script, const char* error)
     lua_sethook(script.L, instructionLimitHook, LUA_MASKCOUNT, 1);
 }
 
+/**
+ * Fails the rest of the call and raises the limit that was hit (the first one, if another was hit before)
+ */
+[[noreturn]] static void raiseLimitError(lua_State* L, LuaEngine::Script& script, const char* error)
+{
+    failRestOfCall(script, error);
+    luaL_error(L, "%s", script.limitError);
+    std::abort();
+}
+
 static void* allocate(void* userData, void* pointer, size_t oldSize, size_t newSize)
 {
     auto& script = *static_cast<LuaEngine::Script*>(userData);
@@ -250,9 +260,7 @@ static void* allocate(void* userData, void* pointer, size_t oldSize, size_t newS
 
 static void instructionLimitHook(lua_State* L, lua_Debug*)
 {
-    LuaEngine::Script& script = getScript(L);
-    failRestOfCall(script, kInstructionLimitError);
-    luaL_error(L, "%s", script.limitError);
+    raiseLimitError(L, getScript(L), kInstructionLimitError);
 }
 
 /**
@@ -264,10 +272,7 @@ extern "C" void melonade_charge_work(lua_State* L, lua_Integer amount)
     LuaEngine::Script& script = getScript(L);
     script.workLeft -= amount;
     if (script.workLeft < 0) [[unlikely]]
-    {
-        failRestOfCall(script, kWorkLimitError);
-        luaL_error(L, "%s", script.limitError);
-    }
+        raiseLimitError(L, script, kWorkLimitError);
 }
 
 static int messageHandler(lua_State* L)
@@ -494,6 +499,22 @@ static void busWrite(NDS& nds, u32 address, T value, bool isArm9)
         isArm9 ? nds.ARM9Write32(address, value) : nds.ARM7Write32(address, value);
 }
 
+/**
+ * Runs a LuaSavestateHost call, which allocates a whole savestate. Out of memory counts as a failed call
+ */
+template <typename Call>
+static bool callSavestateHost(Call&& call)
+{
+    try
+    {
+        return call();
+    }
+    catch (const std::bad_alloc&)
+    {
+        return false;
+    }
+}
+
 LuaEngine::LuaEngine() = default;
 
 LuaEngine::~LuaEngine()
@@ -622,15 +643,7 @@ void LuaEngine::runPendingStateLoad()
     if (!script.L || script.stateSlots[slot].empty())
         return;
 
-    bool isLoaded = false;
-    try
-    {
-        isLoaded = savestateHost->loadLuaState(script.stateSlots[slot]);
-    }
-    catch (const std::bad_alloc&)
-    {
-    }
-
+    bool isLoaded = callSavestateHost([&] { return savestateHost->loadLuaState(script.stateSlots[slot]); });
     if (!isLoaded)
     {
         // The host went back to the state from before the load
@@ -1453,14 +1466,7 @@ int LuaEngine::luaStateSave(lua_State* L)
     const char* error = nullptr;
     {
         std::vector<u8> data;
-        bool isSaved = false;
-        try
-        {
-            isSaved = engine->savestateHost->saveLuaState(data);
-        }
-        catch (const std::bad_alloc&)
-        {
-        }
+        bool isSaved = callSavestateHost([&] { return engine->savestateHost->saveLuaState(data); });
 
         std::vector<u8>& slotData = script.stateSlots[slot];
         if (!isSaved)
@@ -1562,15 +1568,9 @@ LuaEngine::DrawCommand* LuaEngine::addDrawCommand(lua_State* L, int64_t pixelCou
         return nullptr;
 
     if (script.drawCommands.size() >= kMaxDrawCommands)
-    {
-        failRestOfCall(script, kDrawLimitError);
-        luaL_error(L, "%s", script.limitError);
-    }
+        raiseLimitError(L, script, kDrawLimitError);
     if (textLength > kMaxDrawTextBytes - script.drawText.size())
-    {
-        failRestOfCall(script, kDrawTextLimitError);
-        luaL_error(L, "%s", script.limitError);
-    }
+        raiseLimitError(L, script, kDrawTextLimitError);
 
     melonade_charge_work(L, kDrawCallCost + pixelCount);
     return &script.drawCommands.emplace_back();
@@ -1824,22 +1824,17 @@ int LuaEngine::luaDrawImage(lua_State* L)
     return 0;
 }
 
-static const LuaFolderContent::Module* findModule(const LuaFolderContent* folderContent, const char* name, size_t length)
+/**
+ * The entry named [name] in one of the folder's maps (LuaFolderContent::modules or images), or null. [folder] may be null
+ */
+template <typename Map>
+static const typename Map::mapped_type* findInFolder(const Map* folder, const char* name, size_t length)
 {
-    if (!folderContent)
+    if (!folder)
         return nullptr;
 
-    auto module = folderContent->modules.find(std::string(name, length));
-    return module == folderContent->modules.end() ? nullptr : &module->second;
-}
-
-static const LuaFolderContent::Image* findImage(const LuaFolderContent* folderContent, const char* path, size_t length)
-{
-    if (!folderContent)
-        return nullptr;
-
-    auto image = folderContent->images.find(std::string(path, length));
-    return image == folderContent->images.end() ? nullptr : &image->second;
+    auto entry = folder->find(std::string(name, length));
+    return entry == folder->end() ? nullptr : &entry->second;
 }
 
 /**
@@ -1897,7 +1892,8 @@ int LuaEngine::luaRequire(lua_State* L)
         return raiseWithPosition(L);
     }
 
-    const LuaFolderContent::Module* module = findModule(getScript(L).engine->folderContent.get(), name, nameLength);
+    const LuaFolderContent* folderContent = getScript(L).engine->folderContent.get();
+    const LuaFolderContent::Module* module = findInFolder(folderContent ? &folderContent->modules : nullptr, name, nameLength);
     if (!module)
     {
         // As a path: lib.util is lib/util.lua or lib/util/init.lua
@@ -1959,7 +1955,8 @@ int LuaEngine::luaImageLoad(lua_State* L)
 {
     size_t pathLength;
     const char* path = luaL_checklstring(L, 1, &pathLength);
-    const LuaFolderContent::Image* image = findImage(getScript(L).engine->folderContent.get(), path, pathLength);
+    const LuaFolderContent* folderContent = getScript(L).engine->folderContent.get();
+    const LuaFolderContent::Image* image = findInFolder(folderContent ? &folderContent->images : nullptr, path, pathLength);
 
     if (!image)
     {
