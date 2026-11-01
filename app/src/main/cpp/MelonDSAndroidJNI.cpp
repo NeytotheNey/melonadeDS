@@ -4,13 +4,11 @@
 #include <algorithm>
 #include <atomic>
 #include <string>
-#include <sstream>
 #include <thread>
-#include <stdlib.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <cstdlib>
-#include <time.h>
+#include <ctime>
 #include <MelonDS.h>
 #include <MelonDSAudio.h>
 #include <RomGbaSlotConfig.h>

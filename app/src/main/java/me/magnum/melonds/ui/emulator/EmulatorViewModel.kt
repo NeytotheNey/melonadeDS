@@ -1,7 +1,6 @@
 package me.magnum.melonds.ui.emulator
 
 import android.net.Uri
-import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
