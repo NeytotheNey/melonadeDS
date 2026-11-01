@@ -294,8 +294,9 @@ class RomDetailsViewModel @Inject constructor(
         if (newFolderUri == oldFolderUri) {
             // Picking the same folder again keeps the switches. It's read again, which clears the "can't find the folder" state if access
             // to it was given back
-            if (newFolderUri != null) {
-                takeLuaScriptFolderPermission(newFolderUri)
+            if (newFolderUri != null && !takeLuaScriptFolderPermission(newFolderUri)) {
+                _luaScriptEvent.trySend(LuaScriptEvent.FolderPickFailed)
+                return
             }
             syncLuaScripts()
             return
