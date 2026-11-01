@@ -43,11 +43,6 @@ internal object SettingsBackupFormat {
         PreferenceKeys.DEBUG_LAST_REPORTED_EXIT_MS,
         // Tracks the RetroAchievements hash database, which isn't part of the backup
         AndroidRetroAchievementsRepository.RA_HASH_LIBRARY_LAST_UPDATED,
-        // State of the update checker. Its keys are defined in the gitHub flavours, which main can't see
-        "github_updates_last_check",
-        "github_updates_skip_version",
-        "github_updates_nightly_next_check_date",
-        "github_updates_nightly_last_release_date",
     )
 
     /**

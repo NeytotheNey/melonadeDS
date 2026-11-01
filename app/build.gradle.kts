@@ -217,9 +217,6 @@ dependencies {
     implementation(libs.commons.compress)
     implementation(libs.xz)
 
-    "gitHubImplementation"(libs.retrofit)
-    "gitHubImplementation"(libs.retrofit.converter.kotlinx)
-
     ksp(libs.hilt.compiler)
     ksp(libs.hilt.compiler.android)
     ksp(libs.room.compiler)
