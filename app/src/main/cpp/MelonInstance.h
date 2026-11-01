@@ -150,7 +150,7 @@ private:
     std::unique_ptr<SaveManager> firmwareSave;
     // Written by the UI thread, and read by the emulator thread while a Lua script changes the input
     std::atomic<u32> inputMask;
-    // The player's touch: kUserTouchDown | x << 16 | y, or 0 when not touching
+    // The player's touch, packed by PackedTouch (MelonInstance.cpp), or 0 when not touching
     std::atomic<u32> userTouch = 0;
     // While set, the emulator thread applies the input before each frame (the player's, as changed by the scripts) instead of the UI thread
     std::atomic_bool isLuaInputActive = false;

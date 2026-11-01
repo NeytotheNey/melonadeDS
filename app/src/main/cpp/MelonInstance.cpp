@@ -38,7 +38,19 @@ namespace MelonDSAndroid
 
 const int kRewindBufferSize = 1024 * 1024 * 20; // Use 20MB per savestate
 const int kRewindScreenshotSize = 256 * 384 * 4;
-const u32 kUserTouchDown = 1u << 31;
+
+// The player's touch in one word (MelonInstance::userTouch): a down flag, x and y
+struct PackedTouch
+{
+    static constexpr u32 DOWN = 1u << 31;
+
+    bool isDown;
+    u16 x;
+    u16 y;
+
+    static u32 pack(u16 x, u16 y) { return DOWN | ((u32) (x & 0x7FFF) << 16) | y; }
+    static PackedTouch unpack(u32 word) { return { (word & DOWN) != 0, (u16) ((word >> 16) & 0x7FFF), (u16) (word & 0xFFFF) }; }
+};
 
 MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfiguration> configuration, std::unique_ptr<melonDS::NDSArgs> args, std::shared_ptr<Net> net, std::unique_ptr<ScreenshotRenderer> screenshotRenderer, int consoleType) :
     instanceId(instanceId),
@@ -570,7 +582,7 @@ float MelonInstance::getMotionData(MotionQueryType type)
 
 void MelonInstance::touchScreen(u16 x, u16 y)
 {
-    userTouch.store(kUserTouchDown | ((u32) (x & 0x7FFF) << 16) | y);
+    userTouch.store(PackedTouch::pack(x, y));
     // While a script runs, the emulator thread applies the touch before each frame instead
     if (!isLuaInputActive)
         nds->TouchScreen(x, y);
@@ -1051,11 +1063,11 @@ bool MelonInstance::runLuaFrame()
     {
         isLuaInputActive = true;
 
-        u32 touch = userTouch.load();
+        PackedTouch touch = PackedTouch::unpack(userTouch.load());
         LuaUserInput userInput = {
-            .held = (~inputMask.load() & LuaKey::BUTTONS) | ((touch & kUserTouchDown) ? LuaKey::TOUCH : 0),
-            .touchX = (u16) ((touch >> 16) & 0x7FFF),
-            .touchY = (u16) (touch & 0xFFFF),
+            .held = (~inputMask.load() & LuaKey::BUTTONS) | (touch.isDown ? LuaKey::TOUCH : 0),
+            .touchX = touch.x,
+            .touchY = touch.y,
         };
         LuaInputOverride inputOverride = luaEngine.runFrame(frame, userInput);
         hasFrameRun = true;
@@ -1083,9 +1095,9 @@ bool MelonInstance::runLuaFrame()
     // No script left, so the UI thread applies the input again. Its last changes may have been skipped while the flag was set
     isLuaInputActive = false;
     nds->SetKeyMask(inputMask.load());
-    u32 touch = userTouch.load();
-    if (touch & kUserTouchDown)
-        nds->TouchScreen((touch >> 16) & 0x7FFF, touch & 0xFFFF);
+    PackedTouch touch = PackedTouch::unpack(userTouch.load());
+    if (touch.isDown)
+        nds->TouchScreen(touch.x, touch.y);
     else
         nds->ReleaseScreen();
     return hasFrameRun;

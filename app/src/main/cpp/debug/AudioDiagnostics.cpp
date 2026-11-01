@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <climits>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -450,12 +451,18 @@ static void startSecond(int64_t xruns)
     counters.windowMaxFrames.store(0, std::memory_order_relaxed);
 }
 
-static void formatXRuns(char* buffer, std::size_t size, int64_t xruns)
+// Writes "n/a" if the value isn't [known], otherwise the value formatted with [format]
+static void formatOptional(char* buffer, std::size_t size, bool known, const char* format, ...)
 {
-    if (xruns < 0)
+    if (!known)
+    {
         snprintf(buffer, size, "n/a");
-    else
-        snprintf(buffer, size, "%lld", (long long) xruns);
+        return;
+    }
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, size, format, args);
+    va_end(args);
 }
 
 void logSecond(uint32_t frame)
@@ -497,9 +504,9 @@ void logSecond(uint32_t frame)
         // The stream was being opened or closed. The count is read again next second
         snprintf(xrunText, sizeof(xrunText), "busy");
     else
-        formatXRuns(xrunText, sizeof(xrunText), second.xruns >= 0 ? totalXRuns - second.xruns : 0);
+        snprintf(xrunText, sizeof(xrunText), "%lld", (long long) (second.xruns >= 0 ? totalXRuns - second.xruns : 0));
     char totalXRunText[24];
-    formatXRuns(totalXRunText, sizeof(totalXRunText), totalXRuns);
+    formatOptional(totalXRunText, sizeof(totalXRunText), totalXRuns >= 0, "%lld", (long long) totalXRuns);
 
     int64_t secondCallbacks = callbacks - second.callbacks;
     int64_t secondFrames = frames - second.frames;
@@ -510,17 +517,11 @@ void logSecond(uint32_t frame)
     const char* streamState = !isOpen ? "closed" : (isStreamRunning.load(std::memory_order_relaxed) ? "running" : "stopped");
     int32_t filteredFill = driftState.filteredFill.load(std::memory_order_relaxed);
     char filteredFillText[16];
-    if (filteredFill < 0)
-        snprintf(filteredFillText, sizeof(filteredFillText), "n/a");
-    else
-        snprintf(filteredFillText, sizeof(filteredFillText), "%d", filteredFill);
+    formatOptional(filteredFillText, sizeof(filteredFillText), filteredFill >= 0, "%d", filteredFill);
     int32_t currentBufferSize = isOpen ? bufferSize.load(std::memory_order_relaxed) : -1;
     float achievedSpeed = getAchievedSpeed();
     char achievedSpeedText[16];
-    if (achievedSpeed > 0)
-        snprintf(achievedSpeedText, sizeof(achievedSpeedText), "%.3f", achievedSpeed);
-    else
-        snprintf(achievedSpeedText, sizeof(achievedSpeedText), "n/a");
+    formatOptional(achievedSpeedText, sizeof(achievedSpeedText), achievedSpeed > 0, "%.3f", achievedSpeed);
 
     LOG_INFO(LOG_TAG_AUDIO,
             "audio frame=%u stream=%s callbacks=%lld frames=%lld cb_frames_avg=%.1f cb_frames_max=%lld cb_gap_max_ms=%.2f underruns=%lld silence_frames=%lld "

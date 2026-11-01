@@ -388,6 +388,16 @@ void onFrame(NDS& nds, bool isFastForward, float fps, int64_t lastFrameWorkNs)
     flushCoreLogSummary(nowNs);
 }
 
+// Replaces anything outside printable ASCII with '?', so that a header field is safe to log
+static void sanitizeAscii(char* text)
+{
+    for (char* c = text; *c != '\0'; c++)
+    {
+        if (*c < 0x20 || *c > 0x7E)
+            *c = '?';
+    }
+}
+
 void logGameStart(NDS& nds, const char* reason, bool hasRomCrc32, uint32_t romCrc32)
 {
     resetFrameState();
@@ -409,16 +419,8 @@ void logGameStart(NDS& nds, const char* reason, bool hasRomCrc32, uint32_t romCr
     char gameCode[sizeof(header.GameCode) + 1] = {};
     memcpy(title, header.GameTitle, sizeof(header.GameTitle));
     memcpy(gameCode, header.GameCode, sizeof(header.GameCode));
-    for (char* c = title; *c != '\0'; c++)
-    {
-        if (*c < 0x20 || *c > 0x7E)
-            *c = '?';
-    }
-    for (char* c = gameCode; *c != '\0'; c++)
-    {
-        if (*c < 0x20 || *c > 0x7E)
-            *c = '?';
-    }
+    sanitizeAscii(title);
+    sanitizeAscii(gameCode);
 
     char crcText[16] = "n/a";
     if (hasRomCrc32)
