@@ -102,7 +102,7 @@ class DebugLogRecorder(
             }
 
             try {
-                BufferedWriter(OutputStreamWriter(logFile.outputStream, Charsets.UTF_8), 32 * 1024).use { writer ->
+                BufferedWriter(OutputStreamWriter(logFile, Charsets.UTF_8), 32 * 1024).use { writer ->
                     val command = listOf("logcat", "-v", "threadtime", "--pid=${Process.myPid()}", "-b", LOGCAT_BUFFERS)
                     writer.write(buildHeader(startDate, command.joinToString(" ")))
                     writer.flush()

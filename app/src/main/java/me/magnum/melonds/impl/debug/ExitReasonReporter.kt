@@ -139,14 +139,14 @@ class ExitReasonReporter(
             }
         }
 
-        logFolder.createFile("$filePrefix.txt").outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
+        logFolder.createFile("$filePrefix.txt").bufferedWriter(Charsets.UTF_8).use { writer ->
             writer.write(report)
             if (trace != null && !isTombstone) {
                 trace.bufferedReader(Charsets.UTF_8).copyTo(writer)
             }
         }
         if (trace != null && tombstoneFile != null) {
-            logFolder.createFile(tombstoneFile, "application/octet-stream").outputStream.use { trace.copyTo(it) }
+            logFolder.createFile(tombstoneFile, "application/octet-stream").use { trace.copyTo(it) }
         }
         Log.i(TAG, "Wrote $filePrefix.txt for the ${getReasonName(exit.reason)} exit")
     }

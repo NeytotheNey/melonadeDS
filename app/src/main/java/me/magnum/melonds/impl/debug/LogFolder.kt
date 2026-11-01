@@ -19,14 +19,12 @@ class LogFolder(private val context: Context, private val settingsRepository: Se
         const val TAG = "LogFolder"
     }
 
-    class LogFile(val outputStream: OutputStream)
-
     /**
      * Creates [fileName] and opens it for writing.
      *
      * @param mimeType MIME type for the document provider. "text/plain" keeps a .txt name as is, a generic type keeps any other extension
      */
-    fun createFile(fileName: String, mimeType: String = "text/plain"): LogFile {
+    fun createFile(fileName: String, mimeType: String = "text/plain"): OutputStream {
         val selectedDirectory = settingsRepository.getPerformanceLogDirectory()
         if (selectedDirectory != null) {
             val directoryDocument = try {
@@ -38,7 +36,7 @@ class LogFolder(private val context: Context, private val settingsRepository: Se
             if (directoryDocument != null) {
                 val document = directoryDocument.createFile(mimeType, fileName) ?: throw IOException("Could not create $fileName")
                 val outputStream = context.contentResolver.openOutputStream(document.uri, "w") ?: throw IOException("Could not open $fileName")
-                return LogFile(outputStream)
+                return outputStream
             } else {
                 Log.w(TAG, "Cannot write to the picked log folder. Using the default log directory instead")
             }
@@ -48,6 +46,6 @@ class LogFolder(private val context: Context, private val settingsRepository: Se
         if (!defaultDirectory.isDirectory && !defaultDirectory.mkdirs()) {
             throw IOException("Could not create ${defaultDirectory.absolutePath}")
         }
-        return LogFile(File(defaultDirectory, fileName).outputStream())
+        return File(defaultDirectory, fileName).outputStream()
     }
 }
