@@ -67,8 +67,15 @@ struct OptionValueFields
     }
 };
 
+// LuaScriptOptionValue.TYPE_*
+static constexpr jint kOptionTypeBoolean = 0;
+static constexpr jint kOptionTypeInteger = 1;
+static constexpr jint kOptionTypeNumber = 2;
+static constexpr jint kOptionTypeString = 3;
+static constexpr jint kOptionTypeLayout = 4;
+
 /**
- * The option values in a LuaScriptOptionValue array. The types match LuaScriptOptionValue's constants
+ * The option values in a LuaScriptOptionValue array
  */
 static std::vector<MelonDSAndroid::LuaOptionValue> getOptionValues(JNIEnv* env, jobjectArray optionArray, const OptionValueFields& fields)
 {
@@ -85,22 +92,23 @@ static std::vector<MelonDSAndroid::LuaOptionValue> getOptionValues(JNIEnv* env, 
         option.key = getString(env, optionObject, fields.key);
         switch (env->GetIntField(optionObject, fields.type))
         {
-            case 0:
+            case kOptionTypeBoolean:
                 option.type = MelonDSAndroid::LuaOptionValue::Type::Boolean;
                 option.boolean = env->GetLongField(optionObject, fields.integer) != 0;
                 break;
-            case 1:
+            case kOptionTypeInteger:
                 option.type = MelonDSAndroid::LuaOptionValue::Type::Integer;
                 option.integer = env->GetLongField(optionObject, fields.integer);
                 break;
-            case 2:
+            case kOptionTypeNumber:
                 option.type = MelonDSAndroid::LuaOptionValue::Type::Number;
                 option.number = env->GetDoubleField(optionObject, fields.number);
                 break;
-            case 4:
+            case kOptionTypeLayout:
                 option.type = MelonDSAndroid::LuaOptionValue::Type::Layout;
                 option.boolean = env->GetLongField(optionObject, fields.integer) != 0;
                 break;
+            case kOptionTypeString:
             default:
                 option.type = MelonDSAndroid::LuaOptionValue::Type::String;
                 option.string = getBytes(env, optionObject, fields.text).value_or("");
