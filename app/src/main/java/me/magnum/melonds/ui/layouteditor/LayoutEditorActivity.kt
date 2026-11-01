@@ -29,7 +29,6 @@ import kotlinx.coroutines.launch
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.Point
 import me.magnum.melonds.domain.model.Rect
-import me.magnum.melonds.domain.model.input.ControllerStyle
 import me.magnum.melonds.domain.model.layout.Insets
 import me.magnum.melonds.domain.model.layout.LayoutDisplayPair
 import me.magnum.melonds.domain.model.layout.ScreenFold
@@ -98,7 +97,6 @@ class LayoutEditorActivity : AppCompatActivity() {
 
     private var externalLayoutEditorPresentation: ExternalLayoutEditorPresentation? = null
     private var savedExternalEditorState: ScreenEditorState? = null
-    private var controllerStyle = ControllerStyle.CLASSIC
 
     private val mainScreenBackgroundPickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == RESULT_OK) {
@@ -224,7 +222,6 @@ class LayoutEditorActivity : AppCompatActivity() {
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 combine(viewModel.currentLayout, settingsRepository.getControllerStyle(), ::Pair).collect { (currentLayout, style) ->
-                    controllerStyle = style
                     layoutEditorManager.layoutEditorView.controllerStyle = style
                     if (currentLayout == null) {
                         layoutEditorManager.layoutEditorView.destroyLayout()
@@ -400,7 +397,7 @@ class LayoutEditorActivity : AppCompatActivity() {
                 setOnShowListener {
                     val currentConfiguration = viewModel.currentLayout.value
                     if (currentConfiguration != null) {
-                        instantiateLayout(currentConfiguration.layout, controllerStyle)
+                        instantiateLayout(currentConfiguration.layout, layoutEditorManager.layoutEditorView.controllerStyle)
                     }
                 }
                 show()

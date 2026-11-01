@@ -68,7 +68,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     private var onViewDeselectedListener: ((LayoutComponentView) -> Unit)? = null
     private var otherClickListener: OnClickListener? = null
     private val defaultComponentWidth = context.dpToPixels(100f).toInt()
-    val minComponentSize = context.dpToPixels(30f).toInt()
+    private val minComponentSize = context.dpToPixels(30f).toInt()
     private var selectedView: LayoutComponentView? = null
     // See reselectAfterNextLayout()
     private var componentToReselect: LayoutComponent? = null

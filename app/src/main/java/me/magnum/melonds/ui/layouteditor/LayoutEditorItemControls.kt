@@ -28,7 +28,6 @@ import me.magnum.melonds.domain.model.layout.WidescreenAspect
 import me.magnum.melonds.ui.common.LayoutComponentView
 import me.magnum.melonds.ui.layouteditor.model.LayoutComponentEditableProperty
 import me.magnum.melonds.utils.getLayoutComponentName
-import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -64,7 +63,6 @@ class LayoutEditorItemControls(
     private val context = binding.root.context
     private val editor = binding.viewLayoutEditor
     private val preferences = PreferenceManager.getDefaultSharedPreferences(context)
-    private val margin = context.resources.getDimension(R.dimen.layout_editor_margin)
     private val marginPx = context.resources.getDimensionPixelSize(R.dimen.layout_editor_margin)
     private var isExpanded = preferences.getBoolean(PreferenceKeys.LAYOUT_EDITOR_ITEM_PANEL_EXPANDED, false)
     private var selectedView: LayoutComponentView? = null
@@ -346,12 +344,12 @@ class LayoutEditorItemControls(
         val (widthRange, heightRange) = editor.getSelectedViewSizeRanges()
         if (isFree) {
             binding.seekBarWidth.fill(view.getWidth(), widthRange)
-            binding.textWidth.text = formatSize(view.getWidth())
+            binding.textWidth.text = view.getWidth().toString()
             binding.seekBarHeight.fill(view.getHeight(), heightRange)
-            binding.textHeight.text = formatSize(view.getHeight())
+            binding.textHeight.text = view.getHeight().toString()
         } else {
             binding.seekBarSize.fill(view.getWidth(), widthRange)
-            binding.textSize.text = formatSize(view.getWidth())
+            binding.textSize.text = view.getWidth().toString()
         }
 
         binding.toggleGroupAspectRatio.isVisible = isScreen
@@ -388,10 +386,6 @@ class LayoutEditorItemControls(
         binding.switchAboveScreen.isVisible = isScreen
         binding.switchAboveScreen.isChecked = view.onTop
         fillingControls = false
-    }
-
-    private fun formatSize(size: Int): String {
-        return String.format(Locale.getDefault(), "%d", size)
     }
 
     private fun SeekBar.fill(value: Int, range: IntRange) {
@@ -528,20 +522,20 @@ class LayoutEditorItemControls(
         val itemRight = itemLeft + view.view.width
         val itemBottom = itemTop + view.view.height
 
-        val above = itemTop - margin - pill.height
-        val below = itemBottom + margin
+        val above = itemTop - marginPx - pill.height
+        val below = itemBottom + marginPx
         val candidateYs = listOfNotNull(
             above.takeIf { it >= minY },
             below.takeIf { it <= maxY },
-            (itemTop + margin).coerceIn(minY, maxY),
+            (itemTop + marginPx).coerceIn(minY, maxY),
         )
 
         val menuButton = binding.buttonFloatingMenu
         val centeredX = ((itemLeft + itemRight - pill.width) / 2f).coerceIn(minX, maxX)
         val candidateXs = listOf(
             centeredX,
-            (menuButton.x - margin - pill.width).coerceIn(minX, maxX),
-            (menuButton.x + menuButton.width + margin).coerceIn(minX, maxX),
+            (menuButton.x - marginPx - pill.width).coerceIn(minX, maxX),
+            (menuButton.x + menuButton.width + marginPx).coerceIn(minX, maxX),
         ).filter {
             // Only move it sideways while it stays next to the item
             it < itemRight && it + pill.width > itemLeft

@@ -8,11 +8,6 @@ import kotlin.math.abs
 private const val SCREEN_ALIGNMENT_THRESHOLD = 0.05f
 
 /**
- * The middle grid line of an axis of the given size. The grid is counted from here.
- */
-private fun gridOrigin(limit: Int): Int = limit / 2
-
-/**
  * A segment along one axis of the editor, like an item's left edge and width.
  */
 data class SnapSpan(val start: Int, val length: Int) {
@@ -33,7 +28,7 @@ data class SnapSpan(val start: Int, val length: Int) {
  */
 class SnapAxis(val limit: Int, val cell: Int, val gaps: List<SnapSpan> = emptyList(), val otherScreen: SnapSpan? = null) {
     /** The grid line in the middle of the editor, which all the other grid lines are counted from */
-    val origin get() = gridOrigin(limit)
+    val origin get() = limit / 2
 
     /** How close an edge has to be to the other screen's lines to line up with them */
     val alignmentThreshold get() = otherScreen?.let { (it.length * SCREEN_ALIGNMENT_THRESHOLD).toInt() } ?: 0
@@ -54,7 +49,7 @@ object LayoutEditorSnapping {
      * edges.
      */
     fun gridLines(limit: Int, cell: Int): List<Int> {
-        val origin = gridOrigin(limit)
+        val origin = limit / 2
         val firstLine = origin - origin / cell * cell
         return (listOf(0) + (firstLine..limit step cell) + limit).distinct()
     }
