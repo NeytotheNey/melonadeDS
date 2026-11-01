@@ -9,7 +9,6 @@ import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.json.Json
 import me.magnum.melonds.impl.SettingsBackupFormat.CONTROLLER_FILE
 import me.magnum.melonds.impl.SettingsBackupFormat.DATA_FILES
@@ -31,7 +30,6 @@ import org.json.JSONTokener
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
-import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
@@ -42,8 +40,8 @@ import javax.inject.Singleton
  * way the repositories, which keep their data in memory and save it back to the same files, can never write old data over a restore.
  */
 @Singleton
-class SettingsBackupManager @Inject constructor(
-    @param:ApplicationContext private val context: Context,
+class SettingsBackupManager(
+    private val context: Context,
     private val preferences: SharedPreferences,
     private val gson: Gson,
     private val json: Json,
