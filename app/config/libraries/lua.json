@@ -1,0 +1,14 @@
+{
+  "uniqueId": "native:lua",
+  "name": "Lua",
+  "description": "The scripting language behind the per-game Lua scripts. Version 5.4.9, with one patched file (lstrlib.c).",
+  "website": "https://www.lua.org",
+  "developers": [
+    {
+      "name": "Lua.org, PUC-Rio"
+    }
+  ],
+  "licenses": [
+    "lua"
+  ]
+}

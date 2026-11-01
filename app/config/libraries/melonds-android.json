@@ -1,11 +1,14 @@
 {
   "uniqueId": "native:melonds-android",
   "name": "melonDS Android",
-  "description": "The Android port of melonDS that melonadeDS is a fork of.",
+  "description": "The Android port of melonDS that melonadeDS is a fork of. The WideMelon widescreen mod is reworked from pruefsumme's widemelon branch of melonDS-android-lib.",
   "website": "https://github.com/rafaelvcaetano/melonDS-android",
   "developers": [
     {
       "name": "Rafael Caetano"
+    },
+    {
+      "name": "pruefsumme (WideMelon)"
     }
   ],
   "licenses": [
