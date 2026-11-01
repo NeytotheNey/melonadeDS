@@ -87,10 +87,6 @@ class RaisedButtonView(
         glyphs = Array(parts.size) { Path() }
         centersX = FloatArray(parts.size)
         centersY = FloatArray(parts.size)
-        for (i in parts.indices) {
-            parts[i].icon?.setTint(colors[i].label)
-            parts[i].offIcon?.setTint(colors[i].label)
-        }
         if (width > 0 && height > 0) {
             updateGeometry(width, height)
         }
@@ -272,6 +268,8 @@ class RaisedButtonView(
             canvas.drawPath(glyphs[index], labelPaint)
         }
         val icon = if (isToggledOn) part.icon else part.offIcon ?: part.icon
+        // Tinted here rather than in setParts, since pixel styles rasterize the icon as a mask and never need the tint
+        icon?.setTint(partColors.label)
         icon?.draw(canvas)
         if (part.label != null) {
             labelPaint.textSize = part.labelSize * scale
