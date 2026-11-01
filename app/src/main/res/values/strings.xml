@@ -753,25 +753,6 @@
         <item>Bottom</item>
     </string-array>
 
-    <!-- Multiplayer -->
-    <string name="connection_wifi_aware">Wi-Fi Aware</string>
-    <string name="connection_wifi_direct">Wi-Fi Direct</string>
-    <string name="no_connection_methods_available">No connection methods available on this device</string>
-    <string name="multiplayer_role_title">Multiplayer</string>
-    <string name="multiplayer_role_host">Host</string>
-    <string name="multiplayer_role_join">Join</string>
-    <string name="multiplayer_connection_method_title">Connection Method</string>
-    <string name="multiplayer_discovered_peers_title">Available Sessions</string>
-    <string name="multiplayer_searching">Searching…</string>
-    <string name="multiplayer_connecting">Connecting…</string>
-    <string name="multiplayer_starting">Starting session…</string>
-    <string name="multiplayer_discovering">Discovering peers…</string>
-    <string name="multiplayer_connected">Connected</string>
-    <string name="multiplayer_error_connection_failed">Connection failed</string>
-    <string name="multiplayer_error_discovery_failed">Discovery failed</string>
-    <string name="multiplayer_error_lan_init_failed">Failed to initialize LAN session</string>
-    <string name="multiplayer_error_permission_denied">Required permissions not granted</string>
-
     <!-- About screen -->
     <string name="about_version">Version %1$s</string>
     <string name="about_credits">Credits</string>

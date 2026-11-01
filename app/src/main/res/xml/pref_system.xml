@@ -6,7 +6,6 @@
     <PreferenceCategory android:title="@string/settings_section_firmware">
 
         <Preference
-                android:key="internal_firmware_settings"
                 android:title="@string/internal_firmware_settings"
                 android:summary="@string/internal_firmware_settings_summary"
                 android:widgetLayout="@layout/preference_widget_chevron"
