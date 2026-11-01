@@ -2,7 +2,9 @@
 
 ## Status (2026-11-01)
 
-This is a plan only, with no code yet. It was written against core `melonade` at `1bd01df` and app `material3`. Paths marked `O/` are our core's `src/`, `U/` is desktop melonDS at `C:\Dev\melonDS` (`src/`), and `WA/` is WatermelonDS's app (`C:\Dev\WatermelonDS\app\src\main\cpp`). Phase 1 is the White 2 title screen. Phase 2 (bitmap BGs) starts only after Phase 1 has passed on the phone and a register log of the target scene has been taken.
+**Phase 1 is done and phone-tested** (Z Fold 8, 2026-11-01, OpenGL and compute). The White 2 title is sharp at 4x and 8x, the trail stays, 1x `check` gave 0 mismatches over ~98 checks per renderer, a 4x→1x→4x switch is clean, and fps is no lower than with the setting off. Two review fixes went in after the first test: a frame that starts with held lines from the previous frame counts every bank stale and skips its pass, and at 1x nothing is recorded unless `check` is on. Not run yet: WideMelon on, savestate load/rewind on the title, a mode-2 game without capture, the emulator HASH2D comparison for the software path. Phase 2 hasn't started.
+
+The plan was written against core `melonade` at `1bd01df` and app `material3`. Paths marked `O/` are our core's `src/`, `U/` is desktop melonDS at `C:\Dev\melonDS` (`src/`), and `WA/` is WatermelonDS's app (`C:\Dev\WatermelonDS\app\src\main\cpp`). Phase 1 is the White 2 title screen. Phase 2 (bitmap BGs) starts only after Phase 1 has passed on the phone and a register log of the target scene has been taken.
 
 ## Context
 

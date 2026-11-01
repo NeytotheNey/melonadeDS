@@ -100,7 +100,8 @@ class SharedPreferencesSettingsRepository(
         setDefaultThemeIfRequired()
         setDefaultMacAddressIfRequired()
 
-        // combine() only takes up to 5 flows with their own types, so the 3 look settings (filter, colours and shadow) are grouped first
+        // combine() only takes up to 5 flows with their own types, so the 3 look settings (filter, colours and shadow) and the 2 threading
+        // ones are grouped first
         val lookSettingsFlow = combine(
             getVideoFiltering(),
             isDsScreenColorsEnabled(),
@@ -108,14 +109,20 @@ class SharedPreferencesSettingsRepository(
         ) { filtering, dsScreenColors, screenShadow ->
             Triple(filtering, dsScreenColors, screenShadow)
         }
+        val threadingSettingsFlow = combine(
+            isThreadedRenderingEnabled(),
+            isThreaded2dRenderingEnabled(),
+        ) { threadedRenderingEnabled, threaded2dRenderingEnabled ->
+            Pair(threadedRenderingEnabled, threaded2dRenderingEnabled)
+        }
         renderConfigurationFlow = combine(
             getVideoRenderer(),
             lookSettingsFlow,
-            isThreadedRenderingEnabled(),
-            isThreaded2dRenderingEnabled(),
+            threadingSettingsFlow,
+            isHiresCaptureEnabled(),
             getVideoInternalResolutionScaling(),
-        ) { renderer, (filtering, dsScreenColors, screenShadow), threadedRenderingEnabled, threaded2dRenderingEnabled, resolutionScaling ->
-            RendererConfiguration(renderer, filtering, dsScreenColors, screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled, resolutionScaling)
+        ) { renderer, (filtering, dsScreenColors, screenShadow), (threadedRenderingEnabled, threaded2dRenderingEnabled), hiresCaptureEnabled, resolutionScaling ->
+            RendererConfiguration(renderer, filtering, dsScreenColors, screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled, hiresCaptureEnabled, resolutionScaling)
         }.conflate().shareIn(preferencesCoroutineScope, SharingStarted.Lazily, replay = 1)
     }
 
@@ -375,6 +382,12 @@ class SharedPreferencesSettingsRepository(
     override fun isThreaded2dRenderingEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_THREADED_2D) {
             preferences.getBoolean(PreferenceKeys.VIDEO_THREADED_2D, false)
+        }
+    }
+
+    override fun isHiresCaptureEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_HIRES_CAPTURE) {
+            preferences.getBoolean(PreferenceKeys.VIDEO_HIRES_CAPTURE, true)
         }
     }
 

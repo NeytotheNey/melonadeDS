@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <chrono>
 #include <EGL/egl.h>
@@ -128,9 +129,31 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     char capspinProperty[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.melonade.capspin", capspinProperty) > 0)
         nds->GPU.CaptureSpinUs = std::clamp(atoi(capspinProperty), 0, 20000);
-    Platform::Log(Platform::LogLevel::Info, "Debug switches: defercap=%d earlyflush=%d shadowfix=%d maskdepth=%d equaldepth=%d shadowlog=%d computedirect=%d blitflush=%d capspin=%d\n",
+
+    // `adb shell setprop debug.melonade.hirescap 0` (or 1) forces upscaled display capture off (or on) over the setting. `log` turns it on
+    // and logs a HIRESCAP line once a second (passes, VRAM display lines shown hi-res, skipped captures by reason); `check` also runs the
+    // capture pass at 1x and compares its copy with the native capture every 30 passes (a `HIRESCAP check` line). Clear it with an empty value
+    char hirescapProperty[PROP_VALUE_MAX] = {};
+    __system_property_get("debug.melonade.hirescap", hirescapProperty);
+    if (strcmp(hirescapProperty, "0") == 0)
+        hiresCaptureOverride = 0;
+    else if (strcmp(hirescapProperty, "1") == 0)
+        hiresCaptureOverride = 1;
+    else if (strcmp(hirescapProperty, "log") == 0)
+    {
+        hiresCaptureOverride = 1;
+        nds->GPU.HiresCaptureDebug = 1;
+    }
+    else if (strcmp(hirescapProperty, "check") == 0)
+    {
+        hiresCaptureOverride = 1;
+        nds->GPU.HiresCaptureDebug = 2;
+    }
+
+    Platform::Log(Platform::LogLevel::Info, "Debug switches: defercap=%d earlyflush=%d shadowfix=%d maskdepth=%d equaldepth=%d shadowlog=%d computedirect=%d blitflush=%d capspin=%d hirescap=%d hirescapdebug=%d\n",
                   nds->GPU.DeferCapture2D, nds->GPU.EarlyFlushCapture, nds->GPU.ShadowMaskLineClear, nds->GPU.ShadowMaskDepthTest,
-                  nds->GPU.EqualDepthMargin, nds->GPU.ShadowLogFrames, nds->GPU.ComputeDirectDispatch, nds->GPU.BlitFlushCapture, nds->GPU.CaptureSpinUs);
+                  nds->GPU.EqualDepthMargin, nds->GPU.ShadowLogFrames, nds->GPU.ComputeDirectDispatch, nds->GPU.BlitFlushCapture, nds->GPU.CaptureSpinUs,
+                  hiresCaptureOverride, nds->GPU.HiresCaptureDebug);
 
     // `adb shell setprop debug.melonade.threaded2d 1` (or 0) forces threaded 2D on (or off) over the setting, for testing. Clear it with an
     // empty value: `adb shell setprop debug.melonade.threaded2d ""`
@@ -1018,6 +1041,10 @@ void MelonInstance::updateRenderer()
     // Runs between frames, so the 2D thread can start or stop right away
     bool threaded2d = threaded2dOverride >= 0 ? threaded2dOverride == 1 : currentConfiguration->threaded2dRendering;
     nds->GPU.SetThreaded2D(threaded2d);
+
+    // Only the OpenGL and compute renderers use it (the core ignores it for software). A change drops the hi-res copies
+    bool hiresCapture = hiresCaptureOverride >= 0 ? hiresCaptureOverride == 1 : currentConfiguration->hiresCapture;
+    nds->GPU.SetHiresCapture(hiresCapture);
 }
 
 pid_t MelonInstance::getGpu2DThreadId()

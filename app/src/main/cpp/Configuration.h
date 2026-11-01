@@ -87,6 +87,8 @@ typedef struct
     std::unique_ptr<RenderSettings> renderSettings;
     // Draws the 2D layers on their own thread. Used by every renderer, so it's not in renderSettings
     bool threaded2dRendering;
+    // OpenGL and compute: VRAM display shows display capture redone at the internal resolution (GPU::HiresCapture)
+    bool hiresCapture;
     // Puts the Lua scripts' drawings into savestate and rewind pictures
     bool luaDrawingsInScreenshots;
     // WideMelon: width of the top screen's 3D view (even, 256..768). Anything else (0 when it's off) means 256. Only the OpenGL renderer uses it

@@ -21,6 +21,13 @@
                 android:entries="@array/video_internal_resolution_options"
                 android:entryValues="@array/video_internal_resolution_values"
                 android:defaultValue="1"/>
+
+        <!-- OpenGL and compute only, so it's hidden for software (set up in VideoPreferencesFragment) -->
+        <SwitchPreference
+                android:key="video_hires_capture"
+                android:title="@string/hires_capture"
+                android:summary="@string/hires_capture_summary"
+                android:defaultValue="true" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/settings_section_threading">

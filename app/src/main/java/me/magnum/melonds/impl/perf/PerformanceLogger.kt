@@ -599,6 +599,7 @@ class PerformanceLogger(
                     "screen_shadow" to rendererConfiguration.screenShadow.toString(),
                     "threaded_rendering" to rendererConfiguration.threadedRendering.toString(),
                     "threaded_2d_rendering" to rendererConfiguration.threaded2dRendering.toString(),
+                    "hires_capture" to rendererConfiguration.hiresCapture.toString(),
                     "jit_enabled" to settingsRepository.isJitEnabled().toString(),
                     "sustained_performance_mode" to settingsRepository.isSustainedPerformanceModeEnabled().toString(),
                     "frame_pacing_vsync" to settingsRepository.isFramePacingVsyncEnabled().toString(),
