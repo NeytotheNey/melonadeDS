@@ -16,7 +16,6 @@
 #include "renderer/ScreenshotRenderer.h"
 #include "retroachievements/RetroAchievementsManager.h"
 #include "net/Net.h"
-#include "debug/DebugLog.h"
 #include "debug/DebugProperties.h"
 #include "scripting/LuaEngine.h"
 
@@ -80,7 +79,7 @@ public:
     // Whether the emulated console was asleep (lid closed) during the last frame, in which case no frames are presented
     bool isSleeping() { return sleeping.load(std::memory_order_relaxed); }
     // Logs the CPU heartbeat and exception checks for the debug log. Must be called on the emulator thread, between frames
-    void logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs) { DebugLog::onFrame(*nds, isFastForward, fps, lastFrameWorkNs); }
+    void logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs);
     // The kernel thread ID of the core's 2D render thread, or 0 while threaded 2D is off (or the thread hasn't started yet). Emulator thread only
     pid_t getGpu2DThreadId();
 #ifdef MELONADE_DEBUG_TOOLS

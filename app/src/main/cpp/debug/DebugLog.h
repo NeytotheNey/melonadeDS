@@ -4,8 +4,9 @@
 #include <atomic>
 #include <cstdarg>
 #include <cstdint>
-#include "NDS.h"
 #include "Platform.h"
+
+namespace melonDS { class NDS; }
 
 /**
  * Opt-in debug logging, turned on from Kotlin while the debug log recorder runs. While it's off, callers only pay for the [isEnabled] check.

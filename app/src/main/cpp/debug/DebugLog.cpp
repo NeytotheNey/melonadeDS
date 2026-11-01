@@ -6,6 +6,7 @@
 #include <mutex>
 #include "MelonLog.h"
 #include "MonotonicClock.h"
+#include "NDS.h"
 #include "NDSCart.h"
 
 using namespace melonDS;

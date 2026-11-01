@@ -958,6 +958,11 @@ void MelonInstance::updateRenderer()
     nds->GPU.SetHiresCapture(hiresCapture);
 }
 
+void MelonInstance::logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs)
+{
+    DebugLog::onFrame(*nds, isFastForward, fps, lastFrameWorkNs);
+}
+
 pid_t MelonInstance::getGpu2DThreadId()
 {
     Platform::Thread* thread = nds->GPU.Get2DThread();
