@@ -40,7 +40,8 @@ class RaisedButtonView(
         val glyph: Path? = null,
         val icon: Drawable? = null,
         val offIcon: Drawable? = null,
-        val colorGroup: ControllerAppearance.ColorGroup? = null,
+        // D-pad parts share their colours in pixel styles, including the centre, which has no input
+        val isDpad: Boolean = false,
         // Hand-drawn versions of the glyph or icons, used instead of them by pixel styles
         val pixelIcon: PixelIcon? = null,
         val pixelOffIcon: PixelIcon? = null,

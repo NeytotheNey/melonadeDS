@@ -93,7 +93,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         val letterScale = sharedLetterScale(parts, grids, interiors, transform)
         val arrowScale = sharedArrowScale(parts, grids, interiors, faces, glyphs)
         bitmaps = Array(parts.size) {
-            val iconScale = if (parts[it].colorGroup == ControllerAppearance.ColorGroup.DPAD) arrowScale else Int.MAX_VALUE
+            val iconScale = if (parts[it].isDpad) arrowScale else Int.MAX_VALUE
             buildPart(parts[it], grids[it], interiors[it], faces[it], glyphs[it], transform, isToggledOn, letterScale, iconScale)
         }
     }
@@ -127,7 +127,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
      * arm until there's at least one empty cell between it and the centre. Only the drawing changes, not the hit areas.
      */
     private fun separateDpadArms(parts: List<RaisedButtonView.Part>, grids: Array<PartGrid>) {
-        val centreIndex = parts.indexOfFirst { it.colorGroup == ControllerAppearance.ColorGroup.DPAD && it.input == null }
+        val centreIndex = parts.indexOfFirst { it.isDpad && it.input == null }
         if (centreIndex < 0) return
 
         // The centre's cells in view pixels, grown by one cell all round
@@ -144,7 +144,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         keepOut.inset(-cellSize + OVERLAP_TOLERANCE, -cellSize + OVERLAP_TOLERANCE)
 
         for (i in parts.indices) {
-            if (i == centreIndex || parts[i].colorGroup != ControllerAppearance.ColorGroup.DPAD) continue
+            if (i == centreIndex || !parts[i].isDpad) continue
             val arm = grids[i]
             for (y in 0 until arm.mask.height) {
                 for (x in 0 until arm.mask.width) {
@@ -229,7 +229,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         for (i in parts.indices) {
             val part = parts[i]
             val arrow = part.pixelIcon
-            if (part.colorGroup != ControllerAppearance.ColorGroup.DPAD || arrow == null) continue
+            if (!part.isDpad || arrow == null) continue
             val centre = iconCentre(part, grids[i], faces[i], glyphs[i])
             val fit = fitScale(listOf(arrow), centre[0], centre[1], iconScaleLimit(arrow, faces[i]), interiors[i].detail, true)
             if (fit > 0) {
@@ -250,7 +250,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         letterScale: Int,
         iconScale: Int,
     ): PartBitmaps {
-        val colors = art.colorsFor(part.input, part.colorGroup)
+        val colors = art.colorsFor(part.input, part.isDpad)
         val mask = grid.mask
         val columns = mask.width
         val rows = mask.height
@@ -305,7 +305,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         val inkColor = if (isDimmed) colors.shadow else colors.ink
 
         // The D-pad's centre gets a small round dent: a shadow on its top-left inner edge and a light bottom-right one. Cell x spans x to x + 1
-        val hasDimple = part.colorGroup == ControllerAppearance.ColorGroup.DPAD && part.input == null
+        val hasDimple = part.isDpad && part.input == null
         val dimpleRadius = min(DIMPLE_RADIUS, faceBounds.width() / detailSize / 6f)
         val dimpleX = (faceBounds.centerX() - grid.originX) / detailSize - 0.5f
         val dimpleY = (faceBounds.centerY() - grid.originY) / detailSize - 0.5f

@@ -60,12 +60,11 @@ object RaisedButtons {
         // Glyphs sit halfway along their arm
         val glyphOffset = (armStart + reach) / 2f
         val corner = 16f
-        val group = ControllerAppearance.ColorGroup.DPAD
         fun arm(shape: Path, input: Input, glyph: Path, pixelIcon: PixelIcon): RaisedButtonView.Part {
-            return RaisedButtonView.Part(shape, input, glyph = glyph, colorGroup = group, pixelIcon = pixelIcon)
+            return RaisedButtonView.Part(shape, input, glyph = glyph, isDpad = true, pixelIcon = pixelIcon)
         }
         return listOf(
-            RaisedButtonView.Part(roundRect(cx - halfWidth, cy - halfWidth, cx + halfWidth, cy + halfWidth, corner), pressable = false, colorGroup = group),
+            RaisedButtonView.Part(roundRect(cx - halfWidth, cy - halfWidth, cx + halfWidth, cy + halfWidth, corner), pressable = false, isDpad = true),
             arm(roundRect(cx - halfWidth, cy - reach, cx + halfWidth, cy - armStart, corner), Input.UP, triangle(cx, cy - glyphOffset, 0f, -1f), PixelIcons.ARROW_UP),
             arm(roundRect(cx - halfWidth, cy + armStart, cx + halfWidth, cy + reach, corner), Input.DOWN, triangle(cx, cy + glyphOffset, 0f, 1f), PixelIcons.ARROW_DOWN),
             arm(roundRect(cx - reach, cy - halfWidth, cx - armStart, cy + halfWidth, corner), Input.LEFT, triangle(cx - glyphOffset, cy, -1f, 0f), PixelIcons.ARROW_LEFT),

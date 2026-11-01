@@ -47,8 +47,8 @@ class PixelArt(
     val minCells = if (sixteenBit) 20 else 10
     val detailPerCell = if (sixteenBit) 1 else 2
 
-    fun colorsFor(input: Input?, group: ControllerAppearance.ColorGroup?): PixelColors {
-        if (group == ControllerAppearance.ColorGroup.DPAD) {
+    fun colorsFor(input: Input?, isDpad: Boolean): PixelColors {
+        if (isDpad) {
             return dpadColors
         }
         return input?.let { inputColors[it] } ?: colors
@@ -69,14 +69,6 @@ class ControllerAppearance(
         OUTLINE,
         SOFT_TINT,
         PIXEL,
-    }
-
-    /**
-     * Parts that share their colours even though their inputs differ. Only pixel styles use it: the D-pad's centre has no input, just like Start and
-     * Select, but it should match the arms.
-     */
-    enum class ColorGroup {
-        DPAD,
     }
 
     fun colorsFor(input: Input?): ControllerButtonColors {
