@@ -81,7 +81,7 @@ Kotlin (`impl/LuaScriptFolderContent.kt`) walks the subfolders at launch when an
 - **Overlay in savestate/rewind pictures:** Settings → Display "Show script drawings in save state pictures", off by default, an atomic for the emulator thread. `ScreenshotRenderer` blends it with a 2×2 average (no swizzle: the textures share byte order there); the software path blends on the CPU.
 - **Images:** folder PNGs are premultiplied by native and shared, immutable, for the session outside the Lua memory cap (`LuaFolderContent`). `new` images live in Lua's allocator and count. The image metatable is hidden from `getmetatable`.
 - **Storage:** `scripting/LuaStorage.{h,cpp}`, a versioned binary codec; the key → encoded map lives in `LuaEngine::Script`, not the Lua state, so it survives reset and switch off/on. A corrupt blob starts empty (logged) and isn't overwritten until the script writes. Snapshots are encoded only when changed: on `flush()` (end of frame), every 600 frames, when the emulator thread parks for a pause, when a script stops, and at `stop()` after `on_unload`. They go into a global outbox (mutex, outside `MelonInstance`, since `stopEmulation` destroys the instance); an event wakes Kotlin to drain it on IO, and a final drain runs before `stopEmulator()` returns. A snapshot that can't be handed over JNI goes back into the outbox. `impl/LuaScriptDataStore.kt` writes `files/lua-data/<gameKey>/<script>.bin` (temp file + rename). Game key is the game code if it's 4 uppercase letters/digits and not `0000`, otherwise `homebrew-<first 16 hex digits of SHA-256 of the ROM URI>`; if the header can't be read, storage is session-only. An empty store deletes its file; a file over 256 KB is ignored. Not in savestates or rewind; not deleted when the script leaves the folder.
-- **Host test:** `app/src/test/cpp/LuaStorageTest.cpp` tests the codec. Built by hand with MinGW (command at the top of the file), not wired into Gradle.
+- **Host test:** `app/src/test/cpp/LuaStorageTest.cpp` tests the codec. Built by hand, not wired into Gradle (command under "Testing").
 - Layout rebuilds (fold, rotation, swap, script layout switch) carry held touches over to the new controls, so a held button isn't released.
 
 ## WideMelon
@@ -115,6 +115,14 @@ The player places the wide top screen in the normal layout editor. Each layout v
 - Top rect: a rect at least as wide as the frame (2 px tolerance) is used as drawn, frame centred at its exact aspect. Otherwise it's widened around its centre up to the surface edge without covering the bottom screen's rect, then shrunk to fit; a bottom screen sharing rows with the top stops the widening at its near edge. An unedited variant (from the default 4:3 layout) still gets automatic widening. Touch is untouched.
 
 ## Testing
+
+`LuaStorageTest.cpp` builds with any C++17 compiler, for example from `app/` with MSYS2's MinGW, in an empty folder of your choice:
+
+```
+gcc -c -O1 -Isrc/main/cpp/lua $(ls src/main/cpp/lua/l*.c | grep -v -e /lua.c -e /luac.c -e /lstrlib.c) src/main/cpp/lua/patched/lstrlib.c
+g++ -std=c++17 -O1 -Isrc/main/cpp/lua -Isrc/main/cpp src/test/cpp/LuaStorageTest.cpp src/main/cpp/scripting/LuaStorage.cpp *.o -o lua-storage-test
+./lua-storage-test
+```
 
 OpenGL, and so all WideMelon output, is phone-only: the emulator has no GLES 3.2, so there it can only check the Mods tab and layout UI. Phone-tested: Mods tab and per-game config, scripts UI and hardcore, `melon.draw` (OpenGL 4x with filters), linked folders. Emulator-only so far: the Lua extras (text size, circles, `on_frame_end`, save-state pictures, `require`, images, storage, options, `set_layout`, script savestates). The dual-screen wing hold is phone-tested (Phantom Hourglass, Mario Kart DS), and so is WideMelon on the compute renderer. The wings' window handling isn't phone-tested yet.
 

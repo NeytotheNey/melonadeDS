@@ -1,11 +1,5 @@
 /*
- * Host test for scripting/LuaStorage (the melon.storage codec). It isn't part of the Gradle build; build and run it with any C++17 compiler,
- * for example from app/ with MSYS2's MinGW, in an empty folder of your choice:
- *
- *   gcc -c -O1 -Isrc/main/cpp/lua $(ls src/main/cpp/lua/l*.c | grep -v -e /lua.c -e /luac.c -e /lstrlib.c) src/main/cpp/lua/patched/lstrlib.c
- *   g++ -std=c++17 -O1 -Isrc/main/cpp/lua -Isrc/main/cpp src/test/cpp/LuaStorageTest.cpp src/main/cpp/scripting/LuaStorage.cpp *.o -o lua-storage-test
- *   ./lua-storage-test
- *
+ * Host test for scripting/LuaStorage (the melon.storage codec). Not part of the Gradle build: MODS.md ("Testing") has the build command.
  * Prints each failed check and exits with 1 if any failed.
  */
 
