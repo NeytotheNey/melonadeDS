@@ -13,9 +13,12 @@ rc=0
 for f in *.vert *.frag *.comp; do
   if ! glslangValidator "$f" >"$f.log" 2>&1; then echo "FAIL $f"; cat "$f.log"; rc=1; else echo "ok   $f"; fi
 done
-for p in RenderZ RenderW ClearBitmap Clear; do
+for p in RenderZ RenderW ClearBitmap Clear Compositor CompositorWide HiresCapture; do
   v=$p.vert; f=$p.frag; [ "$p" = Clear ] && v=ClearVS.vert && f=ClearFS.frag
   [ "$p" = ClearBitmap ] && v=ClearBitmapVS.vert && f=ClearBitmapFS.frag
+  [ "$p" = Compositor ] && v=CompositorVS.vert && f=CompositorFS_Nearest.frag
+  [ "$p" = CompositorWide ] && v=CompositorWideVS.vert && f=CompositorWideFS_Nearest.frag
+  [ "$p" = HiresCapture ] && v=HiresCaptureVS.vert && f=HiresCaptureFS.frag
   if ! glslangValidator -l "$v" "$f" >"$p.link.log" 2>&1; then echo "FAIL link $p"; cat "$p.link.log"; rc=1; else echo "ok   link $p"; fi
 done
 echo "outputs in $OUT"

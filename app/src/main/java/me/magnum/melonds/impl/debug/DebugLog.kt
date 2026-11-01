@@ -123,6 +123,7 @@ object DebugLog {
         lines.add("video_filtering" to renderer.videoFiltering.name)
         lines.add("threaded_rendering" to renderer.threadedRendering)
         lines.add("threaded_2d_rendering" to renderer.threaded2dRendering)
+        lines.add("hires_capture" to renderer.hiresCapture)
         lines.add("ds_screen_colors" to renderer.dsScreenColors)
         lines.add("screen_shadow" to renderer.screenShadow)
 

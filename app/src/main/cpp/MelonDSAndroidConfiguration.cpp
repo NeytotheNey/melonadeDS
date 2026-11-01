@@ -53,6 +53,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     jobject videoRendererEnum = env->GetObjectField(rendererConfigurationObject, env->GetFieldID(renderConfigurationClass, "renderer", "Lme/magnum/melonds/domain/model/VideoRenderer;"));
     MelonDSAndroid::Renderer videoRenderer = static_cast<MelonDSAndroid::Renderer>(env->GetIntField(videoRendererEnum, env->GetFieldID(videoRendererEnumClass, "renderer", "I")));
     jboolean threaded2dRendering = env->GetBooleanField(rendererConfigurationObject, env->GetFieldID(renderConfigurationClass, "threaded2dRendering", "Z"));
+    jboolean hiresCapture = env->GetBooleanField(rendererConfigurationObject, env->GetFieldID(renderConfigurationClass, "hiresCapture", "Z"));
     jboolean isCopy = JNI_FALSE;
     jstring dsBios7String = dsBios7Uri ? (jstring) env->CallObjectMethod(dsBios7Uri, uriToStringMethod) : nullptr;
     jstring dsBios9String = dsBios9Uri ? (jstring) env->CallObjectMethod(dsBios9Uri, uriToStringMethod) : nullptr;
@@ -104,6 +105,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     finalEmulatorConfiguration.rewindLengthSeconds = rewindWindowSeconds;
     finalEmulatorConfiguration.renderSettings = std::move(buildRenderSettings(env, videoRenderer, rendererConfigurationObject));
     finalEmulatorConfiguration.threaded2dRendering = threaded2dRendering;
+    finalEmulatorConfiguration.hiresCapture = hiresCapture;
     finalEmulatorConfiguration.dsiSdCardSettings = MelonDSAndroid::SdCardSettings { .enabled = false };
     finalEmulatorConfiguration.dldiSdCardSettings = MelonDSAndroid::SdCardSettings { .enabled = false };
     finalEmulatorConfiguration.renderer = videoRenderer;

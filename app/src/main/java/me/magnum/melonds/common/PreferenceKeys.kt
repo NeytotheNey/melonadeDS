@@ -8,6 +8,7 @@ package me.magnum.melonds.common
 object PreferenceKeys {
     // pref_video.xml
     const val VIDEO_THREADED_2D = "video_threaded_2d"
+    const val VIDEO_HIRES_CAPTURE = "video_hires_capture"
     const val VIDEO_DS_SCREEN_COLORS = "video_ds_screen_colors"
     const val VIDEO_SCREEN_SHADOW = "video_screen_shadow"
     const val VIDEO_LUA_DRAWINGS_IN_STATE_PICTURES = "video_lua_drawings_in_state_pictures"
