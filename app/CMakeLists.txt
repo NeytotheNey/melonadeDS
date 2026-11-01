@@ -79,9 +79,15 @@ add_library(
         ${ANDROID-CPP}/renderer/ScreenshotRenderer.cpp
         ${ANDROID-CPP}/retroachievements/RetroAchievementsManager.cpp
         ${ANDROID-CPP}/scripting/LuaDraw.cpp
+        ${ANDROID-CPP}/scripting/LuaDrawApi.cpp
         ${ANDROID-CPP}/scripting/LuaEngine.cpp
+        ${ANDROID-CPP}/scripting/LuaFolderApi.cpp
+        ${ANDROID-CPP}/scripting/LuaMemoryApi.cpp
+        ${ANDROID-CPP}/scripting/LuaSandbox.cpp
         ${ANDROID-CPP}/scripting/LuaScriptingJNI.cpp
+        ${ANDROID-CPP}/scripting/LuaStateApi.cpp
         ${ANDROID-CPP}/scripting/LuaStorage.cpp
+        ${ANDROID-CPP}/scripting/LuaStorageApi.cpp
 )
 
 target_include_directories(melonDS-android-frontend PUBLIC

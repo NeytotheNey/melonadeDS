@@ -134,6 +134,8 @@ public:
     virtual bool loadLuaState(const std::vector<melonDS::u8>& data) = 0;
 };
 
+struct LuaScript;
+
 /**
  * Runs the game's Lua scripts (API v1, the `melon` module). Each script gets its own sandboxed Lua state, so one that fails can be switched off
  * without touching the others. A script that throws an error or runs for too long in a callback is switched off for the session, and the app
@@ -165,9 +167,6 @@ public:
 class LuaEngine
 {
 public:
-    struct Script;
-    struct DrawCommand;
-
     LuaEngine();
     ~LuaEngine();
 
@@ -239,6 +238,12 @@ public:
     const LuaOverlay& getOverlay() const { return overlay; }
 
 private:
+    // The API files (LuaEngineInternal.h) read the engine's state through the running script's LuaScript::engine
+    friend struct LuaMemoryApi;
+    friend struct LuaDrawApi;
+    friend struct LuaFolderApi;
+    friend struct LuaStateApi;
+
     // From disableScript(), enableScript() and restartScript(), applied in the order they were asked for. The flag saves locking the mutex every frame
     struct ScriptSwitch
     {
@@ -255,24 +260,24 @@ private:
         std::vector<LuaOptionValue> options;
     };
 
-    bool loadScript(Script& script);
+    bool loadScript(LuaScript& script);
     void reloadScripts();
     void queueScriptSwitch(int id, ScriptSwitch::Action action, std::vector<LuaOptionValue> options = {});
     void applyPendingScriptSwitches();
-    bool callCallback(Script& script, const char* name, const char* argument, int instructionLimit);
-    bool runProtected(Script& script, lua_CFunction function, void* data, int instructionLimit);
-    void sendRequests(Script& script);
-    void switchOff(Script& script, const std::string& error);
-    void closeScript(Script& script);
-    void saveStorage(Script& script);
-    void freeStateSlots(Script& script);
+    bool callCallback(LuaScript& script, const char* name, const char* argument, int instructionLimit);
+    bool runProtected(LuaScript& script, lua_CFunction function, void* data, int instructionLimit);
+    void sendRequests(LuaScript& script);
+    void switchOff(LuaScript& script, const std::string& error);
+    void closeScript(LuaScript& script);
+    void saveStorage(LuaScript& script);
+    void freeStateSlots(LuaScript& script);
     void runPendingStateLoad();
     void rasterizeOverlay();
 
     static int setupScript(lua_State* L);
     static int runCallback(lua_State* L);
 
-    // API functions
+    // melon.game, melon.input, melon.screen, melon.emu and melon.log. The rest of the module is in the Lua*Api.cpp files
     static int luaGameCode(lua_State* L);
     static int luaGameTitle(lua_State* L);
     static int luaFrame(lua_State* L);
@@ -284,36 +289,14 @@ private:
     static int luaInputSetTouch(lua_State* L);
     static int luaInputClearTouch(lua_State* L);
     static int luaInputStick(lua_State* L);
-    template <typename T, bool isSigned, bool isArm9> static int luaMemRead(lua_State* L);
-    template <typename T, bool isArm9> static int luaMemWrite(lua_State* L);
     // melon.screen.swap(), melon.screen.show_controls() and melon.emu.fast_forward(): a boolean request to the app, in [request]
-    template <std::optional<bool> Script::* request> static int luaSetBoolRequest(lua_State* L);
+    template <std::optional<bool> LuaScript::* request> static int luaSetBoolRequest(lua_State* L);
     static int luaScreenSetLayout(lua_State* L);
-    static int luaStateSave(lua_State* L);
-    static int luaStateLoad(lua_State* L);
-    static int luaStateHas(lua_State* L);
-    static DrawCommand* addDrawCommand(lua_State* L, int64_t pixelCount, size_t textLength = 0);
-    static int luaDrawPixel(lua_State* L);
-    static int luaDrawLine(lua_State* L);
-    static int luaDrawRect(lua_State* L);
-    static int luaDrawText(lua_State* L);
-    static int luaDrawCircle(lua_State* L);
-    static int luaDrawImage(lua_State* L);
-    static int luaRequire(lua_State* L);
-    static int luaImageLoad(lua_State* L);
-    static int luaImageNew(lua_State* L);
-    static int luaImageSize(lua_State* L);
-    static int luaStorageGet(lua_State* L);
-    static int luaStorageSet(lua_State* L);
-    static int luaStorageKeys(lua_State* L);
-    static int luaStorageClear(lua_State* L);
-    static int luaStorageFlush(lua_State* L);
-    static int luaStorageSize(lua_State* L);
 
     std::vector<LuaScriptSource> pendingScripts;
     // Outlives every script's state, which may point into its images
     std::shared_ptr<const LuaFolderContent> folderContent;
-    std::vector<std::unique_ptr<Script>> scripts;
+    std::vector<std::unique_ptr<LuaScript>> scripts;
     int activeScriptCount = 0;
     // Set while on_unload() runs: requests to the app are ignored, and errors are only logged
     bool isUnloading = false;
