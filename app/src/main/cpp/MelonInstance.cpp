@@ -24,6 +24,7 @@
 #include "SDCardArgsBuilder.h"
 #include "debug/DebugLog.h"
 #ifdef MELONADE_DEBUG_TOOLS
+#include <android/log.h>
 #include <sys/system_properties.h>
 #endif
 
@@ -410,6 +411,9 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         isRenderConfigurationDirty = false;
     }
 
+    if (hasPendingRewindSettings.load(std::memory_order_acquire)) [[unlikely]]
+        applyRewindSettings();
+
     int screenWidth;
     int screenHeight;
     // In DS pixels. The bottom screen is always 256 wide, centred under it with black bars beside it when this is wider
@@ -540,23 +544,71 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         firmwareSave->CheckFlush();
 
     frame++;
+    // The last capture's screenshot, once the GPU has it
+    if (screenshotRenderer->isScreenshotReadbackPending()) [[unlikely]]
+        finishRewindScreenshot(false);
+    rewindManager.PrepareNextRewindSaveState();
+
     bool needsRewindCapture = rewindManager.ShouldCaptureState(frame);
     bool needsScreenshot = screenshotRenderer->isScreenshotPending();
 
+#ifdef MELONADE_DEBUG_TOOLS
+    auto captureStart = std::chrono::steady_clock::now();
+#endif
     if (needsRewindCapture || needsScreenshot) [[unlikely]]
     {
         // The overlay only has drawings while a script runs
         const LuaOverlay* screenshotOverlay = luaDrawingsInScreenshots.load(std::memory_order_relaxed) && luaOverlay.hasDrawings() ? &luaOverlay : nullptr;
-        screenshotRenderer->renderScreenshot(&nds->GPU, currentRenderer, renderFrame, screenshotOverlay);
+        // The last capture's screenshot came in long ago, unless the GPU is very far behind
+        if (needsRewindCapture)
+            finishRewindScreenshot(true);
+
+        // A rewind capture doesn't wait for the GPU: its screenshot is copied in a frame or so later. A player's screenshot is waited for
+        if (needsScreenshot)
+            screenshotRenderer->renderScreenshot(&nds->GPU, currentRenderer, renderFrame, screenshotOverlay);
+        else
+            screenshotRenderer->startScreenshotReadback(&nds->GPU, currentRenderer, renderFrame, screenshotOverlay);
     }
 
     if (needsRewindCapture)
     {
         auto nextRewindState = rewindManager.GetNextRewindSaveState(frame);
         saveRewindState(nextRewindState);
+#ifdef MELONADE_DEBUG_TOOLS
+        // Mostly the core's savestate copy (~20 MB in DSi mode)
+        double captureMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - captureStart).count();
+        __android_log_print(ANDROID_LOG_INFO, "melonDS", "REWIND frame=%d capture_ms=%.3f size=%u", frame, captureMs, nextRewindState->bufferContentSize);
+#endif
     }
 
     return nLines;
+}
+
+void MelonInstance::applyRewindSettings()
+{
+    std::optional<RewindSettings> settings;
+    {
+        std::lock_guard lock(rewindSettingsMutex);
+        settings = pendingRewindSettings;
+        pendingRewindSettings.reset();
+        hasPendingRewindSettings.store(false, std::memory_order_relaxed);
+    }
+
+    if (!settings)
+        return;
+
+    // Turning rewind off or shortening the window frees states, so the last capture's screenshot is put in its state first
+    finishRewindScreenshot(true);
+    rewindManager.UpdateRewindSettings(settings->enabled, settings->lengthSeconds, settings->captureSpacingSeconds);
+}
+
+void MelonInstance::finishRewindScreenshot(bool wait)
+{
+    // No state waits for it if its save failed, and then the screenshot is dropped. Resets and rewinds only happen while the emulator thread
+    // is parked, and it finishes this before it parks
+    RewindSaveState* state = rewindManager.FindRewindSaveState(pendingRewindScreenshotFrame);
+    if (screenshotRenderer->finishScreenshotReadback(state ? state->screenshot : nullptr, wait))
+        pendingRewindScreenshotFrame = -1;
 }
 
 void MelonInstance::stop()
@@ -696,7 +748,11 @@ void MelonInstance::updateConfiguration(std::shared_ptr<EmulatorConfiguration> n
         nds->SPU.SetDegrade10Bit(static_cast<AudioBitDepth>(newConfiguration->audioSettings.audioBitrate));
     }
 
-    rewindManager.UpdateRewindSettings(newConfiguration->rewindEnabled, newConfiguration->rewindLengthSeconds, newConfiguration->rewindCaptureSpacingSeconds);
+    {
+        std::lock_guard lock(rewindSettingsMutex);
+        pendingRewindSettings = RewindSettings { newConfiguration->rewindEnabled != 0, newConfiguration->rewindLengthSeconds, newConfiguration->rewindCaptureSpacingSeconds };
+        hasPendingRewindSettings.store(true, std::memory_order_release);
+    }
 
     luaDrawingsInScreenshots.store(newConfiguration->luaDrawingsInScreenshots, std::memory_order_relaxed);
     currentConfiguration = newConfiguration;
@@ -1098,7 +1154,11 @@ void MelonInstance::saveRewindState(RewindSaveState* rewindSaveState)
     if (saveState(savestate))
     {
         rewindSaveState->bufferContentSize = savestate->Length();
-        memcpy(rewindSaveState->screenshot, screenshotRenderer->getScreenshot(), rewindSaveState->screenshotSize);
+        // The GL renderers' screenshot is still on its way (see finishRewindScreenshot())
+        if (screenshotRenderer->isScreenshotReadbackPending())
+            pendingRewindScreenshotFrame = rewindSaveState->frame;
+        else
+            memcpy(rewindSaveState->screenshot, screenshotRenderer->getScreenshot(), rewindSaveState->screenshotSize);
     }
 
     delete savestate;

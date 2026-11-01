@@ -2,6 +2,8 @@
 #define MELONINSTANCE_H
 
 #include <atomic>
+#include <mutex>
+#include <optional>
 #include <string>
 #include "Args.h"
 #include "Configuration.h"
@@ -108,6 +110,11 @@ public:
     void restartLuaScript(int scriptId, std::vector<LuaOptionValue> options) { luaEngine.restartScript(scriptId, std::move(options)); }
     // Emulator thread, between frames
     void flushLuaStorage() { luaEngine.flushStorage(); }
+    /**
+     * Emulator thread, between frames. Copies the last rewind capture's screenshot into its state, waiting for the GPU if [wait]. Done before
+     * the thread parks, so the rewind window is complete while it's paused
+     */
+    void finishRewindScreenshot(bool wait);
     void updateLuaSticks(float leftX, float leftY, float rightX, float rightY) { luaEngine.updateSticks(leftX, leftY, rightX, rightY); }
 
     // LuaSavestateHost, for melon.state. Emulator thread, between frames
@@ -119,6 +126,8 @@ private:
     void setBatteryLevels();
     void setDateTime();
     void saveRewindState(RewindSaveState* rewindSaveState);
+    // Emulator thread, before a frame. Hands the rewind settings from updateConfiguration() to the rewind manager
+    void applyRewindSettings();
     // loadState() without telling the scripts, and without a backup
     bool restoreState(Savestate* state);
     // restoreState(), going back to the state from before if the load fails. Doesn't tell the scripts
@@ -166,6 +175,19 @@ private:
     // Debug builds only: debug.melonade.threaded2d forces threaded 2D on (1) or off (0). -1 when the property isn't set
     int threaded2dOverride = -1;
     int frame;
+    // The frame of the rewind state whose screenshot is still being read back, or -1
+    int pendingRewindScreenshotFrame = -1;
+    // Rewind settings from updateConfiguration(), which runs on other threads. The emulator thread applies them before its next frame, since
+    // a change can free the states it's using
+    struct RewindSettings
+    {
+        bool enabled;
+        int lengthSeconds;
+        int captureSpacingSeconds;
+    };
+    std::mutex rewindSettingsMutex;
+    std::optional<RewindSettings> pendingRewindSettings;
+    std::atomic_bool hasPendingRewindSettings = false;
     // CRC32 of the loaded ROM file. Only worked out while the debug log is on
     bool hasRomCrc32 = false;
     melonDS::u32 romCrc32 = 0;

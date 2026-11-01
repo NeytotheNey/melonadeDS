@@ -647,6 +647,11 @@ Java_me_magnum_melonds_MelonEmulator_loadRewindState(JNIEnv* env, jobject thiz, 
 
 JNIEXPORT jobject JNICALL
 Java_me_magnum_melonds_MelonEmulator_getRewindWindow(JNIEnv* env, jobject thiz) {
+    // The window is read while paused. The pause may have just been asked for, so wait for the emulator thread to park: it finishes its frame
+    // and the last capture's screenshot first. A resume or a stop ends the wait
+    while (started && paused && !isThreadReallyPaused)
+        std::this_thread::yield();
+
     auto currentRewindWindow = MelonDSAndroid::getRewindWindow();
 
     jclass rewindSaveStateClass = env->FindClass("me/magnum/melonds/ui/emulator/rewind/model/RewindSaveState");
@@ -1073,10 +1078,11 @@ void* emulate(void*)
     {
         pthread_mutex_lock(&emuThreadMutex);
         if (paused && !stop) {
-            // Changed Lua storage is snapshotted for the app to save, since the app may be killed while paused. Outside the mutex, so that
-            // a resume doesn't wait for it
+            // Changed Lua storage is snapshotted for the app to save, since the app may be killed while paused. The last rewind capture's
+            // screenshot is copied in, so the rewind window is complete while paused. Outside the mutex, so that a resume doesn't wait for them
             pthread_mutex_unlock(&emuThreadMutex);
             MelonDSAndroid::flushLuaStorage();
+            MelonDSAndroid::finishRewindScreenshot();
             pthread_mutex_lock(&emuThreadMutex);
         }
         if (paused) {

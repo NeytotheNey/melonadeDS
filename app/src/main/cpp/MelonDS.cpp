@@ -272,6 +272,12 @@ namespace MelonDSAndroid
             instance->flushLuaStorage();
     }
 
+    void finishRewindScreenshot()
+    {
+        if (instance)
+            instance->finishRewindScreenshot(true);
+    }
+
     void updateLuaSticks(float leftX, float leftY, float rightX, float rightY)
     {
         if (instance)

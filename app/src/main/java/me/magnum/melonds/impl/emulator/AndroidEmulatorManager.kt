@@ -255,8 +255,9 @@ class AndroidEmulatorManager(
         MelonEmulator.updateEmulatorConfiguration(configuration)
     }
 
-    override suspend fun getRewindWindow(): RewindWindow {
-        return MelonEmulator.getRewindWindow()
+    // Off the main thread: it waits for the emulator thread to park if a pause was just asked for, which can take a long frame
+    override suspend fun getRewindWindow(): RewindWindow = withContext(Dispatchers.Default) {
+        MelonEmulator.getRewindWindow()
     }
 
     override fun areLuaScriptsRunning(): Boolean {

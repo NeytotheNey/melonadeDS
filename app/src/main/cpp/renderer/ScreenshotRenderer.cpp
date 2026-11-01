@@ -24,6 +24,53 @@ void ScreenshotRenderer::init()
 
 void ScreenshotRenderer::renderScreenshot(GPU* gpu, Renderer renderer, Frame* renderFrame, const LuaOverlay* overlay)
 {
+    drawScreenshot(gpu, renderer, renderFrame, overlay, false);
+    notifyScreenshotReady();
+}
+
+void ScreenshotRenderer::startScreenshotReadback(GPU* gpu, Renderer renderer, Frame* renderFrame, const LuaOverlay* overlay)
+{
+    drawScreenshot(gpu, renderer, renderFrame, overlay, true);
+}
+
+bool ScreenshotRenderer::finishScreenshotReadback(u8* destination, bool wait)
+{
+    if (!readbackFence)
+        return true;
+
+    if (!wait)
+    {
+        GLint status = GL_UNSIGNALED;
+        glGetSynciv(readbackFence, GL_SYNC_STATUS, 1, nullptr, &status);
+        if (status != GL_SIGNALED)
+            return false;
+    }
+
+    glDeleteSync(readbackFence);
+    readbackFence = nullptr;
+    if (!destination)
+        return true;
+
+    // Once the fence has signalled the map doesn't wait. Otherwise it waits for the copy
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, pixelPackBuffer);
+    const void* pixels = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, SCREENSHOT_WIDTH * SCREENSHOT_HEIGHT * 4, GL_MAP_READ_BIT);
+    if (pixels)
+    {
+        memcpy(destination, pixels, SCREENSHOT_WIDTH * SCREENSHOT_HEIGHT * 4);
+        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+    }
+    else
+    {
+        // Blank rather than the reused state's old screenshot
+        LOG_ERROR("OpenGL", "Failed to map the screenshot pixel buffer");
+        memset(destination, 0, SCREENSHOT_WIDTH * SCREENSHOT_HEIGHT * 4);
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    return true;
+}
+
+void ScreenshotRenderer::drawScreenshot(GPU* gpu, Renderer renderer, Frame* renderFrame, const LuaOverlay* overlay, bool intoPixelBuffer)
+{
     if (renderer == Renderer::Software)
     {
         int frontBuffer = gpu->FrontBuffer;
@@ -62,18 +109,32 @@ void ScreenshotRenderer::renderScreenshot(GPU* gpu, Renderer renderer, Frame* re
         if (overlay && renderFrame->overlayTexture)
             renderOverlay(renderFrame->overlayTexture);
 
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, frameBuffer);
         glReadBuffer(GL_COLOR_ATTACHMENT0);
-        glReadPixels(0, 0, SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, screenshotBuffer);
+        if (intoPixelBuffer)
+        {
+            // Only queued: the GPU copies the image once the frame is drawn, and finishScreenshotReadback() collects it. Reading straight into
+            // screenshotBuffer would wait for the whole frame's GPU work (3-17 ms on the Fold with the compute renderer at 8x)
+            if (readbackFence)
+                glDeleteSync(readbackFence);
+
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, pixelPackBuffer);
+            glReadPixels(0, 0, SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            readbackFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+            glFlush();
+        }
+        else
+        {
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            glReadPixels(0, 0, SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, screenshotBuffer);
+        }
 
         glBindVertexArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     }
-
-    notifyScreenshotReady();
 }
 
 void ScreenshotRenderer::renderOverlay(GLuint overlayTexture)
@@ -189,6 +250,16 @@ void ScreenshotRenderer::setupFrameBuffer()
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
+
+    // Read into once here, since the driver's first readback into it takes 5-10 ms, which would otherwise land on the first rewind capture
+    glGenBuffers(1, &pixelPackBuffer);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, pixelPackBuffer);
+    glBufferData(GL_PIXEL_PACK_BUFFER, SCREENSHOT_WIDTH * SCREENSHOT_HEIGHT * 4, nullptr, GL_STREAM_READ);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, frameBuffer);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glReadPixels(0, 0, SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 }
 
 bool ScreenshotRenderer::setupShaders()
@@ -422,6 +493,13 @@ void ScreenshotRenderer::cleanup()
         glDeleteProgram(overlayRenderShader);
         overlayRenderShader = 0;
     }
+    // A readback still pending is dropped
+    if (readbackFence)
+    {
+        glDeleteSync(readbackFence);
+        readbackFence = nullptr;
+    }
+    glDeleteBuffers(1, &pixelPackBuffer);
     glDeleteTextures(1, &bufferTexture);
     glDeleteFramebuffers(1, &frameBuffer);
     glDeleteBuffers(1, &vbo);

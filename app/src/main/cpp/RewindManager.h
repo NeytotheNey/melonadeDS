@@ -47,6 +47,13 @@ public:
     void UpdateRewindSettings(bool enabled, int rewindLengthSeconds, int rewindCapturingIntervalSeconds);
     bool ShouldCaptureState(int currentFrame);
     RewindSaveState* GetNextRewindSaveState(int currentFrame);
+    /**
+     * Emulator thread, once per frame. While the window isn't full, the next capture's state is allocated ahead and its buffer written a slice
+     * per frame (up to a bit more than the biggest state so far), so that the capture doesn't page-fault a fresh buffer on its frame
+     */
+    void PrepareNextRewindSaveState();
+    // The window's state for [frame], or null
+    RewindSaveState* FindRewindSaveState(int frame);
     std::list<RewindSaveState> GetRewindWindow();
     void OnRewindFromState(RewindSaveState state);
     void Reset();
@@ -60,6 +67,11 @@ private:
 private:
     bool Enabled;
     std::list<RewindSaveState> RewindWindow = std::list<RewindSaveState>();
+    // The state that PrepareNextRewindSaveState() gets ready (its buffer is null when there's none), and how much of its buffer is written
+    RewindSaveState SpareState = {};
+    u32 SpareStatePreparedSize = 0;
+    // The biggest state saved so far, which bounds how much of the next one's buffer is prepared. 0 before the first
+    u32 LargestSavestateSize = 0;
     int RewindLengthSeconds;
     int RewindCapturingIntervalSeconds;
     u32 SavestateBufferSize;

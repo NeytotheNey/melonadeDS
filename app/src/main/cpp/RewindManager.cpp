@@ -17,6 +17,8 @@
 */
 
 #include "RewindManager.h"
+#include <algorithm>
+#include <cstring>
 #include <list>
 
 namespace melonDS
@@ -37,6 +39,9 @@ RewindManager::~RewindManager()
 {
     for (auto state : RewindWindow)
         DeleteRewindSaveState(state);
+
+    if (SpareState.buffer)
+        DeleteRewindSaveState(SpareState);
 }
 
 void RewindManager::UpdateRewindSettings(bool enabled, int rewindLengthSeconds, int rewindCapturingIntervalSeconds)
@@ -69,8 +74,10 @@ RewindSaveState* RewindManager::GetNextRewindSaveState(int currentFrame)
 {
     if (RewindWindow.size() < RewindWindowSize())
     {
-        // Windows is not yet full. Create new savestate
-        RewindSaveState newRewindSaveState = CreateRewindSaveState(currentFrame);
+        // Windows is not yet full. Use the prepared savestate, or create a new one if there's none
+        RewindSaveState newRewindSaveState = SpareState.buffer ? SpareState : CreateRewindSaveState(currentFrame);
+        newRewindSaveState.frame = currentFrame;
+        SpareState = {};
         RewindWindow.push_front(newRewindSaveState);
     }
     else
@@ -85,6 +92,61 @@ RewindSaveState* RewindManager::GetNextRewindSaveState(int currentFrame)
     return &*RewindWindow.begin();
 }
 
+void RewindManager::PrepareNextRewindSaveState()
+{
+    bool isWindowFull = RewindWindow.size() >= RewindWindowSize();
+    if (!Enabled || isWindowFull)
+    {
+        // Not needed until a rewind frees up room in the window, which gives a ready state back anyway
+        if (SpareState.buffer) [[unlikely]]
+        {
+            DeleteRewindSaveState(SpareState);
+            SpareState = {};
+        }
+        return;
+    }
+
+    // The newest state is the last one saved
+    if (!RewindWindow.empty())
+        LargestSavestateSize = std::max(LargestSavestateSize, RewindWindow.front().bufferContentSize);
+
+    if (!SpareState.buffer)
+    {
+        SpareState = CreateRewindSaveState(0);
+        SpareStatePreparedSize = 0;
+        memset(SpareState.screenshot, 0, SpareState.screenshotSize);
+    }
+
+    // Only as much as a state takes, with some room to grow (a DS game's is much smaller than the buffer, which a DSi game's nearly fills).
+    // All of it before the first capture, since the size isn't known yet
+    const u32 pageSize = 4096;
+    const u32 growthRoom = 1024 * 1024;
+    u32 preparedSize = SpareState.bufferSize;
+    if (LargestSavestateSize > 0)
+        preparedSize = std::min(SpareState.bufferSize, (LargestSavestateSize + growthRoom + pageSize - 1) & ~(pageSize - 1));
+
+    if (SpareStatePreparedSize < preparedSize)
+    {
+        // Spread over a capture interval, so that it's ready by the next capture. A few pages a frame at the default 10 s
+        u32 framesPerCapture = RewindCapturingIntervalSeconds * FRAMES_PER_SECOND;
+        u32 sliceSize = (preparedSize / framesPerCapture + pageSize) & ~(pageSize - 1);
+        u32 size = std::min(sliceSize, preparedSize - SpareStatePreparedSize);
+        memset(SpareState.buffer + SpareStatePreparedSize, 0, size);
+        SpareStatePreparedSize += size;
+    }
+}
+
+RewindSaveState* RewindManager::FindRewindSaveState(int frame)
+{
+    for (auto& state : RewindWindow)
+    {
+        if (state.frame == frame)
+            return &state;
+    }
+
+    return nullptr;
+}
+
 std::list<RewindSaveState> RewindManager::GetRewindWindow()
 {
     return RewindWindow;
@@ -96,7 +158,19 @@ void RewindManager::OnRewindFromState(RewindSaveState state)
     while ((*iterator).frame > state.frame && iterator != RewindWindow.end())
     {
         RewindSaveState lastState = *iterator;
-        DeleteRewindSaveState(lastState);
+        // The one with the most of its buffer mapped is kept for the next capture. A saved state has at least what it holds mapped
+        if (!SpareState.buffer || lastState.bufferContentSize > SpareStatePreparedSize)
+        {
+            if (SpareState.buffer)
+                DeleteRewindSaveState(SpareState);
+
+            SpareState = lastState;
+            SpareStatePreparedSize = lastState.bufferContentSize;
+        }
+        else
+        {
+            DeleteRewindSaveState(lastState);
+        }
         iterator++;
         RewindWindow.pop_front();
     }

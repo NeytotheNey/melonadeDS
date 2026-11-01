@@ -92,6 +92,11 @@ namespace MelonDSAndroid {
      * Snapshots the Lua scripts' changed storage, for the app to save. Only on the emulator thread, between frames
      */
     extern void flushLuaStorage();
+    /**
+     * Copies the last rewind capture's screenshot into its state, which is read back from the GPU after the capture. Only on the emulator
+     * thread, between frames
+     */
+    extern void finishRewindScreenshot();
     extern void updateLuaSticks(float leftX, float leftY, float rightX, float rightY);
     extern void start();
     /**
