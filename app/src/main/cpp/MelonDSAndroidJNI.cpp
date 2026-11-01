@@ -720,11 +720,13 @@ Java_me_magnum_melonds_MelonEmulator_takeScreenshot(JNIEnv* env, jobject thiz)
     return MelonDSAndroid::takeScreenshot();
 }
 
-JNIEXPORT void JNICALL
-Java_me_magnum_melonds_MelonEmulator_setFastForwardEnabled(JNIEnv* env, jobject thiz, jboolean enabled)
+/**
+ * Sets the frame limiter, the audio side and the performance hint target for fast-forward being [enabled] at [speedMultiplier] (0 or less
+ * means unlimited). The pacing is changed before the audio side hears about it: when fast-forward ends, that side trims the ring, and once
+ * more after the frame now running, which is the last one at fast-forward pace.
+ */
+static void applyFastForwardPacing(bool enabled, float speedMultiplier)
 {
-    float speedMultiplier = fastForwardSpeedMultiplier;
-    isFastForwardEnabled = enabled;
     if (enabled) {
         limitFps = speedMultiplier > 0;
         targetFps = (int) (EMULATOR_TARGET_FPS * speedMultiplier);
@@ -732,22 +734,25 @@ Java_me_magnum_melonds_MelonEmulator_setFastForwardEnabled(JNIEnv* env, jobject 
         limitFps = true;
         targetFps = EMULATOR_TARGET_FPS;
     }
-    // After the pacing changed: when fast-forward ends, the audio side trims the ring, and once more after the frame now running, which is the
-    // last one at fast-forward pace
     MelonDSAndroid::setAudioFastForwardActive(enabled, speedMultiplier);
 
     if (performanceHintSession != nullptr) {
-        if (enabled) {
-            if (speedMultiplier > 0) {
-                auto frameDurationNs = static_cast<int64_t>(FRAME_DURATION_60FPS_NS / speedMultiplier);
-                performanceHintSession->updateTargetWorkDuration(frameDurationNs);
-            } else {
-                performanceHintSession->updateTargetWorkDuration(FRAME_DURATION_1000FPS_NS);
-            }
-        } else {
+        if (!enabled) {
             performanceHintSession->updateTargetWorkDuration(FRAME_DURATION_60FPS_NS);
+        } else if (speedMultiplier > 0) {
+            auto frameDurationNs = static_cast<int64_t>(FRAME_DURATION_60FPS_NS / speedMultiplier);
+            performanceHintSession->updateTargetWorkDuration(frameDurationNs);
+        } else {
+            performanceHintSession->updateTargetWorkDuration(FRAME_DURATION_1000FPS_NS);
         }
     }
+}
+
+JNIEXPORT void JNICALL
+Java_me_magnum_melonds_MelonEmulator_setFastForwardEnabled(JNIEnv* env, jobject thiz, jboolean enabled)
+{
+    isFastForwardEnabled = enabled;
+    applyFastForwardPacing(enabled, fastForwardSpeedMultiplier);
 }
 
 JNIEXPORT void JNICALL
@@ -771,20 +776,8 @@ Java_me_magnum_melonds_MelonEmulator_updateEmulatorConfiguration(JNIEnv* env, jo
 
     MelonDSAndroid::updateEmulatorConfiguration(std::make_unique<MelonDSAndroid::EmulatorConfiguration>(std::move(newConfiguration)));
 
-    if (isFastForwardEnabled) {
-        limitFps = speedMultiplier > 0;
-        targetFps = (int) (EMULATOR_TARGET_FPS * speedMultiplier);
-        MelonDSAndroid::setAudioFastForwardActive(true, speedMultiplier);
-
-        if (performanceHintSession != nullptr) {
-            if (speedMultiplier > 0) {
-                auto frameDurationNs = static_cast<int64_t>(FRAME_DURATION_60FPS_NS / speedMultiplier);
-                performanceHintSession->updateTargetWorkDuration(frameDurationNs);
-            } else {
-                performanceHintSession->updateTargetWorkDuration(FRAME_DURATION_1000FPS_NS);
-            }
-        }
-    }
+    if (isFastForwardEnabled)
+        applyFastForwardPacing(true, speedMultiplier);
 }
 }
 
@@ -820,7 +813,7 @@ MelonDSAndroid::RomGbaSlotConfig* buildGbaSlotConfig(GbaSlotType slotType, const
     }
 }
 
-double getCurrentMillis() {
+static double getCurrentMillis() {
     timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     return (now.tv_sec * 1000.0) + now.tv_nsec / 1000000.0;
@@ -841,6 +834,17 @@ struct FramePacingState
     int nextFrameDivisor = 0;
     // Whether the next frame's start is locked to the vsync grid. Overloaded frames have a due time but aren't locked
     bool isNextFrameLocked = false;
+
+    /**
+     * The next frame isn't paced: it starts right away and is due at [dueNs] (0 to present it as soon as it's ready).
+     */
+    void reset(int64_t dueNs)
+    {
+        nextFrameDueNs = dueNs;
+        isNextFrameLocked = false;
+        nextFrameDivisor = 0;
+        upcomingFrameDueNs.store(dueNs, std::memory_order_relaxed);
+    }
 };
 
 /**
@@ -849,10 +853,7 @@ struct FramePacingState
  */
 static void unlockPacingFromRunning(FramePacingState& pacing)
 {
-    pacing.nextFrameDueNs = pacing.framePacer.unlockFromRunning();
-    pacing.isNextFrameLocked = false;
-    pacing.nextFrameDivisor = 0;
-    upcomingFrameDueNs.store(pacing.nextFrameDueNs, std::memory_order_relaxed);
+    pacing.reset(pacing.framePacer.unlockFromRunning());
 }
 
 /**
@@ -1069,11 +1070,8 @@ void* emulate(void*)
             isFirstFrameAfterPause = true;
 
             // The first frame after a pause starts right away, so it isn't on the vsync grid. Pacing re-syncs after it
-            pacing.isNextFrameLocked = false;
             pacing.framePacer.unlock();
-            pacing.nextFrameDueNs = 0;
-            pacing.nextFrameDivisor = 0;
-            upcomingFrameDueNs.store(0, std::memory_order_relaxed);
+            pacing.reset(0);
         }
 
         if (stop) {
