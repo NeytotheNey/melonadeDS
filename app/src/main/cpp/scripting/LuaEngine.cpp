@@ -148,6 +148,14 @@ struct LuaEngine::Script
     // melon.screen.set_layout(): the layout option's key, or an empty string for set_layout(nil)
     std::optional<std::string> layoutKey;
 
+    void clearRequests()
+    {
+        swapScreens.reset();
+        showControls.reset();
+        fastForward.reset();
+        layoutKey.reset();
+    }
+
     // melon.state slots: whole savestates, empty when unused. Outside the Lua state, so they survive reloads (a reset). Freed when the
     // script is switched off
     std::vector<u8> stateSlots[kStateSlotCount];
@@ -724,22 +732,23 @@ void LuaEngine::stop()
 
 void LuaEngine::disableScript(int id)
 {
-    std::lock_guard lock(pendingScriptSwitchMutex);
-    pendingScriptSwitches.push_back({ id, ScriptSwitch::Action::Disable });
-    isScriptSwitchPending.store(true, std::memory_order_release);
+    queueScriptSwitch(id, ScriptSwitch::Action::Disable);
 }
 
 void LuaEngine::enableScript(int id)
 {
-    std::lock_guard lock(pendingScriptSwitchMutex);
-    pendingScriptSwitches.push_back({ id, ScriptSwitch::Action::Enable });
-    isScriptSwitchPending.store(true, std::memory_order_release);
+    queueScriptSwitch(id, ScriptSwitch::Action::Enable);
 }
 
 void LuaEngine::restartScript(int id, std::vector<LuaOptionValue> options)
 {
+    queueScriptSwitch(id, ScriptSwitch::Action::Restart, std::move(options));
+}
+
+void LuaEngine::queueScriptSwitch(int id, ScriptSwitch::Action action, std::vector<LuaOptionValue> options)
+{
     std::lock_guard lock(pendingScriptSwitchMutex);
-    pendingScriptSwitches.push_back({ id, ScriptSwitch::Action::Restart, std::move(options) });
+    pendingScriptSwitches.push_back({ id, action, std::move(options) });
     isScriptSwitchPending.store(true, std::memory_order_release);
 }
 
@@ -915,10 +924,7 @@ void LuaEngine::sendRequests(Script& script)
             eventMessenger->onLuaSetLayout(script.id, *script.layoutKey);
     }
 
-    script.swapScreens.reset();
-    script.showControls.reset();
-    script.fastForward.reset();
-    script.layoutKey.reset();
+    script.clearRequests();
 }
 
 int LuaEngine::setupScript(lua_State* L)
@@ -1009,8 +1015,8 @@ int LuaEngine::setupScript(lua_State* L)
         { nullptr, nullptr },
     };
     static const luaL_Reg screenFunctions[] = {
-        { "swap", luaScreenSwap },
-        { "show_controls", luaScreenShowControls },
+        { "swap", luaSetBoolRequest<&Script::swapScreens> },
+        { "show_controls", luaSetBoolRequest<&Script::showControls> },
         { "set_layout", luaScreenSetLayout },
         { nullptr, nullptr },
     };
@@ -1039,7 +1045,7 @@ int LuaEngine::setupScript(lua_State* L)
         { nullptr, nullptr },
     };
     static const luaL_Reg emuFunctions[] = {
-        { "fast_forward", luaEmuFastForward },
+        { "fast_forward", luaSetBoolRequest<&Script::fastForward> },
         { nullptr, nullptr },
     };
     static const luaL_Reg storageFunctions[] = {
@@ -1205,10 +1211,7 @@ void LuaEngine::switchOff(Script& script, const std::string& error)
 
 void LuaEngine::closeScript(Script& script)
 {
-    script.swapScreens.reset();
-    script.showControls.reset();
-    script.fastForward.reset();
-    script.layoutKey.reset();
+    script.clearRequests();
     script.press = 0;
     script.release = 0;
     clearDrawCommands(script);
@@ -1368,27 +1371,12 @@ int LuaEngine::luaMemWrite(lua_State* L)
     return 0;
 }
 
-int LuaEngine::luaScreenSwap(lua_State* L)
+template <std::optional<bool> LuaEngine::Script::* request>
+int LuaEngine::luaSetBoolRequest(lua_State* L)
 {
     Script& script = getScript(L);
     if (!script.engine->isUnloading)
-        script.swapScreens = lua_toboolean(L, 1) != 0;
-    return 0;
-}
-
-int LuaEngine::luaScreenShowControls(lua_State* L)
-{
-    Script& script = getScript(L);
-    if (!script.engine->isUnloading)
-        script.showControls = lua_toboolean(L, 1) != 0;
-    return 0;
-}
-
-int LuaEngine::luaEmuFastForward(lua_State* L)
-{
-    Script& script = getScript(L);
-    if (!script.engine->isUnloading)
-        script.fastForward = lua_toboolean(L, 1) != 0;
+        script.*request = lua_toboolean(L, 1) != 0;
     return 0;
 }
 

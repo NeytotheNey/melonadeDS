@@ -239,8 +239,25 @@ public:
     const LuaOverlay& getOverlay() const { return overlay; }
 
 private:
+    // From disableScript(), enableScript() and restartScript(), applied in the order they were asked for. The flag saves locking the mutex every frame
+    struct ScriptSwitch
+    {
+        enum class Action
+        {
+            Disable,
+            Enable,
+            Restart,
+        };
+
+        int id;
+        Action action;
+        // For Restart
+        std::vector<LuaOptionValue> options;
+    };
+
     bool loadScript(Script& script);
     void reloadScripts();
+    void queueScriptSwitch(int id, ScriptSwitch::Action action, std::vector<LuaOptionValue> options = {});
     void applyPendingScriptSwitches();
     bool callCallback(Script& script, const char* name, const char* argument, int instructionLimit);
     bool runProtected(Script& script, lua_CFunction function, void* data, int instructionLimit);
@@ -269,13 +286,12 @@ private:
     static int luaInputStick(lua_State* L);
     template <typename T, bool isSigned, bool isArm9> static int luaMemRead(lua_State* L);
     template <typename T, bool isArm9> static int luaMemWrite(lua_State* L);
-    static int luaScreenSwap(lua_State* L);
-    static int luaScreenShowControls(lua_State* L);
+    // melon.screen.swap(), melon.screen.show_controls() and melon.emu.fast_forward(): a boolean request to the app, in [request]
+    template <std::optional<bool> Script::* request> static int luaSetBoolRequest(lua_State* L);
     static int luaScreenSetLayout(lua_State* L);
     static int luaStateSave(lua_State* L);
     static int luaStateLoad(lua_State* L);
     static int luaStateHas(lua_State* L);
-    static int luaEmuFastForward(lua_State* L);
     static DrawCommand* addDrawCommand(lua_State* L, int64_t pixelCount, size_t textLength = 0);
     static int luaDrawPixel(lua_State* L);
     static int luaDrawLine(lua_State* L);
@@ -326,21 +342,6 @@ private:
 
     std::atomic_bool isStateLoadPending = false;
     std::atomic_bool isResetPending = false;
-    // From disableScript(), enableScript() and restartScript(), applied in the order they were asked for. The flag saves locking the mutex every frame
-    struct ScriptSwitch
-    {
-        enum class Action
-        {
-            Disable,
-            Enable,
-            Restart,
-        };
-
-        int id;
-        Action action;
-        // For Restart
-        std::vector<LuaOptionValue> options;
-    };
     std::mutex pendingScriptSwitchMutex;
     std::vector<ScriptSwitch> pendingScriptSwitches;
     std::atomic_bool isScriptSwitchPending = false;
