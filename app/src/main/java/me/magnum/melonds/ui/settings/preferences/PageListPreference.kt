@@ -11,7 +11,6 @@ import androidx.preference.ListPreference
 class PageListPreference(context: Context, attrs: AttributeSet?) : ListPreference(context, attrs) {
 
     override fun onClick() {
-        // Disable click behaviour to prevent list dialog from appearing
-        /* no-op */
+        // No list dialog
     }
 }

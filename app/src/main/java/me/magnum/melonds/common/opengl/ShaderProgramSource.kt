@@ -265,8 +265,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "void main()\n" +
                     "{\n" +
                     "    // In main(), since ES 1.00 globals can only start from constants\n" +
-                    "    vec2 inputSize = vec2(topScreenWidth, $LOGICAL_TEXTURE_HEIGHT);\n" + // What is this?
-                    "    vec2 outputSize = vec2(topScreenWidth, $LOGICAL_TEXTURE_HEIGHT);\n" + // What is this?
+                    "    vec2 inputSize = vec2(topScreenWidth, $LOGICAL_TEXTURE_HEIGHT);\n" +
+                    "    vec2 outputSize = vec2(topScreenWidth, $LOGICAL_TEXTURE_HEIGHT);\n" +
                     "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
                     "    uv = vUV;\n" +
                     "    vec2 textureSize = vec2(topScreenWidth, $LOGICAL_TEXTURE_HEIGHT);\n" +

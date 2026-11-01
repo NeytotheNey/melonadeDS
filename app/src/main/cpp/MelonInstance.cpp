@@ -251,10 +251,8 @@ bool MelonInstance::loadRom(std::string romPath, std::string sramPath)
     romCrc32 = hasRomCrc32 ? CRC32(romData.get(), (int) romFileLength) : 0;
 
     NDSCart::NDSCartArgs cartargs{
-        // Don't load the SD card itself yet, because we don't know if
-        // the ROM is homebrew or not.
-        // So this is the card we *would* load if the ROM were homebrew.
-        .SDCard = std::nullopt, // getSDCardArgs("DLDI"), // TODO: Re-enable this
+        // No DLDI SD card: the app never turns one on (MelonDSAndroidConfiguration)
+        .SDCard = std::nullopt,
         .SRAM = std::move(sramData),
         .SRAMLength = sramFileLength,
     };

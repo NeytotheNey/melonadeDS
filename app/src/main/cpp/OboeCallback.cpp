@@ -315,8 +315,7 @@ void OboeCallback::onErrorAfterClose(oboe::AudioStream* stream, oboe::Result res
 
 int OboeCallback::getNumSamplesOut(int len)
 {
-    // TODO: adjust to game speed
-    float f_len_in = len /* * (curFPS/60.0)*/;
+    float f_len_in = len;
     f_len_in += audioSampleFrac;
     int len_in = (int) floor(f_len_in);
     audioSampleFrac = f_len_in - len_in;
