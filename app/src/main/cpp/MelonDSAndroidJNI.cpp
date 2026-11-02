@@ -54,9 +54,8 @@ pthread_t emuThread;
 pthread_mutex_t emuThreadMutex;
 pthread_cond_t emuThreadCond;
 
-// The emulation state is written from the UI side and read by the emulator thread, and by the render thread for the performance logger (which
-// doesn't take emuThreadMutex), so it's atomic. paused is still only changed while holding emuThreadMutex, for the pause wait. While the
-// emulator thread runs, stop is only accessed while holding it
+// The emulation state is written from the UI side and read by the emulator and render threads (the perf logger doesn't take emuThreadMutex), so it's
+// atomic; paused is still only changed under emuThreadMutex for the pause wait, and stop only accessed under it while the emulator thread runs
 std::atomic_bool started = false;
 bool stop;
 std::atomic_bool paused = false;
@@ -75,40 +74,37 @@ static const int64_t FRAME_DURATION_60FPS_NS = 1000000000LL / EMULATOR_TARGET_FP
 static const int64_t FRAME_DURATION_1000FPS_NS = 1000000; // 1ms. Used as frame time when fast-forward is enabled
 ThreadSafePerformanceHintSession* performanceHintSession = nullptr;
 
-// Performance logging. Each frame sample contains: frame end timestamp, work duration, sleep duration, interval since the previous frame end (all in
-// ns), emulated line count, flags, audio buffer fill (frames, after the frame's sleep), audio silence frames (filled by the output callback
-// since the previous sample), the audio output skew's distance from its base (ppm) and the speed paced fast-forward really reached (thousandths,
-// -1 if unknown or not fast-forwarding). 16384 samples are enough for over 1 second of emulation at 16x speed between each drain. The field count and the
-// flags must match MelonEmulator.PERF_FRAME_* (the count is checked at startup)
+// Performance logging: one sample per frame, with room for over a second at 16x between drains; the field order and flags must match
+// MelonEmulator.PERF_FRAME_* (the count is checked at startup)
 static constexpr std::size_t PERF_FRAME_SAMPLE_FIELDS = 10;
 static const int64_t PERF_FRAME_FLAG_FAST_FORWARD = 1;
 static const int64_t PERF_FRAME_FLAG_AFTER_PAUSE = 2;
-// The frame's start was locked to the display's vsync grid. The refresh divisor (N) of locked frames is stored in the flags as well
+// The frame's start was locked to the display's vsync grid (locked frames also store their refresh divisor N in the flags)
 static const int64_t PERF_FRAME_FLAG_PACING_LOCKED = 4;
 // The audio buffer was full after the frame, so some of its samples were dropped
 static const int64_t PERF_FRAME_FLAG_AUDIO_BUFFER_FULL = 8;
 static const int PERF_FRAME_PACING_DIVISOR_SHIFT = 8;
-// Returned by getPerformanceEmulationStateFlags(). Must match MelonEmulator.PERF_STATE_FLAG_*
+// Returned by getPerformanceEmulationStateFlags(); must match MelonEmulator.PERF_STATE_FLAG_*
 static const jint PERF_STATE_FLAG_PAUSED = 1;
 static const jint PERF_STATE_FLAG_DS_SLEEP = 2;
 static const jint PERF_STATE_FLAG_FAST_FORWARD = 4;
 static FrameSampleRing<16384, PERF_FRAME_SAMPLE_FIELDS> perfFrameSamples;
 static std::atomic_bool isPerfCaptureEnabled = false;
 
-// Frame pacing. Vsync timestamps are published by the UI thread and used by the emulator thread to schedule frames and by the render thread to
-// pick which frame to present
+// Frame pacing: vsync timestamps are published by the UI thread and used by the emulator thread to schedule frames and by the render thread to pick
+// which frame to present
 static DisplayVsyncTracker displayVsyncTracker;
 static std::atomic_bool isFramePacingEnabled = false;
 static std::atomic_bool isFramePacingBufferEnabled = false;
-// Due vsync of the frame the emulator thread is about to run (or is running), or 0 if that frame isn't paced. Lets the render thread know whether
-// it's worth waiting for a frame that hasn't been pushed yet
+// Due vsync of the frame the emulator thread is about to run (or is running), or 0 if it isn't paced, so the render thread knows whether to wait for
+// a frame that hasn't been pushed yet
 static std::atomic<int64_t> upcomingFrameDueNs = 0;
-// Paced frames are due a fixed offset after a vsync. This fraction of a refresh (half) of tolerance absorbs that offset and any phase error
+// Paced frames are due a fixed offset after a vsync, and this fraction of a refresh (half) of tolerance absorbs that offset and any phase error
 static const int64_t PRESENT_DUE_TOLERANCE_REFRESH_DENOMINATOR = 2;
 
 /**
- * FrameRenderCallback.renderFrame(), looked up on the first call. presentFrame() is always called from Java, so FindClass() uses the app's class
- * loader. The global reference is never released: it keeps the class loaded, and with it the method ID valid.
+ * FrameRenderCallback.renderFrame(), looked up on the first call (always from Java, so FindClass() uses the app's class loader) through a global
+ * reference that's never released, which keeps the method ID valid.
  */
 static jmethodID getRenderFrameMethodId(JNIEnv* env)
 {
@@ -383,7 +379,7 @@ Java_me_magnum_melonds_MelonEmulator_setPerformanceCaptureEnabled(JNIEnv* env, j
 {
     if (enabled)
     {
-        // Drop samples left over from a previous capture. This must be called from the same thread that drains the samples
+        // Drop samples left over from a previous capture, from the same thread that drains them
         perfFrameSamples.discardAll();
     }
     AudioDiagnostics::setPerfCaptureEnabled(enabled);
@@ -503,8 +499,8 @@ Java_me_magnum_melonds_MelonEmulator_resumeEmulation(JNIEnv* env, jobject thiz)
     }
 
     if (!stop) {
-        // Update the RTC before the emulator thread is released. It's only safe while the thread is parked in its pause wait, which it can't
-        // leave while we hold the mutex. If it's still finishing its last frame, the pause was too short to matter
+        // Update the RTC before the emulator thread is released, which is only safe while it's parked in its pause wait (it can't leave while we hold
+        // the mutex)
         if (started && paused && isThreadReallyPaused) {
             MelonDSAndroid::syncDateTimeToDevice();
         }
@@ -523,11 +519,8 @@ Java_me_magnum_melonds_MelonEmulator_resumeEmulation(JNIEnv* env, jobject thiz)
 }
 
 /**
- * Pauses the emulator and waits for its thread to park between frames. A frame can save or load a Lua script's state, so
- * a player's save or load must not run alongside one. Returns false if the emulator isn't running or is stopping, and sets wasPaused to
- * whether it was already paused.
- * The thread parks once its frame and the Lua storage flush are done, and neither of them waits on the caller. A save state's screenshot
- * waits for the frame after the resume, so it doesn't hold the thread back either.
+ * Pauses the emulator and waits for its thread to park between frames, so a player's save or load can't overlap a frame's Lua state save or load;
+ * returns false if the emulator isn't running or is stopping, and sets wasPaused to whether it was already paused.
  */
 static bool pauseAndWaitForEmulatorThread(JNIEnv* env, jobject thiz, bool& wasPaused)
 {
@@ -636,8 +629,8 @@ Java_me_magnum_melonds_MelonEmulator_loadRewindState(JNIEnv* env, jobject thiz, 
 
 JNIEXPORT jobject JNICALL
 Java_me_magnum_melonds_MelonEmulator_getRewindWindow(JNIEnv* env, jobject thiz) {
-    // The window is read while paused. The pause may have just been asked for, so wait for the emulator thread to park: it finishes its frame
-    // and the last capture's screenshot first. A resume or a stop ends the wait
+    // The window is read while paused, so if the pause was just asked for, wait for the emulator thread to park (after its frame and the last
+    // capture's screenshot) until a resume or a stop
     while (started && paused && !isThreadReallyPaused)
         std::this_thread::yield();
 
@@ -734,9 +727,8 @@ Java_me_magnum_melonds_MelonEmulator_takeScreenshot(JNIEnv* env, jobject thiz)
 }
 
 /**
- * Sets the frame limiter, the audio side and the performance hint target for fast-forward being [enabled] at [speedMultiplier] (0 or less
- * means unlimited). The pacing is changed before the audio side hears about it: when fast-forward ends, that side trims the ring, and once
- * more after the frame now running, which is the last one at fast-forward pace.
+ * Sets the frame limiter, the audio side and the performance hint target for fast-forward being [enabled] at [speedMultiplier] (0 or less means
+ * unlimited), changing the pacing before the audio side hears about it, since that side trims once more after the frame now running.
  */
 static void applyFastForwardPacing(bool enabled, float speedMultiplier)
 {
@@ -834,10 +826,10 @@ static double getCurrentMillis() {
 struct FramePacingState
 {
     VsyncFramePacer framePacer;
-    // Presentation due time and refresh divisor of the next frame. The due time is 0 when the next frame isn't paced
+    // Presentation due time (0 when the next frame isn't paced) and refresh divisor of the next frame
     int64_t nextFrameDueNs = 0;
     int nextFrameDivisor = 0;
-    // Whether the next frame's start is locked to the vsync grid. Overloaded frames have a due time but aren't locked
+    // Whether the next frame's start is locked to the vsync grid (overloaded frames have a due time but aren't locked)
     bool isNextFrameLocked = false;
 
     /**
@@ -853,8 +845,8 @@ struct FramePacingState
 };
 
 /**
- * Used when the next frame falls back to the timer. The first frame after pacing stops is kept behind a buffered frame that may still be queued.
- * Later ones are presented right away.
+ * Used when the next frame falls back to the timer: the first frame after pacing stops is kept behind a buffered frame that may still be queued, and
+ * later ones are presented right away.
  */
 static void unlockPacingFromRunning(FramePacingState& pacing)
 {
@@ -862,10 +854,8 @@ static void unlockPacingFromRunning(FramePacingState& pacing)
 }
 
 /**
- * Locks the next frame's start to the display's vsync grid and sleeps until then. [workNs] is how long the frame that just ran took to emulate.
- * Returns false without scheduling anything if frames can't be locked to the display, so that the caller falls back to the timer. Pacing never
- * waits for the display: if vsyncs stop arriving, the divisor becomes 0 and the timer takes over. If it sleeps, [currentTick] is moved to the
- * time after sleeping and [sleepDuration] is set to how long it slept (in ms).
+ * Locks the next frame's start to the vsync grid and sleeps until it (moving [currentTick] and setting [sleepDuration] in ms), given the [workNs] the
+ * last frame took; returns false when frames can't be locked to the display, so the caller uses the timer.
  */
 static bool schedulePacedFrame(FramePacingState& pacing, int64_t workNs, double& currentTick, double& sleepDuration)
 {
@@ -876,8 +866,7 @@ static bool schedulePacedFrame(FramePacingState& pacing, int64_t workNs, double&
     if (pacingDivisor <= 0)
         return false;
 
-    // Without the buffer, a locked frame is due on the first vsync after one frame period. The buffer adds one more frame period. While
-    // overloaded, frames start right away (see VsyncFramePacer)
+    // Without the buffer a locked frame is due on the first vsync after one frame period, and the buffer adds one more
     bool isBufferEnabled = isFramePacingBufferEnabled.load(std::memory_order_relaxed);
     VsyncFramePacer::FrameSchedule schedule = pacing.framePacer.scheduleNextFrame(currentNs, lastVsyncNs, refreshPeriodNs, pacingDivisor, workNs, isBufferEnabled);
     pacing.nextFrameDueNs = schedule.dueNs;
@@ -903,9 +892,8 @@ static bool schedulePacedFrame(FramePacingState& pacing, int64_t workNs, double&
 }
 
 /**
- * Timer frame limiter, used when frames aren't paced. Sleeps for the rest of the time that the [nLines] that just ran should take, carrying the
- * error over to the next frame. [delay] is the time since the previous frame ended. All times are in ms. Returns how long it slept, and moves
- * [currentTick] to the time after sleeping.
+ * Timer frame limiter for unpaced frames: sleeps off the rest of the time the [nLines] that just ran should take ([delay] is the time since the
+ * previous frame ended, all in ms), carrying the error over, and returns how long it slept, with [currentTick] moved past the sleep.
  */
 static double runTimerLimiter(double& frameLimitError, u32 nLines, double delay, double& currentTick)
 {
@@ -937,8 +925,8 @@ static double runTimerLimiter(double& frameLimitError, u32 nLines, double delay,
 }
 
 /**
- * Records the frame that just ran for the performance logger. [frameBeginTick], [frameEndTick] and [sleepDuration] are in ms. [isFrameLocked]
- * and [frameDivisor] are whether the frame started on the vsync grid, and its refresh divisor.
+ * Records the frame that just ran for the performance logger, with [frameBeginTick], [frameEndTick] and [sleepDuration] in ms, and [isFrameLocked]
+ * and [frameDivisor] its vsync lock and refresh divisor.
  */
 static void pushPerfSample(double frameBeginTick, double frameEndTick, int64_t workNs, double sleepDuration, u32 nLines, bool isFirstFrameAfterPause, bool isFrameLocked, int frameDivisor, const AudioDiagnostics::FrameSample& audioSample)
 {
@@ -965,9 +953,8 @@ static void pushPerfSample(double frameBeginTick, double frameEndTick, int64_t w
 
 #ifdef MELONADE_DEBUG_TOOLS
 /**
- * Debug builds only: pins [tid] to the CPUs listed in the debug.melonade.[property] switch (see DebugProperties.h) and returns whether it did.
- * Only the affinity is set; the ADPF hint session is left alone. Threads inherit the mask of the thread that creates them, so cpusemu also
- * pins the core threads the emulator thread creates. The 2D thread is the exception: it's reset to every CPU when cpus2d is unset.
+ * Debug builds only: pins [tid] to the CPUs listed in the debug.melonade.[property] switch (see DebugProperties.h), setting only the affinity and not
+ * the ADPF hint session, and returns whether it did.
  */
 static bool debugPinThreadToCpus(const char* property, pid_t tid, const char* threadName)
 {
@@ -1056,8 +1043,8 @@ void* emulate(void*)
     {
         pthread_mutex_lock(&emuThreadMutex);
         if (paused && !stop) {
-            // Changed Lua storage is snapshotted for the app to save, since the app may be killed while paused. The last rewind capture's
-            // screenshot is copied in, so the rewind window is complete while paused. Outside the mutex, so that a resume doesn't wait for them
+            // Changed Lua storage is snapshotted (the app may be killed while paused) and the last rewind capture's screenshot copied in, outside the
+            // mutex so a resume doesn't wait for them
             pthread_mutex_unlock(&emuThreadMutex);
             MelonDSAndroid::flushLuaStorage();
             MelonDSAndroid::finishRewindScreenshot();
@@ -1074,7 +1061,7 @@ void* emulate(void*)
             isThreadReallyPaused = false;
             isFirstFrameAfterPause = true;
 
-            // The first frame after a pause starts right away, so it isn't on the vsync grid. Pacing re-syncs after it
+            // The first frame after a pause starts right away, off the vsync grid, and pacing re-syncs after it
             pacing.framePacer.unlock();
             pacing.reset(0);
         }
@@ -1106,8 +1093,8 @@ void* emulate(void*)
             if (gpu2DThreadId != sessionGpu2DThreadId) [[unlikely]]
             {
 #ifdef MELONADE_DEBUG_TOOLS
-                // A new 2D thread (it's re-created when the setting changes), so it's pinned again. Without cpus2d it would
-                // keep the emulator thread's cpusemu mask, which it inherited, so it's reset to every CPU instead
+                // A new 2D thread (re-created when the setting changes) is pinned again, or without cpus2d reset to every CPU rather than keeping the
+                // cpusemu mask it inherited
                 if (gpu2DThreadId != 0 && !debugPinThreadToCpus("cpus2d", gpu2DThreadId, "GPU2DThread") && emulatorThreadPinned)
                     debugUnpinThread(gpu2DThreadId, "GPU2DThread");
 #endif
@@ -1141,7 +1128,7 @@ void* emulate(void*)
         double currentTick = getCurrentMillis();
         double delay = currentTick - lastTick;
 
-        // Lock the next frame's start to the display's vsync grid if possible. Otherwise, fall back to the timer
+        // Lock the next frame's start to the display's vsync grid if possible, otherwise fall back to the timer
         bool isFpsLimited = limitFps.load(std::memory_order_relaxed);
         bool isNextFramePaced = isFpsLimited && !isFastForwardEnabled.load(std::memory_order_relaxed) && isFramePacingEnabled.load(std::memory_order_relaxed)
                 && schedulePacedFrame(pacing, workNs, currentTick, sleepDuration);
