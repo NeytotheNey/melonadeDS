@@ -12,6 +12,7 @@ import me.magnum.melonds.impl.SettingsBackupFormat.SETTINGS_FILE
 import me.magnum.melonds.impl.SettingsBackupFormat.STAGING_DIR
 import me.magnum.melonds.impl.SettingsBackupFormat.preferencesToJson
 import me.magnum.melonds.impl.SettingsBackupFormat.putTypedPreference
+import me.magnum.melonds.impl.SettingsBackupFormat.putValue
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -306,17 +307,6 @@ class PendingSettingsRestore(
     private fun putPreferencesFromJson(editor: SharedPreferences.Editor, json: JSONObject) {
         for (key in json.keys()) {
             putTypedPreference(editor, key, json.getJSONObject(key))
-        }
-    }
-
-    private fun SharedPreferences.Editor.putValue(key: String, value: Any?) {
-        when (value) {
-            is Boolean -> putBoolean(key, value)
-            is Int -> putInt(key, value)
-            is Long -> putLong(key, value)
-            is Float -> putFloat(key, value)
-            is String -> putString(key, value)
-            is Set<*> -> putStringSet(key, value.filterIsInstance<String>().toSet())
         }
     }
 }

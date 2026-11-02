@@ -87,16 +87,32 @@ internal object SettingsBackupFormat {
      * Puts a value written by [preferencesToJson].
      */
     fun putTypedPreference(editor: SharedPreferences.Editor, key: String, entry: JSONObject) {
-        when (entry.getString(FIELD_TYPE)) {
-            TYPE_BOOLEAN -> editor.putBoolean(key, entry.getBoolean(FIELD_VALUE))
-            TYPE_INT -> editor.putInt(key, entry.getInt(FIELD_VALUE))
-            TYPE_LONG -> editor.putLong(key, entry.getLong(FIELD_VALUE))
-            TYPE_FLOAT -> editor.putFloat(key, entry.getDouble(FIELD_VALUE).toFloat())
-            TYPE_STRING -> editor.putString(key, entry.getString(FIELD_VALUE))
+        val value: Any? = when (entry.getString(FIELD_TYPE)) {
+            TYPE_BOOLEAN -> entry.getBoolean(FIELD_VALUE)
+            TYPE_INT -> entry.getInt(FIELD_VALUE)
+            TYPE_LONG -> entry.getLong(FIELD_VALUE)
+            TYPE_FLOAT -> entry.getDouble(FIELD_VALUE).toFloat()
+            TYPE_STRING -> entry.getString(FIELD_VALUE)
             TYPE_SET -> {
                 val array = entry.getJSONArray(FIELD_VALUE)
-                editor.putStringSet(key, (0 until array.length()).map { array.getString(it) }.toSet())
+                (0 until array.length()).map { array.getString(it) }.toSet()
             }
+            else -> null
+        }
+        editor.putValue(key, value)
+    }
+
+    /**
+     * Puts a value of any preference type, as [SharedPreferences.getAll] returns them; a value of another type is skipped.
+     */
+    fun SharedPreferences.Editor.putValue(key: String, value: Any?) {
+        when (value) {
+            is Boolean -> putBoolean(key, value)
+            is Int -> putInt(key, value)
+            is Long -> putLong(key, value)
+            is Float -> putFloat(key, value)
+            is String -> putString(key, value)
+            is Set<*> -> putStringSet(key, value.filterIsInstance<String>().toSet())
         }
     }
 
