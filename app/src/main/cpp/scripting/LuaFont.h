@@ -16,12 +16,12 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
-// Copied from melonDS-android-lib/src/frontend/qt_sdl/font.h (the OSD font), unchanged except for the array's name and linkage, so it can be
-// included without clashing with the frontend's copy. Glyphs are for characters 0x10 to 0x7F, 16 shorts each: the width in pixels (0 for a
-// blank glyph), 3 unused, then 12 rows, top to bottom, where bit n is column n from the left
+// Copied from melonDS-android-lib/src/frontend/qt_sdl/font.h (the OSD font), renamed so that it can be included without clashing with the
+// frontend's copy
 
 #ifndef LUAFONT_H
 #define LUAFONT_H
+// Glyphs for 0x10 to 0x7F, 16 shorts each: the width (0 if blank), 3 unused, then 12 rows top to bottom, bit n being column n from the left
 static const unsigned short kLuaFont[] = {
 	12, 0, 0, 0,0x0C03, 0x0E07, 0x070E, 0x039C, 0x01F8, 0x00F0, 0x00F0, 0x01F8, 0x039C, 0x070E, 0x0E07, 0x0C03,
 	12, 0, 0, 0,0x01C0, 0x00E0, 0x0060, 0x0860, 0x0C60, 0x0FE0, 0x07F0, 0x0038, 0x001C, 0x000E, 0x0007, 0x0003,
