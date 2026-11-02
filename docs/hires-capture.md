@@ -1,0 +1,43 @@
+# Hi-res display capture on our software 2D
+
+Phase 1 (VRAM display mode) is done: core `f91fb072`, app `fff6a01e`, phone-tested on the Z Fold 8 on 2026-11-01 with OpenGL and compute. The White 2 title (Kyurem and its trail) is sharp at 4x and 8x, the `check` mode at 1x gave 0 mismatches over ~98 checks per renderer, a 4x→1x→4x switch is clean, and fps is no lower than with the setting off. Phase 2 (bitmap BGs) hasn't started.
+
+## Why it fits our 2D
+
+[blackmagic3.md](blackmagic3.md) parked hi-res capture because upstream keeps captures on the GPU, so software 2D would need a readback. That holds for upstream's model, not for ours: here **native capture stays authoritative and unchanged**, and the hi-res image is only a shadow copy. Software 2D, the CPU's view of VRAM, savestates and the software renderer never see it, so nothing needs a readback. Any doubt means native.
+
+On the White 2 title, DISPCAPCNT `C033040C` blends engine A's BG+3D (EVA 12) with bank D (EVB 4) back into bank D every frame, and engine A shows bank D in display mode 2. Before this, the compositor only ever saw the 256-wide VRAM pixels, so the trail stayed native at any scale. WatermelonDS (`SapphireRhodonite/WatermelonDS` at `9bd6a0d`) shows it sharp with a per-pixel lineage on a rewritten 2D renderer; we use one coarse rectangle per bank instead. Upstream melonDS (`melonDS-emu/melonDS`, master at `1e654443`) is the model for the validity rule: a capture at a different offset or size drops the old one, and a CPU write drops the whole capture.
+
+## How the shadow copy works
+
+- **Bank images.** The GL compositor keeps one image per capture bank A–D: `GL_R16UI`, 256S x 256S, the same BGR555 + alpha word as VRAM, rows = bank rows. Allocated the first time a bank gets a hi-res capture, freed on a scale change, kept on a view-width change. A scratch texture plus a handle swap lets feedback captures (source B = destination) read the old image while writing the new one.
+- **Capture record.** In `DoCapture`, when the line is accelerated and the setting is on, the three accelerated planes (`BGOBJLine`) are copied before the CPU composite overwrites plane 0, with the line's `CaptureCnt`, `RenderXPos`, source B bank and row, a source-B-present flag (so the pass can take `DoCapture`'s A-only branch) and the 256 native source B words. The record lives in `GPU`, emulator thread only; capture lines are always drawn there, so threaded 2D never touches it.
+- **Capture pass.** At line 192, right after the compositor draws the frame, it redoes the frame's captures at 3D scale: the compositor's dispmode-1 composite as a shared GLSL function, with exactly `DoCapture`'s 5-bit maths (EVA/EVB clamped to 16, `(x + 8) >> 4` rounding) and a separate opaque flag following the CPU's alpha rule, since the shader's alpha differs. 3D is fetched with the compositor's X scroll and WideMelon offset, bounds-checked, and decoded the way both readbacks do (`>> 2`, `>> 3`). Source B comes from the hi-res copy only when it is valid over the row read and, for a feedback capture, the rows match; otherwise from the recorded native words, upscaled nearest. So the first frame of a trail blends hi-res A with native B, and every frame after is fully hi-res. The pass runs after the frame's draw and before the line-215 3D render, limited to the destination rows with a viewport (classic GL assumes the scissor test is off).
+- **Showing it.** For a mode-2 line on an LCDC-mapped bank, the 2D code sets control-word bit 7 (candidate) and bits 5–6 (bank). The compositor clears bit 7 on lines whose bank isn't valid over that row, was written since the last pass, or is captured this frame at a non-zero row offset, and the shader then samples the bank image before master brightness. Integer coordinates come from `gl_FragCoord` (mediump can't hold them at 8x), with the bottom screen starting at row `194*Scale`. Phase 1 binds one bank texture: the bank of the first candidate line.
+- **Validity.** `GPU` keeps one-frame write masks (any write to a bank; a write during this frame's capture) and `NativeCapturedSincePass`, which only the pass that consumes a capture's record clears. `RenderFrame` folds the masks into the bank state every frame, whether or not a pass runs. A bank goes native on: a CPU or DMA write through `WriteVRAM_LCDC`, a VRAMCNT A–D change, a write during its own capture, an ineligible capture (only non-wrapping 256x64/128/192 qualify; 128x128 doesn't), a record never consumed, a savestate load or rewind, reset, stop, renderer switch, scale change, or the setting toggled. CPU reads still get native data.
+- **Setting and switches.** "Upscaled display capture" under Settings → Display, for OpenGL and compute, default on. `debug.melonade.hirescap` overrides it: `0`, `1`, `log` (a once-a-second `HIRESCAP` line with passes, hi-res lines shown and skip reasons), `check` (runs the pass at 1x too and compares the bank image with native VRAM every 30 passes). Nothing is saved in savestates; after a load the trail rebuilds from native B in a frame or two.
+- **Renderers.** Classic GL and compute need nothing of their own; the pass sits in the shared compositor. Software 3D has no compositor and stays byte-identical. A future Vulkan renderer inherits it if it binds its target the same way at line 192 and writes the same channel order ([plan-vulkan.md](plan-vulkan.md), Phase 2 item 4); add "White 2 title sharp" to its checklist.
+- **Wings in mode 2 stay black**, as before.
+
+## Not tested yet
+
+From Phase 1's checklist: WideMelon on, savestate load and rewind on the title, a mode-2 game without capture (it should stay native, with no passes in the `HIRESCAP` log), and the emulator HASH2D comparison of the software path against the old APK (600 frames, threaded 2D on and off, must be identical). Not recorded either way: the White 2 battle and overworld capture scenes for regressions, the title after the ~30 s POWCNT1 swap to the top screen, a renderer switch mid-scene, a screenshot, the setting off, and `work_avg_ms`/GPU busy % in the title and battle. Unverified, from shader maths only: the compositor's `Fetch3D` truncates `c/63*63`, which may give c−1 for some values against the CPU's `>> 2`.
+
+Risks to watch: the record copy (~0.6 MB per capture frame) and ~0.7 MB of uploads on the Fold's CPU (a cheaper record could ride val2/val3 in the ScreenTex planes mode 2 leaves unused), the next frame's capture readback waiting behind the pass (the CAPWAIT log on compute), and memory: 2 MiB per bank image at 4x and 8 MiB at 8x, 40 MiB worst case at 8x.
+
+## Phase 2: bitmap BG consumers
+
+For dual-screen 3D. White 2's battles are assumed to be that, but it isn't verified. First log DISPCAPCNT/DISPCNT/BGxCNT/VRAMCNT in a White 2 battle and in another dual-screen-3D game, as was done for the title, to see whether they use a sub BG bitmap or sub OBJ. If it is a direct-color bitmap BG:
+
+- In `DrawBG_Extended`, a BG is a candidate when its VRAM resolves to one physical bank A–D for that line, the affine part is identity and mosaic is off.
+- After `ColorComposite`, a pixel whose val1 came from that BG unmodified (color effect 0, compmode 7) writes a tag into plane 1: bank, source X, source Y. Plane 1 is never read for those pixels, but the 3D-on-bottom path writes `ColorComposite` there, so the tag must overwrite it.
+- The compositor samples the bank image for tagged pixels, then applies master brightness. Blended pixels and sprites over it stay native.
+- Validity must also catch writes through the BG/OBJ/ARM7 mappings (`WriteVRAM_ABG/BBG/AOBJ/BOBJ/ARM7`, from the mapping mask). A bank can't be both the capture target and a BG in one frame, so there's no same-frame conflict. Several banks per frame need a 4-sampler if-chain.
+
+## Parked, with triggers
+
+- **Capture → 3D texture** (128x128 captures sampled by polygons): touches both 3D renderers and the planned Vulkan one. Trigger: a game whose capture texture effect looks clearly worse at 4x.
+- **Bitmap OBJ consumers:** Phase 2's tag in the sprite path. Trigger: a dual-screen game using sub OBJ.
+- **Wide capture wings in mode 2:** bank images at view width, 3x the memory. Trigger: WideMelon users on a mode-2 3D scene.
+- **128-wide and wrapping captures, showing a bank captured this frame at a non-zero offset, more than one bank in mode 2 in one frame.** Trigger: the `HIRESCAP` log shows a game hitting one of these.
+- **The `Fetch3D` truncation above.** Fix it only if `check` mode or a screenshot shows it.
