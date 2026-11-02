@@ -30,7 +30,6 @@ import org.json.JSONTokener
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
-import javax.inject.Singleton
 
 /**
  * Backs up the settings to a folder and restores them from one.
@@ -39,7 +38,6 @@ import javax.inject.Singleton
  * restarts. On the next start, [PendingSettingsRestore] swaps the staged files and preferences in before anything else reads them. This
  * way the repositories, which keep their data in memory and save it back to the same files, can never write old data over a restore.
  */
-@Singleton
 class SettingsBackupManager(
     private val context: Context,
     private val preferences: SharedPreferences,
