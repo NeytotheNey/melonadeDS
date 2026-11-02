@@ -37,12 +37,11 @@ import kotlin.math.roundToInt
 private const val SIZE_STEP_PX = 16
 private const val REPEAT_INITIAL_DELAY_MS = 400L
 private const val REPEAT_INTERVAL_MS = 50L
-// The Off item of the Wide chip's menu. The ratios use their ordinal
+// Menu id of the Wide chip's Off item, since the ratios use their ordinal
 private const val WIDE_ASPECT_MENU_OFF = -1
 
 /**
- * The controls for the selected item: a compact pill shown next to it, which can be expanded into a panel with every option. The last mode used
- * is remembered.
+ * Controls for the selected item: a pill beside it or an expandable full panel, remembering the last mode.
  */
 class LayoutEditorItemControls(
     private val binding: ViewLayoutEditorManagerBinding,
@@ -59,7 +58,7 @@ class LayoutEditorItemControls(
     private val marginPx = context.resources.getDimensionPixelSize(R.dimen.layout_editor_margin)
     private var isExpanded = preferences.getBoolean(PreferenceKeys.LAYOUT_EDITOR_ITEM_PANEL_EXPANDED, false)
     private var selectedView: LayoutComponentView? = null
-    // Whether the top screen is selected. Only it has the Wide chip
+    // Whether the top screen, the only item with a Wide chip, is selected
     private var isTopScreen = false
     private var lastSelectedViewRect: Rect? = null
     private var controlInsets = Insets.NONE
@@ -87,8 +86,7 @@ class LayoutEditorItemControls(
     }
 
     /**
-     * Reads the widescreen ratio of the variant shown again and refills the controls. Called whenever it changes, since the layout isn't always
-     * shown again then (Off, or rects that already had the shape)
+     * Refills the controls after the variant's widescreen ratio changed, which doesn't always reshow the layout.
      */
     fun refresh() {
         selectedView?.let { show(it) }
@@ -109,8 +107,7 @@ class LayoutEditorItemControls(
     }
 
     /**
-     * Keeps the controls in sync with the selected item. Called after every layout pass, so it also catches changes made from the resize handles.
-     * The panel's side is only picked when it's shown, so it doesn't jump around while it's being used.
+     * Repositions and refills the controls after a layout pass.
      */
     fun onLayout() {
         val view = selectedView ?: return
@@ -149,20 +146,16 @@ class LayoutEditorItemControls(
     }
 
     /**
-     * The ratio the selected screen's size is locked to, or null if it's free or a control is selected. Kept with a value entered in the value
-     * dialog, since the item may not be selected anymore when it's applied
+     * The ratio the selected screen is locked to, or null when free or a control is selected.
      */
     val selectedScreenAspectRatio: Float? get() = if (selectedView?.component?.isScreen() == true) lockedRatio else null
 
     /**
-     * Sets a value entered in the value dialog on [component], the item the dialog was opened for, even if it's not selected anymore. If the layout
-     * was shown again meanwhile, which deselects it, it's selected again. [ratioWhenOpened] is the ratio it was locked to when the dialog was opened,
-     * and the size is worked out for an editor of [editorWidth] by [editorHeight] (see LayoutEditorView.resizeView)
+     * Applies a value from the value dialog to [component], reselecting it if the layout was reshown meanwhile.
      */
     fun setPropertyValue(component: LayoutComponent, property: LayoutComponentEditableProperty, value: Int, ratioWhenOpened: Float?, editorWidth: Int, editorHeight: Int) {
         val view = editor.getLayoutComponentView(component) ?: return
-        // A view that was just shown again has no size or position until it's laid out. Selecting it before that would pick its anchor and ratio
-        // from an empty rect
+        // A just-reshown view has no size until it's laid out, and selecting it before that would take its anchor and ratio from an empty rect
         view.view.doOnLayout {
             if (editor.getLayoutComponentView(component) !== view) return@doOnLayout
             // While it's still selected, its controls have the latest ratio
@@ -170,7 +163,7 @@ class LayoutEditorItemControls(
             val ratio = if (wasSelected) lockedRatio else ratioWhenOpened
             editor.reselectIfDeselectedByLayout(component)
             if (!wasSelected && selectedView === view && view.component.isScreen()) {
-                // Selecting it guessed the ratio from its shape, which can't tell an explicit Free from a 4:3 shape. Put back the one it had
+                // Put back the ratio it had, since selecting it guessed one from its shape, which can't tell Free from a 4:3 shape
                 editor.selectedScreenAspect = getScreenAspectRatio(ratio)
                 if (isExpanded) {
                     fillPanel()
@@ -282,8 +275,7 @@ class LayoutEditorItemControls(
             val view = selectedView
             if (!isChecked || fillingControls || view == null) return@addOnButtonCheckedListener
             if (checkedId == R.id.button_aspect_ratio_wide) {
-                // The Wide chip opens its menu instead (see its click listener), and the lock follows the ratio picked there. Until then
-                // the current choice is put back
+                // The Wide chip opens its menu instead and the lock follows the pick there, so put the current choice back until then
                 binding.toggleGroupAspectRatio.post { fillPanel() }
                 return@addOnButtonCheckedListener
             }
@@ -322,8 +314,7 @@ class LayoutEditorItemControls(
     }
 
     /**
-     * Fills the panel with the selected item's values. Setting the values fires the controls' listeners, so those are ignored meanwhile. Otherwise
-     * just selecting an item would change (or mark as modified) the layout.
+     * Fills the panel from the selected item, with the controls' listeners muted meanwhile.
      */
     private fun fillPanel() {
         val view = selectedView ?: return
@@ -367,7 +358,7 @@ class LayoutEditorItemControls(
         binding.layoutScaleShortcuts.isVisible = isScreen
         scaleButtons.forEach { (scale, button) -> button.isVisible = fitsInEditor(getScaleSize(scale)) }
 
-        // Only screens use their own opacity in game. Controls use the layout's opacity instead
+        // Only screens use their own opacity in game, controls the layout's
         val opacity = (view.baseAlpha * 100).roundToInt()
         binding.layoutOpacityRow.root.isVisible = isScreen
         binding.layoutOpacityRow.seekBar.progress = opacity
@@ -407,8 +398,7 @@ class LayoutEditorItemControls(
     private val lockedRatio: Float? get() = editor.selectedScreenAspectRatio
 
     /**
-     * Returns the size of the screen at an integer scale of the DS resolution. The height follows the locked aspect ratio, if any. A wide top
-     * screen keeps the DS height instead, so its middle part is at that scale
+     * Returns the screen size at an integer DS scale, where a wide top screen keeps the DS height instead.
      */
     private fun getScaleSize(scale: Int): Size {
         val ratio = lockedRatio
@@ -423,8 +413,7 @@ class LayoutEditorItemControls(
     }
 
     /**
-     * Returns the biggest size that fits in the editor with the current aspect ratio. When the ratio isn't locked, the screen's current proportions
-     * are kept.
+     * Returns the biggest size that fits the editor at the locked ratio, or at the current proportions.
      */
     private fun getFitSize(): Size {
         val view = selectedView ?: return Size(0, 0)
@@ -442,8 +431,7 @@ class LayoutEditorItemControls(
     }
 
     /**
-     * The Wide chip's menu: the ratios, and Off in a wide variant. Picking one sets the ratio of the variant shown and places its top screen
-     * for it. Other variants keep their own
+     * The Wide chip's menu: the ratios, plus Off in a wide variant.
      */
     private fun showWideAspectMenu() {
         val currentWideAspect = editor.selectedScreenWideAspect
@@ -472,7 +460,7 @@ class LayoutEditorItemControls(
     }
 
     /**
-     * Returns the choice whose locked ratio is [ratio], the reverse of [lockedRatio]. Null is Free.
+     * Returns the choice whose locked ratio is [ratio] (null for Free), the reverse of [lockedRatio].
      */
     private fun getScreenAspectRatio(ratio: Float?): ScreenAspectRatio {
         val currentWideAspect = editor.selectedScreenWideAspect
@@ -501,8 +489,7 @@ class LayoutEditorItemControls(
     }
 
     /**
-     * Places the pill just above the item if there's room, otherwise just below it, otherwise inside its top edge. It's centred on the item, but
-     * moved sideways or to the next spot if it would cover the floating menu button.
+     * Places the pill above, below or inside the item, moved aside to avoid the floating menu button.
      */
     private fun positionPill(view: LayoutComponentView) {
         val pill = binding.layoutItemPill
@@ -566,8 +553,7 @@ class LayoutEditorItemControls(
     }
 
     /**
-     * The floating menu button is drawn above the panel and gets touches first, so move the panel just past it when they would overlap. The
-     * overlap is checked against the panel's docked position without any offset, so the result doesn't flip back and forth.
+     * Pushes the panel past the floating menu button, measured from its unoffset docked position so it doesn't flip back and forth.
      */
     private fun keepPanelClearOfMenuButton() {
         val panel = binding.layoutItemPanel
