@@ -2,16 +2,15 @@ package me.magnum.melonds.domain.model
 
 const val SCREEN_WIDTH = 256
 const val SCREEN_HEIGHT = 192
-// The frame texture holds both screens stacked vertically, top screen first, with this many empty lines between them. The bottom screen starts
-// at line SCREEN_HEIGHT + SCREEN_GAP. Must match the frame texture layout in MelonInstance.cpp
+// Empty lines between the stacked screens in the frame texture; must match MelonInstance.cpp
 const val SCREEN_GAP = 2
-// Height of the frame texture, in DS pixels: both screens and the gap between them. It's that many times bigger when the 3D renderer is upscaled
+// Frame texture height in DS pixels before upscaling
 const val FRAME_TEXTURE_HEIGHT = SCREEN_HEIGHT * 2 + SCREEN_GAP
 
-// Frame rate the emulator runs at without fast-forward. Must match EMULATOR_TARGET_FPS in Configuration.h
+// Base emulator frame rate; must match EMULATOR_TARGET_FPS in Configuration.h
 const val EMULATOR_TARGET_FPS = 60
 
-// The widths of the top screen's 3D view that the core takes, which must also be even. Must match the range in Configuration.h
+// The even widths of the top screen's 3D view that the core takes; must match the range in Configuration.h
 const val MIN_WIDE_VIEW_WIDTH = SCREEN_WIDTH
 const val MAX_WIDE_VIEW_WIDTH = 768
 

@@ -23,9 +23,7 @@ data class EmulatorConfiguration(
         val syncRtcToDevice: Boolean,
         // Puts the Lua scripts' drawings into savestate and rewind pictures
         val luaDrawingsInScreenshots: Boolean,
-        // WideMelon: width of the top screen's 3D view in DS pixels at launch (WidescreenLaunch.viewWidth), or 0 when widescreen is off. Only
-        // the OpenGL and Compute renderers use it. During play it changes through EmulatorManager.setWideViewWidth, and configuration updates
-        // don't change it
+        // Top-screen 3D view width at launch in DS pixels, or 0; changed in play via EmulatorManager.setWideViewWidth, not by config updates
         val wideViewWidth: Int,
         val consoleType: ConsoleType,
         val soundEnabled: Boolean,

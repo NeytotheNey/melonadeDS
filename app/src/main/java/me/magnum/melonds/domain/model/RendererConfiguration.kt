@@ -6,9 +6,9 @@ data class RendererConfiguration(
     val dsScreenColors: Boolean,
     val screenShadow: Boolean,
     val threadedRendering: Boolean,
-    // Draws the 2D layers on their own thread. Read by the native code (MelonDSAndroidConfiguration.cpp)
+    // Draws 2D layers on their own thread (read natively)
     val threaded2dRendering: Boolean,
-    // OpenGL and compute: VRAM display shows display capture redone at the internal resolution. Read by the native code too
+    // Redo display capture at internal resolution (OpenGL/compute, read natively)
     val hiresCapture: Boolean,
     private val internalResolutionScaling: Int,
 ) {
