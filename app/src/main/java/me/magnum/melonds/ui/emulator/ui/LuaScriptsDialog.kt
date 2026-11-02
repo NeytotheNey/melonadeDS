@@ -25,6 +25,7 @@ import me.magnum.melonds.ui.common.component.text.CaptionText
 
 /**
  * Lists the session's [scripts], ticked while they run, each script's id being its position.
+ * Toggling only lasts this session, and Options… calls [onOpenOptions] to show the options dialog in this one's place.
  */
 @Composable
 fun LuaScriptsDialog(
