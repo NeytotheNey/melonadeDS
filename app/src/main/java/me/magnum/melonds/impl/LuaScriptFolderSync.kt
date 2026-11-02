@@ -8,8 +8,6 @@ import me.magnum.melonds.domain.model.rom.config.RomLuaScript
  */
 object LuaScriptFolderSync {
 
-    private val NAME_ORDER = compareBy(String.CASE_INSENSITIVE_ORDER) { name: String -> name }.thenBy { it }
-
     /**
      * Returns [scripts] brought in step with the folder. With no folder linked the list is empty. When the folder can't be read
      * ([folderScriptNames] is null) the list is kept as it is, so a lost permission or a removed card doesn't lose the switches. Otherwise
@@ -28,6 +26,6 @@ object LuaScriptFolderSync {
 
         val knownScripts = scripts.associateBy { it.fileName }
         // Some providers can list two documents with the same name. Scripts are known by name, so they're one entry
-        return folderScriptNames.distinct().sortedWith(NAME_ORDER).map { knownScripts[it] ?: RomLuaScript(fileName = it, enabled = false) }
+        return folderScriptNames.distinct().sortedWith(LuaScriptFolderContent.NAME_ORDER).map { knownScripts[it] ?: RomLuaScript(fileName = it, enabled = false) }
     }
 }

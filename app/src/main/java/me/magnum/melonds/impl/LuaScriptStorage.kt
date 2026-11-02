@@ -14,6 +14,11 @@ import java.io.File
 import java.io.InputStream
 
 /**
+ * Logcat tag of the Kotlin side of Lua scripting, shared with the native side
+ */
+internal const val LUA_LOG_TAG = "melonade-lua"
+
+/**
  * Reads the games' Lua scripts from the folder linked to each game (see RomModsConfig.luaScriptFolder). The app only ever reads that
  * folder: scripts are added and removed by the user, outside the app. The ROM details screen lists the folder, and the emulator reads the
  * enabled scripts at launch. Native never opens script files itself.
@@ -33,10 +38,6 @@ class LuaScriptStorage(private val context: Context) {
         data object Failed : ReadResult()
     }
 
-    fun isLuaScriptName(fileName: String): Boolean {
-        return fileName.endsWith(LUA_EXTENSION, ignoreCase = true)
-    }
-
     /**
      * The `.lua` files at the top of the folder, in no particular order. Subfolders are skipped. Returns null if the folder can't be read:
      * the permission was lost, it was moved or deleted, it's on a card that isn't in, or a cloud provider is still fetching it
@@ -47,10 +48,10 @@ class LuaScriptStorage(private val context: Context) {
             // isDirectory is also false when the permission is gone
             val folder = DocumentFile.fromTreeUri(context, folderUri)?.takeIf { it.isDirectory } ?: return null
             listChildren(folder.uri, DocumentsContract.getDocumentId(folder.uri))
-                ?.filter { !it.isFolder && isLuaScriptName(it.name) }
+                ?.filter { !it.isFolder && LuaScriptFolderContent.isLuaScriptName(it.name) }
                 ?.map { ScriptFile(it.name, DocumentsContract.buildDocumentUriUsingTree(folder.uri, it.handle)) }
         } catch (e: Exception) {
-            Log.w(TAG, "Could not list the script folder", e)
+            Log.w(LUA_LOG_TAG, "Could not list the script folder", e)
             null
         }
     }
@@ -102,12 +103,12 @@ class LuaScriptStorage(private val context: Context) {
                 try {
                     listChildren(treeUri, documentId)
                 } catch (e: Exception) {
-                    Log.w(TAG, "Could not list a folder in the script folder", e)
+                    Log.w(LUA_LOG_TAG, "Could not list a folder in the script folder", e)
                     null
                 }
             } ?: return null
             if (walk.gaveUp) {
-                Log.w(TAG, "The script folder has too many folders or files: the rest are left out")
+                Log.w(LUA_LOG_TAG, "The script folder has too many folders or files: the rest are left out")
             }
 
             val moduleBudget = LuaScriptFolderContent.ModuleBudget()
@@ -131,7 +132,7 @@ class LuaScriptStorage(private val context: Context) {
 
             FolderContent(modules, images)
         } catch (e: Exception) {
-            Log.w(TAG, "Could not read the script folder's modules and images", e)
+            Log.w(LUA_LOG_TAG, "Could not read the script folder's modules and images", e)
             null
         }
     }
@@ -140,7 +141,7 @@ class LuaScriptStorage(private val context: Context) {
         return try {
             context.contentResolver.openInputStream(uri)?.use { readAtMost(it, limit) }
         } catch (e: Exception) {
-            Log.w(TAG, "Could not read a file in the script folder", e)
+            Log.w(LUA_LOG_TAG, "Could not read a file in the script folder", e)
             null
         }
     }
@@ -183,10 +184,10 @@ class LuaScriptStorage(private val context: Context) {
                 bitmap.recycle()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Could not decode the image $path", e)
+            Log.w(LUA_LOG_TAG, "Could not decode the image $path", e)
             leftOut(LuaScriptFolderContent.REASON_NOT_AN_IMAGE)
         } catch (e: OutOfMemoryError) {
-            Log.w(TAG, "Not enough memory to decode the image $path", e)
+            Log.w(LUA_LOG_TAG, "Not enough memory to decode the image $path", e)
             leftOut(LuaScriptFolderContent.REASON_NOT_AN_IMAGE)
         }
     }
@@ -205,7 +206,7 @@ class LuaScriptStorage(private val context: Context) {
                 scriptFiles[fileName]?.let { readScript(it) } ?: ReadResult.FileNotFound
             }
             if (result !is ReadResult.Success) {
-                Log.w(TAG, "Skipping Lua script $fileName: $result")
+                Log.w(LUA_LOG_TAG, "Skipping Lua script $fileName: $result")
             }
             fileName to result
         }
@@ -217,7 +218,7 @@ class LuaScriptStorage(private val context: Context) {
             val content = context.contentResolver.openInputStream(scriptFile.uri)?.use { readAtMost(it, MAX_SCRIPT_SIZE + 1) } ?: return ReadResult.Failed
             if (content.size > MAX_SCRIPT_SIZE) ReadResult.TooLarge else ReadResult.Success(content)
         } catch (e: Exception) {
-            Log.w(TAG, "Could not read Lua script ${scriptFile.name}", e)
+            Log.w(LUA_LOG_TAG, "Could not read Lua script ${scriptFile.name}", e)
             ReadResult.Failed
         }
     }
@@ -241,7 +242,7 @@ class LuaScriptStorage(private val context: Context) {
     fun deleteOldScriptCopies() {
         val oldScriptsFolder = File(context.filesDir, OLD_SCRIPTS_FOLDER)
         if (oldScriptsFolder.exists() && !oldScriptsFolder.deleteRecursively()) {
-            Log.w(TAG, "Could not delete the old script copies")
+            Log.w(LUA_LOG_TAG, "Could not delete the old script copies")
         }
     }
 
@@ -259,9 +260,7 @@ class LuaScriptStorage(private val context: Context) {
     }
 
     companion object {
-        private const val TAG = "melonade-lua"
         private const val OLD_SCRIPTS_FOLDER = "scripts"
-        private const val LUA_EXTENSION = ".lua"
         const val MAX_SCRIPT_SIZE = 1024 * 1024
     }
 }

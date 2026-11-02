@@ -40,13 +40,13 @@ class LuaScriptDataStore(private val context: Context) {
             return try {
                 // Native never makes a blob this large, so a larger file isn't one of its blobs. It's left for native to replace
                 if (file.length() > MAX_DATA_SIZE) {
-                    Log.w(TAG, "Saved data of $scriptName is too large, so it's not used")
+                    Log.w(LUA_LOG_TAG, "Saved data of $scriptName is too large, so it's not used")
                     null
                 } else {
                     file.readBytes()
                 }
             } catch (e: IOException) {
-                Log.w(TAG, "Could not read the saved data of $scriptName", e)
+                Log.w(LUA_LOG_TAG, "Could not read the saved data of $scriptName", e)
                 null
             }
         }
@@ -74,7 +74,7 @@ class LuaScriptDataStore(private val context: Context) {
                 }
                 tempFile = null
             } catch (e: IOException) {
-                Log.w(TAG, "Could not save the data of $scriptName", e)
+                Log.w(LUA_LOG_TAG, "Could not save the data of $scriptName", e)
             } finally {
                 tempFile?.delete()
             }
@@ -97,7 +97,7 @@ class LuaScriptDataStore(private val context: Context) {
     fun delete(gameKey: String, scriptName: String) {
         synchronized(lock) {
             if (gameKey == sessionGameKey) {
-                Log.w(TAG, "Not deleting the saved data of $scriptName while its game is running")
+                Log.w(LUA_LOG_TAG, "Not deleting the saved data of $scriptName while its game is running")
                 return
             }
             getFile(gameKey, scriptName)?.delete()
@@ -113,7 +113,6 @@ class LuaScriptDataStore(private val context: Context) {
     }
 
     companion object {
-        private const val TAG = "melonade-lua"
         private const val DATA_FOLDER = "lua-data"
         private const val TEMP_PREFIX = "data"
         private const val TEMP_SUFFIX = ".tmp"
@@ -147,7 +146,7 @@ class LuaScriptDataStore(private val context: Context) {
             }
 
             val uriHash = MessageDigest.getInstance("SHA-256").digest(romUri.toByteArray())
-            return HOMEBREW_PREFIX + uriHash.take(8).joinToString("") { "%02x".format(it) }
+            return HOMEBREW_PREFIX + uriHash.toShortHex()
         }
 
         /**
@@ -162,7 +161,11 @@ class LuaScriptDataStore(private val context: Context) {
             }
 
             val nameHash = MessageDigest.getInstance("SHA-256").digest(scriptName.encodeToByteArray())
-            return "script-" + nameHash.take(8).joinToString("") { "%02x".format(it) } + DATA_SUFFIX
+            return "script-" + nameHash.toShortHex() + DATA_SUFFIX
+        }
+
+        private fun ByteArray.toShortHex(): String {
+            return take(8).joinToString("") { "%02x".format(it) }
         }
     }
 }

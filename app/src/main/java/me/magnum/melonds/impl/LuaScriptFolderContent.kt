@@ -18,29 +18,35 @@ object LuaScriptFolderContent {
     // Modules and images found by the walk. Past this the walk gives up, so a folder with thousands of files can't hold up the launch
     const val MAX_FOUND_FILES = 4096
 
-    const val MAX_MODULE_SIZE = 1024 * 1024
-    const val MAX_MODULES_SIZE = 2 * 1024 * 1024
+    private const val MEGA = 1024 * 1024
+
+    const val MAX_MODULE_SIZE = MEGA
+    const val MAX_MODULES_SIZE = 2 * MEGA
     const val MAX_MODULE_COUNT = 256
 
     const val MAX_IMAGE_SIDE = 1024
     const val MAX_IMAGE_COUNT = 128
-    const val MAX_IMAGE_PIXELS = 4 * 1024 * 1024
+    const val MAX_IMAGE_PIXELS = 4 * MEGA
 
     // Shown after "module 'x' wasn't loaded: " and "image 'x' wasn't loaded: "
-    const val REASON_MODULE_TOO_LARGE = "modules are limited to 1 MB each"
-    const val REASON_MODULES_TOO_LARGE = "modules are limited to 2 MB in total"
-    const val REASON_TOO_MANY_MODULES = "modules are limited to 256 files"
-    const val REASON_IMAGE_TOO_LARGE = "images are limited to 1024x1024 pixels each"
-    const val REASON_IMAGES_TOO_LARGE = "images are limited to 4M pixels in total"
-    const val REASON_TOO_MANY_IMAGES = "images are limited to 128 files"
+    const val REASON_MODULE_TOO_LARGE = "modules are limited to ${MAX_MODULE_SIZE / MEGA} MB each"
+    const val REASON_MODULES_TOO_LARGE = "modules are limited to ${MAX_MODULES_SIZE / MEGA} MB in total"
+    const val REASON_TOO_MANY_MODULES = "modules are limited to $MAX_MODULE_COUNT files"
+    const val REASON_IMAGE_TOO_LARGE = "images are limited to ${MAX_IMAGE_SIDE}x$MAX_IMAGE_SIDE pixels each"
+    const val REASON_IMAGES_TOO_LARGE = "images are limited to ${MAX_IMAGE_PIXELS / MEGA}M pixels in total"
+    const val REASON_TOO_MANY_IMAGES = "images are limited to $MAX_IMAGE_COUNT files"
     const val REASON_UNREADABLE = "the file couldn't be read"
     const val REASON_NOT_AN_IMAGE = "the file couldn't be read as an image"
 
-    private const val LUA_EXTENSION = ".lua"
+    const val LUA_EXTENSION = ".lua"
     private const val PNG_EXTENSION = ".png"
     private const val INIT_MODULE = "init"
     private val NAME_PART = Regex("[A-Za-z0-9_-]+")
-    private val NAME_ORDER = compareBy(String.CASE_INSENSITIVE_ORDER) { name: String -> name }.thenBy { it }
+
+    /**
+     * How scripts, modules and images are ordered by name: case-insensitive, then by exact name for ties
+     */
+    val NAME_ORDER: Comparator<String> = compareBy(String.CASE_INSENSITIVE_ORDER) { name: String -> name }.thenBy { it }
 
     /**
      * An entry of a folder listing. [handle] is whatever the lister needs to list or read it later
@@ -61,6 +67,13 @@ object LuaScriptFolderContent {
 
     fun isNamePartAllowed(part: String): Boolean {
         return NAME_PART.matches(part)
+    }
+
+    /**
+     * Whether [fileName] is a script or module file
+     */
+    fun isLuaScriptName(fileName: String): Boolean {
+        return fileName.endsWith(LUA_EXTENSION, ignoreCase = true)
     }
 
     /**
