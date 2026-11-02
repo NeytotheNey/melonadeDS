@@ -10,12 +10,7 @@ import me.magnum.melonds.domain.model.emulator.LuaScriptOption
 import java.util.UUID
 
 /**
- * The layout Lua scripts asked for with `melon.screen.set_layout()`, by the same rules as [LuaUiOverrides]: each running script's latest request
- * is kept, the most recent one from a script that still runs wins, a script's requests go when it stops, and the player picking a layout by
- * hand drops them all. No baseline is needed: with no request, the ROM's own layout (the player's) is shown.
- *
- * Kept apart from [LuaUiOverrides] because the layout is applied by the view model as the events are sent, while the screen applies the other
- * settings as it receives them. Not thread-safe: used on the main thread only.
+ * Same rules as [LuaUiOverrides] for the layout a script asked for, with no baseline because null means the player's layout; main thread only.
  */
 class LuaLayoutRequests {
 
@@ -31,8 +26,9 @@ class LuaLayoutRequests {
         get() = requests.values.lastOrNull()
 
     /**
-     * A script asked for a layout, or for the player's layout back. A request for nothing (see [LuaLayoutRequest.None]) keeps the script's
-     * earlier one. Returns the layout scripts want shown now
+     * A script asked for a layout, or for the player's layout back; [LuaLayoutRequest.None] keeps its earlier one.
+     *
+     * @return the layout scripts want shown now.
      */
     fun onScriptRequest(scriptId: Int, request: LuaLayoutRequest): UUID? {
         if (scriptId !in stoppedScripts && request != LuaLayoutRequest.None) {
@@ -82,15 +78,13 @@ sealed interface LuaLayoutRequest {
     data class Layout(val id: UUID) : LuaLayoutRequest
 
     /**
-     * Nothing to switch to: the option is "Don't change", its layout was deleted, or the key isn't a layout option (native already refuses
-     * those). It does nothing, so the script's earlier request stays
+     * Nothing to switch to (the option is "Don't change", its layout was deleted, or the key isn't a layout option), so the earlier request stays.
      */
     data object None : LuaLayoutRequest
 }
 
 /**
- * The request a script's `melon.screen.set_layout(optionKey)` makes: the layout the player picked for that layout option, from the script's
- * [options] and their [values]. [layoutExists] tells whether a layout is still there
+ * The request a script's `melon.screen.set_layout(optionKey)` makes: the layout the player picked for that option in [options] and [values].
  */
 fun getLuaLayoutRequest(options: List<LuaScriptOption>, values: Map<String, String>, optionKey: String?, layoutExists: (UUID) -> Boolean): LuaLayoutRequest {
     if (optionKey == null) {
@@ -102,11 +96,7 @@ fun getLuaLayoutRequest(options: List<LuaScriptOption>, values: Map<String, Stri
 }
 
 /**
- * Emits each time the player picks a layout by hand mid-session, which drops the scripts' layout requests. [romLayout] is the ROM's own layout,
- * which completes once it's deleted, or null if the ROM uses the global one. [selectedGlobalLayoutIds] is the global layout setting.
- *
- * Only a change of the global setting while it's the layout in use counts. Editing a layout isn't a pick, and neither is the ROM's layout being
- * deleted (the global one takes over) or the global one being deleted (the default is shown, but the setting stays)
+ * Emits when the player picks a layout by hand mid-session (global-setting change only; edits and deletions don't count).
  */
 fun getPlayerLayoutPicks(romLayout: Flow<*>?, selectedGlobalLayoutIds: Flow<UUID>): Flow<Unit> {
     val globalPicks = selectedGlobalLayoutIds.distinctUntilChanged().drop(1).map { }

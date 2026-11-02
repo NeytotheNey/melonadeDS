@@ -3,16 +3,8 @@ package me.magnum.melonds.ui.emulator
 import me.magnum.melonds.ui.emulator.model.LuaUiSetting
 
 /**
- * Keeps track of what Lua scripts asked the UI for, so it can be put back once they stop. Each setting is handled on its own:
- * - The baseline is the player's own value from just before the first script request for that setting.
- * - Each running script's latest request is kept by script ID. The value in effect is the most recent request from a script that still runs,
- *   or the baseline when there is none.
- * - When a script stops, its requests are dropped, and the setting goes to the most recent remaining request, or back to the baseline.
- * - When the player changes the setting by hand, the player wins: every script request for it is dropped, and the player's value becomes the
- *   baseline the next time a script asks.
- *
- * Only knows about values. The caller reads and changes the actual UI, and only changes it when the value differs. Not thread-safe: used on
- * the main thread only.
+ * Per-setting stack of script requests over a player baseline; the newest running script wins, the player's own change clears them, and it's
+ * main-thread only.
  */
 class LuaUiOverrides {
 
@@ -25,13 +17,13 @@ class LuaUiOverrides {
     }
 
     private val settings = LuaUiSetting.entries.associateWith { SettingState() }.also { resetFastForwardBaseline(it) }
-    // A stopped script stays off until the player switches it back on (a reset doesn't), so a request of its that was still on its way is
-    // ignored
+    // A stopped script stays off until the player switches it back on, so a request of its still on its way is ignored
     private val stoppedScripts = mutableSetOf<Int>()
 
     /**
-     * A script asked for [value]. [currentValue] is what the UI shows now, which becomes the baseline if no script holds the setting yet.
-     * Returns the value the UI should show.
+     * A script asked for [value]; [currentValue] becomes the baseline if no script holds the setting yet.
+     *
+     * @return the value the UI should show.
      */
     fun onScriptRequest(setting: LuaUiSetting, scriptId: Int, value: Boolean, currentValue: Boolean): Boolean {
         if (scriptId in stoppedScripts) {
@@ -50,7 +42,9 @@ class LuaUiOverrides {
     }
 
     /**
-     * A script was switched off. Returns the value the UI should show for each setting the script held.
+     * A script was switched off.
+     *
+     * @return the value the UI should show for each setting the script held.
      */
     fun onScriptStopped(scriptId: Int): Map<LuaUiSetting, Boolean> {
         stoppedScripts.add(scriptId)
@@ -64,7 +58,7 @@ class LuaUiOverrides {
     }
 
     /**
-     * The player switched a stopped script back on. Its new requests count again, under the same rules.
+     * The player switched a stopped script back on, so its new requests count again.
      */
     fun onScriptStarted(scriptId: Int) {
         stoppedScripts.remove(scriptId)
@@ -81,8 +75,7 @@ class LuaUiOverrides {
     }
 
     /**
-     * A session starts with the player's own values for some settings ([playerValues]), shown before any of its scripts run. They're the
-     * baselines of the session's first requests for those settings, unless the player changes them first
+     * A session starts with the player's own values for some settings ([playerValues]), which become the baselines of its first requests.
      */
     fun onSessionStarted(playerValues: Map<LuaUiSetting, Boolean>) {
         playerValues.forEach { (setting, value) ->
@@ -98,7 +91,9 @@ class LuaUiOverrides {
     }
 
     /**
-     * The session ended, so every script stopped. Returns the baseline of each setting a script still held, and forgets everything.
+     * The session ended, so every script stopped and everything is forgotten.
+     *
+     * @return the baseline of each setting a script still held.
      */
     fun onSessionEnded(): Map<LuaUiSetting, Boolean> {
         val newValues = mutableMapOf<LuaUiSetting, Boolean>()
@@ -114,8 +109,7 @@ class LuaUiOverrides {
     }
 
     /**
-     * Every session starts with fast-forward off. The toggle can still show the previous game's value when the next game's first requests
-     * arrive (from on_load(), before the screen resets it), so that value must not become the baseline
+     * Every session starts with fast-forward off, so the toggle's possibly stale value must not become the baseline.
      */
     private fun resetFastForwardBaseline(settings: Map<LuaUiSetting, SettingState>) {
         settings.getValue(LuaUiSetting.FAST_FORWARD).knownBaseline = false
