@@ -21,7 +21,7 @@ fun MelonTheme(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
-    // Colours only change with the configuration, like the dark mode or the wallpaper colours
+    // Colors only change with the configuration, like the dark mode or the wallpaper colors
     val configuration = LocalConfiguration.current
     val colorScheme = remember(context, configuration, isDarkTheme) {
         when {
@@ -43,8 +43,7 @@ fun MelonTheme(
 }
 
 /**
- * Whether dynamic colours have been applied to the theme of this context. This is decided when the activity is created (see MelonDSApplication), so
- * that the Compose and View based UIs always use the same colours.
+ * Whether dynamic colors were applied to this context's theme at activity creation (see MelonDSApplication), so Compose and Views match.
  */
 private fun Context.isDynamicColorsApplied(): Boolean {
     val typedValue = TypedValue()

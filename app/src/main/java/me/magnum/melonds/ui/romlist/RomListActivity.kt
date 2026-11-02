@@ -50,7 +50,7 @@ class RomListActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
-        // installSplashScreen() switches to the post-splash theme, which overrides the dynamic colours applied when the activity was created
+        // installSplashScreen() switches to the post-splash theme, which overrides the dynamic colors applied when the activity was created
         DynamicColors.applyToActivityIfAvailable(this, (application as MelonDSApplication).dynamicColorsOptions)
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -71,7 +71,7 @@ class RomListActivity : AppCompatActivity() {
             }
         })
 
-        // Whether a settings restore was applied when the app started. Read once, so only on the first creation of this screen
+        // Whether a settings restore was applied when the app started, read only on this screen's first creation since it can be read once
         val restoreResult = if (savedInstanceState == null) PendingSettingsRestore.consumeResult(this) else null
 
         setContent {

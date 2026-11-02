@@ -13,9 +13,7 @@ import me.magnum.melonds.R
 val gameMasteryColor: Color get() = Color(0xFFFFD700)
 
 /**
- * The melonDS colour scheme, generated from the melonDS red (#F44336) as the seed colour (fidelity palettes with tonal spot neutrals). It's read
- * from the m3* colours in res/values/colors.xml and res/values-night/colors.xml, which the View based screens use too, so both always match.
- * Used when dynamic colours are not in use.
+ * The melonDS color scheme seeded from #F44336, read from the m3* colors in colors.xml so the Compose and View based screens always match.
  */
 fun Context.melonColorScheme(isDarkTheme: Boolean): ColorScheme {
     // The requested mode isn't always the mode of this context, like for the achievement list, which is always dark
@@ -31,7 +29,7 @@ fun Context.melonColorScheme(isDarkTheme: Boolean): ColorScheme {
     fun color(@ColorRes id: Int) = Color(ContextCompat.getColor(colorContext, id))
 
     val primary = color(R.color.m3Primary)
-    // The colours that aren't set here (the scrim and the fixed colours) keep the M3 defaults, like with lightColorScheme() and darkColorScheme()
+    // The colors that aren't set here (the scrim and the fixed colors) keep the M3 defaults, like with lightColorScheme() and darkColorScheme()
     val baseScheme = if (isDarkTheme) darkColorScheme() else lightColorScheme()
     return baseScheme.copy(
         primary = primary,
@@ -57,7 +55,7 @@ fun Context.melonColorScheme(isDarkTheme: Boolean): ColorScheme {
         onSurface = color(R.color.m3OnSurface),
         surfaceVariant = color(R.color.m3SurfaceVariant),
         onSurfaceVariant = color(R.color.m3OnSurfaceVariant),
-        // lightColorScheme() and darkColorScheme() use the primary colour by default
+        // lightColorScheme() and darkColorScheme() use the primary color by default
         surfaceTint = primary,
         inverseSurface = color(R.color.m3InverseSurface),
         inverseOnSurface = color(R.color.m3InverseOnSurface),
