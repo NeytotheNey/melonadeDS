@@ -67,7 +67,7 @@ struct OptionValueFields
     }
 };
 
-// LuaScriptOptionValue.TYPE_*
+// LuaScriptOptionType.nativeId, carried by LuaScriptOptionValue.type
 static constexpr jint kOptionTypeBoolean = 0;
 static constexpr jint kOptionTypeInteger = 1;
 static constexpr jint kOptionTypeNumber = 2;

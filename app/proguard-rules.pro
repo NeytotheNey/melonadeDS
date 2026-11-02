@@ -32,6 +32,8 @@
 -keep class me.magnum.melonds.domain.model.MicSource { *; }
 -keep class me.magnum.melonds.domain.model.Cheat { *; }
 -keep class me.magnum.melonds.domain.model.emulator.LuaScriptSetup { *; }
+-keep class me.magnum.melonds.domain.model.emulator.LuaScriptOptionValue { *; }
+-keep class me.magnum.melonds.domain.model.emulator.LuaScriptDataSnapshot { *; }
 -keep class me.magnum.melonds.domain.model.emulator.LuaScriptModule { *; }
 -keep class me.magnum.melonds.domain.model.emulator.LuaScriptImage { *; }
 -keep class me.magnum.melonds.domain.model.DSiWareTitle { *; }
