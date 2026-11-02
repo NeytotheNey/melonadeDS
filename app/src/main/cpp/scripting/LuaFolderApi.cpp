@@ -11,8 +11,8 @@ namespace MelonDSAndroid
 // melon.image: images made with new() have the same size cap as the ones from the folder
 static const lua_Integer kMaxImageSide = 1024;
 
-// Registry keys (their addresses are): the modules a state has loaded, and the ones that are loading, in order. Not const, so that the compiler
-// can't merge them
+// Registry keys (their addresses are) for the modules a state has loaded and the ones that are loading, in order; not const, so that the
+// compiler can't merge them
 static char kLoadedModulesKey;
 static char kRequireChainKey;
 
@@ -46,7 +46,7 @@ void LuaFolderApi::install(lua_State* L)
 }
 
 /**
- * The entry named [name] in one of the folder's maps (LuaFolderContent::modules or images), or null. [folder] may be null
+ * The entry named [name] in one of the folder's maps (LuaFolderContent::modules or images), or null (also when [folder] is)
  */
 template <typename Map>
 static const typename Map::mapped_type* findInFolder(const Map* folder, const char* name, size_t length)
@@ -70,9 +70,8 @@ static int raiseWithPosition(lua_State* L)
 }
 
 /**
- * require(name): loads a module from the script folder (see LuaFolderContent) once per state, and gives what it returned (true if nothing). Text
- * only, like load(). There's no package table, so the folder is the only place modules come from. Lua is built as C, so nothing here holds a
- * C++ object while a Lua call could raise an error
+ * require(name): loads a text module from the script folder (see LuaFolderContent) once per state and gives what it returned (true if nothing),
+ * holding no C++ object while a Lua call could raise an error, since Lua is built as C
  */
 int LuaFolderApi::require(lua_State* L)
 {
@@ -135,8 +134,8 @@ int LuaFolderApi::require(lua_State* L)
     lua_pushcfunction(L, LuaSandbox::messageHandler);
     lua_replace(L, 4);
 
-    // On the chain while it runs, and taken off again whether it fails or not, so that a pcall(require, ...) that failed can be tried again.
-    // Like Lua's require, the module gets its name and its path
+    // On the chain while it runs (getting its name and path, like Lua's require), and taken off again whether it fails or not, so that a
+    // pcall(require, ...) that failed can be tried again
     lua_pushvalue(L, 1);
     lua_rawseti(L, 3, chainLength + 1);
     lua_pushvalue(L, 1);
@@ -169,8 +168,7 @@ static LuaImage* pushImage(lua_State* L, int width, int height, const u32* pixel
 }
 
 /**
- * melon.image.load(path): an image from the script folder by its path in it ("img/hud.png"), or nil and why not. Its pixels stay the folder's,
- * outside the script's memory
+ * melon.image.load(path): an image from the script folder by its path in it ("img/hud.png"), or nil and why not
  */
 int LuaFolderApi::imageLoad(lua_State* L)
 {
@@ -197,8 +195,7 @@ int LuaFolderApi::imageLoad(lua_State* L)
 }
 
 /**
- * melon.image.new(w, h, argb): an image made from a string of 4 bytes per pixel, each one 0xAARRGGBB little-endian (so B, G, R, A). It lives in
- * the script's memory
+ * melon.image.new(w, h, argb): an image made from a string of 4 bytes per pixel, each one 0xAARRGGBB little-endian (so B, G, R, A)
  */
 int LuaFolderApi::imageNew(lua_State* L)
 {
@@ -216,7 +213,7 @@ int LuaFolderApi::imageNew(lua_State* L)
                           (int) std::min<size_t>(length, INT32_MAX));
     }
 
-    // Converting goes through every pixel. The userdata's memory is charged when it's allocated
+    // Converting goes through every pixel (the userdata's memory is charged when it's allocated)
     melonade_charge_work(L, (lua_Integer) pixelCount);
     LuaImage* image = pushImage(L, (int) width, (int) height, nullptr, pixelCount * sizeof(u32));
     auto* pixels = const_cast<u32*>(image->pixels);

@@ -57,7 +57,7 @@ static T busRead(NDS& nds, u32 address, bool isArm9)
 template <typename T>
 static void busWrite(NDS& nds, u32 address, T value, bool isArm9)
 {
-    // Through the bus, like AR cheats. Main RAM and shared WRAM writes invalidate the JIT there
+    // Through the bus like AR cheats, so that main RAM and shared WRAM writes invalidate the JIT there
     if constexpr (sizeof(T) == 1)
         isArm9 ? nds.ARM9Write8(address, value) : nds.ARM7Write8(address, value);
     else if constexpr (sizeof(T) == 2)

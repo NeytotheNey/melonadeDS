@@ -6,7 +6,7 @@ namespace MelonDSAndroid
 {
 
 /**
- * The key at index 1. Only real strings: numbers aren't turned into keys
+ * The key at index 1, which must be a real string (numbers aren't turned into keys)
  */
 static std::string_view checkStorageKey(lua_State* L)
 {
@@ -71,7 +71,7 @@ int LuaStorageApi::set(lua_State* L)
     if (error != LuaStorage::EncodeError::None)
         store.scratch.clear();
 
-    // Charged before the value is kept. If the budget runs out here, the storage stays as it was
+    // Charged before the value is kept, so that the storage stays as it was if the budget runs out here
     melonade_charge_work(L, (lua_Integer) encodedSize + 1);
     if (error == LuaStorage::EncodeError::ValueType)
         return luaL_error(L, LuaStorage::getErrorMessage(error), lua_typename(L, badType));

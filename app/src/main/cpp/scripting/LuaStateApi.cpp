@@ -7,15 +7,14 @@ using namespace melonDS;
 namespace MelonDSAndroid
 {
 
-// melon.state: slots per script. A save copies the whole emulator state (a few MB on a DS, more on a DSi), which takes milliseconds, so each
-// script can only save once every kStateSaveInterval frames (half a second), and saves and loads are charged kStateWork steps (5% of a
-// callback's budget). Every script's slots together hold at most kMaxStateSlotMemory
+// melon.state: a save copies the whole emulator state, which takes milliseconds, so each script can only save once every kStateSaveInterval
+// frames, and saves and loads are charged kStateWork steps
 static const int kStateSaveInterval = 30;
 static const lua_Integer kStateWork = 1'000'000;
 static const size_t kMaxStateSlotMemory = 64 * 1024 * 1024;
 
 /**
- * The slot (0 to kStateSlotCount - 1) of a melon.state call. A slot that isn't 1 to 4 is a mistake in the script, so it raises an error
+ * The slot (0 to kStateSlotCount - 1) of a melon.state call, raising an error for one that isn't 1 to 4
  */
 static int checkStateSlot(lua_State* L)
 {
@@ -47,8 +46,7 @@ int LuaStateApi::save(lua_State* L)
     if (script.lastStateSaveFramePass && engine->framePass - *script.lastStateSaveFramePass < kStateSaveInterval)
         return pushStateFailure(L, "saved a state too recently (a script can save once every 30 frames)");
 
-    // Charged first: once the state is in the slot, nothing may fail. Lua errors are longjmps, which skip C++ destructors, so the block below
-    // keeps its C++ objects to itself and raises nothing
+    // Charged first, since the block below must raise nothing: Lua errors are longjmps, which would skip its C++ destructors
     melonade_charge_work(L, kStateWork);
     script.lastStateSaveFramePass = engine->framePass;
 
@@ -101,7 +99,7 @@ int LuaStateApi::load(lua_State* L)
         return 2;
     }
 
-    // The load itself (with its backup) runs once every script's on_frame() has run. If several are asked for before then, the last one wins
+    // The load itself (with its backup) runs once every script's on_frame() has run, and the last one asked for wins
     melonade_charge_work(L, kStateWork);
     engine->pendingStateLoadScript = script.id;
     engine->pendingStateLoadSlot = slot;
