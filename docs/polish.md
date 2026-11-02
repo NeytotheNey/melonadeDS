@@ -23,7 +23,7 @@ A cleanup pass over everything the fork had added since `c42995ca`, on branch `c
 
 **Phase 5, resources, strings, build** (`0ecffc27..f1cc27d9`): shared row styles and picker defaults, string fixes, a `PreferenceKeys` test against the XML, more JVM tests, a portable `emu.sh`, a merged shader dumper, and the UI strings in American spelling.
 
-**Phase 6, comment pass** (`3d495c59..4597a377`): about 450 multi-sentence comment blocks cut to one sentence, plus American-spelling renames where every reference was in the fork's own code. Dropped rationale is in the commit bodies.
+**Phase 6, comment pass** (`3d495c59..4597a377`): about 450 multi-sentence comment blocks cut to one sentence, plus American-spelling renames where every reference was in the fork's own code. Dropped rationale is in the commit bodies. The user tried its debug APK on the phone on 2026-11-02 and saw no issues.
 
 **Phase 7, docs and repo root**: the root keeps README.md, MODS.md and LICENSE; the other docs moved under `docs/` and were condensed (see [README.md](README.md)); local paths became upstream repos at a commit.
 
