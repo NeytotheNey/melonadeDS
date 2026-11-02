@@ -86,7 +86,7 @@ sealed class ControllerAppearance {
         private val CLASSIC = raised(0xFF8B8E97, 0xFF6E717A, 0xFF2C2E34, WHITE)
         private val DS_LITE = raised(0xFFE4E5EA, 0xFFC2C4CB, 0xFF8A8D96, 0xFF4A4D55.toInt())
         private val CHARCOAL = raised(0xFF3D4048, 0xFF2D3037, 0xFF111216, 0xFFC9CBD1.toInt())
-        private val SUPER_COLOURS = Vector(
+        private val SUPER_COLORS = Vector(
             Shading.RAISED,
             colors(0xFF4A4D55, 0xFF383B42, 0xFF1A1B1F, WHITE),
             mapOf(
@@ -117,7 +117,7 @@ sealed class ControllerAppearance {
                 ControllerStyle.CLASSIC -> CLASSIC
                 ControllerStyle.DS_LITE -> DS_LITE
                 ControllerStyle.CHARCOAL -> CHARCOAL
-                ControllerStyle.SUPER_COLOURS -> SUPER_COLOURS
+                ControllerStyle.SUPER_COLOURS -> SUPER_COLORS
                 ControllerStyle.INDIGO -> INDIGO
                 ControllerStyle.OUTLINE -> OUTLINE
                 ControllerStyle.SOFT_TINT -> SOFT_TINT

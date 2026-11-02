@@ -259,22 +259,22 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
      * Trims each D-pad arm so at least one empty cell separates it from the center; hit areas are unchanged.
      */
     private fun separateDpadArms(parts: List<RaisedButtonView.Part>, grids: Array<PartGrid>) {
-        val centreIndex = parts.indexOfFirst { it.isDpad && it.input == null }
-        if (centreIndex < 0) return
+        val centerIndex = parts.indexOfFirst { it.isDpad && it.input == null }
+        if (centerIndex < 0) return
 
         // The center's cells in view pixels, grown by one cell all round
-        val centre = grids[centreIndex]
+        val center = grids[centerIndex]
         val keepOut = RectF()
-        centre.mask.forEachCell { x, y ->
-            if (centre.mask[x, y]) {
-                keepOut.union(centre.originX + x * cellSize, centre.originY + y * cellSize, centre.originX + (x + 1) * cellSize, centre.originY + (y + 1) * cellSize)
+        center.mask.forEachCell { x, y ->
+            if (center.mask[x, y]) {
+                keepOut.union(center.originX + x * cellSize, center.originY + y * cellSize, center.originX + (x + 1) * cellSize, center.originY + (y + 1) * cellSize)
             }
         }
         if (keepOut.isEmpty) return
         keepOut.inset(-cellSize + OVERLAP_TOLERANCE, -cellSize + OVERLAP_TOLERANCE)
 
         for (i in parts.indices) {
-            if (i == centreIndex || !parts[i].isDpad) continue
+            if (i == centerIndex || !parts[i].isDpad) continue
             val arm = grids[i]
             arm.mask.forEachCell { x, y ->
                 val left = arm.originX + x * cellSize
@@ -298,10 +298,10 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     /**
      * Where a part's label is centered, in detail cells.
      */
-    private fun labelCentre(part: RaisedButtonView.Part, grid: PartGrid, transform: Matrix): FloatArray {
-        val centre = floatArrayOf(part.labelX, part.labelY)
-        transform.mapPoints(centre)
-        return grid.toDetail(centre[0], centre[1])
+    private fun labelCenter(part: RaisedButtonView.Part, grid: PartGrid, transform: Matrix): FloatArray {
+        val center = floatArrayOf(part.labelX, part.labelY)
+        transform.mapPoints(center)
+        return grid.toDetail(center[0], center[1])
     }
 
     /**
@@ -311,8 +311,8 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         var scale = Int.MAX_VALUE
         for (i in parts.indices) {
             val letter = parts[i].label?.singleOrNull()?.let { PixelIcons.LETTERS[it] } ?: continue
-            val centre = labelCentre(parts[i], grids[i], transform)
-            fit(listOf(letter), centre[0], centre[1], Int.MAX_VALUE, interiors[i].detail, true)?.let {
+            val center = labelCenter(parts[i], grids[i], transform)
+            fit(listOf(letter), center[0], center[1], Int.MAX_VALUE, interiors[i].detail, true)?.let {
                 scale = min(scale, it.scale)
             }
         }
@@ -322,7 +322,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     /**
      * Where a part's icon or arrow is centered, in detail cells: on its glyph if it has one, otherwise on its face.
      */
-    private fun iconCentre(part: RaisedButtonView.Part, grid: PartGrid, face: Path, glyph: Path): FloatArray {
+    private fun iconCenter(part: RaisedButtonView.Part, grid: PartGrid, face: Path, glyph: Path): FloatArray {
         val bounds = RectF()
         if (part.glyph != null) glyph.computeBounds(bounds, true) else face.computeBounds(bounds, true)
         return grid.toDetail(bounds.centerX(), bounds.centerY())
@@ -354,8 +354,8 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
             val part = parts[i]
             val arrow = part.pixelIcon
             if (!part.isDpad || arrow == null) continue
-            val centre = iconCentre(part, grids[i], faces[i], glyphs[i])
-            fit(listOf(arrow), centre[0], centre[1], iconScaleLimit(arrow, faces[i]), interiors[i].detail, true)?.let {
+            val center = iconCenter(part, grids[i], faces[i], glyphs[i])
+            fit(listOf(arrow), center[0], center[1], iconScaleLimit(arrow, faces[i]), interiors[i].detail, true)?.let {
                 scale = min(scale, it.scale)
             }
         }
@@ -387,7 +387,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         val isDimmed = icon != null && icon.alpha < 255
         val ink = Mask(detailInterior.width, detailInterior.height)
         val inkShadow = Mask(detailInterior.width, detailInterior.height)
-        val iconAt = iconCentre(part, grid, face, glyph)
+        val iconAt = iconCenter(part, grid, face, glyph)
         // Hand-drawn icons, then their compact version, are tried with and then without their shadow before the vector icon is rasterized
         val drewPixelIcon = listOfNotNull(pixelIcon, pixelIcon?.compact).any { option ->
             val maxScale = min(iconScaleLimit(option, face), iconScale)
@@ -412,21 +412,21 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
             }
         }
         if (part.label != null) {
-            val centre = labelCentre(part, grid, transform)
+            val center = labelCenter(part, grid, transform)
             // Long labels fall back to shorter ones on buttons too small for them
             val candidates = listOf(part.label) + LABEL_FALLBACKS[part.label].orEmpty()
             candidates.firstOrNull { text ->
-                val bigFits = text.length == 1 && stampText(text, PixelIcons.LETTERS, centre, letterScale, detailInterior, ink, inkShadow)
-                bigFits || stampText(text, PixelIcons.SMALL_LETTERS, centre, Int.MAX_VALUE, detailInterior, ink, inkShadow)
+                val bigFits = text.length == 1 && stampText(text, PixelIcons.LETTERS, center, letterScale, detailInterior, ink, inkShadow)
+                bigFits || stampText(text, PixelIcons.SMALL_LETTERS, center, Int.MAX_VALUE, detailInterior, ink, inkShadow)
             }
         }
         val inkColor = if (isDimmed) colors.shadow else colors.ink
 
         // The D-pad's center gets a small round dent, shadowed top-left and lit bottom-right; cell x spans x to x + 1, hence the half-cell shift
         val dimpleRadius = min(DIMPLE_RADIUS, faceBounds.width() / detailSize / 6f)
-        val faceCentre = grid.toDetail(faceBounds.centerX(), faceBounds.centerY())
+        val faceCenter = grid.toDetail(faceBounds.centerX(), faceBounds.centerY())
         val hasDimple = part.isDpad && part.input == null && dimpleRadius >= MIN_DIMPLE_RADIUS
-        val dimple = if (hasDimple) Dimple(faceCentre[0] - 0.5f, faceCentre[1] - 0.5f, dimpleRadius) else null
+        val dimple = if (hasDimple) Dimple(faceCenter[0] - 0.5f, faceCenter[1] - 0.5f, dimpleRadius) else null
         val shader = PartShader(art, colors, grid.mask, partInterior, ink, inkShadow, inkColor, dimple)
 
         val left = grid.originX.roundToInt()
@@ -460,15 +460,15 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         return mask
     }
 
-    private fun stampText(text: String, font: Map<Char, PixelIcon>, centre: FloatArray, maxScale: Int, interior: Mask, ink: Mask, inkShadow: Mask): Boolean {
+    private fun stampText(text: String, font: Map<Char, PixelIcon>, center: FloatArray, maxScale: Int, interior: Mask, ink: Mask, inkShadow: Mask): Boolean {
         val letters = text.map { font[it] ?: return false }
-        return stamp(letters, centre[0], centre[1], maxScale, interior, ink, inkShadow, true)
+        return stamp(letters, center[0], center[1], maxScale, interior, ink, inkShadow, true)
     }
 
     /**
-     * The left or top edge of a [size]-cell box centered on [centre], worked out in half cells and rounding up or left.
+     * The left or top edge of a [size]-cell box centered on [center], worked out in half cells and rounding up or left.
      */
-    private fun centredStart(size: Int, centre: Float) = Math.floorDiv((centre * 2).roundToInt() - size, 2)
+    private fun centeredStart(size: Int, center: Float) = Math.floorDiv((center * 2).roundToInt() - size, 2)
 
     /**
      * Visits every ink cell of [icons] laid side by side with a one-cell gap; stops and returns false when [cell] returns false.
@@ -487,16 +487,16 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * The biggest scale up to [maxScale] at which [icons] centered on ([centreX], [centreY]) land on [interior] with their shadow, and where they
+     * The biggest scale up to [maxScale] at which [icons] centered on ([centerX], [centerY]) land on [interior] with their shadow, and where they
      * go, or null.
      */
-    private fun fit(icons: List<PixelIcon>, centreX: Float, centreY: Float, maxScale: Int, interior: Mask, withShadow: Boolean): Placement? {
+    private fun fit(icons: List<PixelIcon>, centerX: Float, centerY: Float, maxScale: Int, interior: Mask, withShadow: Boolean): Placement? {
         val shadowSize = if (withShadow) 1 else 0
         val iconsWidth = icons.sumOf { it.width } + icons.size - 1
         val iconsHeight = icons.maxOf { it.height }
         for (scale in min(maxScale, interior.height / iconsHeight) downTo 1) {
-            val left = centredStart(iconsWidth * scale + shadowSize, centreX)
-            val top = centredStart(iconsHeight * scale + shadowSize, centreY)
+            val left = centeredStart(iconsWidth * scale + shadowSize, centerX)
+            val top = centeredStart(iconsHeight * scale + shadowSize, centerY)
             val fits = forEachInkCell(icons, left, top, scale) { cellLeft, cellTop ->
                 (cellTop until cellTop + scale + shadowSize).all { y -> (cellLeft until cellLeft + scale + shadowSize).all { x -> interior[x, y] } }
             }
@@ -508,8 +508,8 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     /**
      * Stamps [icons] into [ink], and their shadow into [inkShadow] if [withShadow], at the biggest scale [fit] allows; returns false if none fits.
      */
-    private fun stamp(icons: List<PixelIcon>, centreX: Float, centreY: Float, maxScale: Int, interior: Mask, ink: Mask, inkShadow: Mask, withShadow: Boolean): Boolean {
-        val placement = fit(icons, centreX, centreY, maxScale, interior, withShadow) ?: return false
+    private fun stamp(icons: List<PixelIcon>, centerX: Float, centerY: Float, maxScale: Int, interior: Mask, ink: Mask, inkShadow: Mask, withShadow: Boolean): Boolean {
+        val placement = fit(icons, centerX, centerY, maxScale, interior, withShadow) ?: return false
         val scale = placement.scale
         forEachInkCell(icons, placement.left, placement.top, scale) { cellLeft, cellTop ->
             for (y in cellTop until cellTop + scale) {
