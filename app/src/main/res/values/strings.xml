@@ -266,7 +266,7 @@
     <string name="fps_counter_position">FPS counter position</string>
     <string name="show_status_bar">Show status bar</string>
     <string name="show_status_bar_summary">Show the clock and battery while playing</string>
-    <string name="threaded_rendering_summary">Draws 3D on extra CPU cores. Software renderer only. Faster, but can cause glitches.</string>
+    <string name="threaded_rendering_summary">Draws 3D on extra CPU cores. Faster, but can cause glitches.</string>
     <string name="threaded_2d_rendering">Threaded 2D rendering</string>
     <string name="threaded_2d_rendering_summary">Draws 2D on a separate CPU core, leaving more time for emulation. Works with any renderer.</string>
     <string name="filter">Filter</string>
