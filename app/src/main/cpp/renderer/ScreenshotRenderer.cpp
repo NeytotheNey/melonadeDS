@@ -51,7 +51,7 @@ bool ScreenshotRenderer::finishScreenshotReadback(u8* destination, bool wait)
     if (!destination)
         return true;
 
-    // Once the fence has signalled the map doesn't wait. Otherwise it waits for the copy
+    // Once the fence has signaled the map doesn't wait, otherwise it waits for the copy
     glBindBuffer(GL_PIXEL_PACK_BUFFER, pixelPackBuffer);
     const void* pixels = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, SCREENSHOT_WIDTH * SCREENSHOT_HEIGHT * 4, GL_MAP_READ_BIT);
     if (pixels)
@@ -113,7 +113,7 @@ void ScreenshotRenderer::drawScreenshot(GPU* gpu, Renderer renderer, Frame* rend
         glReadBuffer(GL_COLOR_ATTACHMENT0);
         if (intoPixelBuffer)
         {
-            // Only queued: the GPU copies the image once the frame is drawn, and finishScreenshotReadback() collects it. Reading straight into
+            // Only queued: the GPU copies the image once the frame is drawn and finishScreenshotReadback() collects it, since reading straight into
             // screenshotBuffer would wait for the whole frame's GPU work (3-17 ms on the Fold with the compute renderer at 8x)
             if (readbackFence)
                 glDeleteSync(readbackFence);
@@ -142,8 +142,8 @@ void ScreenshotRenderer::renderOverlay(GLuint overlayTexture)
     if (!overlayRenderShader)
         return;
 
-    // Premultiplied, over the frame. The screenshot keeps the frame's alpha. The blend state is put back afterwards, except for GL_BLEND itself,
-    // which renderScreenshot() leaves off anyway
+    // Premultiplied over the frame, keeping the frame's alpha; the blend state is put back afterwards except GL_BLEND itself, which
+    // renderScreenshot() leaves off anyway
     GLint blendSourceRgb, blendDestinationRgb, blendSourceAlpha, blendDestinationAlpha, blendEquationRgb, blendEquationAlpha;
     glGetIntegerv(GL_BLEND_SRC_RGB, &blendSourceRgb);
     glGetIntegerv(GL_BLEND_DST_RGB, &blendDestinationRgb);
@@ -155,8 +155,8 @@ void ScreenshotRenderer::renderOverlay(GLuint overlayTexture)
     glBlendEquation(GL_FUNC_ADD);
     glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
 
-    // The shader reads texels with texelFetch(), so the texture's filter doesn't matter and isn't changed: the render thread may be presenting
-    // this frame right now. The frame's quads cover the whole screenshot, and the overlay shader's position uses the same attribute
+    // The shader uses texelFetch(), so the texture's filter is left alone while the render thread may be presenting this frame, and it reuses the
+    // frame's quads (which cover the whole screenshot) for its position attribute
     glUseProgram(overlayRenderShader);
     glBindTexture(GL_TEXTURE_2D, overlayTexture);
     glUniform1i(overlayTextureUniformLocation, 0);
@@ -196,7 +196,7 @@ void ScreenshotRenderer::blendOverlay(const LuaOverlay& overlay)
                 if ((a | b | c | d) == 0)
                     continue;
 
-                // Both are 0xAARRGGBB, and the overlay is premultiplied. The screenshot keeps its alpha
+                // Both are 0xAARRGGBB with the overlay premultiplied, and the screenshot keeps its alpha
                 u32 sourceAlpha = ((a >> 24) + (b >> 24) + (c >> 24) + (d >> 24) + 2) / 4;
                 u32 destination = screenshotRow[x];
                 u32 result = destination & 0xFF000000;
@@ -371,9 +371,9 @@ static GLuint compileShader(GLenum type, const char* source)
 
 void ScreenshotRenderer::setupOverlayShader()
 {
-    // GLSL ES 3.00 for texelFetch(). gl_FragCoord's rows go up from the screenshot's first row (the top screen's first one, since the image
-    // is read back upside down), and the bottom screen starts 4 rows further down the overlay than twice its row (the gap between the screens).
-    // The overlay has the frame texture's byte order, which the screenshot keeps as it is, so unlike the app's overlay shader there's no swizzle
+    // GLSL ES 3.00 for texelFetch(); gl_FragCoord rows go up from the top screen's first row (the image is read back upside down), the bottom screen
+    // starts 4 rows further down the overlay than twice its row (the gap between the screens), and the overlay keeps the frame texture's byte order,
+    // so unlike the app's overlay shader there's no swizzle
     const char* vertexShaderSource =
             "#version 300 es\n"
             "in vec2 aPosition;\n"
@@ -442,7 +442,7 @@ void ScreenshotRenderer::setupVertexBuffers()
 void ScreenshotRenderer::fillVertexBuffer(int topScreenWidth)
 {
     float margin = 1.0f / 192.0f;
-    // Both screens take the centre 256 columns of the frame: all of a 256 wide top screen, or the middle of a wider one, which is also where the
+    // Both screens take the center 256 columns of the frame: all of a 256 wide top screen, or the middle of a wider one, which is also where the
     // bottom screen is
     float left = (topScreenWidth - 256) / (2.0f * topScreenWidth);
     float right = 1.0f - left;

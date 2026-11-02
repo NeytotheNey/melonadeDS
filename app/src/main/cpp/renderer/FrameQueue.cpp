@@ -16,8 +16,8 @@ Frame* FrameQueue::getRenderFrame()
 
     Frame* frame;
 
-    // If there are no free frames, use oldest present frame. While pacing is locked only a couple of frames wait for their vsync, so this only
-    // happens without pacing (for example in fast-forward). The frame being presented (previousFrame) is never in the present queue
+    // With no free frame, reuse the oldest present frame, which only happens without pacing (in fast-forward, say); the frame being presented
+    // (previousFrame) is never in the present queue
     if (freeQueue.empty())
     {
         frame = presentQueue.back();
@@ -38,9 +38,7 @@ Frame* FrameQueue::getPresentFrame(std::optional<std::chrono::time_point<std::ch
 
     int frameIndex = findDueFrameIndex(vsyncTimeNs, dueToleranceNs);
     if (frameIndex < 0) {
-        // Only wait if the frame that will be pushed next can be due on this vsync. If a queued frame isn't due yet, any frame pushed after it
-        // is due even later. The same goes for the frame being emulated, if its due time is after this vsync. Waiting until the deadline in
-        // those cases would make the render thread miss the next vsync
+        // Only wait if the next pushed frame can still be due on this vsync, or the render thread would miss the next one
         bool canNextFrameBeDue = presentQueue.empty() && isDue(upcomingFrameDueNs, vsyncTimeNs, dueToleranceNs);
 
         bool hasNewFrame = false;
@@ -63,7 +61,7 @@ Frame* FrameQueue::getPresentFrame(std::optional<std::chrono::time_point<std::ch
         previousFrame = nullptr;
     }
 
-    // Release the frames older than the one being presented. Newer frames are not due yet, so they stay in the queue
+    // Release the frames older than the one being presented (newer ones aren't due yet, so they stay in the queue)
     while (presentQueue.size() > (std::size_t) frameIndex + 1)
     {
         freeQueue.push(presentQueue.back());
@@ -81,7 +79,7 @@ bool FrameQueue::isDue(int64_t presentDueTimeNs, int64_t vsyncTimeNs, int64_t du
     // Frames due this much later than the vsync are presented anyway, so that a bad due time can never keep a frame from being shown
     constexpr int64_t MAX_PRESENT_HOLD_NS = 100000000;
 
-    // Frames without a due time (pushed while pacing isn't locked) are always due, which keeps the "newest frame wins" behaviour for them
+    // Frames without a due time (pushed while pacing isn't locked) are always due, which keeps the "newest frame wins" behavior for them
     return presentDueTimeNs == 0 || vsyncTimeNs <= 0 || presentDueTimeNs <= vsyncTimeNs + dueToleranceNs || presentDueTimeNs > vsyncTimeNs + MAX_PRESENT_HOLD_NS;
 }
 

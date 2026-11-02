@@ -30,7 +30,7 @@ private:
     GLuint textureUniformLocation;
     GLuint posAttribLocation;
     GLuint texCoordAttribLocation;
-    // Draws the Lua overlay over the screenshot (see renderOverlay()). 0 if it couldn't be built
+    // Draws the Lua overlay over the screenshot (see renderOverlay()), or 0 if it couldn't be built
     GLuint overlayRenderShader = 0;
     GLuint overlayTextureUniformLocation;
     // Frame::topScreenWidth that the vertex buffer's UVs crop for
@@ -48,7 +48,7 @@ private:
     // Fills the bound vertex buffer with the quads for a frame whose top screen is [topScreenWidth] wide (in DS pixels)
     void fillVertexBuffer(int topScreenWidth);
     void setupOverlayShader();
-    // Renders the screenshot. The GL renderers' image is read into screenshotBuffer, or queued into pixelPackBuffer if [intoPixelBuffer]
+    // Renders the screenshot, reading the GL renderers' image into screenshotBuffer, or queueing it into pixelPackBuffer if [intoPixelBuffer]
     void drawScreenshot(GPU* gpu, Renderer renderer, Frame* renderFrame, const LuaOverlay* overlay, bool intoPixelBuffer);
     void renderOverlay(GLuint overlayTexture);
     void blendOverlay(const LuaOverlay& overlay);
@@ -61,18 +61,18 @@ public:
     ScreenshotRenderer(u32* screenshotBuffer);
     void init();
     /**
-     * Renders [renderFrame] into the screenshot buffer. If [overlay] isn't null, the frame's Lua drawings (which [overlay] holds, and the frame's
-     * overlay texture too) are drawn over it, scaled down to the DS's resolution
+     * Renders [renderFrame] into the screenshot buffer, with the frame's Lua drawings from [overlay] (if not null) drawn over it, scaled down to the
+     * DS's resolution
      */
     void renderScreenshot(GPU* gpu, Renderer renderer, Frame* renderFrame, const LuaOverlay* overlay);
     /**
-     * Like renderScreenshot(), but without waiting for the GPU, and a pending takeScreenshot() isn't told. The GL renderers' image is collected
-     * later with finishScreenshotReadback(). The software renderer's goes into the screenshot buffer right away, and nothing is left pending
+     * Like renderScreenshot() but without waiting for the GPU or telling a pending takeScreenshot(), with the GL renderers' image collected later by
+     * finishScreenshotReadback() (the software renderer's is done right away)
      */
     void startScreenshotReadback(GPU* gpu, Renderer renderer, Frame* renderFrame, const LuaOverlay* overlay);
     /**
-     * Copies the image of the pending startScreenshotReadback() into [destination] (a screenshot's size), or drops it if [destination] is null.
-     * Without [wait], returns false (and keeps it pending) if the GPU isn't done with it yet. Returns true if nothing is pending
+     * Copies the image of the pending startScreenshotReadback() into [destination] (a screenshot's size, or null to drop it), and returns false only
+     * if, without [wait], the GPU isn't done with it yet
      */
     bool finishScreenshotReadback(u8* destination, bool wait);
     bool isScreenshotReadbackPending() { return readbackFence != nullptr; }
