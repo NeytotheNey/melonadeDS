@@ -17,16 +17,18 @@ class TouchscreenInputHandler(
     private val getScreenArea: (View) -> Rect?,
 ) : BaseInputHandler(inputListener) {
     private val touchPoint: Point = Point()
+    // The whole-view fallback, kept while the view's size doesn't change
+    private var wholeViewArea = Rect(0, 0, 0, 0)
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouch(v: View, event: MotionEvent): Boolean {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
                 inputListener.onKeyPress(Input.TOUCHSCREEN)
-                inputListener.onTouch(normalizeTouchCoordinates(event, getScreenArea(v) ?: Rect(0, 0, v.width, v.height)))
+                inputListener.onTouch(normalizeTouchCoordinates(event, screenArea(v)))
             }
             MotionEvent.ACTION_MOVE -> {
-                inputListener.onTouch(normalizeTouchCoordinates(event, getScreenArea(v) ?: Rect(0, 0, v.width, v.height)))
+                inputListener.onTouch(normalizeTouchCoordinates(event, screenArea(v)))
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 // The listener lets go of the screen too, so a release a layout change holds back doesn't let go of it
@@ -34,6 +36,14 @@ class TouchscreenInputHandler(
             }
         }
         return true
+    }
+
+    private fun screenArea(v: View): Rect {
+        getScreenArea(v)?.let { return it }
+        if (wholeViewArea.width != v.width || wholeViewArea.height != v.height) {
+            wholeViewArea = Rect(0, 0, v.width, v.height)
+        }
+        return wholeViewArea
     }
 
     private fun normalizeTouchCoordinates(event: MotionEvent, screenRect: Rect): Point {
