@@ -172,11 +172,9 @@ class EmulatorViewModel @Inject constructor(
     private val _uiEvent = EventSharedFlow<EmulatorUiEvent>()
     val uiEvent = _uiEvent.asSharedFlow()
 
-    // A script can send several requests at once (in on_load, say), so none may be dropped. Each event is tagged with the session it came from,
-    // and events from a session that has ended (still buffered, or from its on_unload) are dropped. The state isn't checked: on_load events can
-    // arrive before it becomes RunningRom
+    // Unbounded, since a script's on_load can send several requests at once; events are tagged with their session so stale ones are dropped
     private val _luaUiEvent = Channel<Pair<Int, LuaUiEvent>>(Channel.UNLIMITED)
-    // SessionEnded is never dropped: it's sent as the session changes, and undoes what the ended session's scripts did
+    // SessionEnded is never dropped, since it undoes what the ended session's scripts did
     val luaUiEvent = _luaUiEvent.receiveAsFlow()
         .filter { (session, event) -> session == luaUiEventSession || event is LuaUiEvent.SessionEnded }
         .map { it.second }
@@ -184,22 +182,19 @@ class EmulatorViewModel @Inject constructor(
     private var luaUiEventSession = 0
 
     /**
-     * What the scripts changed in the UI, so it can be put back when they stop. Kept here so it survives the activity being recreated, and only
-     * used by the screen as it handles [luaUiEvent] (in order) and the player's own changes
+     * Script UI overrides, kept in the VM to survive activity recreation; only the screen uses it, as it handles [luaUiEvent] in order.
      */
     val luaUiOverrides = LuaUiOverrides()
 
     /**
-     * Whether the screens are swapped as the screen shows them, by the player or by a script. The screen updates it on each swap, and puts it
-     * back when it's recreated, since its views start unswapped. What the scripts hold is still kept in [luaUiOverrides]
+     * Current swap state as shown, restored after recreation.
      */
     var areScreensSwapped = false
 
-    // The layout the scripts asked for with melon.screen.set_layout(), or null for the player's. Unlike the settings in [luaUiOverrides], it's
-    // worked out here as the events are sent (in the same order), since the layout flow is here too. Main thread only
+    // Layout a script asked for, or null for the player's; main thread only
     private val luaLayoutRequests = LuaLayoutRequests()
     private val _luaLayoutId = MutableStateFlow<UUID?>(null)
-    // The ids of the player's layouts, or null until they're read. Main thread only
+    // The ids of the player's layouts, or null until they're read; main thread only
     private var luaExistingLayoutIds: Set<UUID>? = null
 
     init {
@@ -299,7 +294,7 @@ class EmulatorViewModel @Inject constructor(
         val cheats = romInfo?.let { getRomEnabledCheats(it) } ?: emptyList()
         val syncedLuaScripts = getSyncedLuaScripts(rom)
         val luaScripts = if (emulatorSession.areLuaScriptsAllowed()) syncedLuaScripts.filter { it.enabled } else emptyList()
-        // Before the scripts run, so their requests come after it. The newest config, since the ROM given may be an older copy
+        // Before the scripts run, so their requests come after it
         val screensSwapped = (getLibraryRom(rom) ?: rom).config.screensSwapped
         sendLuaUiEvent(LuaUiEvent.SessionStarted(screensSwapped))
         val result = emulatorManager.loadRom(
@@ -572,13 +567,12 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * The player swapped the screens by hand, so the game starts that way next time. Only a game's own swap is kept, not the firmware's
+     * The player swapped the screens by hand, so the game (not the firmware) starts that way next time.
      */
     fun onPlayerSwappedScreens(screensSwapped: Boolean) {
         val rom = (_emulatorState.value as? EmulatorState.RunningRom)?.rom ?: return
         viewModelScope.launch {
-            // The config may have changed since launch (the script list is synced then), so the newest one is updated. A ROM from outside the
-            // library has no config to save
+            // The config may have changed since launch, so the newest one is updated
             val currentRom = getLibraryRom(rom) ?: return@launch
             if (currentRom.config.screensSwapped != screensSwapped) {
                 romsRepository.updateRomConfig(currentRom, currentRom.config.copy(screensSwapped = screensSwapped))
@@ -849,8 +843,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * @param wideLayoutId The wide layout the game uses while widescreen is on (WidescreenLaunch.wideLayoutId). It takes the place of the ROM's
-     * own layout, which comes back if it's deleted
+     * @param wideLayoutId The wide layout used in place of the ROM's own while widescreen is on.
      */
     private fun startObservingLayoutForRom(rom: Rom, wideLayoutId: UUID?) {
         val romLayoutId = rom.config.layoutId
@@ -872,8 +865,7 @@ class EmulatorViewModel @Inject constructor(
                 }
         } ?: normalLayoutFlow
 
-        // The player picking another layout by hand (in the settings, from the pause menu) wins over the scripts, like a screen swap does.
-        // A layout being edited or deleted isn't a pick. The wide layout counts as the ROM's own, and so does the ROM's layout after it
+        // The player picking another layout by hand wins over the scripts, like a screen swap does
         val romLayoutFlow = if (wideLayoutId == null) {
             romLayoutId?.let { layoutsRepository.observeLayout(it) }
         } else {
@@ -897,7 +889,7 @@ class EmulatorViewModel @Inject constructor(
             }
         }
 
-        // A script's layout while one holds it. If it doesn't exist (anymore), the player's layout is shown
+        // A script's layout while one holds it, or the player's if it doesn't exist
         val layoutFlow = _luaLayoutId.flatMapLatest { scriptLayoutId ->
             if (scriptLayoutId == null) {
                 playerLayoutFlow
@@ -951,8 +943,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * Sends the game the width the layout shown asks for (WidescreenLaunch.getViewWidth) whenever it changes: a fold, a rotation, or another
-     * layout picked by the player or a script. Nothing is sent in a session that isn't wide
+     * Sends the game the width the shown layout asks for whenever it changes, in wide sessions only.
      */
     private fun startObservingWideViewWidth(widescreenLaunch: WidescreenLaunch) {
         if (!widescreenLaunch.isWideSession) {
@@ -961,9 +952,7 @@ class EmulatorViewModel @Inject constructor(
 
         sessionCoroutineScope.launch {
             var currentWidth = widescreenLaunch.viewWidth
-            // The provider can still hold the previous session's layout until this session's one is shown, so only a layout that matches the
-            // session's counts. Both are watched, so the provider's layout is checked again when the session's one arrives, even if it's the
-            // same as the provider's (which then doesn't emit again)
+            // The provider can still hold the previous session's layout, so only one matching the session's counts
             combine(_layout, uiLayoutProvider.currentLayoutWithConfiguration) { sessionLayout, providerLayout ->
                 providerLayout?.takeIf { sessionLayout != null && it.first == sessionLayout }
             }.collect {
@@ -978,7 +967,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * Whether the game can be wide, its wide layout and the width it starts at. Decided once per launch, so the session keeps them
+     * Whether the game can be wide, its wide layout and the width it starts at, decided once per launch.
      */
     private suspend fun getWidescreenLaunch(rom: Rom): WidescreenLaunch {
         val mods = rom.config.mods
@@ -999,12 +988,10 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * The ROM's script list brought in step with its linked folder (see [LuaScriptFolderSync]), saved to the ROM config if it changed. A
-     * script added to the folder since ROM details was last opened starts switched off, so it isn't run
+     * The ROM's script list brought in step with its linked folder (see [LuaScriptFolderSync]), saved to the ROM config if it changed.
      */
     private suspend fun getSyncedLuaScripts(rom: Rom): List<RomLuaScript> {
-        // The ROM given may be an older copy (from the intent of an activity recreated after the process was killed, say). Its config would
-        // put back older values of what changed since, like the saved swap or script options, so the newest one is synced and saved
+        // The ROM given may be an older copy whose config would put back stale values, so the newest one is synced and saved
         val libraryRom = getLibraryRom(rom)
         val config = (libraryRom ?: rom).config
         val mods = config.mods
@@ -1019,9 +1006,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * The library's own copy of [rom], which has the newest config, or null for a ROM opened from outside the library, whose config can't be
-     * saved (updateRomConfig only changes library ROMs). Unlike getRomAtUri(), it never reads the file, which for a ROM that isn't in the
-     * library means building a new ROM from it (unpacking an archive, say)
+     * The library's own copy of [rom], which has the newest config, or null for a ROM opened from outside the library.
      */
     private suspend fun getLibraryRom(rom: Rom): Rom? {
         return romsRepository.getRoms().first().find { it.hasSameFileAsRom(rom) }
@@ -1037,14 +1022,14 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * Whether a Lua script is running, in which case controller sticks are forwarded to it. Cheap enough to call for every motion event
+     * Whether a Lua script is running, cheap enough to call for every motion event.
      */
     fun areLuaScriptsRunning(): Boolean {
         return emulatorManager.areLuaScriptsRunning()
     }
 
     /**
-     * Switches a script off for this session only, from the pause menu. The ROM config doesn't change
+     * Switches a script off for this session only, from the pause menu.
      */
     fun disableLuaScript(scriptId: Int) {
         emulatorManager.disableLuaScript(scriptId)
@@ -1054,8 +1039,9 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * Switches a stopped script back on for this session only, from the pause menu. The ROM config doesn't change. Returns false if it
-     * already runs
+     * Switches a stopped script back on for this session only, from the pause menu.
+     *
+     * @return false if it already runs.
      */
     fun enableLuaScript(scriptId: Int): Boolean {
         if (!emulatorManager.enableLuaScript(scriptId)) {
@@ -1067,8 +1053,9 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * Gives a script new option values from the pause menu: they're saved to the ROM config, and the script restarts with them (or starts, if
-     * it was off). Returns false if the script can't run
+     * Saves new option values from the pause menu to the ROM config and restarts (or starts) the script with them.
+     *
+     * @return false if the script can't run.
      */
     fun setLuaScriptOptions(scriptId: Int, optionValues: Map<String, String>): Boolean {
         val script = emulatorManager.getLuaScript(scriptId) ?: return false
@@ -1099,7 +1086,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * Ends the current session's Lua UI events. Anything still queued from it is dropped, and the screen puts back what its scripts changed
+     * Ends the current session's Lua UI events, dropping anything still queued from it.
      */
     private fun endLuaUiSession() {
         luaUiEventSession++
@@ -1121,13 +1108,11 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * A script asked for the layout its option [optionKey] names, or for the player's layout back (null). Resolved with the option values the
-     * script runs with
+     * A script asked for the layout its option [optionKey] names, or for the player's layout back (null).
      */
     private fun onLuaLayoutRequest(scriptId: Int, optionKey: String?) {
         val script = emulatorManager.getLuaScript(scriptId) ?: return
-        // Until the layouts are read, every layout is taken to exist. One that doesn't is found missing when it's shown, and the player's
-        // layout is shown instead
+        // Until the layouts are read, every layout is taken to exist; a missing one is caught when it's shown
         val existingLayoutIds = luaExistingLayoutIds
         val request = getLuaLayoutRequest(script.options, script.optionValues, optionKey) { existingLayoutIds?.contains(it) ?: true }
         _luaLayoutId.value = luaLayoutRequests.onScriptRequest(scriptId, request)
