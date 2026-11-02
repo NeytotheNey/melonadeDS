@@ -48,13 +48,26 @@ object DebugLog {
 
     /**
      * Logs "[key]: [value]" if [value] differs from the last value reported for [key], such as the fold posture or the display in use.
+     * Returns whether it differed. [me.magnum.melonds.impl.perf.PerformanceLogger.logStateChange] is the entry point, so that both logs see every change.
      */
-    fun stateChange(key: String, value: String) {
+    fun stateChange(key: String, value: String): Boolean {
         synchronized(currentStates) {
-            if (currentStates.put(key, value) == value || !isEnabled) {
-                return
+            if (currentStates.put(key, value) == value) {
+                return false
             }
-            Log.i(TAG, "$key: $value")
+            if (isEnabled) {
+                Log.i(TAG, "$key: $value")
+            }
+            return true
+        }
+    }
+
+    /**
+     * The last value reported for each key, in the order the keys were first reported.
+     */
+    fun currentStates(): Map<String, String> {
+        synchronized(currentStates) {
+            return LinkedHashMap(currentStates)
         }
     }
 

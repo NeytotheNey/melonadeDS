@@ -810,7 +810,6 @@ class EmulatorActivity : AppCompatActivity() {
                     viewModel.setScreenFolds(folds)
                     val foldStates = it.displayFeatures.filterIsInstance<FoldingFeature>().map { feature -> feature.state.toString() }
                     performanceLogger.logStateChange("fold", foldStates.joinToString(" ").ifEmpty { "none" })
-                    DebugLog.stateChange("fold", foldStates.joinToString(" ").ifEmpty { "none" })
                 }
             }
         }
@@ -844,7 +843,6 @@ class EmulatorActivity : AppCompatActivity() {
         viewModel.setConnectedDisplays(displays)
         displays.mainScreenDisplay.let {
             performanceLogger.logStateChange("display", "${it.id} ${it.width}x${it.height}")
-            DebugLog.stateChange("display", "${it.id} ${it.width}x${it.height}")
         }
 
         showExternalDisplay(secondaryDisplay)

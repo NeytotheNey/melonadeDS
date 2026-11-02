@@ -22,6 +22,7 @@ import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.extensions.find60HzMode
 import me.magnum.melonds.extensions.getModesAtCurrentResolution
+import me.magnum.melonds.impl.debug.DebugLog
 import me.magnum.melonds.impl.debug.LogDestination
 import me.magnum.melonds.impl.debug.LogFolder
 import me.magnum.melonds.impl.perf.PerfCsv.appendFlag
@@ -65,8 +66,6 @@ class PerformanceLogger(
     private val loggerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var currentSession: Session? = null
     private var lastSessionJob: Job? = null
-    // Last value reported for each key through logStateChange, kept across sessions so that a new session can start with the current state
-    private val lastStates = LinkedHashMap<String, String>()
 
     /**
      * Starts a new logging session if performance logging is enabled. Any active session is stopped first.
@@ -81,7 +80,7 @@ class PerformanceLogger(
         }
 
         val session = Session(sessionName)
-        lastStates.forEach { (key, value) -> session.queueEvent(key, value, session.startNs) }
+        DebugLog.currentStates().forEach { (key, value) -> session.queueEvent(key, value, session.startNs) }
         val previousSessionJob = lastSessionJob
         currentSession = session
         lastSessionJob = loggerScope.launch {
@@ -137,16 +136,14 @@ class PerformanceLogger(
     }
 
     /**
-     * Like [logEvent], but only records [value] if it differs from the last value reported for [key]. The current value of every key is also
-     * written at the start of each session.
+     * Like [logEvent], but only records [value] if it differs from the last value reported for [key], and also logs it as a [DebugLog] state
+     * change. The current value of every key is also written at the start of each session.
      */
     @Synchronized
     fun logStateChange(key: String, value: String) {
-        if (lastStates[key] == value) {
-            return
+        if (DebugLog.stateChange(key, value)) {
+            currentSession?.queueEvent(key, value, System.nanoTime())
         }
-        lastStates[key] = value
-        currentSession?.queueEvent(key, value, System.nanoTime())
     }
 
     internal inner class Session(val sessionName: String) {
