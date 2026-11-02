@@ -1,6 +1,5 @@
 package me.magnum.melonds.ui.settings.fragments
 
-import android.os.Build
 import android.os.Bundle
 import androidx.preference.PreferenceCategory
 import androidx.preference.SwitchPreference
@@ -14,6 +13,7 @@ import me.magnum.melonds.impl.debug.LogFolder
 import me.magnum.melonds.ui.settings.PreferenceFragmentHelper
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
 import me.magnum.melonds.ui.settings.preferences.StoragePickerPreference
+import me.magnum.melonds.utils.supportsJit
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -31,7 +31,7 @@ class PerformancePreferencesFragment : BasePreferenceFragment(), PreferenceFragm
         val sustainedPerformancePreference = findPreference<SwitchPreference>("enable_sustained_performance")!!
         val deviceCategory = findPreference<PreferenceCategory>(PreferenceKeys.CATEGORY_PERFORMANCE_DEVICE)!!
 
-        if (Build.SUPPORTED_64_BIT_ABIS.isEmpty()) {
+        if (!supportsJit()) {
             jitPreference.isEnabled = false
             jitPreference.isChecked = false
             jitPreference.setSummary(R.string.jit_not_supported)

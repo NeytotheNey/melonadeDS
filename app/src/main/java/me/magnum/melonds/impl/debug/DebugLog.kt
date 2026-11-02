@@ -1,6 +1,5 @@
 package me.magnum.melonds.impl.debug
 
-import android.os.Build
 import android.util.Log
 import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.domain.model.ConsoleType
@@ -8,6 +7,7 @@ import me.magnum.melonds.domain.model.EmulatorConfiguration
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.model.rom.config.RomGbaSlotConfig
 import me.magnum.melonds.domain.repositories.SettingsRepository
+import me.magnum.melonds.utils.supportsJit
 
 /**
  * Markers and configuration dumps for the debug log. Everything here is skipped while the debug log is off, which [DebugLogRecorder] controls.
@@ -127,20 +127,10 @@ object DebugLog {
         lines.add("firmware_language" to configuration.firmwareConfiguration.language)
         lines.add("firmware_randomize_mac" to configuration.firmwareConfiguration.randomizeMacAddress)
 
-        lines.add("jit" to configuration.useJit)
-        lines.add("device_64bit" to Build.SUPPORTED_64_BIT_ABIS.isNotEmpty())
+        lines.add("device_64bit" to supportsJit())
+        // The launched configuration copies these from the settings repository, so they're the values the performance log reports too
+        lines.addAll(DiagnosticsInfo.settings(configuration.rendererConfiguration, settingsRepository))
 
-        val renderer = configuration.rendererConfiguration
-        lines.add("renderer" to renderer.renderer.name)
-        lines.add("resolution_scaling" to renderer.resolutionScaling)
-        lines.add("video_filtering" to renderer.videoFiltering.name)
-        lines.add("threaded_rendering" to renderer.threadedRendering)
-        lines.add("threaded_2d_rendering" to renderer.threaded2dRendering)
-        lines.add("hires_capture" to renderer.hiresCapture)
-        lines.add("ds_screen_colors" to renderer.dsScreenColors)
-        lines.add("screen_shadow" to renderer.screenShadow)
-
-        lines.add("sound_enabled" to configuration.soundEnabled)
         lines.add("volume" to configuration.volume)
         lines.add("audio_interpolation" to configuration.audioInterpolation.name)
         lines.add("audio_bitrate" to configuration.audioBitrate.name)
@@ -148,11 +138,9 @@ object DebugLog {
         lines.add("mute_fast_forward_audio" to configuration.muteFastForwardAudio)
         lines.add("mic_source" to configuration.micSource.name)
 
-        lines.add("fast_forward_multiplier" to configuration.fastForwardSpeedMultiplier)
         lines.add("sync_rtc_to_device" to configuration.syncRtcToDevice)
         lines.add("lua_drawings_in_screenshots" to configuration.luaDrawingsInScreenshots)
         lines.add("wide_view_width" to configuration.wideViewWidth)
-        lines.add("rewind_enabled" to configuration.rewindEnabled)
         lines.add("rewind_period_s" to configuration.rewindPeriodSeconds)
         lines.add("rewind_window_s" to configuration.rewindWindowSeconds)
         lines.add("cheats_enabled" to settingsRepository.areCheatsEnabled())
@@ -160,10 +148,6 @@ object DebugLog {
             lines.add("active_cheats" to cheatCount)
         }
 
-        lines.add("frame_pacing_vsync" to configuration.framePacingVsyncEnabled)
-        lines.add("frame_pacing_buffer" to configuration.framePacingBufferEnabled)
-        lines.add("frame_pacing_lock_60hz" to settingsRepository.isFramePacingLock60HzEnabled())
-        lines.add("sustained_performance_mode" to settingsRepository.isSustainedPerformanceModeEnabled())
         lines.add("retroachievements_hardcore" to settingsRepository.isRetroAchievementsHardcoreEnabled())
 
         Log.i(TAG, "--- $reason ---")

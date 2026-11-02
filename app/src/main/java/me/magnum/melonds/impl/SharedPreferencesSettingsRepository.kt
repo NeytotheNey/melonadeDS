@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener
 import android.net.Uri
-import android.os.Build
 import android.util.Log
 import androidx.core.content.edit
 import androidx.core.net.toUri
@@ -59,6 +58,7 @@ import me.magnum.melonds.impl.input.ControllerConfigurationFactory
 import me.magnum.melonds.ui.Theme
 import me.magnum.melonds.utils.enumValueOfIgnoreCase
 import me.magnum.melonds.utils.enumValueOfIgnoreCaseOrNull
+import me.magnum.melonds.utils.supportsJit
 import java.io.File
 import java.util.UUID
 import kotlin.math.pow
@@ -336,7 +336,7 @@ class SharedPreferencesSettingsRepository(
     }
 
     override fun isJitEnabled(): Boolean {
-        val defaultJitEnabled = Build.SUPPORTED_64_BIT_ABIS.isNotEmpty()
+        val defaultJitEnabled = supportsJit()
         return preferences.getBoolean("enable_jit", defaultJitEnabled)
     }
 

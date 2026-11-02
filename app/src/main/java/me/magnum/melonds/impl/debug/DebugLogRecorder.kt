@@ -2,20 +2,15 @@ package me.magnum.melonds.impl.debug
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.content.pm.ApplicationInfo
-import android.os.Build
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
-import androidx.core.content.pm.PackageInfoCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import me.magnum.melonds.BuildConfig
 import me.magnum.melonds.domain.repositories.SettingsRepository
-import me.magnum.melonds.utils.PackageManagerCompat
 import java.io.BufferedWriter
 import java.io.IOException
 import java.io.OutputStreamWriter
@@ -157,26 +152,12 @@ class DebugLogRecorder(
     }
 
     private fun buildHeader(startDate: Date, logcatCommand: String): String {
-        val packageInfo = runCatching { PackageManagerCompat.getPackageInfo(context.packageManager, context.packageName, 0) }.getOrNull()
-        val isDebuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
-        val soc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "${Build.SOC_MANUFACTURER} ${Build.SOC_MODEL}" else "n/a"
-
         return buildString {
             append("melonadeDS debug log\n")
             append("started: ").append(formatDate(startDate)).append('\n')
-            append("app: ").append(context.packageName)
-                .append(", version ").append(packageInfo?.versionName)
-                .append(" (code ").append(packageInfo?.let { PackageInfoCompat.getLongVersionCode(it) }).append(")")
-                .append(", upstream ").append(BuildConfig.UPSTREAM_VERSION_NAME).append('\n')
-            append("build: ").append(BuildConfig.BUILD_TYPE).append(", flavor ").append(BuildConfig.FLAVOR)
-                .append(", debuggable ").append(isDebuggable)
-                .append(", installed ").append(packageInfo?.lastUpdateTime?.let { formatDate(Date(it)) }).append('\n')
-            append("device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append(" (").append(Build.DEVICE).append(")")
-                .append(", hardware ").append(Build.HARDWARE).append(", board ").append(Build.BOARD).append(", soc ").append(soc).append('\n')
-            append("abis: ").append(Build.SUPPORTED_ABIS.joinToString(", ")).append('\n')
-            append("android: ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")")
-                .append(", security patch ").append(Build.VERSION.SECURITY_PATCH).append('\n')
-            append("fingerprint: ").append(Build.FINGERPRINT).append('\n')
+            (DiagnosticsInfo.app(context) + DiagnosticsInfo.device()).forEach { (key, value) ->
+                append(key).append(": ").append(value ?: "n/a").append('\n')
+            }
             append("pid: ").append(Process.myPid()).append('\n')
             append("command: ").append(logcatCommand).append('\n')
             append("tags: ").append(DebugLog.TAG).append(" (markers, game configuration, fold and display changes), melonade-cpu (heartbeat, exceptions, GPU state), ")

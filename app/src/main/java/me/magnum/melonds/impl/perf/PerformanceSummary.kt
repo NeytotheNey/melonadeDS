@@ -1,12 +1,9 @@
 package me.magnum.melonds.impl.perf
 
 import android.content.Context
-import android.content.pm.ApplicationInfo
-import android.os.Build
-import androidx.core.content.pm.PackageInfoCompat
 import me.magnum.melonds.MelonEmulator
+import me.magnum.melonds.impl.debug.DiagnosticsInfo
 import me.magnum.melonds.impl.perf.PerfCsv.appendMillis
-import me.magnum.melonds.utils.PackageManagerCompat
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.roundToLong
@@ -78,24 +75,11 @@ internal fun PerformanceLogger.Session.buildSummary(context: Context, isComplete
     )
 
     table.section("App") {
-        val packageInfo = runCatching { PackageManagerCompat.getPackageInfo(context.packageManager, context.packageName, 0) }.getOrNull()
-        val isDebuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
-        entry("app_version_name", packageInfo?.versionName)
-        entry("app_version_code", packageInfo?.let { PackageInfoCompat.getLongVersionCode(it) })
-        entry("app_package", context.packageName)
-        entry("build_type", if (isDebuggable) "debug" else "release")
+        DiagnosticsInfo.app(context).forEach { (key, value) -> entry(key, value) }
     }
 
     table.section("Device") {
-        entry("device_manufacturer", Build.MANUFACTURER)
-        entry("device_model", Build.MODEL)
-        entry("device_name", Build.DEVICE)
-        entry("device_hardware", Build.HARDWARE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            entry("device_soc", "${Build.SOC_MANUFACTURER} ${Build.SOC_MODEL}")
-        }
-        entry("android_version", Build.VERSION.RELEASE)
-        entry("android_sdk", Build.VERSION.SDK_INT)
+        DiagnosticsInfo.device().forEach { (key, value) -> entry(key, value) }
         entry(
             "display_refresh_rate_hz", decimal(stats.averageRefreshRate() ?: displayRefreshRate?.toDouble()),
             "Time-weighted average of the vsync period the render loop ran at (from Choreographer), over the display samples counted in the " +

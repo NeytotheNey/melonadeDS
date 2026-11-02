@@ -23,6 +23,7 @@ import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.extensions.find60HzMode
 import me.magnum.melonds.extensions.getModesAtCurrentResolution
 import me.magnum.melonds.impl.debug.DebugLog
+import me.magnum.melonds.impl.debug.DiagnosticsInfo
 import me.magnum.melonds.impl.debug.LogDestination
 import me.magnum.melonds.impl.debug.LogFolder
 import me.magnum.melonds.impl.perf.PerfCsv.appendFlag
@@ -549,26 +550,7 @@ class PerformanceLogger(
 
         private suspend fun buildSettingsSnapshot(): List<Pair<String, String>> {
             return try {
-                val rendererConfiguration = settingsRepository.observeRenderConfiguration().first()
-                listOf(
-                    "video_renderer" to rendererConfiguration.renderer.name,
-                    "internal_resolution_scaling" to rendererConfiguration.resolutionScaling.toString(),
-                    "video_filtering" to rendererConfiguration.videoFiltering.name,
-                    "ds_screen_colors" to rendererConfiguration.dsScreenColors.toString(),
-                    "screen_shadow" to rendererConfiguration.screenShadow.toString(),
-                    "threaded_rendering" to rendererConfiguration.threadedRendering.toString(),
-                    "threaded_2d_rendering" to rendererConfiguration.threaded2dRendering.toString(),
-                    "hires_capture" to rendererConfiguration.hiresCapture.toString(),
-                    "jit_enabled" to settingsRepository.isJitEnabled().toString(),
-                    "sustained_performance_mode" to settingsRepository.isSustainedPerformanceModeEnabled().toString(),
-                    "frame_pacing_vsync" to settingsRepository.isFramePacingVsyncEnabled().toString(),
-                    "frame_pacing_lock_60hz" to settingsRepository.isFramePacingLock60HzEnabled().toString(),
-                    "frame_pacing_buffer" to settingsRepository.isFramePacingBufferEnabled().toString(),
-                    "fast_forward_multiplier" to settingsRepository.getFastForwardSpeedMultiplier().toString(),
-                    "default_console_type" to settingsRepository.getDefaultConsoleType().name,
-                    "sound_enabled" to settingsRepository.isSoundEnabled().toString(),
-                    "rewind_enabled" to settingsRepository.isRewindEnabled().toString(),
-                )
+                DiagnosticsInfo.settings(settingsRepository.observeRenderConfiguration().first(), settingsRepository)
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to read settings for the performance log summary", e)
                 emptyList()
