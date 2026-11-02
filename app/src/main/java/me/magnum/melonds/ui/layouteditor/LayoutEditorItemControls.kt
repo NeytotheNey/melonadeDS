@@ -5,6 +5,7 @@ import android.content.res.ColorStateList
 import android.view.Gravity
 import android.view.Menu
 import android.view.MotionEvent
+import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.PopupMenu
@@ -544,9 +545,7 @@ class LayoutEditorItemControls(
 
         for (x in candidateXs) {
             for (y in candidateYs) {
-                val overlapsMenuButton = x < menuButton.x + menuButton.width && x + pill.width > menuButton.x &&
-                        y < menuButton.y + menuButton.height && y + pill.height > menuButton.y
-                if (!overlapsMenuButton) {
+                if (!menuButton.overlaps(x, y, x + pill.width, y + pill.height)) {
                     pill.x = x
                     pill.y = y
                     return
@@ -596,10 +595,9 @@ class LayoutEditorItemControls(
         val dockedBottom = dockedTop + dockedHeight
 
         val button = binding.buttonFloatingMenu
-        val overlapsMenuButton = button.x < panelRight && button.x + button.width > panelLeft && button.y < dockedBottom && button.y + button.height > dockedTop
         var topMargin = marginPx
         var bottomMargin = marginPx
-        if (overlapsMenuButton) {
+        if (button.overlaps(panelLeft, dockedTop, panelRight, dockedBottom)) {
             if (isDockedTop) {
                 topMargin = (button.y + button.height + marginPx - container.top - container.paddingTop).roundToInt()
             } else {
@@ -612,6 +610,13 @@ class LayoutEditorItemControls(
             params.bottomMargin = bottomMargin
             panel.layoutParams = params
         }
+    }
+
+    /**
+     * Whether this view, at its current position, overlaps the given area of its parent.
+     */
+    private fun View.overlaps(left: Float, top: Float, right: Float, bottom: Float): Boolean {
+        return x < right && x + width > left && y < bottom && y + height > top
     }
 
     /**
