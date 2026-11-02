@@ -19,7 +19,7 @@ A cleanup pass over everything the fork had added since `c42995ca`, on branch `c
 
 **Phase 3, split `LuaEngine.cpp`** (`4cd096a6..90b696be`): the engine keeps the lifecycle and `setupScript`; the rest is `LuaSandbox.cpp`, `LuaMemoryApi.cpp`, `LuaDrawApi.cpp`, `LuaFolderApi.cpp`, `LuaStateApi.cpp` and `LuaStorageApi.cpp`, sharing `LuaEngineInternal.h`. A blocked I/O read in `melon.mem` raised a garbled error and was fixed on the way (`73105f89`).
 
-**Phase 4, Kotlin consolidation** (`f58360d9..812dc29d` and `043e6634..6c0217d6`): `PerformanceLogger` split into logger, `PerformanceSummary` (table-driven, with a `# Keys` block) and `SessionStatistics`; one log-folder resolver, one state-change map and one settings/device snapshot shared by the perf and debug logs, all in `impl/diagnostics`; `LuaScriptHeader` in the domain model and a `LuaScriptOptionType` enum; the Lua scripts dialog in Compose; the layout editor's snapping, size and aspect-lock state consolidated; `ControllerAppearance` sealed; the Mods tab rows built from the shared preference rows.
+**Phase 4, Kotlin consolidation** (`f58360d9..812dc29d` and `043e6634..6c0217d6`): `PerformanceLogger` split into logger, `PerformanceSummary` (table-driven, with a `# Keys` block) and `SessionStatistics`; one log-folder resolver, one state-change map and one settings/device snapshot shared by the perf and debug logs, all in `impl/diagnostics`; `LuaScriptHeader` in the domain model and a `LuaScriptOptionType` enum; the Lua scripts dialog in Compose; the layout editor's snapping, size and aspect-lock state consolidated; `ControllerAppearance` sealed; the Mods tab rows built from the shared preference rows. Logs differ from pre-pass ones on purpose: the perf summary gains a `# Keys` block and new `# App`/`# Device` fields, the debug log header becomes the same `key: value` lines, and the debug log's config keys are renamed (`jit`→`jit_enabled`, `renderer`→`video_renderer`, `resolution_scaling`→`internal_resolution_scaling`). CSVs are byte-identical.
 
 **Phase 5, resources, strings, build** (`0ecffc27..f1cc27d9`): shared row styles and picker defaults, string fixes, a `PreferenceKeys` test against the XML, more JVM tests, a portable `emu.sh`, a merged shader dumper, and the UI strings in American spelling.
 
@@ -36,6 +36,7 @@ Departures from the plan: `MelonDSAndroidJNI.cpp` keeps `<ctime>` for `clock_get
 ## Never checked, and known leftovers
 
 - An RA popup dismissing on stop (it can't be raised on demand) and the fallback when the picked log folder isn't writable.
+- Back on the Compose dialogs (pause menu → Mods, script options, achievements) was only tried with `KEYCODE_BACK`, not the back gesture or controller B.
 - Phase 5's phone checklist: every settings screen in light and dark, the folder pickers' chevrons and pickers, the RetroAchievements switches grayed while logged out, the layout editor item panel's sliders and value dialogs, and a Lua script whose file starts with a UTF-8 BOM.
 - Only Low audio latency can be tested, since the setting is hidden and the repository always sends Low.
 - `Failed to allocate memory using ftruncate! (Invalid argument)` logs once per game load and the game runs; not looked into.

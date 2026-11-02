@@ -14,7 +14,7 @@ Measurements are in the local `PERF-NOTES.md` ("Audio"; see [README.md](README.m
 - **Smaller AAudio buffer:** starts at 3 bursts and grows one burst per xrun.
 - **Priming and trims:** silence until the ring reaches 960 at start/resume (480 after an underrun), then a trim to 840; only for bursts of 256 frames or less.
 - **Logging:** skew, fill, buffer size and FF speed in the debug log, perf CSV and summary; summary totals exclude fast-forward.
-- **Tried and parked:** scaling the fast-forward base rate by the measured FF speed made the pitch glide, so slow FF scenes still run dry until step 6.
+- **Tried and parked:** scaling the fast-forward base rate by the measured FF speed made the pitch glide between 1.45x and 2x on the phone, so the base is the requested multiplier again and slow FF scenes still run dry until step 6.
 
 Still owed: a phone run of the `4146bf4f` build (resumes and short pauses, checking the logged FF speed).
 
