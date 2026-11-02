@@ -16,15 +16,12 @@ data class SnapSpan(val start: Int, val length: Int) {
 }
 
 /**
- * The lines an item can snap to along one axis of the editor (x or y). The grid starts from the middle of the editor, so that centred items are
- * on it, and goes out from there every [cell].
+ * The lines an item can snap to along one axis of the editor (x or y), on a grid going out every [cell] from the middle.
  *
- * @property limit The editor's size on this axis. Both editor edges always count as lines, even when they aren't on the grid
+ * @property limit The editor's size on this axis, whose edges always count as lines
  * @property cell The grid spacing in pixels
- * @property gaps Areas that always count and that an item can sit flush against on either side, like a fold. The start of a gap is a line for
- * an item's end edge, and its end a line for an item's start edge
- * @property otherScreen Where the other screen is on this axis, so that a screen can be lined up with it. Null when not snapping a screen or
- * when there's no other screen
+ * @property gaps Areas like a fold that always count and that an item can sit flush against on either side
+ * @property otherScreen Where the other screen is on this axis, or null when not snapping a screen or there's no other screen
  */
 class SnapAxis(val limit: Int, val cell: Int, val gaps: List<SnapSpan> = emptyList(), val otherScreen: SnapSpan? = null) {
     /** The grid line in the middle of the editor, which all the other grid lines are counted from */
@@ -40,7 +37,7 @@ class SnapAxis(val limit: Int, val cell: Int, val gaps: List<SnapSpan> = emptyLi
 data class SnappedEdge(val position: Int, val distance: Int)
 
 /**
- * The snapping maths behind the layout editor's snap grid. Everything works on one axis at a time, in editor pixels.
+ * The snapping math behind the layout editor's snap grid, working on one axis at a time in editor pixels.
  */
 object LayoutEditorSnapping {
 
@@ -55,16 +52,15 @@ object LayoutEditorSnapping {
     }
 
     /**
-     * Moves a control so that its centre sits on the nearest grid point that keeps it inside the editor. When no grid point fits, the control
-     * stays where it was put, inside the editor.
+     * Moves a control so that its center sits on the nearest grid point that keeps it inside the editor, or leaves it be if none fits.
      */
     fun snapCenter(start: Int, length: Int, axis: SnapAxis): Int {
         val cell = axis.cell
-        // Counted from the centred position rather than from the middle line minus half the length, so that a control on the middle line is
-        // exactly where the centre buttons put it, even with odd sizes
+        // Counted from the centered position rather than from the middle line minus half the length, so that a control on the middle line is
+        // exactly where the center buttons put it, even with odd sizes
         val centeredStart = centeredStart(length, axis.limit)
         var snapped = centeredStart + Math.round((start - centeredStart) / cell.toFloat()) * cell
-        // Step whole cells back inside the editor, so the centre stays on the grid
+        // Step whole cells back inside the editor, so the center stays on the grid
         if (snapped < 0) snapped += (-snapped + cell - 1) / cell * cell
         if (snapped + length > axis.limit) snapped -= (snapped + length - axis.limit + cell - 1) / cell * cell
         if (snapped < 0 || snapped + length > axis.limit) {
@@ -74,8 +70,7 @@ object LayoutEditorSnapping {
     }
 
     /**
-     * Moves a screen so that whichever of its edges is closer to a line sits on it. The lines are the grid, the editor edges and the gap edges.
-     * The other screen's edges count when they are within the alignment threshold, and so does its centre for the moved screen's centre.
+     * Moves a screen so that whichever of its edges is closer to a line (grid, editor edge, gap edge or the other screen's) sits on it.
      */
     fun snapEdges(start: Int, length: Int, axis: SnapAxis): Int {
         val maxStart = axis.limit - length
@@ -83,7 +78,7 @@ object LayoutEditorSnapping {
             return clamp(start, length, axis.limit)
         }
 
-        // Every candidate is a new start position. Ones that would put the screen outside the editor are skipped, so the result is always on a line
+        // Every candidate is a new start position, skipping ones outside the editor so the result is always on a line
         val nearest = Nearest(start, 0, maxStart)
         val end = start + length
         // The start edge goes first, so it wins ties
@@ -91,7 +86,7 @@ object LayoutEditorSnapping {
         offerGridLines(nearest, end, axis) { it - length }
         nearest.offer(0)
         nearest.offer(maxStart)
-        // Where the centre buttons put the screen, so a drag can land back on it
+        // Where the center buttons put the screen, so a drag can land back on it
         nearest.offer(centeredStart(length, axis.limit))
         // A screen can sit flush on either side of a fold, but never over it
         axis.gaps.forEach {
@@ -110,13 +105,10 @@ object LayoutEditorSnapping {
     }
 
     /**
-     * Snaps an edge that's being dragged to resize an item, while its opposite edge stays at [fixedEdge]. [growsTowardsEnd] says which side of
-     * the fixed edge the dragged one is on (right or bottom when true). Besides the lines that [snapEdges] uses, the edge also snaps to where the
-     * item would be as long as the other screen, so sizes can be matched.
+     * Snaps an edge dragged to resize an item, right of or below [fixedEdge] when [growsTowardsEnd], also matching the other screen's size.
      */
     fun snapResizedEdge(position: Int, fixedEdge: Int, minLength: Int, growsTowardsEnd: Boolean, axis: SnapAxis): SnappedEdge {
-        // The dragged edge stays on its own side of the fixed one, at least the minimum size away. Lines closer than that would only be undone
-        // by the minimum size
+        // The dragged edge stays on its own side of the fixed one, at least the minimum size away
         val min = if (growsTowardsEnd) fixedEdge + minLength else 0
         val max = if (growsTowardsEnd) axis.limit else fixedEdge - minLength
         if (min > max) {
@@ -141,7 +133,7 @@ object LayoutEditorSnapping {
     }
 
     /**
-     * Offers the grid lines on both sides of [position]. [toCandidate] turns a line into the value being snapped.
+     * Offers the grid lines on both sides of [position], turned into the value being snapped by [toCandidate].
      */
     private inline fun offerGridLines(nearest: Nearest, position: Int, axis: SnapAxis, toCandidate: (Int) -> Int) {
         val lineBefore = axis.origin + Math.floorDiv(position - axis.origin, axis.cell) * axis.cell
@@ -150,7 +142,7 @@ object LayoutEditorSnapping {
     }
 
     /**
-     * The start position that centres an item in the editor.
+     * The start position that centers an item in the editor.
      */
     fun centeredStart(length: Int, limit: Int): Int {
         return (limit - length) / 2
@@ -161,7 +153,7 @@ object LayoutEditorSnapping {
     }
 
     /**
-     * Keeps the candidate closest to [from] among the ones in [min]..[max]. If none is offered, the value stays at [from].
+     * Keeps the candidate closest to [from] among the ones in [min]..[max], or [from] if none is offered.
      */
     private class Nearest(private val from: Int, private val min: Int, private val max: Int) {
         var value = from

@@ -9,8 +9,7 @@ import kotlin.math.roundToInt
 private const val MIN_GRID_CELL_PX = 4
 
 /**
- * The snap grid setting as one editor uses it. Between [attach] and [detach] it follows every change, including ones made from the editor on the
- * other display, and calls [onChanged] after each.
+ * The snap grid setting as one editor uses it, calling [onChanged] between [attach] and [detach] after every change from either display.
  */
 internal class SnapGrid(private val context: Context, private val onChanged: () -> Unit) {
     private val settings = LayoutEditorGridSettings(context)
