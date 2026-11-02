@@ -15,9 +15,7 @@ import me.magnum.melonds.ui.common.view.ControllerAppearance.Shading
 import kotlin.math.min
 
 /**
- * Draws one or more buttons in the given [appearance]. Raised buttons sit on a darker lip (the same shape offset down) and sink onto it while pressed; flat
- * buttons shrink a little instead. Pixel buttons are raised buttons drawn as pixel art by [PixelButtonPainter]. All geometry is given in a square design
- * space of [designSize] units, which is scaled to fit the view.
+ * Draws buttons in [appearance]'s shading, with geometry given in a square design space of [designSize] units scaled to fit the view.
  */
 @SuppressLint("ViewConstructor")
 class RaisedButtonView(
@@ -40,7 +38,7 @@ class RaisedButtonView(
         val glyph: Path? = null,
         val icon: Drawable? = null,
         val offIcon: Drawable? = null,
-        // D-pad parts share their colours in pixel styles, including the centre, which has no input
+        // D-pad parts share their colors in pixel styles, including the center, which has no input
         val isDpad: Boolean = false,
         // Hand-drawn versions of the glyph or icons, used instead of them by pixel styles
         val pixelIcon: PixelIcon? = null,
@@ -83,8 +81,7 @@ class RaisedButtonView(
     }
 
     /**
-     * Replaces the buttons drawn by this view and the size of the design space they're given in, e.g. to show a new spacing while a layout is being edited.
-     * The view itself stays the same, so its size, touch listener and selection are kept. Nothing is pressed afterwards.
+     * Replaces the parts and design size while keeping the view, its listener and selection, with nothing pressed afterwards.
      */
     fun setParts(newParts: List<Part>, newDesignSize: Float = designSize) {
         parts = newParts
@@ -143,7 +140,7 @@ class RaisedButtonView(
             part.offIcon?.setBounds(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize)
         }
 
-        // Rings are clipped to the shape, so only the inner half of the stroke is visible. Their width follows the lip, which is proportional to the button size
+        // Rings are clipped to the shape, so only the inner half of the stroke is visible
         val density = resources.displayMetrics.density
         ringPaint.strokeWidth = when (shading) {
             Shading.RAISED -> 0f
@@ -155,9 +152,7 @@ class RaisedButtonView(
     }
 
     /**
-     * Pixel lips have the same depth on every button, which is often deeper than the room the design leaves for the lip. When the faces plus the lip are
-     * taller than the view, the faces shrink until they fit, staying centred across. If the lip still runs off the bottom because the design leaves more
-     * room above the faces than below, they move up into that room.
+     * Shrinks or raises the faces so a pixel lip, whose depth is the same on every button, still fits inside the view.
      */
     private fun fitPixelLip(painter: PixelButtonPainter, w: Int, h: Int) {
         painter.setViewSize(w, h)
@@ -229,7 +224,7 @@ class RaisedButtonView(
                 canvas.drawPath(lips[i], fillPaint)
             }
         }
-        // Pressed faces go first so that they slide under their unpressed neighbours
+        // Pressed faces go first so that they slide under their unpressed neighbors
         for (i in parts.indices) {
             if (pressedParts[i]) {
                 drawFace(canvas, i)

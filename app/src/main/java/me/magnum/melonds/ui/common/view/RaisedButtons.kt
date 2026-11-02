@@ -10,14 +10,13 @@ import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.input.ControllerStyle
 
 /**
- * Builders for the raised on-screen buttons. Button positions match the hit areas used by the input handlers: the D-pad and ABXY are drawn on a 512 grid,
- * which grows with their spacing (see [spacedDesignSize]), and the hit areas scale with the view either way.
+ * Builders for the raised on-screen buttons, whose shapes must match the input handlers' hit areas.
  */
 object RaisedButtons {
     private const val OFF_ICON_ALPHA = 90
 
     /**
-     * How far a button's lip sticks out below its face, and how far the face sinks while pressed, in design units. Each pair goes with one design size.
+     * Lip depth and pressed travel in design units, for one design size.
      */
     private class Depth(val lip: Float, val travel: Float)
 
@@ -29,13 +28,13 @@ object RaisedButtons {
     private val SMALL_DEPTH = Depth(7f, 5.6f)
 
     /**
-     * How many design units the D-pad and ABXY buttons move out by at spacing 1. Their design box grows by twice that, so the buttons keep their size.
+     * How far the D-pad and ABXY buttons move out at spacing 1, in design units; the design box grows by twice this.
      */
     const val SPACING_EXTRA = 128f
 
     /**
-     * The size of the design box of the D-pad and ABXY with the given spacing, from 512 at 0 to 768 at 1. The view must grow by the same ratio for the
-     * buttons to keep their size on screen.
+     * Design box size of the D-pad and ABXY at [spacing], 512 at 0 to 768 at 1; the view must grow by the same ratio for the buttons to keep their
+     * size.
      */
     fun spacedDesignSize(spacing: Float): Float {
         return 512f + 2f * SPACING_EXTRA * spacing
@@ -46,11 +45,10 @@ object RaisedButtons {
     }
 
     /**
-     * The parts of [dpad] with the given [spacing], which goes from 0 to 1, to be drawn in a box of [spacedDesignSize]. Raising it moves the arms away from
-     * the centre square by up to [SPACING_EXTRA], while every part keeps its size.
+     * The parts of [dpad] at [spacing] (0 to 1), drawn in a [spacedDesignSize] box.
      */
     fun dpadParts(spacing: Float): List<RaisedButtonView.Part> {
-        // The centre square is 10 units above the middle so that the cross plus its lip is centred in the box
+        // The center square is 10 units above the middle so that the cross plus its lip is centered in the box
         val extra = SPACING_EXTRA * spacing
         val cx = spacedDesignSize(spacing) / 2f
         val cy = cx - 10f
@@ -77,11 +75,10 @@ object RaisedButtons {
     }
 
     /**
-     * The parts of [abxy] with the given [spacing], which goes from 0 to 1, to be drawn in a box of [spacedDesignSize]. Raising it moves the buttons away
-     * from the middle by up to [SPACING_EXTRA], while they keep their size.
+     * The parts of [abxy] at [spacing] (0 to 1), drawn in a [spacedDesignSize] box.
      */
     fun abxyParts(spacing: Float): List<RaisedButtonView.Part> {
-        // The middle sits 2 units above the centre of the box, which leaves room for the lip under the bottom button
+        // The middle sits 2 units above the center of the box, which leaves room for the lip under the bottom button
         val cx = spacedDesignSize(spacing) / 2f
         val cy = cx - 2f
         val offset = 160f + SPACING_EXTRA * spacing
@@ -110,8 +107,7 @@ object RaisedButtons {
     }
 
     /**
-     * Rounded square with an icon in the middle. When [offIconRes] is given it's shown while the button is toggled off, otherwise [dimWhenOff] shows a faded
-     * [iconRes] instead.
+     * Rounded square with [iconRes]; [offIconRes], or a dimmed [iconRes] with [dimWhenOff], is shown while it's toggled off.
      */
     fun iconButton(context: Context, style: ControllerStyle, @DrawableRes iconRes: Int?, @DrawableRes offIconRes: Int? = null, dimWhenOff: Boolean = false): RaisedButtonView {
         val icon = iconRes?.let { ContextCompat.getDrawable(context, it)?.mutate() }
@@ -120,7 +116,7 @@ object RaisedButtons {
             dimWhenOff && iconRes != null -> ContextCompat.getDrawable(context, iconRes)?.mutate()?.apply { alpha = OFF_ICON_ALPHA }
             else -> null
         }
-        // Pixel styles draw hand-drawn icons instead. A dimmed off icon has no pixel version of its own, so it dims the normal one
+        // Pixel styles draw hand-drawn icons instead, and a dimmed off icon dims the normal one
         val pixelIcon = iconRes?.let { PixelIcons.forDrawable(it) }
         val pixelOffIcon = offIconRes?.let { PixelIcons.forDrawable(it) }
         // Same proportions as Start/Select: the 57 unit face plus its 7 unit lip fill the 64 unit square
@@ -153,7 +149,7 @@ object RaisedButtons {
         }
     }
 
-    // L-shaped tab in a 128 grid: a full-width bar on top with a stem going down on the outer side. The face ends at 118 to leave room for the lip.
+    // L-shaped tab in a 128 grid, a full-width bar with a stem down the outer side, ending at 118 to leave room for the lip
     private fun shoulderShape(mirrored: Boolean): Path {
         val bar = Path().apply {
             addRoundRect(RectF(0f, 0f, 128f, 70f), floatArrayOf(12f, 12f, 12f, 12f, 8f, 8f, 8f, 8f), Path.Direction.CW)
