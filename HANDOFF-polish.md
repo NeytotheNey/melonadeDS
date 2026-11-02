@@ -6,8 +6,9 @@ Read this, then `PLAN-polish.md`. The plan has the per-item file references, the
 
 - **Branch:** `claude/friendly-heisenberg-3eipz2` in this repo, on top of `material3`. Phases 1, 2 and 3 are applied, one commit per concern (21 for Phase 1, 9 for Phase 2, 8 for Phase 3), each phase followed by a status commit on the plan. The core submodule is untouched by the pass.
 - **Phase 1 (delete and fix):** verified on the Z Fold 8 on 2026-11-01 (commit `4768a989` records what was checked: debug build, 147 JVM tests, `LuaStorageTest`, reset, rewind, fast-forward, a Wide pick, the four button styles, a Lua options save, the licence entries).
-- **Phase 2 (native consolidation):** applied in `8a0a19ac..7ac57ee9`, **not yet built or run on a device**. The container it was written in has no Android SDK (Google's download host is blocked). Instead, every touched native file was checked with a host `clang++ -fsyntax-only` against the real core and oboe submodules, with stub Android headers, in both the debug (`MELONADE_DEBUG_TOOLS`) and release configurations. That catches syntax and most type errors, not linking or behaviour. Testing was deferred on purpose: the owner tests Phases 2 and 3 together.
-- **Phase 3 (split `LuaEngine.cpp`):** applied in `4cd096a6..90b696be`, **not yet built or run on a device**, like Phase 2. Same host `clang++ -fsyntax-only` check (both configurations) on every scripting file and every file that includes `debug/DebugLog.h`. `LuaStorageTest` was built with the recipe (now in MODS.md) and passes on Linux. It touched no Kotlin.
+- **Phase 2 (native consolidation):** applied in `8a0a19ac..7ac57ee9`, written without the Android SDK and syntax-checked with host `clang++` only.
+- **Phase 3 (split `LuaEngine.cpp`):** applied in `4cd096a6..90b696be`, same host `clang++` check. It touched no Kotlin.
+- **Phases 2 and 3 verified together** on the Z Fold 8 on 2026-11-01: the whole checklist below passes (`PLAN-polish.md` status has the detail), except that only Low audio latency can be tested, because the setting is hidden and always sends Low. The run found an older bug, a blocked `melon.mem` I/O read raising "invalid option '%0'", fixed in `73105f89`.
 - **Phases 4 to 7:** not started. Phase 4 (Kotlin consolidation) is next.
 
 ## What Phase 2 changed, in the order it should be tested
