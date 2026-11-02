@@ -1048,7 +1048,7 @@ class EmulatorViewModel @Inject constructor(
     fun disableLuaScript(scriptId: Int) {
         emulatorManager.disableLuaScript(scriptId)
         // Native doesn't send a stop event for this one, so the screen is told here to undo what the script changed
-        val scriptName = emulatorManager.getLuaScripts().getOrNull(scriptId)?.name ?: return
+        val scriptName = emulatorManager.getLuaScript(scriptId)?.name ?: return
         sendLuaUiEvent(LuaUiEvent.ScriptStopped(scriptId, scriptName, error = null))
     }
 
@@ -1070,7 +1070,7 @@ class EmulatorViewModel @Inject constructor(
      * it was off). Returns false if the script can't run
      */
     fun setLuaScriptOptions(scriptId: Int, optionValues: Map<String, String>): Boolean {
-        val script = emulatorManager.getLuaScripts().getOrNull(scriptId) ?: return false
+        val script = emulatorManager.getLuaScript(scriptId) ?: return false
         val wasRunning = script.isRunning
         if (!emulatorManager.restartLuaScript(scriptId, optionValues)) {
             return false
@@ -1082,7 +1082,7 @@ class EmulatorViewModel @Inject constructor(
         sendLuaUiEvent(LuaUiEvent.ScriptStarted(scriptId))
 
         val rom = (_emulatorState.value as? EmulatorState.RunningRom)?.rom ?: return true
-        val savedValues = emulatorManager.getLuaScripts().getOrNull(scriptId)?.optionValues ?: optionValues
+        val savedValues = emulatorManager.getLuaScript(scriptId)?.optionValues ?: optionValues
         viewModelScope.launch {
             // The config may have changed since launch (the script list is synced then), so the newest one is updated
             val currentRom = getLibraryRom(rom) ?: return@launch
@@ -1124,7 +1124,7 @@ class EmulatorViewModel @Inject constructor(
      * script runs with
      */
     private fun onLuaLayoutRequest(scriptId: Int, optionKey: String?) {
-        val script = emulatorManager.getLuaScripts().getOrNull(scriptId) ?: return
+        val script = emulatorManager.getLuaScript(scriptId) ?: return
         // Until the layouts are read, every layout is taken to exist. One that doesn't is found missing when it's shown, and the player's
         // layout is shown instead
         val existingLayoutIds = luaExistingLayoutIds

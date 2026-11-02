@@ -47,6 +47,11 @@ interface EmulatorManager {
     fun getLuaScripts(): List<LuaScriptStatus>
 
     /**
+     * The Lua script with this ID, or null if the session has none
+     */
+    fun getLuaScript(scriptId: Int): LuaScriptStatus?
+
+    /**
      * Switches a running Lua script off for this session. The ROM config isn't changed
      */
     fun disableLuaScript(scriptId: Int)

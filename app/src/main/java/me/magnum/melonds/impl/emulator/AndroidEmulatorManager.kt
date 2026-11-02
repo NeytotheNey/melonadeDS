@@ -266,17 +266,27 @@ class AndroidEmulatorManager(
 
     override fun getLuaScripts(): List<LuaScriptStatus> {
         synchronized(luaScriptsLock) {
-            return luaScriptNames.mapIndexed { id, name ->
-                LuaScriptStatus(
-                    name = name,
-                    description = luaScriptHeaders.getOrNull(id)?.description,
-                    isRunning = id in runningLuaScripts,
-                    lastError = luaScriptErrors[id],
-                    options = luaScriptHeaders.getOrNull(id)?.options.orEmpty(),
-                    optionValues = luaScriptOptionValues.getOrNull(id).orEmpty(),
-                )
-            }
+            return luaScriptNames.mapIndexed { id, name -> getLuaScriptStatus(id, name) }
         }
+    }
+
+    override fun getLuaScript(scriptId: Int): LuaScriptStatus? {
+        synchronized(luaScriptsLock) {
+            val name = luaScriptNames.getOrNull(scriptId) ?: return null
+            return getLuaScriptStatus(scriptId, name)
+        }
+    }
+
+    // Called under luaScriptsLock
+    private fun getLuaScriptStatus(id: Int, name: String): LuaScriptStatus {
+        return LuaScriptStatus(
+            name = name,
+            description = luaScriptHeaders.getOrNull(id)?.description,
+            isRunning = id in runningLuaScripts,
+            lastError = luaScriptErrors[id],
+            options = luaScriptHeaders.getOrNull(id)?.options.orEmpty(),
+            optionValues = luaScriptOptionValues.getOrNull(id).orEmpty(),
+        )
     }
 
     override fun disableLuaScript(scriptId: Int) {
