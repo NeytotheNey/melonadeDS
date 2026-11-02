@@ -5,19 +5,17 @@
 namespace MelonDSAndroid
 {
 
-// Threat model: scripts are files the player picked and installed. The limits below are there so that a buggy or careless script can't freeze
-// the emulator thread or the app (it gets switched off instead). They aren't meant to stop a script written to hang its own player's game.
+// Limits keep a buggy script from freezing the emulator; they aren't a security boundary
 
 // C functions don't count instructions, so the work they do (pattern matching and searches in lua/patched/lstrlib.c, bytes allocated, table
-// elements moved or sorted) is charged to a budget instead. It's set when each call starts and scales with its instruction limit: 20M steps
-// for a callback, which ordinary scripts never get near, and roughly 40-100 ms of work when one does
+// elements moved or sorted) is charged to a budget that scales with each call's instruction limit
 static const lua_Integer kWorkPerInstruction = 20;
 // Steps per table element that table.move/insert/remove/sort go through
 static const lua_Integer kTableElementCost = 4;
 // Bytes allocated per step
 static const size_t kBytesPerStep = 16;
 static const size_t kMemoryLimit = 32 * 1024 * 1024;
-// Most elements table.move/insert/remove/sort may go through in one call. More than the memory limit could hold anyway
+// Most elements table.move/insert/remove/sort may go through in one call, more than the memory limit could hold anyway
 static const lua_Integer kMaxTableLoop = 1 << 22;
 static const char* const kInstructionLimitError = "ran for too long (over the instruction limit)";
 static const char* const kWorkLimitError = "did too much work in one call (over the work limit)";
@@ -60,7 +58,7 @@ void* LuaSandbox::allocate(void* userData, void* pointer, size_t oldSize, size_t
         if (script.memoryUsed - currentSize + newSize > kMemoryLimit)
             return nullptr;
 
-        // Allocating and filling memory is work too (string.rep, concatenation in a loop). The state is still being created while L is null
+        // Allocating and filling memory is work too (string.rep, concatenation in a loop), once the state is created (L is set)
         if (script.L)
         {
             script.workLeft -= (lua_Integer) ((newSize - currentSize) / kBytesPerStep + 1);
@@ -102,7 +100,7 @@ int LuaSandbox::messageHandler(lua_State* L)
         else
             message = lua_pushfstring(L, "(error object is a %s value)", luaL_typename(L, 1));
     }
-    // Already has one: a module's error that require() passed on. Its traceback was made further down, so it has every level this one would
+    // Already has one: a module's error that require() passed on, whose traceback already has every level this one would
     else if (strstr(message, "\nstack traceback:"))
     {
         return 1;
@@ -146,13 +144,13 @@ static void wrapFunction(lua_State* L, const char* table, const char* name, lua_
 }
 
 /**
- * load() that only takes text chunks. Binary chunks can crash the VM
+ * load() that only takes text chunks, since binary chunks can crash the VM
  */
 static int loadTextOnly(lua_State* L)
 {
     int argumentCount = lua_gettop(L);
-    // Pad to two arguments so index 2 is the chunk name (or nil), not the original load pushed below. env is only passed if the caller gave
-    // one, because load treats an explicit nil env as "set _ENV to nil"
+    // Pad to two arguments so index 2 is the chunk name (or nil), not the original load pushed below, and pass env only if the caller gave
+    // one, since load treats an explicit nil env as "set _ENV to nil"
     if (argumentCount < 2)
         lua_settop(L, 2);
     int top = lua_gettop(L);
@@ -168,8 +166,7 @@ static int loadTextOnly(lua_State* L)
 }
 
 /**
- * setmetatable() that refuses __gc. Finalizers run with hooks off, so the instruction limit couldn't stop one that loops forever. A finalizer
- * is only registered if __gc is there when setmetatable() is called, so checking here is enough
+ * setmetatable() that refuses __gc, since finalizers run with hooks off and the instruction limit couldn't stop one that loops forever
  */
 static int setMetatableWithoutGc(lua_State* L)
 {
@@ -184,7 +181,7 @@ static int setMetatableWithoutGc(lua_State* L)
 }
 
 /**
- * collectgarbage() without the options that change how the collector runs. "stop" would let memory run into the limit
+ * collectgarbage() without the options that change how the collector runs, like "stop", which would let memory run into the limit
  */
 static int safeCollectGarbage(lua_State* L)
 {
@@ -222,8 +219,7 @@ static int safeTableMove(lua_State* L)
 }
 
 /**
- * The length that table.insert/remove/sort go up to. A sparse table or a __len metamethod can make #t huge without the table holding anything,
- * so __len isn't allowed and the length is capped
+ * The length that table.insert/remove/sort go up to, capped and without __len, since either can make #t huge without the table holding anything
  */
 static lua_Integer checkTableLength(lua_State* L)
 {
@@ -260,7 +256,7 @@ static int safeTableSort(lua_State* L)
 
 void LuaSandbox::open(lua_State* L)
 {
-    // Only these libraries. No io, os, package, debug or coroutine
+    // Only these libraries: no io, os, package, debug or coroutine
     static const struct { const char* name; lua_CFunction open; } libraries[] = {
         { LUA_GNAME, luaopen_base },
         { LUA_TABLIBNAME, luaopen_table },
