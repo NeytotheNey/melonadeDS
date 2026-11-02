@@ -1,8 +1,8 @@
 package me.magnum.melonds.domain.model.layout
 
+import me.magnum.melonds.domain.model.MAX_WIDE_VIEW_WIDTH
+import me.magnum.melonds.domain.model.MIN_WIDE_VIEW_WIDTH
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
-import me.magnum.melonds.domain.model.rom.config.MAX_WIDE_VIEW_WIDTH
-import me.magnum.melonds.domain.model.rom.config.MIN_WIDE_VIEW_WIDTH
 import kotlin.math.abs
 import kotlin.math.roundToInt
 

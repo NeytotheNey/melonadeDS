@@ -1,12 +1,9 @@
 package me.magnum.melonds.domain.model.rom.config
 
 import android.net.Uri
-import me.magnum.melonds.domain.model.SCREEN_WIDTH
+import me.magnum.melonds.domain.model.MAX_WIDE_VIEW_WIDTH
+import me.magnum.melonds.domain.model.MIN_WIDE_VIEW_WIDTH
 import java.util.UUID
-
-// The widths of the 3D view that the core takes. They must also be even
-const val MIN_WIDE_VIEW_WIDTH = SCREEN_WIDTH
-const val MAX_WIDE_VIEW_WIDTH = 768
 
 data class RomModsConfig(
     // Width of the top screen's 3D view in pixels. Null means widescreen is off

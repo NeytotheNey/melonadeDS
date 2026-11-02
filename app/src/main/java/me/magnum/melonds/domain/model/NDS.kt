@@ -11,6 +11,10 @@ const val FRAME_TEXTURE_HEIGHT = SCREEN_HEIGHT * 2 + SCREEN_GAP
 // Frame rate the emulator runs at without fast-forward. Must match EMULATOR_TARGET_FPS in Configuration.h
 const val EMULATOR_TARGET_FPS = 60
 
+// The widths of the top screen's 3D view that the core takes, which must also be even. Must match the range in Configuration.h
+const val MIN_WIDE_VIEW_WIDTH = SCREEN_WIDTH
+const val MAX_WIDE_VIEW_WIDTH = 768
+
 val consoleAspectRatio: Float get() {
     return SCREEN_WIDTH.toFloat() / SCREEN_HEIGHT
 }
