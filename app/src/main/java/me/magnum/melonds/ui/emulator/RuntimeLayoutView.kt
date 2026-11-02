@@ -47,14 +47,14 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     // The width of the frames the screens are drawn from, in DS pixels (DSRenderer.frameTopScreenWidth), for where touches go
     private var frameWidthProvider: () -> Int = { SCREEN_WIDTH }
 
-    // The last event of the touches that are down now, or null if none is. Kept so they can be carried over to a new layout
+    // The last event of the touches that are down now, kept so they can be carried over to a new layout
     private var currentTouches: MotionEvent? = null
     // True from a layout being rebuilt while touches are down until the new views are laid out and have been given those touches
     private var isCarryingTouches = false
-    // The pointers that were down when the layout was rebuilt. Any other pointer went down after, before the new views had a place
+    // The pointers that were down when the layout was rebuilt
     private val carriedPointerIds = mutableSetOf<Int>()
 
-    // How far a shown status bar reaches down into this view. The layouts are sized for the whole window, so controls under it get pushed down
+    // How far a shown status bar reaches down into this view
     private var topSystemBarInset = 0
     // The top of each control as the layout placed it, so the push is always worked out from there and going back to 0 puts them back exactly
     private val layoutTops = mutableMapOf<LayoutComponent, Int>()
@@ -107,8 +107,7 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     }
 
     /**
-     * Pushes the controls that would sit under the status bar down to just below it, so taps on them don't go to the system instead. The screens
-     * stay where the layout put them. 0 (no status bar) leaves everything as laid out
+     * Pushes the controls (not the screens) that would sit under the status bar down to just below it, so taps on them don't go to the system.
      */
     fun setTopSystemBarInset(inset: Int) {
         if (inset == topSystemBarInset) {
@@ -166,8 +165,7 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     }
 
     fun instantiateLayout(runtimeLayout: RuntimeInputLayoutConfiguration, layoutTarget: LayoutTarget) {
-        // Removing the old views cancels the touches on them, which releases what they held. Without carrying the touches over, a button held
-        // while the layout changes (a script switching layouts while SELECT is held, say) would be let go, and the script would switch back
+        // Removing the old views cancels their touches, so the touches are carried over to keep held buttons held
         val downPointerIds = if (isCarryingTouches) emptyList() else currentTouches?.let { getDownPointerIds(it) }.orEmpty()
         val mustCarryTouches = downPointerIds.isNotEmpty()
         if (mustCarryTouches) {
@@ -213,8 +211,7 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
 
         val isHandled = super.dispatchTouchEvent(event)
         if (event.actionMasked == MotionEvent.ACTION_DOWN && !isHandled) {
-            // No view took it (empty space or the top screen), so the rest of this gesture, its UP included, won't come here. It mustn't be
-            // kept, or a later layout change would press whatever is there then
+            // No view took it, so the rest of this gesture won't come here and it mustn't be kept
             currentTouches?.recycle()
             currentTouches = null
         }
@@ -222,9 +219,7 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     }
 
     /**
-     * Gives the touches that are still down to the new views, as if they had just been put down there, then sends the releases the old views
-     * made, except for inputs the new views hold again. So an input whose button is still under the finger stays held, one whose button moved
-     * away is released, and nothing is pressed just because the layout changed
+     * Replays the touches still down onto the new views and then sends the releases the old views made, except for inputs held again.
      */
     private fun finishCarryingTouches() {
         if (!isCarryingTouches) {
@@ -248,8 +243,7 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     }
 
     private fun dispatchTouchesAgain(touches: MotionEvent) {
-        // A pointer going up in that event is no longer down. The carried pointers go first, so the ones that went down after the layout was
-        // rebuilt can be given to the new views as the new touches they are
+        // The carried pointers go first, so the ones that went down after the rebuild reach the new views as new touches
         val pointerIndices = getDownPointerIndices(touches).sortedBy { touches.getPointerId(it) !in carriedPointerIds }
         val properties = pointerIndices.map { index -> MotionEvent.PointerProperties().also { touches.getPointerProperties(index, it) } }
         val coordinates = pointerIndices.map { index -> MotionEvent.PointerCoords().also { touches.getPointerCoords(index, it) } }
@@ -358,8 +352,9 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     }
 
     /**
-     * Gives [renderer] the screens' areas, opacity and stacking as this layout shows them. Returns the bottom screen's area for the system gesture
-     * exclusion rects, empty if the layout has no bottom screen.
+     * Gives [renderer] the screens' areas, opacity and stacking as this layout shows them.
+     *
+     * @return the bottom screen's area for the gesture exclusion rects, empty if the layout has none.
      */
     fun applyScreenAreasTo(renderer: DSRenderer): List<android.graphics.Rect> {
         val (topScreen, bottomScreen) = getDrawnScreens()
@@ -393,8 +388,7 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     }
 
     /**
-     * Where the renderer draws the bottom screen's middle SCREEN_WIDTH columns in [touchScreenView], in its coordinates. Worked out with the same
-     * getScreensDrawing() and the same rects the screen gives the renderer, at the time of each touch, since the frame width can change any time
+     * Where the renderer draws the bottom screen's middle SCREEN_WIDTH columns in [touchScreenView]; must match what the renderer is given.
      */
     private fun getTouchScreenArea(touchScreenView: View): Rect? {
         val (topScreen, bottomScreen) = getDrawnScreens()
@@ -466,8 +460,7 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     }
 
     /**
-     * Passes input on to [listener], except while touches are being carried over to a new layout (see [finishCarryingTouches]). Then releases
-     * are held back, and presses only cancel a held back release, so the new views press nothing new (a toggle isn't toggled again, say)
+     * Passes input on to [listener], holding back releases while touches are carried over (see [finishCarryingTouches]) so nothing new is pressed.
      */
     private inner class TouchCarryingInputListener(private val listener: IInputListener) : IInputListener {
         private val heldBackReleases = mutableSetOf<Input>()
