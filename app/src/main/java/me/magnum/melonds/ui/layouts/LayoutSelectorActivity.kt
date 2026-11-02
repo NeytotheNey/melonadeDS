@@ -22,9 +22,9 @@ import me.magnum.melonds.ui.theme.MelonTheme
 class LayoutSelectorActivity : AppCompatActivity() {
     companion object {
         const val KEY_SELECTED_LAYOUT_ID = "selected_layout_id"
-        // Only lists the layouts marked as widescreen, with "Automatic" (no layout) at the top. For a game's wide layout
+        // Lists only the layouts marked as widescreen, with "Automatic" (no layout) at the top, for a game's wide layout
         const val KEY_WIDE_LAYOUTS_ONLY = "wide_layouts_only"
-        // With KEY_WIDE_LAYOUTS_ONLY: the ratio (WidescreenAspect.key) a layout made from the picker starts with. 16:9 if missing
+        // With KEY_WIDE_LAYOUTS_ONLY: the ratio (WidescreenAspect.key, 16:9 if missing) a layout made from the picker starts with
         const val KEY_NEW_LAYOUT_WIDE_ASPECT = "new_layout_wide_aspect"
     }
 

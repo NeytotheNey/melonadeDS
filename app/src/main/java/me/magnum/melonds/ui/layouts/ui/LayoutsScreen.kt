@@ -90,7 +90,7 @@ import me.magnum.melonds.ui.theme.MelonTheme
 import java.util.UUID
 
 /**
- * @param noLayoutName What the entry without a layout (null ID) is called instead of its own name. Null to keep its name
+ * @param noLayoutName What the entry without a layout (null ID) is called instead of its own name, or null to keep it
  * @param newLayoutWideAspect If set, new layouts start as wide layouts at this ratio
  */
 @Composable
