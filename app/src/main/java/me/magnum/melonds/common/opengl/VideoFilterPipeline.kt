@@ -8,8 +8,8 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * The texture that a [VideoFilterPipeline]'s screen shader should draw, and its size in texels. The pipeline owns one instance and
- * updates it on every [VideoFilterPipeline.renderPrePasses] call, so read it before the next one.
+ * The texture that a [VideoFilterPipeline]'s screen shader should draw and its size in texels, reused by every
+ * [VideoFilterPipeline.renderPrePasses] call.
  */
 class FilterOutput {
     var textureId = 0
@@ -27,9 +27,7 @@ class FilterOutput {
 }
 
 /**
- * The GL objects of a [VideoFilter]: the compiled screen shader and, if the filter has pre-passes, their shaders and offscreen textures. Must be
- * created, used and deleted on the thread that owns the GL context. Filters without pre-passes create nothing else and cost nothing extra.
- * [colorCorrection] turns on the DS screen colours in the screen shader. The pre-passes always work on the raw colours.
+ * The GL objects of a [VideoFilter] (screen shader, pre-pass shaders and textures), created, used and deleted on the GL context's thread.
  */
 class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false) {
 
@@ -38,21 +36,20 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         val COLOR_ATTACHMENTS = intArrayOf(GLES30.GL_COLOR_ATTACHMENT0)
     }
 
-    // A screen shader that fails to build falls back to the no-filter shader. A pre-pass that fails is left out, so the screen shader gets its
-    // input instead, like when a pre-pass's framebuffer can't be used
+    // A pre-pass that fails to build is left out, so the screen shader gets its input instead
     val screenShader: Shader = ShaderFactory.createScreenShaderProgram(filter.screenShader, colorCorrection)
     private val prePasses = filter.prePasses.mapNotNull { prePass ->
         ShaderFactory.createShaderProgramOrNull(prePass.source)?.let { PrePass(it, prePass.scale, prePass.nativeResolutionOnly) }
     }
 
-    // Returned by renderPrePasses(). Reused so that no garbage is created on every frame
+    // Returned by renderPrePasses(), reused so that no garbage is created on every frame
     private val output = FilterOutput()
 
-    // Full-target quad shared by all the pre-passes. Created on first use
+    // Full-target quad shared by all the pre-passes, created on first use
     private var quadVao = 0
     private var quadVbo = 0
 
-    // Frame that the pre-pass textures currently hold. With frame pacing the same frame is often presented more than once
+    // Frame that the pre-pass textures currently hold, since frame pacing often presents the same frame more than once
     private var lastFrameTextureId = 0
     private var lastFrameSequence = 0L
     private var lastFrameWidth = 0
@@ -64,7 +61,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     private var lastOutputWidth = 0
     private var lastOutputHeight = 0
 
-    // GL state saved around the pre-passes. Allocated once to avoid garbage on every frame
+    // GL state saved around the pre-passes, allocated once to avoid garbage on every frame
     private val savedViewport = IntArray(4)
     private val savedInt = IntArray(1)
     private var savedDrawFramebuffer = 0
@@ -72,21 +69,14 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     private var savedBlendEnabled = false
 
     /**
-     * Runs the pre-passes over the frame and returns the texture that [screenShader] should draw, with its size. That is the frame texture
-     * and its size when the filter has no pre-passes, or none of them run for this frame. The texture always has the frame texture's layout,
-     * so the screen UVs don't change, but a pass with a scale makes it bigger: set the screen shader's texSize from the returned size. The
-     * returned object is reused, so read it before the next call. Call it before drawing anything to the surface: on tiled GPUs, switching
-     * framebuffers in the middle of a frame makes the driver store the surface and load it back. It restores the framebuffers, the viewport
-     * and blending (the renderer draws its background with whatever blending is enabled). The program, the VAO and array buffer, and the
-     * texture bound to unit 0 (which it leaves active) are left changed, so set them before drawing. Call it for invalid frames too, so the
-     * cache is cleared.
+     * Runs the pre-passes and returns the texture the screen shader should draw; call it before drawing to the surface and for invalid frames
+     * too, and set the program, VAO, array buffer and texture unit 0 again afterwards.
      */
     fun renderPrePasses(frame: PresentFrameWrapper, isBottomScreenWide: Boolean): FilterOutput {
         output.set(frame.textureId, frame.textureWidth, frame.textureHeight)
 
         if (!frame.isValidFrame) {
-            // There's always an invalid frame between emulator sessions. The new session restarts the frame sequence and can reuse the old
-            // texture names, so a cached result could otherwise match the first frames of the new game
+            // Cleared on the invalid frame between sessions, since a new session restarts the frame sequence and can reuse texture names
             lastFrameSequence = 0L
             return output
         }
@@ -152,7 +142,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         }
 
         if (!isComplete) {
-            // Draw the frame without the pre-passes rather than nothing. The output still holds the frame texture and its size
+            // Draw the frame without the pre-passes rather than nothing
             lastFrameSequence = 0L
             return output
         }
@@ -181,9 +171,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     }
 
     private fun createQuad() {
-        // Covers the whole target. UV (0, 0) is at NDC (-1, -1), which maps to texel (0, 0) of the target texture, so the fragment that writes
-        // target texel (x, y) gets the UV of the centre of that texel. With a scale of 1 that's also the centre of source texel (x, y), and with
-        // a scale of 2 it's the centre of one quadrant of source texel (x / 2, y / 2). The output keeps the source's orientation and layout
+        // Full-target quad whose UVs map target texel centers onto source texel (quadrant) centers
         val vertexData = floatArrayOf(
             // Position  UVs
             -1f, -1f,    0f, 0f,
@@ -210,8 +198,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GLES30.GL_STATIC_DRAW)
     }
 
-    // Only the state that the renderer doesn't set again before drawing: the target (the surface),
-    // its viewport and blending. The vertex attribute setup is stored in the VAOs, so the pre-passes never touch the renderer's own
+    // Only the state that the renderer doesn't set again before drawing: the target (the surface), its viewport and blending
     private fun saveState() {
         GLES30.glGetIntegerv(GLES30.GL_DRAW_FRAMEBUFFER_BINDING, savedInt, 0)
         savedDrawFramebuffer = savedInt[0]
@@ -239,7 +226,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         private var isFramebufferComplete = false
 
         /**
-         * Makes sure that the target texture has the given size, (re)creating it if needed. Returns whether the framebuffer can be drawn to.
+         * Makes sure that the target texture has the given size, (re)creating it if needed, and returns whether the framebuffer can be drawn to.
          */
         fun prepareTarget(width: Int, height: Int): Boolean {
             if (texture != 0 && width == this.width && height == this.height) {
@@ -275,9 +262,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         }
 
         /**
-         * Draws the input texture through this pass's shader into the target, with the input's size as the shader's texSize and the frame's
-         * [topScreenWidth], and whether the bottom screen is the one drawn wide. The caller binds the quad and sets the viewport (to the target's
-         * size) and blending.
+         * Draws the input texture through this pass's shader into the target; the caller binds the quad and sets the viewport and blending.
          */
         fun render(inputTexture: Int, inputWidth: Int, inputHeight: Int, topScreenWidth: Int, isBottomScreenWide: Boolean) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)

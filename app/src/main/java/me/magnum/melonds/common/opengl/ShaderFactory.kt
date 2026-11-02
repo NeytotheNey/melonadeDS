@@ -7,26 +7,22 @@ object ShaderFactory {
     private const val TAG = "ShaderFactory"
 
     /**
-     * Compiles and links the given shaders. With [colorCorrection], COLOR_CORRECTION is defined in the fragment shader, which turns on the DS
-     * screen colours in the screen shaders' finishColor(). Shaders that don't use it are unaffected. If a shader doesn't compile or the program
-     * doesn't link, the error is logged and the program is still returned, but it draws nothing. Screen shaders use [createScreenShaderProgram]
-     * instead.
+     * Compiles and links [source]; with [colorCorrection] `COLOR_CORRECTION` is defined in the fragment shader, and a failed build is logged but
+     * still returned.
      */
     fun createShaderProgram(source: ShaderProgramSource, colorCorrection: Boolean = false): Shader {
         return buildShaderProgram(source, colorCorrection, deleteOnFailure = false)!!
     }
 
     /**
-     * Like [createShaderProgram], but returns null if a shader doesn't compile or the program doesn't link. The error is logged, and nothing is
-     * left behind.
+     * Like [createShaderProgram], but returns null (deleting what was built) if a shader doesn't compile or the program doesn't link.
      */
     fun createShaderProgramOrNull(source: ShaderProgramSource, colorCorrection: Boolean = false): Shader? {
         return buildShaderProgram(source, colorCorrection, deleteOnFailure = true)
     }
 
     /**
-     * Like [createShaderProgram], for the shader that draws the screens. If it doesn't compile or link, the no-filter shader is used instead, so
-     * that the screens are still drawn.
+     * Like [createShaderProgram], for the screen shader, falling back to the no-filter shader if it doesn't build.
      */
     fun createScreenShaderProgram(source: ShaderProgramSource, colorCorrection: Boolean = false): Shader {
         if (source === ShaderProgramSource.NoFilterShader) {

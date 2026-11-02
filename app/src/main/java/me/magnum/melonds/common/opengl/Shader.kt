@@ -44,7 +44,7 @@ class Shader(
     }
 
     /**
-     * Sets the size of the texture being drawn, in texels. Must be called after [use]. Does nothing if the shader doesn't need it.
+     * Sets the size of the texture being drawn, in texels; call after [use].
      */
     fun setTextureSize(width: Int, height: Int) {
         if (uniformTexSize != INVALID_UNIFORM) {
@@ -53,8 +53,7 @@ class Shader(
     }
 
     /**
-     * Sets the width of the frame's top screen in DS pixels (PresentFrameWrapper.topScreenWidth). Must be called after [use]. Does nothing if
-     * the shader doesn't need it.
+     * Sets the width of the frame's top screen in DS pixels (PresentFrameWrapper.topScreenWidth); call after [use].
      */
     fun setTopScreenWidth(width: Int) {
         if (uniformTopScreenWidth != INVALID_UNIFORM) {
@@ -63,8 +62,7 @@ class Shader(
     }
 
     /**
-     * Sets which screen is drawn wide, with the parts of its half of the frame beside its middle SCREEN_WIDTH columns: the bottom one when the
-     * screens are swapped, otherwise the top one. Must be called after [use]. Does nothing if the shader doesn't need it.
+     * Sets whether the bottom screen (when swapped) rather than the top one is drawn wide; call after [use].
      */
     fun setBottomScreenWide(isBottomScreenWide: Boolean) {
         if (uniformBottomScreenWide != INVALID_UNIFORM) {
