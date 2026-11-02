@@ -63,6 +63,11 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     private var cellSize = 1
 
     /**
+     * The style's detail cell size in physical pixels, before it's shrunk for small views and rounded.
+     */
+    private val nominalDetailSize = art.pixelSizeDp / art.detailPerCell * density
+
+    /**
      * How far the lip goes below the faces, in physical pixels.
      */
     val lipHeight get() = art.lip * cellSize
@@ -79,7 +84,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
      */
     fun setViewSize(w: Int, h: Int) {
         val detailCells = art.minCells * art.detailPerCell
-        detailSize = floor(min(art.pixelSizeDp / art.detailPerCell * density, min(w, h).toFloat() / detailCells)).toInt().coerceAtLeast(1)
+        detailSize = floor(min(nominalDetailSize, min(w, h).toFloat() / detailCells)).toInt().coerceAtLeast(1)
         cellSize = detailSize * art.detailPerCell
     }
 
@@ -217,7 +222,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     private fun iconScaleLimit(icon: PixelIcon, face: Path): Int {
         val bounds = RectF().also { face.computeBounds(it, true) }
         // Counted in unrounded detail cells, since rounding the cell size down would otherwise add cells and let icons grow at normal sizes
-        val faceCells = min(bounds.width(), bounds.height()) / max(detailSize.toFloat(), art.pixelSizeDp / art.detailPerCell * density)
+        val faceCells = min(bounds.width(), bounds.height()) / max(detailSize.toFloat(), nominalDetailSize)
         return floor(faceCells * RaisedButtonView.ICON_SIZE / max(icon.width, icon.height)).toInt().coerceAtLeast(1)
     }
 
