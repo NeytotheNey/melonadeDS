@@ -18,5 +18,6 @@
 
     <SeekBar
         android:id="@+id/seek_bar"
-        style="@style/LayoutEditorPanelSeekBar" />
+        style="@style/LayoutEditorPanelSeekBar"
+        android:saveEnabled="false" />
 </LinearLayout>
