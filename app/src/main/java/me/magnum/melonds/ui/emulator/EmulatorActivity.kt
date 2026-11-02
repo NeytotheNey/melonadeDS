@@ -222,8 +222,7 @@ class EmulatorActivity : AppCompatActivity() {
             private set
         private var fastForwardHoldActive = false
         /**
-         * Whether fast-forward is actually running, either through the toggle or while the hold input is pressed. Only the toggle is reflected in
-         * the on-screen fast-forward button.
+         * Whether fast-forward is running, through the toggle or while the hold input is pressed; only the toggle shows on the on-screen button.
          */
         val isFastForwardActive: Boolean
             get() = fastForwardEnabled || fastForwardHoldActive
@@ -267,9 +266,7 @@ class EmulatorActivity : AppCompatActivity() {
         }
 
         /**
-         * Turns fast-forward off. Used when a ROM or firmware is running (also after the activity is recreated), since the emulator starts
-         * without fast-forward. A request from this session's scripts is applied again, since it can arrive (from on_load()) before this is
-         * called. The previous session's requests are gone by then (LuaUiEvent.SessionEnded is sent before the next game starts).
+         * Turns fast-forward off when a session starts, re-applying any request this session's scripts already made.
          */
         fun resetFastForward() {
             fastForwardHoldActive = false
@@ -277,8 +274,7 @@ class EmulatorActivity : AppCompatActivity() {
         }
 
         /**
-         * Stops a held fast-forward. Used when key events stop reaching the input handler (activity paused, focus lost or an overlay shown), since
-         * the key release might never arrive.
+         * Stops a held fast-forward when key events stop reaching the input handler, since the key release might never arrive.
          */
         fun releaseFastForwardHold() {
             setFastForwardHoldActive(false)
@@ -292,7 +288,7 @@ class EmulatorActivity : AppCompatActivity() {
         }
 
         private fun setFastForwardHoldActive(active: Boolean) {
-            // Key repeats send the press again while the key is held. Skip them
+            // Skip key repeats, which send the press again while the key is held
             if (fastForwardHoldActive == active) {
                 return
             }
@@ -338,7 +334,7 @@ class EmulatorActivity : AppCompatActivity() {
     private val settingsLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         viewModel.onSettingsChanged()
         applyScreenSettings()
-        // The pause menu might have been shown while away (e.g. audio focus lost to a phone call). Leave the game paused behind it in that case
+        // Leave the game paused if the pause menu was shown while away (e.g. audio focus lost to a phone call)
         if (!activeOverlays.hasActiveOverlays()) {
             viewModel.resumeEmulator()
         }
@@ -372,8 +368,7 @@ class EmulatorActivity : AppCompatActivity() {
         onOverlaysCleared = {
             disableScreenTimeOut()
             presentation?.setPauseOverlayVisibility(false)
-            // Closing the last overlay is what resumes the game (pause menu, dialogs, rewind window). Ask for focus again in case it was lost
-            // permanently while paused (e.g. another media app started), or the next phone call would go unnoticed
+            // Closing the last overlay resumes the game, so ask for audio focus again in case it was lost for good while paused
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && !isFinishing) {
                 audioFocusManager.requestFocus()
             }
@@ -392,9 +387,7 @@ class EmulatorActivity : AppCompatActivity() {
         // Make the volume keys control the game's volume, even when no sound is playing at that moment
         volumeControlStream = AudioManager.STREAM_MUSIC
         audioFocusManager = EmulatorAudioFocusManager(this, handler) {
-            // Something else needs the audio (e.g. a phone call). Pause and show the pause menu so that the game doesn't play over it. The game is
-            // not resumed when focus comes back, the user does that from the pause menu. The menu also counts as an overlay, so onResume() won't
-            // resume the game either
+            // Pause behind the pause menu when something else takes the audio; the player resumes from the menu
             if (viewModel.emulatorState.value.isRunning() && !activeOverlays.hasActiveOverlays() && !isFinishing) {
                 viewModel.pauseEmulator(true)
             }
@@ -406,13 +399,12 @@ class EmulatorActivity : AppCompatActivity() {
         setupFullscreen()
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout())
-            // Keep the FPS counter clear of the status bar when it's shown. The layouts only use the cutout, so that they don't change when it's toggled
+            // Keep the FPS counter clear of the status bar when it's shown
             val fpsInsets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.statusBars())
             binding.textFps.updateLayoutParams<ConstraintLayout.LayoutParams> {
                 setMargins(fpsInsets.left, fpsInsets.top, fpsInsets.right, fpsInsets.bottom)
             }
-            // The layouts deliberately ignore the status bar, so only the controls are nudged out from under it. Zero while it's hidden or only
-            // swiped in for a moment. The controls view fills the window, so the inset applies to it as is
+            // The layouts ignore the status bar, so only the controls are nudged out from under it
             binding.viewLayoutControls.setTopSystemBarInset(windowInsets.getInsets(WindowInsetsCompat.Type.statusBars()).top)
 
             val uiInsets = Insets(insets.left, insets.top, insets.right, insets.bottom)
@@ -468,8 +460,7 @@ class EmulatorActivity : AppCompatActivity() {
             setFrontendInputHandler(frontendInputHandler)
             setSystemInputHandler(melonTouchHandler)
             setFrameWidthProvider { mainScreenRenderer.frameTopScreenWidth }
-            // A recreated activity's views start unswapped. Put back the swap shown before (the player's or a script's) before any Lua event is
-            // handled, so the scripts' bookkeeping reads what the player sees. The renderer gets it once the layout is set up
+            // A recreated activity's views start unswapped, so put back the shown swap before any Lua event is handled
             if (viewModel.areScreensSwapped) {
                 swapScreens()
             }
@@ -662,8 +653,7 @@ class EmulatorActivity : AppCompatActivity() {
                         }
                         is LuaUiEvent.ScriptStarted -> viewModel.luaUiOverrides.onScriptStarted(it.scriptId)
                         is LuaUiEvent.SessionStarted -> {
-                            // The game's own swap, shown before its scripts' first requests so that it's their baseline. Neither the
-                            // player's change nor a script's
+                            // The game's own swap, shown before its scripts' first requests so that it's their baseline
                             viewModel.luaUiOverrides.onSessionStarted(mapOf(LuaUiSetting.SWAP_SCREENS to it.screensSwapped))
                             applyLuaUiSetting(LuaUiSetting.SWAP_SCREENS, it.screensSwapped)
                         }
@@ -767,8 +757,7 @@ class EmulatorActivity : AppCompatActivity() {
                             if (it is EmulatorState.RunningRom) {
                                 startMotionManagerIfNeeded(it.rom)
                             }
-                            // Focus losses while loading are ignored since nothing is running yet. If focus is gone by now (e.g. a phone call
-                            // came in, or the game was launched during one), start paused instead of playing over it
+                            // Focus losses while loading are ignored, so start paused if focus is already gone
                             if (audioFocusManager.isFocusLost && !activeOverlays.hasActiveOverlays()) {
                                 viewModel.pauseEmulator(true)
                             }
@@ -964,12 +953,12 @@ class EmulatorActivity : AppCompatActivity() {
     }
 
     /**
-     * Sets up the window, the surfaces and the FPS counter from the settings. The status bar is set up in setupFullscreen() instead.
+     * Sets up the window, the surfaces and the FPS counter from the settings.
      */
     private fun applyScreenSettings() {
         val settings = viewModel.getScreenSettings()
         window.setSustainedPerformanceMode(settings.isSustainedPerformanceModeEnabled)
-        // The emulator itself picks up frame pacing through the emulator configuration. This only sets the surfaces' frame rate
+        // Only sets the surfaces' frame rate; the emulator gets frame pacing through its configuration
         frameRenderCoordinator.setFramePacingEnabled(settings.isFramePacingEnabled)
         displayLock60HzEnabled = settings.isDisplayLock60HzEnabled
         updateDisplayModeLock(ContextCompat.getDisplayOrDefault(this))
@@ -977,16 +966,13 @@ class EmulatorActivity : AppCompatActivity() {
     }
 
     /**
-     * Asks for the display's 60 Hz mode through the window, on top of the surface frame rate hint, which some devices ignore (e.g. Samsung's touch
-     * boost still switches the panel between 60 and 120 Hz, and every switch shows up as judder). The window request is expected to hold better, but
-     * that hasn't been verified on every device. Like the surface vote, the lock is dropped during fast-forward to let the display run at its full
-     * refresh rate.
+     * Pins the window to the display's 60 Hz mode while the 60 Hz lock is on and fast-forward is off, since some devices ignore the surface hint.
      */
     private fun updateDisplayModeLock(display: Display) {
         val lockActive = displayLock60HzEnabled && !frontendInputHandler.isFastForwardActive
         val preferredModeId = if (lockActive) (display.find60HzMode()?.modeId ?: 0) else 0
         val attributes = window.attributes
-        // Changing the mode triggers onDisplayChanged(), which ends up here again. Only update the window when the mode actually changes
+        // Only update the window when the mode changes, since that triggers onDisplayChanged() and so this again
         if (attributes.preferredDisplayModeId != preferredModeId) {
             attributes.preferredDisplayModeId = preferredModeId
             window.attributes = attributes
@@ -1064,7 +1050,7 @@ class EmulatorActivity : AppCompatActivity() {
     }
 
     /**
-     * Changes a setting for Lua scripts, only if it differs from what the UI shows. Doesn't count as the player's change
+     * Changes a setting for Lua scripts if it differs from what the UI shows, without counting as the player's change.
      */
     private fun applyLuaUiSetting(setting: LuaUiSetting, value: Boolean) {
         if (getLuaUiSetting(setting) == value) {
@@ -1079,8 +1065,7 @@ class EmulatorActivity : AppCompatActivity() {
     }
 
     /**
-     * Puts back the swap and controls values the scripts hold. A recreated activity starts from the defaults (fast-forward is handled by
-     * resetFastForward()). The swap shown before was already put back in onCreate(), so the scripts' swap value changes nothing then
+     * Puts back the swap and controls values the scripts hold after the activity is recreated.
      */
     private fun reapplyLuaUiSettings() {
         listOf(LuaUiSetting.SWAP_SCREENS, LuaUiSetting.SHOW_CONTROLS).forEach { setting ->
@@ -1166,7 +1151,7 @@ class EmulatorActivity : AppCompatActivity() {
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-        // Lua scripts can read the sticks. Only sent while one runs
+        // Lua scripts can read the sticks, so send them while one runs
         if (event.isFromSource(InputDevice.SOURCE_CLASS_JOYSTICK) && viewModel.areLuaScriptsRunning()) {
             MelonEmulator.updateLuaSticks(
                 event.getAxisValue(MotionEvent.AXIS_X),
