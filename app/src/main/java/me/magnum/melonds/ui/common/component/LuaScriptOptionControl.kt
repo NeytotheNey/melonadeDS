@@ -147,43 +147,20 @@ private fun ChoiceControl(
     modifier: Modifier,
     onValueChange: (String) -> Unit,
 ) {
-    var isMenuOpen by remember { mutableStateOf(false) }
-
-    Box(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = enabled) { isMenuOpen = true }
-                .focusable(enabled)
-                .heightIn(min = 56.dp)
-                .padding(horizontal = horizontalPadding, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ProvideEnabledContentColor(enabled) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text(text = option.label, style = MaterialTheme.typography.bodyLarge)
-                    CaptionText(text = value, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Icon(imageVector = Icons.Default.ArrowDropDown, contentDescription = null)
+    DropdownControl(
+        label = option.label,
+        selectedLabel = value,
+        itemLabels = option.values,
+        enabled = enabled,
+        horizontalPadding = horizontalPadding,
+        modifier = modifier,
+        onItemSelected = { index ->
+            val choice = option.values[index]
+            if (choice != value) {
+                onValueChange(choice)
             }
-        }
-        DropdownMenu(
-            expanded = isMenuOpen,
-            onDismissRequest = { isMenuOpen = false },
-        ) {
-            option.values.forEach { choice ->
-                DropdownMenuItem(
-                    text = { Text(choice) },
-                    onClick = {
-                        isMenuOpen = false
-                        if (choice != value) {
-                            onValueChange(choice)
-                        }
-                    },
-                )
-            }
-        }
-    }
+        },
+    )
 }
 
 /**
@@ -199,19 +176,54 @@ private fun LayoutControl(
     modifier: Modifier,
     onValueChange: (String) -> Unit,
 ) {
-    var isMenuOpen by remember { mutableStateOf(false) }
     val layoutId = LuaScriptOption.Layout.getLayoutId(value)
     val selectedLabel = when {
         layoutId == null -> stringResource(R.string.lua_script_option_layout_dont_change)
         layouts == null -> ""
         else -> layouts.firstOrNull { it.id == layoutId }?.let { getLayoutLabel(it) } ?: stringResource(R.string.lua_script_option_layout_missing)
     }
+    val itemLabels = layouts?.let { listOf(stringResource(R.string.lua_script_option_layout_dont_change)) + it.map { layout -> getLayoutLabel(layout) } }
+
+    DropdownControl(
+        label = option.label,
+        selectedLabel = selectedLabel,
+        itemLabels = itemLabels,
+        enabled = enabled,
+        horizontalPadding = horizontalPadding,
+        modifier = modifier,
+        itemMaxLines = 1,
+        onItemSelected = { index ->
+            // The first item is "Don't change"
+            val pickedId = if (index == 0) null else layouts?.get(index - 1)?.id
+            if (pickedId != layoutId) {
+                onValueChange(pickedId?.toString() ?: LuaScriptOption.Layout.DONT_CHANGE)
+            }
+        },
+    )
+}
+
+/**
+ * A row with [label] and [selectedLabel] that opens a menu of [itemLabels] and reports the index picked. It can't be opened while
+ * [itemLabels] is null
+ */
+@Composable
+private fun DropdownControl(
+    label: String,
+    selectedLabel: String,
+    itemLabels: List<String>?,
+    enabled: Boolean,
+    horizontalPadding: Dp,
+    modifier: Modifier,
+    itemMaxLines: Int = Int.MAX_VALUE,
+    onItemSelected: (Int) -> Unit,
+) {
+    var isMenuOpen by remember { mutableStateOf(false) }
 
     Box(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(enabled = enabled && layouts != null) { isMenuOpen = true }
+                .clickable(enabled = enabled && itemLabels != null) { isMenuOpen = true }
                 .focusable(enabled)
                 .heightIn(min = 56.dp)
                 .padding(horizontal = horizontalPadding, vertical = 4.dp),
@@ -219,7 +231,7 @@ private fun LayoutControl(
         ) {
             ProvideEnabledContentColor(enabled) {
                 Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text(text = option.label, style = MaterialTheme.typography.bodyLarge)
+                    Text(text = label, style = MaterialTheme.typography.bodyLarge)
                     CaptionText(text = selectedLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Icon(imageVector = Icons.Default.ArrowDropDown, contentDescription = null)
@@ -229,23 +241,12 @@ private fun LayoutControl(
             expanded = isMenuOpen,
             onDismissRequest = { isMenuOpen = false },
         ) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.lua_script_option_layout_dont_change)) },
-                onClick = {
-                    isMenuOpen = false
-                    if (layoutId != null) {
-                        onValueChange(LuaScriptOption.Layout.DONT_CHANGE)
-                    }
-                },
-            )
-            layouts.orEmpty().forEach { layout ->
+            itemLabels.orEmpty().forEachIndexed { index, itemLabel ->
                 DropdownMenuItem(
-                    text = { Text(getLayoutLabel(layout), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    text = { Text(itemLabel, maxLines = itemMaxLines, overflow = TextOverflow.Ellipsis) },
                     onClick = {
                         isMenuOpen = false
-                        if (layout.id != layoutId) {
-                            onValueChange(layout.id.toString())
-                        }
+                        onItemSelected(index)
                     },
                 )
             }
