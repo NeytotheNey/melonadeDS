@@ -33,9 +33,7 @@ class LogFolder(private val context: Context, private val settingsRepository: Se
     }
 
     /**
-     * Creates [fileName] and opens it for writing.
-     *
-     * @param mimeType MIME type for the document provider. "text/plain" keeps a .txt name as is, a generic type keeps any other extension
+     * Creates [fileName] and opens it for writing; a [mimeType] of "text/plain" keeps a .txt name, other extensions need a generic type.
      */
     fun createFile(fileName: String, mimeType: String = TEXT_MIME_TYPE): OutputStream {
         return resolve().openStream(fileName, mimeType)
@@ -98,7 +96,7 @@ private class DocumentTreeDestination(private val context: Context, private val 
     override fun writeReplacing(fileName: String, content: String) {
         val existingDocument = createdDocuments[fileName]
         if (existingDocument != null) {
-            // "wt" truncates the file. Some providers don't support it, in which case the document is recreated
+            // "wt" truncates the file, and providers that don't support it get the document recreated
             val outputStream = runCatching { context.contentResolver.openOutputStream(existingDocument, "wt") }.getOrNull()
             if (outputStream != null) {
                 outputStream.use { it.write(content.toByteArray(Charsets.UTF_8)) }

@@ -10,9 +10,8 @@ import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.utils.supportsJit
 
 /**
- * Markers and configuration dumps for the debug log. Everything here is skipped while the debug log is off, which [DebugLogRecorder] controls.
- * Nothing private goes in: no folder names or URIs, no firmware nickname, message or birthday, and nothing from RetroAchievements but the
- * hardcore toggle.
+ * Markers and configuration dumps for the debug log; nothing here runs while it's off, and nothing private (paths, firmware identity, RA account)
+ * is logged.
  */
 object DebugLog {
     const val TAG = LogTags.DEBUG
@@ -35,7 +34,7 @@ object DebugLog {
     }
 
     /**
-     * Logs a marker, such as a save state load or a pause. The message is only built while the debug log is on.
+     * Logs a marker, such as a save state load or a pause; the message is only built while the debug log is on.
      */
     inline fun event(message: () -> String) {
         if (isEnabled) {
@@ -47,8 +46,8 @@ object DebugLog {
     private val currentStates = LinkedHashMap<String, String>()
 
     /**
-     * Logs "[key]: [value]" if [value] differs from the last value reported for [key], such as the fold posture or the display in use.
-     * Returns whether it differed. [PerformanceLogger.logStateChange] is the entry point, so that both logs see every change.
+     * Logs "[key]: [value]" and returns true if [value] differs from the last value for [key]; call it through
+     * [PerformanceLogger.logStateChange] so that both logs see every change.
      */
     fun stateChange(key: String, value: String): Boolean {
         synchronized(currentStates) {
@@ -72,11 +71,8 @@ object DebugLog {
     }
 
     /**
-     * Logs everything in [configuration] that affects emulation, plus the settings that are read elsewhere, one line per value.
-     *
-     * @param reason What is happening, e.g. "rom launch" or "configuration update"
-     * @param rom The ROM being run, or null for the firmware
-     * @param cheatCount Number of cheats passed to the core, or null if unchanged
+     * Logs everything in [configuration] that affects emulation plus the settings read elsewhere, one line per value; [cheatCount] is null when
+     * unchanged.
      */
     fun logConfiguration(reason: String, rom: Rom?, configuration: EmulatorConfiguration, cheatCount: Int?, settingsRepository: SettingsRepository) {
         if (!isEnabled) {

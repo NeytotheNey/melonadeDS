@@ -19,8 +19,8 @@ import java.util.Locale
 internal object DiagnosticsInfo {
 
     /**
-     * The settings both logs report. [renderer] is passed in because the debug log has the launched configuration's copy while the performance
-     * logger reads the current one.
+     * The settings both logs report, with [renderer] passed in because the debug log has the launched configuration's copy and the performance
+     * logger the current one.
      */
     fun settings(renderer: RendererConfiguration, settingsRepository: SettingsRepository): List<Pair<String, String>> {
         return listOf(

@@ -16,12 +16,8 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Writes a report for each crash, ANR or foreground kill of this app that happened since the last check, using the exit records the system
- * keeps (Android 11 and up). Each one goes to melonade_exit_<timestamp>.txt in the log folder, with the system's trace when it has one: the thread
- * dump for an ANR, or the native tombstone (Android 12 and up), which is saved next to it as melonade_exit_<timestamp>_tombstone.pb.
- *
- * [DebugLogRecorder] runs it while the debug log is on. The first time, it looks back [FIRST_RUN_LOOKBACK_MS], since the debug log is usually
- * turned on right after a problem.
+ * Writes a melonade_exit_<timestamp>.txt report (plus the ANR trace or native tombstone when the system has one) for each crash, ANR or
+ * foreground kill since the last check, looking back [FIRST_RUN_LOOKBACK_MS] on the first run.
  */
 class ExitReasonReporter(
     private val context: Context,
@@ -94,7 +90,7 @@ class ExitReasonReporter(
             ApplicationExitInfo.REASON_ANR,
             ApplicationExitInfo.REASON_INITIALIZATION_FAILURE,
             ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> true
-            // The system kills cached apps for memory all the time. Only kills while the app was on screen are interesting
+            // Only kills while the app was on screen are interesting, since the system kills cached apps for memory all the time
             ApplicationExitInfo.REASON_LOW_MEMORY,
             ApplicationExitInfo.REASON_SIGNALED -> exit.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE
             else -> false
@@ -115,7 +111,7 @@ class ExitReasonReporter(
     @RequiresApi(Build.VERSION_CODES.R)
     private fun writeReport(exit: ApplicationExitInfo, trace: InputStream?) {
         val filePrefix = "melonade_exit_${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(exit.timestamp))}"
-        // From Android 12, the trace of a native crash is the tombstone in protobuf form. Anything else (ANR traces) is text
+        // From Android 12 a native crash's trace is the tombstone in protobuf form, while ANR traces are text
         val isTombstone = trace != null && exit.reason == ApplicationExitInfo.REASON_CRASH_NATIVE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         val tombstoneFile = if (isTombstone) "${filePrefix}_tombstone.pb" else null
 

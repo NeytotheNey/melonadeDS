@@ -18,11 +18,8 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Opt-in recorder for this process' logcat, so that logs can be collected without adb. While the debug log setting is on, it runs
- * `logcat --pid=<own pid>` and writes its output to melonade_debug_<timestamp>.txt in the log folder, after a header that describes the app
- * build and the device. The file is flushed whenever logcat goes quiet (and at least every [FLUSH_INTERVAL_MS]), so a hang or a kill still
- * leaves the lines up to that point. It also turns on [DebugLog], and when recording starts it writes reports of recent crashes (see
- * [ExitReasonReporter]).
+ * Records this process' logcat to melonade_debug_<timestamp>.txt in the log folder while the debug log setting is on, flushing often enough
+ * that a hang or kill keeps the lines so far.
  */
 class DebugLogRecorder(
     private val context: Context,
@@ -42,7 +39,7 @@ class DebugLogRecorder(
     private var session: Session? = null
 
     /**
-     * Starts recording if the setting is on, and follows the setting from then on. Must be called once, on the main thread, when the app starts.
+     * Starts recording if the setting is on and follows it from then on; call once from the main thread at app start.
      */
     fun start() {
         setRecording(settingsRepository.isDebugLogEnabled())
