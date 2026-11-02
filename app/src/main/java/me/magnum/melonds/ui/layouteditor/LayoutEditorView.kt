@@ -47,6 +47,24 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
         val isLeft get() = this == TOP_LEFT || this == BOTTOM_LEFT
         val isTop get() = this == TOP_LEFT || this == TOP_RIGHT
+
+        val opposite get() = when (this) {
+            TOP_LEFT -> BOTTOM_RIGHT
+            TOP_RIGHT -> BOTTOM_LEFT
+            BOTTOM_LEFT -> TOP_RIGHT
+            BOTTOM_RIGHT -> TOP_LEFT
+        }
+
+        /** The x of this corner of [rect] */
+        fun xOf(rect: Rect) = if (isLeft) rect.x else rect.right
+
+        /** The y of this corner of [rect] */
+        fun yOf(rect: Rect) = if (isTop) rect.y else rect.bottom
+
+        /**
+         * Returns the rect of the given size whose corner on this side is at ([x], [y]).
+         */
+        fun place(x: Int, y: Int, width: Int, height: Int) = Rect(if (isLeft) x else x - width, if (isTop) y else y - height, width, height)
     }
 
     /**
@@ -419,19 +437,16 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         } else {
             Anchor.entries to min(maxHandleTouchSize, smallerSide * HANDLE_TOUCH_FRACTION)
         }
-        return corners.firstOrNull {
-            val cornerX = if (it.isLeft) rect.x else rect.right
-            val cornerY = if (it.isTop) rect.y else rect.bottom
-            abs(x - cornerX) <= touchSize && abs(y - cornerY) <= touchSize
-        }
+        return corners.firstOrNull { abs(x - it.xOf(rect)) <= touchSize && abs(y - it.yOf(rect)) <= touchSize }
     }
 
     private fun resizeFromHandle(view: LayoutComponentView, gesture: ResizeGesture, offsetX: Float, offsetY: Float) {
         val start = gesture.startRect
         val corner = gesture.corner
         // The opposite corner stays fixed, so the view can grow until it reaches the editor edges on the dragged corner's side
-        val fixedX = if (corner.isLeft) start.right else start.x
-        val fixedY = if (corner.isTop) start.bottom else start.y
+        val fixedCorner = corner.opposite
+        val fixedX = fixedCorner.xOf(start)
+        val fixedY = fixedCorner.yOf(start)
         var desiredWidth = start.width + if (corner.isLeft) -offsetX else offsetX
         var desiredHeight = start.height + if (corner.isTop) -offsetY else offsetY
         val maxWidth = if (corner.isLeft) fixedX else width - fixedX
@@ -449,9 +464,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
             desiredHeight = snappedHeight
         }
         val (newWidth, newHeight) = constrainSize(view, desiredWidth, desiredHeight, maxWidth, maxHeight)
-        val x = if (corner.isLeft) fixedX - newWidth else fixedX
-        val y = if (corner.isTop) fixedY - newHeight else fixedY
-        applyRect(view, Rect(x, y, newWidth, newHeight))
+        applyRect(view, fixedCorner.place(fixedX, fixedY, newWidth, newHeight))
     }
 
     /**
@@ -865,10 +878,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     private fun resizeView(view: LayoutComponentView, newWidth: Float, newHeight: Float, ratio: Float?, anchor: Anchor, editorWidth: Int, editorHeight: Int) {
         val (constrainedWidth, constrainedHeight) = constrainSize(ratio, newWidth, newHeight, editorWidth, editorHeight)
         val rect = view.getRect()
-
-        val x = if (anchor.isLeft) rect.x else rect.right - constrainedWidth
-        val y = if (anchor.isTop) rect.y else rect.bottom - constrainedHeight
-        val newRect = clampInside(Rect(x, y, constrainedWidth, constrainedHeight), editorWidth, editorHeight)
+        val newRect = clampInside(anchor.place(anchor.xOf(rect), anchor.yOf(rect), constrainedWidth, constrainedHeight), editorWidth, editorHeight)
         applyRect(view, if (isSnapEnabled) snapPosition(view, newRect, editorWidth, editorHeight) else newRect)
     }
 
