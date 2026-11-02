@@ -128,7 +128,7 @@ The pass must run after the frame's draw (the display shows the pre-capture copy
 
 ## Rules
 
-- The same workflow: coder subagent → fresh reviewer → fixes → host build → `.claude/shadercheck/check.sh` (add the capture program and the changed compositor to `gl_dump.cpp`) → phone. Core first, then the submodule bump.
+- The same workflow: coder subagent → fresh reviewer → fixes → host build → `.claude/shadercheck/check.sh` (add the capture program and the changed compositor to `dump.cpp`) → phone. Core first, then the submodule bump.
 - Native capture, `DoCapture`'s VRAM writes, `GetLine`, deferred capture, early flush, blitflush and capspin are not changed in behaviour. The record copy is the only addition to `DoCapture`.
 - The renderer is still a function of (snapshot, memory). The record is output like the framebuffer, written only on the emulator thread. HASH2D threaded on vs off must still match. The new control bits make hashes differ from before the change, but only with the setting on and only in mode 2.
 - Anything not covered by the validity rules → native.
