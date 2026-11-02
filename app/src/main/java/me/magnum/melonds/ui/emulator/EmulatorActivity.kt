@@ -104,6 +104,7 @@ import me.magnum.melonds.ui.emulator.model.RewindWindowState
 import me.magnum.melonds.ui.emulator.model.RumbleEvent
 import me.magnum.melonds.ui.emulator.model.RuntimeInputLayoutConfiguration
 import me.magnum.melonds.ui.emulator.model.LuaUiEvent
+import me.magnum.melonds.ui.emulator.model.LuaUiSetting
 import me.magnum.melonds.ui.emulator.ui.LuaScriptOptionsDialog
 import me.magnum.melonds.ui.emulator.ui.LuaScriptOptionsDialogState
 import me.magnum.melonds.ui.emulator.ui.LuaScriptsDialog

@@ -1,6 +1,7 @@
 package me.magnum.melonds.ui.emulator
 
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
+import me.magnum.melonds.ui.emulator.model.LuaUiSetting
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking

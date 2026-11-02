@@ -1,7 +1,5 @@
 package me.magnum.melonds.ui.emulator.model
 
-import me.magnum.melonds.ui.emulator.LuaUiSetting
-
 /**
  * Requests from the game's Lua scripts, scripts stopping, and sessions starting and ending. They reach the screen in the order they happened,
  * which [LuaUiOverrides] relies on.

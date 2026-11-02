@@ -1,13 +1,6 @@
 package me.magnum.melonds.ui.emulator
 
-/**
- * The UI settings Lua scripts can change.
- */
-enum class LuaUiSetting {
-    SWAP_SCREENS,
-    SHOW_CONTROLS,
-    FAST_FORWARD,
-}
+import me.magnum.melonds.ui.emulator.model.LuaUiSetting
 
 /**
  * Keeps track of what Lua scripts asked the UI for, so it can be put back once they stop. Each setting is handled on its own:
