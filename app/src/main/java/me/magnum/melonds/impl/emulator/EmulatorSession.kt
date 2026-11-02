@@ -61,20 +61,14 @@ class EmulatorSession {
         return isRetroAchievementsHardcoreModeEnabled
     }
 
-    fun areSaveStateLoadsAllowed(): Boolean {
-        // Cannot load save-states when RA hardcore is enabled
-        return !isRetroAchievementsHardcoreModeEnabled || !areRetroAchievementsEnabled
-    }
+    // RA hardcore bans save-state loads, cheats and scripting. Widescreen is still allowed
+    private val isHardcoreActive: Boolean get() = isRetroAchievementsHardcoreModeEnabled && areRetroAchievementsEnabled
 
-    fun areCheatsEnabled(): Boolean {
-        // Cannot use cheats when RA hardcore is enabled
-        return !isRetroAchievementsHardcoreModeEnabled || !areRetroAchievementsEnabled
-    }
+    fun areSaveStateLoadsAllowed(): Boolean = !isHardcoreActive
 
-    fun areLuaScriptsAllowed(): Boolean {
-        // RA bans scripting in hardcore, so Lua scripts are fully off. Widescreen is still allowed
-        return !isRetroAchievementsHardcoreModeEnabled || !areRetroAchievementsEnabled
-    }
+    fun areCheatsEnabled(): Boolean = !isHardcoreActive
+
+    fun areLuaScriptsAllowed(): Boolean = !isHardcoreActive
 
     fun currentSessionType(): SessionType? {
         return sessionType
