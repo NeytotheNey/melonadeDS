@@ -104,26 +104,17 @@ sealed class ControllerAppearance {
         private val OUTLINE = Vector(Shading.OUTLINE, colors(0x0DFFFFFF, 0x66FFFFFF, 0x99FFFFFF, WHITE))
         private val SOFT_TINT = Vector(Shading.SOFT_TINT, colors(0x38FFFFFF, 0x1FFFFFFF, 0x73000000, WHITE))
 
-        // 16-bit Classic: outline, lip, shadow, base, highlight, glint, ink and ink shadow
-        private val PIXEL_16 = pixel(
-            sixteenBit = true,
-            colors = pixel16(0xFF2C2C2A, 0xFF5F5E5A, 0xFF888780, 0xFFB4B2A9, 0xFFD3D1C7, 0xFFF1EFE8, 0xFF2C2C2A, 0xFFF1EFE8),
-            dpadColors = pixel16(0xFF121218, 0xFF2C2C2A, 0xFF444441, 0xFF5F5E5A, 0xFF888780, 0xFFB4B2A9, 0xFFD3D1C7, 0xFF121218),
-            a = pixel16(0xFF501313, 0xFF791F1F, 0xFFA32D2D, 0xFFE24B4A, 0xFFF09595, 0xFFFCEBEB, 0xFFFCEBEB, 0xFF501313),
-            b = pixel16(0xFF412402, 0xFF633806, 0xFFBA7517, 0xFFEF9F27, 0xFFFAC775, 0xFFFAEEDA, 0xFFFAEEDA, 0xFF412402),
-            x = pixel16(0xFF042C53, 0xFF0C447C, 0xFF185FA5, 0xFF378ADD, 0xFF85B7EB, 0xFFE6F1FB, 0xFFE6F1FB, 0xFF042C53),
-            y = pixel16(0xFF173404, 0xFF27500A, 0xFF3B6D11, 0xFF639922, 0xFF97C459, 0xFFEAF3DE, 0xFFEAF3DE, 0xFF173404),
+        // The Classic pixel palette: outline, lip, shadow, base, highlight, glint, ink and ink shadow
+        private val PIXEL_COLORS = pixel16(0xFF2C2C2A, 0xFF5F5E5A, 0xFF888780, 0xFFB4B2A9, 0xFFD3D1C7, 0xFFF1EFE8, 0xFF2C2C2A, 0xFFF1EFE8)
+        private val PIXEL_DPAD_COLORS = pixel16(0xFF121218, 0xFF2C2C2A, 0xFF444441, 0xFF5F5E5A, 0xFF888780, 0xFFB4B2A9, 0xFFD3D1C7, 0xFF121218)
+        private val PIXEL_INPUT_COLORS = mapOf(
+            Input.A to pixel16(0xFF501313, 0xFF791F1F, 0xFFA32D2D, 0xFFE24B4A, 0xFFF09595, 0xFFFCEBEB, 0xFFFCEBEB, 0xFF501313),
+            Input.B to pixel16(0xFF412402, 0xFF633806, 0xFFBA7517, 0xFFEF9F27, 0xFFFAC775, 0xFFFAEEDA, 0xFFFAEEDA, 0xFF412402),
+            Input.X to pixel16(0xFF042C53, 0xFF0C447C, 0xFF185FA5, 0xFF378ADD, 0xFF85B7EB, 0xFFE6F1FB, 0xFFE6F1FB, 0xFF042C53),
+            Input.Y to pixel16(0xFF173404, 0xFF27500A, 0xFF3B6D11, 0xFF639922, 0xFF97C459, 0xFFEAF3DE, 0xFFEAF3DE, 0xFF173404),
         )
-        // 8-bit Classic: shadow, base, highlight, ink and ink shadow, on a near-black outline and lip. The ink is the same as 16-bit's
-        private val PIXEL_8 = pixel(
-            sixteenBit = false,
-            colors = pixel8(0xFF888780, 0xFFB4B2A9, 0xFFD3D1C7, 0xFF2C2C2A, 0xFFF1EFE8),
-            dpadColors = pixel8(0xFF444441, 0xFF5F5E5A, 0xFF888780, 0xFFD3D1C7, 0xFF121218),
-            a = pixel8(0xFFA32D2D, 0xFFE24B4A, 0xFFF09595, 0xFFFCEBEB, 0xFF501313),
-            b = pixel8(0xFFBA7517, 0xFFEF9F27, 0xFFFAC775, 0xFFFAEEDA, 0xFF412402),
-            x = pixel8(0xFF185FA5, 0xFF378ADD, 0xFF85B7EB, 0xFFE6F1FB, 0xFF042C53),
-            y = pixel8(0xFF3B6D11, 0xFF639922, 0xFF97C459, 0xFFEAF3DE, 0xFF173404),
-        )
+        private val PIXEL_16 = pixel(sixteenBit = true)
+        private val PIXEL_8 = pixel(sixteenBit = false)
 
         fun of(style: ControllerStyle): ControllerAppearance {
             return when (style) {
@@ -147,16 +138,20 @@ sealed class ControllerAppearance {
             return ControllerButtonColors(face.toInt(), pressedFace.toInt(), edge.toInt(), label)
         }
 
-        private fun pixel(sixteenBit: Boolean, colors: PixelColors, dpadColors: PixelColors, a: PixelColors, b: PixelColors, x: PixelColors, y: PixelColors): ControllerAppearance {
-            return Pixel(PixelArt(sixteenBit, colors, dpadColors, mapOf(Input.A to a, Input.B to b, Input.X to x, Input.Y to y)))
+        /**
+         * A pixel style in the Classic palette. 8-bit draws it on a near-black outline and lip, with the highlight as its glint.
+         */
+        private fun pixel(sixteenBit: Boolean): ControllerAppearance {
+            fun shade(colors: PixelColors) = if (sixteenBit) colors else colors.toEightBit()
+            return Pixel(PixelArt(sixteenBit, shade(PIXEL_COLORS), shade(PIXEL_DPAD_COLORS), PIXEL_INPUT_COLORS.mapValues { shade(it.value) }))
         }
 
         private fun pixel16(outline: Long, lip: Long, shadow: Long, base: Long, highlight: Long, glint: Long, ink: Long, inkShadow: Long): PixelColors {
             return PixelColors(outline.toInt(), lip.toInt(), shadow.toInt(), base.toInt(), highlight.toInt(), glint.toInt(), ink.toInt(), inkShadow.toInt())
         }
 
-        private fun pixel8(shadow: Long, base: Long, highlight: Long, ink: Long, inkShadow: Long): PixelColors {
-            return pixel16(PIXEL_8_OUTLINE, PIXEL_8_OUTLINE, shadow, base, highlight, highlight, ink, inkShadow)
+        private fun PixelColors.toEightBit(): PixelColors {
+            return PixelColors(PIXEL_8_OUTLINE.toInt(), PIXEL_8_OUTLINE.toInt(), shadow, base, highlight, highlight, ink, inkShadow)
         }
     }
 }
