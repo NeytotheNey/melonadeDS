@@ -123,8 +123,7 @@ class DefaultLayoutProvider(
 }
 
 /**
- * The geometry of the default layouts, apart from the Android parts of [DefaultLayoutProvider] so it can be unit tested. Sizes are given in dp and
- * turned into pixels with [dpToPixels]
+ * Geometry of the default layouts, kept free of Android so it can be unit tested; sizes are in dp, turned into pixels with [dpToPixels]
  */
 internal class DefaultLayoutBuilder(private val dpToPixels: (Float) -> Float) {
 
@@ -353,7 +352,7 @@ internal class DefaultLayoutBuilder(private val dpToPixels: (Float) -> Float) {
                 PositionedLayoutComponent(Rect(width - safeRight - lrButtonsSize, safeTop, lrButtonsSize, lrButtonsSize), LayoutComponent.BUTTON_R),
                 PositionedLayoutComponent(Rect(mainFold.foldBounds.x - smallButtonsSize - spacing8dp, height - safeBottom - smallButtonsSize, smallButtonsSize, smallButtonsSize), LayoutComponent.BUTTON_SELECT),
                 PositionedLayoutComponent(Rect(mainFold.foldBounds.right + spacing8dp, height - safeBottom - smallButtonsSize, smallButtonsSize, smallButtonsSize), LayoutComponent.BUTTON_START),
-                // Three buttons on each side of the fold. With L or R, each side needs 202dp, which the inner screen of any foldable has
+                // Three buttons on each side of the fold, which with L or R needs the 202dp per side any foldable's inner screen has
                 PositionedLayoutComponent(Rect(mainFold.foldBounds.x - smallButtonsSize * 3 - spacing8dp * 3, safeTop, smallButtonsSize, smallButtonsSize), LayoutComponent.BUTTON_SWAP_SCREENS),
                 PositionedLayoutComponent(Rect(mainFold.foldBounds.x - smallButtonsSize * 2 - spacing8dp * 2, safeTop, smallButtonsSize, smallButtonsSize), LayoutComponent.BUTTON_HINGE),
                 PositionedLayoutComponent(Rect(mainFold.foldBounds.x - smallButtonsSize - spacing8dp, safeTop, smallButtonsSize, smallButtonsSize), LayoutComponent.BUTTON_TOGGLE_SOFT_INPUT),
@@ -387,10 +386,7 @@ internal class DefaultLayoutBuilder(private val dpToPixels: (Float) -> Float) {
     }
 }
 /**
- * Builds the row of small utility buttons (swap screens, lid, soft input, microphone, fast forward and menu) at [rowTop], horizontally centered in [safeArea]. The row
- * shares its line with the L and R buttons, which sit on the edges of the safe area. If the safe area is too narrow to fit all the buttons between L and R, the menu button
- * is taken out of the row, then the swap screens button too if that's still not enough (on a cover screen about 320dp wide, say). The buttons taken out are placed
- * together, in the closest free spot directly above or below the center of the row.
+ * Row of small utility buttons centered between L and R at [rowTop]; buttons that don't fit (menu, then swap) move together to the nearest free spot above or below.
  */
 private fun buildUtilityButtons(
     safeArea: Rect,
@@ -426,8 +422,7 @@ private fun buildUtilityButtons(
     val movedRowComponents = rowComponents.filter { it in movedComponents }
     val movedRowWidth = getButtonRowWidth(movedRowComponents.size, buttonSize, spacing)
     val movedRowRect = findFreeSpotAboveOrBelowRow(safeArea, centerX - movedRowWidth / 2, movedRowWidth, rowTop, buttonSize, spacing, otherComponents + row) ?: run {
-        // There's no free space around the row. Place the buttons over the top-right corner of the top screen instead, since that screen doesn't take any input.
-        // Without any screen, use the top-right corner of the safe area
+        // No free spot: put them over the top screen's top-right corner (it takes no input), or the safe area's
         val screenRect = (otherComponents.firstOrNull { it.component == LayoutComponent.TOP_SCREEN } ?: otherComponents.firstOrNull { it.isScreen() })?.rect ?: safeArea
         Rect(screenRect.right - spacing - movedRowWidth, screenRect.y + spacing, movedRowWidth, buttonSize)
     }
@@ -436,11 +431,8 @@ private fun buildUtilityButtons(
 }
 
 /**
- * Builds the row of small utility buttons of the landscape layout at [rowTop]: menu, swap screens, lid, soft input, microphone and fast forward. The soft input and
- * microphone buttons sit either side of [centerX], and the rest of the row goes left from there, over the top screen side, so that the menu button stays clear of the
- * bottom screen on wide displays. On a narrow window (split screen, say), the buttons that would run into L are taken out of the row. Each one goes in the closest free
- * spot under the row, first where a second row would put it. Free means inside [safeArea] and clear of every other component except the top screen, which doesn't
- * take any input.
+ * Landscape utility row anchored so soft-input and mic flank [centerX] and the rest runs left over the top screen; buttons that would hit L each move to the nearest
+ * free spot below.
  */
 private fun buildLandscapeUtilityButtons(
     safeArea: Rect,
@@ -485,8 +477,7 @@ private fun buildLandscapeUtilityButtons(
 }
 
 /**
- * Looks for a spot the size of [preferredRect] at its height or lower that doesn't overlap any of the [placedRects], going down a button and a [spacing] at a time. On
- * each line the spots closest to [preferredRect] are tried first, [spacing] apart.
+ * Nearest spot at or below [preferredRect] that overlaps none of [placedRects], scanning line by line from the preferred x outwards.
  */
 private fun findFreeSpotUnderRow(safeArea: Rect, preferredRect: Rect, spacing: Int, placedRects: List<Rect>): Rect? {
     val step = spacing.coerceAtLeast(1)
@@ -515,8 +506,7 @@ private fun buildCenteredButtonRow(components: List<LayoutComponent>, centerX: I
 }
 
 /**
- * Looks for a spot [width] wide at [x], directly above or below the row of buttons that starts at [rowTop], that doesn't overlap any of the [placedComponents]. The spot is
- * placed [spacing] away from the row, or centered in the free space if there isn't enough room for that.
+ * Spot [width] wide at [x] just above or below the row at [rowTop] that overlaps nothing, [spacing] away or centered if there isn't room.
  */
 private fun findFreeSpotAboveOrBelowRow(safeArea: Rect, x: Int, width: Int, rowTop: Int, buttonSize: Int, spacing: Int, placedComponents: List<PositionedLayoutComponent>): Rect? {
     val rowBottom = rowTop + buttonSize

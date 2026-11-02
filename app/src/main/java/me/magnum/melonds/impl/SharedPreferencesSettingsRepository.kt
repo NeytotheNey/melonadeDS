@@ -99,8 +99,7 @@ class SharedPreferencesSettingsRepository(
         setDefaultThemeIfRequired()
         setDefaultMacAddressIfRequired()
 
-        // combine() only takes up to 5 flows with their own types, so the 3 look settings (filter, colours and shadow) and the 2 threading
-        // ones are grouped first
+        // combine() takes at most 5 typed flows, so the 3 look settings (filter, colors and shadow) and the 2 threading ones are grouped first
         val lookSettingsFlow = combine(
             getVideoFiltering(),
             isDsScreenColorsEnabled(),
