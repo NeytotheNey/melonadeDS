@@ -23,6 +23,7 @@ import me.magnum.melonds.domain.model.layout.LayoutComponent
 import me.magnum.melonds.domain.model.layout.PositionedLayoutComponent
 import me.magnum.melonds.domain.model.layout.ScreenFold
 import me.magnum.melonds.domain.model.layout.UILayout
+import me.magnum.melonds.domain.model.layout.WidescreenAspect
 import me.magnum.melonds.domain.model.ui.Orientation
 import me.magnum.melonds.ui.common.LayoutComponentView
 import me.magnum.melonds.ui.common.LayoutView
@@ -68,6 +69,17 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     }
 
     /**
+     * How the selected screen's size is locked when it's resized.
+     */
+    enum class ScreenAspectRatio(val ratio: Float?) {
+        RATIO_4_3(consoleAspectRatio),
+        RATIO_16_9(16 / 9f),
+        // The wide variant's own ratio, which only its top screen offers. See selectedScreenWideAspect. Its chip also sets the variant's ratio
+        WIDE(null),
+        UNRESTRICTED(null)
+    }
+
+    /**
      * A resize handle being dragged. The corner opposite to [corner] stays in place.
      */
     private class ResizeGesture(val corner: Anchor, val startRect: Rect, val downX: Float, val downY: Float, val modifiedBeforeDown: Boolean) {
@@ -99,9 +111,20 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     private val updateAnchorRunnable = Runnable { updateSelectedViewAnchor() }
 
     /**
-     * The width/height ratio kept when resizing the selected screen, or null to resize it freely. Controls always keep their own ratio.
+     * How the selected screen's size is locked. Controls always keep their own ratio.
      */
-    var selectedScreenAspectRatio: Float? = null
+    var selectedScreenAspect = ScreenAspectRatio.RATIO_4_3
+
+    /**
+     * The wide variant's ratio while its top screen is selected, otherwise null. [ScreenAspectRatio.WIDE] locks to it.
+     */
+    var selectedScreenWideAspect: WidescreenAspect? = null
+
+    /**
+     * The width/height ratio kept when resizing the selected screen, or null to resize it freely.
+     */
+    val selectedScreenAspectRatio: Float?
+        get() = if (selectedScreenAspect == ScreenAspectRatio.WIDE) selectedScreenWideAspect?.aspectRatio else selectedScreenAspect.ratio
 
     private val handleSize = context.dpToPixels(10f)
     private val cornerHandleSize = context.dpToPixels(18f)
