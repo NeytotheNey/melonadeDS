@@ -69,8 +69,9 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     private var savedBlendEnabled = false
 
     /**
-     * Runs the pre-passes and returns the texture the screen shader should draw; call it before drawing to the surface and for invalid frames
-     * too, and set the program, VAO, array buffer and texture unit 0 again afterwards.
+     * Runs the pre-passes and returns the texture the screen shader should draw, whose size the caller sets as the shader's texSize (a scaled
+     * pass makes it bigger); call it before drawing to the surface and for invalid frames too, and set the program, VAO, array buffer and
+     * texture unit 0 again afterwards.
      */
     fun renderPrePasses(frame: PresentFrameWrapper, isBottomScreenWide: Boolean): FilterOutput {
         output.set(frame.textureId, frame.textureWidth, frame.textureHeight)

@@ -211,7 +211,8 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
 
         val isHandled = super.dispatchTouchEvent(event)
         if (event.actionMasked == MotionEvent.ACTION_DOWN && !isHandled) {
-            // No view took it, so the rest of this gesture won't come here and it mustn't be kept
+            // No view took it, so the rest of this gesture won't come here, and it mustn't be kept or a later layout change would replay it
+            // and press whatever is there then
             currentTouches?.recycle()
             currentTouches = null
         }

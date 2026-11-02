@@ -84,6 +84,7 @@ class PerformanceLogger(
                     Log.w(TAG, "Previous performance log session is taking too long to finish. Skipping session for $sessionName")
                     // Forgotten right away, so that isSessionActive() lets the caller start a new one later
                     clearSession(session)
+                    // Keep waiting so the next session doesn't overlap the one still running
                     previousSessionJob.join()
                     return@launch
                 }

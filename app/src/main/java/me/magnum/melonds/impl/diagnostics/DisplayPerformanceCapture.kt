@@ -4,10 +4,11 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * One sample per presented display frame, recorded by the render thread and drained by [PerformanceLogger] through a lock-free
- * single-producer/single-consumer ring.
+ * single-producer/single-consumer ring; recording never allocates or blocks.
  */
 object DisplayPerformanceCapture {
-    // Per sample: presentation time (ns), render CPU time (ns), FLAG_* bits, emulator frames skipped before it, vsync period (ns, 0 if unknown)
+    // Per sample (order must match PerformanceLogger's drain offsets): presentation time (ns), render CPU time (ns), FLAG_* bits, emulator
+    // frames skipped before it, vsync period (ns, 0 if unknown)
     const val FIELDS = 5
     const val FLAG_VALID = 1L
     const val FLAG_NEW_FRAME = 2L
