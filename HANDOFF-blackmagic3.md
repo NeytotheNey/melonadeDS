@@ -58,7 +58,7 @@ The Batch 2 measurement (plan checklist item 2) is done; see above. `PERF-NOTES.
   ```bash
   ninja -C /tmp/corebuild core
   ```
-- Shader validation as GLSL ES 3.20 (needs `glslang-tools`): `bash .claude/shadercheck/check.sh [core path]`. It dumps every GL shader (with the `WBuffer` define assembly) and the compute programs (scale 1 defines) and runs `glslangValidator` on each, linking the GL pairs. Update `gl_dump.cpp`/`compute_dump.cpp` if shader names or the source assembly in `GLRenderer::BuildRenderShader` / `ComputeRenderer::CompileShader` change.
+- Shader validation as GLSL ES 3.20 (needs `glslang-tools`): `bash .claude/shadercheck/check.sh [core path]`. It dumps every GL shader (with the `WBuffer` define assembly) and the compute programs (scale 1 defines) and runs `glslangValidator` on each, linking the GL pairs. Update `dump.cpp` if GL shader names or the source assembly in `GLRenderer::BuildRenderShader` change; the compute assembly and define lists are read from `GPU3D_Compute.cpp`.
 
 **Checks on the device.** Build per the existing recipe, install over wireless adb, then the plan's phone checklist. For anything touching 2D: HASH2D threaded on vs off. For anything touching savestates: save/load and rewind. For GL renderer changes: Phantom Hourglass floor shadows (depth-equal margin), White 2 capture scene at 60 fps, WideMelon on and off.
 

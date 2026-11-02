@@ -6,9 +6,13 @@ set -e
 CORE=${1:-$(dirname "$0")/../../melonDS-android-lib}
 OUT=$(mktemp -d)
 HERE=$(cd "$(dirname "$0")" && pwd)
-g++ -std=c++17 -I"$CORE/src" "$HERE/gl_dump.cpp" -o "$OUT/gl_dump"
-g++ -std=c++17 -I"$CORE/src" "$HERE/compute_dump.cpp" -o "$OUT/compute_dump"
-cd "$OUT" && ./gl_dump && ./compute_dump
+# The compute shaders' assembly and define lists are cut from ComputeRenderer (GPU3D_Compute.cpp), so they can't drift
+SRC="$CORE/src/GPU3D_Compute.cpp"
+sed -n '/shaderSource += "#version/,/shaderSource += source;/p' "$SRC" > "$OUT/compute_assembly.inc"
+grep -oE 'CompileShader\([^,]+, ComputeRendererShaders::[A-Za-z]+, \{[^}]*\}\)' "$SRC" | sed -E 's/^CompileShader\([^,]+, /COMPILE(/' > "$OUT/compute_shaders.inc"
+[ -s "$OUT/compute_assembly.inc" ] && [ -s "$OUT/compute_shaders.inc" ] || { echo "no CompileShader assembly or calls found in $SRC"; exit 1; }
+g++ -std=c++17 -I"$CORE/src" -I"$OUT" "$HERE/dump.cpp" -o "$OUT/dump"
+cd "$OUT" && ./dump
 rc=0
 for f in *.vert *.frag *.comp; do
   if ! glslangValidator "$f" >"$f.log" 2>&1; then echo "FAIL $f"; cat "$f.log"; rc=1; else echo "ok   $f"; fi
