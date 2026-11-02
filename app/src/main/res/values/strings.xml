@@ -287,7 +287,7 @@
     <string name="bitrate">Bitrate</string>
     <string name="volume">Volume</string>
     <string name="mute_fast_forward_audio">Mute audio while fast forwarding</string>
-    <string name="volume_percentage">%1$d%%</string>
+    <string name="percent_value">%1$d%%</string>
     <string name="audio_latency">Audio latency</string>
     <string name="microphone_source">Microphone source</string>
     <string name="controller_layout">Controller layout</string>
@@ -491,9 +491,7 @@
     <string name="layout_editor_scale_multiplier">%1$dx</string>
     <string name="layout_editor_scale_fit">Fit</string>
     <string name="layout_editor_opacity">Opacity</string>
-    <string name="layout_editor_opacity_value">%1$d%%</string>
     <string name="layout_editor_spacing">Spacing</string>
-    <string name="layout_editor_spacing_value">%1$d%%</string>
     <string name="layout_editor_size_value">%1$d × %2$d</string>
     <string name="layout_editor_grid">Grid</string>
     <string name="layout_editor_snap_to_grid">Snap to grid</string>

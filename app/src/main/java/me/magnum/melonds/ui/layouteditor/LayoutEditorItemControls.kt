@@ -270,11 +270,11 @@ class LayoutEditorItemControls(
             editor.resizeSelectedView(view.getWidth().toFloat(), (heightRange.first + progress).toFloat())
         }
         binding.layoutOpacityRow.seekBar.setOnUserProgressChanged { progress ->
-            binding.layoutOpacityRow.textValue.text = context.getString(R.string.layout_editor_opacity_value, progress)
+            binding.layoutOpacityRow.textValue.text = context.getString(R.string.percent_value, progress)
             editor.setSelectedViewAlpha(progress / 100f)
         }
         binding.layoutSpacingRow.seekBar.setOnUserProgressChanged { progress ->
-            binding.layoutSpacingRow.textValue.text = context.getString(R.string.layout_editor_spacing_value, progress)
+            binding.layoutSpacingRow.textValue.text = context.getString(R.string.percent_value, progress)
             editor.setSelectedViewSpacing(progress / 100f)
         }
 
@@ -371,12 +371,12 @@ class LayoutEditorItemControls(
         val opacity = (view.baseAlpha * 100).roundToInt()
         binding.layoutOpacityRow.root.isVisible = isScreen
         binding.layoutOpacityRow.seekBar.progress = opacity
-        binding.layoutOpacityRow.textValue.text = context.getString(R.string.layout_editor_opacity_value, opacity)
+        binding.layoutOpacityRow.textValue.text = context.getString(R.string.percent_value, opacity)
 
         val spacing = (view.spacing * 100).roundToInt()
         binding.layoutSpacingRow.root.isVisible = view.component == LayoutComponent.DPAD || view.component == LayoutComponent.BUTTONS
         binding.layoutSpacingRow.seekBar.progress = spacing
-        binding.layoutSpacingRow.textValue.text = context.getString(R.string.layout_editor_spacing_value, spacing)
+        binding.layoutSpacingRow.textValue.text = context.getString(R.string.percent_value, spacing)
 
         binding.switchAboveScreen.isVisible = isScreen
         binding.switchAboveScreen.isChecked = view.onTop

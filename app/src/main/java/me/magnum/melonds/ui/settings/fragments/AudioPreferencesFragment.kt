@@ -31,7 +31,7 @@ class AudioPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
 
         setSliderSummary(volumePreference) { volume ->
             val volumePercentage = (volume / volumePreference.max.toFloat() * 100f).toInt()
-            getString(R.string.volume_percentage, volumePercentage)
+            getString(R.string.percent_value, volumePercentage)
         }
         micSourcePreference.setOnPreferenceChangeListener { _, newValue ->
             val newMicSource = enumValueOfIgnoreCase<MicSource>(newValue as String)
