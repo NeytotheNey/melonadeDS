@@ -5,7 +5,7 @@ import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.input.ControllerStyle
 
 /**
- * Colours for one button. [edge] is the lip for raised buttons, the ring for outlined buttons and the inner ring for tinted buttons.
+ * Colors of one button, where [edge] is the lip, the ring or the inner ring depending on the shading.
  */
 class ControllerButtonColors(
     @ColorInt val face: Int,
@@ -15,8 +15,7 @@ class ControllerButtonColors(
 )
 
 /**
- * Colours for one pixel art button, by role. [lip] is the side of the lip, [glint] a small bright spot in the top-left corner, [ink] the label, arrow or
- * icon and [inkShadow] the hard drop shadow under it. 8-bit buttons use [outline] as their lip and [highlight] as their glint.
+ * Colors of one pixel-art button by role, where [ink] is the label, arrow or icon and [inkShadow] its hard drop shadow.
  */
 class PixelColors(
     @ColorInt val outline: Int,
@@ -30,10 +29,7 @@ class PixelColors(
 )
 
 /**
- * How [ControllerAppearance.Pixel] buttons are drawn. 8-bit buttons have big pixels and three shades. 16-bit buttons have pixels half the size
- * and add a lip side, a dithered shadow and a glint. Both draw labels, arrows and icons on a detail grid of 16-bit sized pixels, so an 8-bit pixel is
- * [detailPerCell] detail pixels to a side. [lip] and [travel] are in the style's own pixels and the same on every button. Small views use smaller pixels,
- * so that they're always at least [minCells] of the style's pixels across.
+ * Pixel-art parameters for [ControllerAppearance.Pixel]: 8-bit uses 4dp cells and three shades, 16-bit 2dp cells plus a lip side, dither and glint.
  */
 class PixelArt(
     val sixteenBit: Boolean,
@@ -139,7 +135,7 @@ sealed class ControllerAppearance {
         }
 
         /**
-         * A pixel style in the Classic palette. 8-bit draws it on a near-black outline and lip, with the highlight as its glint.
+         * A pixel style in the Classic palette, which 8-bit draws on a near-black outline and lip with the highlight as its glint.
          */
         private fun pixel(sixteenBit: Boolean): ControllerAppearance {
             fun shade(colors: PixelColors) = if (sixteenBit) colors else colors.toEightBit()

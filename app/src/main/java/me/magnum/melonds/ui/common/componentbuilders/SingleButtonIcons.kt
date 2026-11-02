@@ -5,7 +5,7 @@ import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.layout.LayoutComponent
 
 /**
- * Icons of the single buttons that show an icon instead of a label. Shared by the emulator, the layout editor and the controller style previews.
+ * Icons of the single buttons that show an icon instead of a label, shared by the emulator, the layout editor and the controller style previews.
  */
 object SingleButtonIcons {
 
@@ -27,7 +27,7 @@ object SingleButtonIcons {
     }
 
     /**
-     * The icon a toggle button shows while it's off. Toggles without one show their normal icon dimmed instead.
+     * The icon a toggle button shows while it's off; toggles without one dim their normal icon.
      */
     @DrawableRes
     fun offIcon(component: LayoutComponent): Int? {

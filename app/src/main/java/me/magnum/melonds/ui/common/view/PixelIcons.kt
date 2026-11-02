@@ -4,8 +4,7 @@ import androidx.annotation.DrawableRes
 import me.magnum.melonds.R
 
 /**
- * A hand-drawn pixel bitmap: one string per row, with '#' for ink and anything else for empty. [compact] is a smaller version for faces too small for
- * this one.
+ * A hand-drawn pixel bitmap, one string per row with '#' for ink, and an optional smaller [compact] version for small faces.
  */
 class PixelIcon(private val rows: List<String>, val compact: PixelIcon? = null) {
     val width = rows.first().length
@@ -29,9 +28,7 @@ class PixelIcon(private val rows: List<String>, val compact: PixelIcon? = null) 
 }
 
 /**
- * Hand-drawn icons and fonts for pixel buttons, drawn on their detail grid. Vector icons turn to mush at this size, so every icon the on-screen buttons use
- * has a pixel version here, looked up by its drawable. Icons over 10 cells across also have a compact version of at most 9×9, for 8-bit faces, whose thick
- * outline leaves less room inside.
+ * Hand-drawn icons and fonts for pixel buttons on their detail grid, looked up by drawable, with a compact version of at most 9×9 for big icons.
  */
 object PixelIcons {
     private fun icon(vararg rows: String, compact: PixelIcon? = null) = PixelIcon(rows.toList(), compact)
