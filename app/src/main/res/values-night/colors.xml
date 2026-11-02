@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- M3 colour scheme generated from the melonDS red (#F44336). The Compose colour scheme in ui/theme/Colors.kt is built from these -->
     <color name="m3Primary">#FFB4A9</color>
     <color name="m3OnPrimary">#690002</color>
     <color name="m3PrimaryContainer">#FF5545</color>

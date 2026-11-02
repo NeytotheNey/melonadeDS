@@ -1,5 +1,5 @@
 <resources>
-    <!-- Shared by AppTheme and EmulatorTheme. These colours are used when dynamic colours are not available or are disabled -->
+    <!-- Base for AppTheme and EmulatorTheme: the colours used when dynamic colours are off or unavailable -->
     <style name="Base.AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/m3Primary</item>
         <item name="colorOnPrimary">@color/m3OnPrimary</item>
@@ -65,7 +65,7 @@
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowContentOverlay">@null</item>
         <item name="android:windowTranslucentNavigation">true</item>
-        <!-- Used when the "Show status bar" setting is on. The status bar is drawn over the game, so keep it clear with light icons -->
+        <!-- Transparent status bar with light icons for the "Show status bar" setting -->
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
@@ -99,8 +99,7 @@
         <item name="switchPreferenceStyle">@style/Preference.SwitchPreference.MaterialSwitch</item>
     </style>
 
-    <!-- Settings rows drawn as grouped cards. The row layouts set the card background and PreferenceCardDecoration rounds its corners.
-         The rows have no icons, so no space is kept for one -->
+    <!-- Settings rows as grouped cards; the row layouts set the background and PreferenceCardDecoration rounds the corners -->
     <style name="PreferenceCard" parent="@style/Preference.Material">
         <item name="android:layout">@layout/preference_card</item>
         <item name="iconSpaceReserved">false</item>
@@ -122,7 +121,7 @@
         <item name="iconSpaceReserved">false</item>
     </style>
 
-    <!-- Use M3 switches in the preference screens. The ids must match the ones expected by SwitchPreference -->
+    <!-- M3 switch for SwitchPreference; the widget id must stay @android:id/switch_widget -->
     <style name="Preference.SwitchPreference.MaterialSwitch" parent="@style/Preference.SwitchPreference.Material">
         <item name="android:layout">@layout/preference_card</item>
         <item name="android:widgetLayout">@layout/preference_widget_material_switch</item>
@@ -146,7 +145,7 @@
         <item name="android:scaleType">fitCenter</item>
     </style>
 
-    <!-- Icon buttons in the layout editor's item controls. Their icons are tinted in code -->
+    <!-- Layout editor icon buttons; tinted in code -->
     <style name="Button.EditorIcon" parent="android:Widget.ImageButton">
         <item name="android:layout_width">40dp</item>
         <item name="android:layout_height">40dp</item>
@@ -170,7 +169,7 @@
         <item name="android:orientation">horizontal</item>
     </style>
 
-    <!-- Label and value of a slider. Tapping them opens a dialog to type the value, when that's supported -->
+    <!-- Slider label and value; tapping opens the type-a-value dialog where supported -->
     <style name="LayoutEditorPanelValueLabels">
         <item name="android:layout_width">72dp</item>
         <item name="android:layout_height">wrap_content</item>

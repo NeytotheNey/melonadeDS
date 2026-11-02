@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- M3 colour scheme generated from the melonDS red (#F44336). The Compose colour scheme in ui/theme/Colors.kt is built from these -->
+    <!-- M3 scheme from the melonDS red #F44336; ui/theme/Colors.kt reads these -->
     <color name="m3Primary">#B81311</color>
     <color name="m3OnPrimary">#FFFFFF</color>
     <color name="m3PrimaryContainer">#DC3128</color>
@@ -39,7 +39,7 @@
     <color name="textLayoutEditor">@android:color/black</color>
     <color name="layoutEditorPanelBackground">#AFFF</color>
 
-    <!-- Launcher icon. The nightly flavour overrides the liquid colours -->
+    <!-- Launcher icon colours; nightly overrides the liquid ones -->
     <color name="launcherBackground">#FFD54A</color>
     <color name="launcherLiquid">#FF6B7A</color>
     <color name="launcherLiquidTop">#FF95A0</color>
