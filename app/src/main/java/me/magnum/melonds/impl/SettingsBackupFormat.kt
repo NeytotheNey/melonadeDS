@@ -13,6 +13,7 @@ import org.json.JSONObject
 internal object SettingsBackupFormat {
 
     const val SETTINGS_FILE = "settings.json"
+    // The data files in filesDir, named here for the repositories and migrations that read and write them too
     const val CONTROLLER_FILE = "controller_config.json"
     const val LAYOUTS_FILE = "layouts.json"
     const val ROM_DATA_FILE = "rom_data.json"

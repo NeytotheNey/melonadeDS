@@ -19,6 +19,7 @@ import me.magnum.melonds.common.Deletable
 import me.magnum.melonds.common.filterNotDeleted
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.repositories.LayoutsRepository
+import me.magnum.melonds.impl.SettingsBackupFormat.LAYOUTS_FILE
 import me.magnum.melonds.impl.dtos.layout.LayoutConfigurationDto
 import java.io.File
 import java.io.FileReader
@@ -28,7 +29,6 @@ import java.util.UUID
 
 class InternalLayoutsRepository(private val context: Context, private val gson: Gson) : LayoutsRepository {
     companion object {
-        private const val DATA_FILE = "layouts.json"
         private val layoutListType: Type = object : TypeToken<List<LayoutConfigurationDto>>(){}.type
     }
 
@@ -129,7 +129,7 @@ class InternalLayoutsRepository(private val context: Context, private val gson: 
     }
 
     private fun loadLayouts(): List<LayoutConfiguration> {
-        val dataFile = File(context.filesDir, DATA_FILE)
+        val dataFile = File(context.filesDir, LAYOUTS_FILE)
         if (!dataFile.isFile) {
             return emptyList()
         }
@@ -145,7 +145,7 @@ class InternalLayoutsRepository(private val context: Context, private val gson: 
     }
 
     private suspend fun saveLayouts() = withContext(Dispatchers.IO) {
-        val dataFile = File(context.filesDir, DATA_FILE)
+        val dataFile = File(context.filesDir, LAYOUTS_FILE)
 
         try {
             val customLayoutsDtos = layouts.value.mapNotNull {

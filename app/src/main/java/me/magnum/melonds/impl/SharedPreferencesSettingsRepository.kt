@@ -53,6 +53,7 @@ import me.magnum.melonds.domain.model.input.SoftInputBehaviour
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.repositories.SettingsRepository
+import me.magnum.melonds.impl.SettingsBackupFormat.CONTROLLER_FILE
 import me.magnum.melonds.impl.dtos.input.ControllerConfigurationDto
 import me.magnum.melonds.impl.input.ControllerConfigurationFactory
 import me.magnum.melonds.ui.Theme
@@ -73,7 +74,6 @@ class SharedPreferencesSettingsRepository(
 
     companion object {
         private const val TAG = "SPSettingsRepository"
-        private const val CONTROLLER_CONFIG_FILE = "controller_config.json"
         // Same default as the theme preference in pref_appearance.xml
         private const val DEFAULT_THEME = "system"
     }
@@ -81,7 +81,7 @@ class SharedPreferencesSettingsRepository(
     @OptIn(ExperimentalSerializationApi::class)
     private val controllerConfiguration by lazy {
         val initialConfiguration = try {
-            val configFile = File(context.filesDir, CONTROLLER_CONFIG_FILE)
+            val configFile = File(context.filesDir, CONTROLLER_FILE)
             configFile.inputStream().use {
                 val loadedConfiguration = json.decodeFromStream<ControllerConfigurationDto>(it)
                 loadedConfiguration.toControllerConfiguration()
@@ -641,7 +641,7 @@ class SharedPreferencesSettingsRepository(
         this.controllerConfiguration.value = controllerConfiguration
 
         try {
-            val configFile = File(context.filesDir, CONTROLLER_CONFIG_FILE)
+            val configFile = File(context.filesDir, CONTROLLER_FILE)
             val dto = ControllerConfigurationDto.fromControllerConfiguration(controllerConfiguration)
             configFile.outputStream().use {
                 json.encodeToStream(dto, it)

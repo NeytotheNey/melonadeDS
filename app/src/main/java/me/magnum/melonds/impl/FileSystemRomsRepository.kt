@@ -25,6 +25,7 @@ import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.model.rom.config.RomConfig
 import me.magnum.melonds.domain.repositories.RomsRepository
 import me.magnum.melonds.domain.repositories.SettingsRepository
+import me.magnum.melonds.impl.SettingsBackupFormat.ROM_DATA_FILE
 import me.magnum.melonds.impl.dtos.rom.RomDto
 import me.magnum.melonds.utils.FileUtils
 import me.magnum.melonds.utils.SubjectSharedFlow
@@ -45,7 +46,6 @@ class FileSystemRomsRepository(
 
     companion object {
         private const val TAG = "FSRomsRepository"
-        private const val ROM_DATA_FILE = "rom_data.json"
     }
 
     private val coroutineScope = CoroutineScope(Dispatchers.IO)

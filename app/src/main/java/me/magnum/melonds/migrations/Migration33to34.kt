@@ -7,6 +7,7 @@ import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream
 import me.magnum.melonds.domain.model.ControllerConfiguration
 import me.magnum.melonds.domain.model.InputConfig
+import me.magnum.melonds.impl.SettingsBackupFormat.CONTROLLER_FILE
 import me.magnum.melonds.impl.dtos.input.ControllerConfigurationDto
 import me.magnum.melonds.migrations.legacy.input.ControllerConfigurationDto33
 import java.io.File
@@ -17,7 +18,6 @@ class Migration33to34(
 ) : Migration {
 
     private companion object {
-        const val CONTROLLER_CONFIG_FILE = "controller_config.json"
         const val KEY_NOT_SET = -1
     }
 
@@ -26,7 +26,7 @@ class Migration33to34(
 
     @OptIn(ExperimentalSerializationApi::class)
     override fun migrate() {
-        val controllerConfigFile = File(context.filesDir, CONTROLLER_CONFIG_FILE)
+        val controllerConfigFile = File(context.filesDir, CONTROLLER_FILE)
         try {
             val originalData = controllerConfigFile.inputStream().use {
                 json.decodeFromStream<ControllerConfigurationDto33>(it)
