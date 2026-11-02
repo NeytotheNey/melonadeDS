@@ -79,5 +79,5 @@ private fun getNativeScreenRect(drawRect: Rect, frameWidth: Int): Rect {
     }
 
     val nativeWidth = drawRect.width * SCREEN_WIDTH / frameWidth.toFloat()
-    return buildCentredRect(drawRect.x + drawRect.width / 2f, drawRect.y.toFloat(), nativeWidth, drawRect.height.toFloat())
+    return buildCenteredRect(drawRect.x + drawRect.width / 2f, drawRect.y.toFloat(), nativeWidth, drawRect.height.toFloat())
 }
