@@ -75,6 +75,117 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     private class Interior(val cells: Mask, val detail: Mask)
 
     /**
+     * The D-pad centre's round dent, centred on ([x], [y]) in detail cells.
+     */
+    private class Dimple(val x: Float, val y: Float, val radius: Float) {
+        fun contains(cellX: Int, cellY: Int): Boolean {
+            val dx = cellX - x
+            val dy = cellY - y
+            return dx * dx + dy * dy <= radius * radius
+        }
+    }
+
+    /**
+     * Colours one part: its shape and lip on the cell grid, and its ink, ink shadow and dimple on the detail grid over the interior.
+     */
+    private class PartShader(
+        private val art: PixelArt,
+        private val colors: PixelColors,
+        private val mask: Mask,
+        partInterior: Interior,
+        private val ink: Mask,
+        private val inkShadow: Mask,
+        private val inkColor: Int,
+        private val dimple: Dimple?,
+    ) {
+        private val interior = partInterior.cells
+        private val detailInterior = partInterior.detail
+        private val perCell = art.detailPerCell
+        private val columns = mask.width
+        private val shapeColors = IntArray(columns * mask.height) { shapeColor(it % columns, it / columns, false) }
+        private val pressedShapeColors = IntArray(columns * mask.height) { shapeColor(it % columns, it / columns, true) }
+
+        /**
+         * The lip's colour at a cell, transparent outside the lip.
+         */
+        fun lipColor(x: Int, y: Int): Int {
+            if (!isLip(x, y)) return Color.TRANSPARENT
+            if (!art.sixteenBit) return colors.outline
+            // 16-bit lips are outlined where they meet empty space
+            return if (!isButton(x, y + 1) || !isButton(x - 1, y) || !isButton(x + 1, y)) colors.outline else colors.lip
+        }
+
+        /**
+         * The face's colour at a detail cell. Ink and its drop shadow go on top of the interior.
+         */
+        fun faceColor(x: Int, y: Int, pressed: Boolean): Int {
+            val shape = if (pressed) pressedShapeColors else shapeColors
+            val cell = (y / perCell) * columns + x / perCell
+            if (!detailInterior[x, y]) return shape[cell]
+            if (ink[x, y]) return inkColor
+            if (inkShadow[x, y]) return colors.inkShadow
+            return dimpleColor(x, y) ?: shape[cell]
+        }
+
+        private fun dimpleColor(x: Int, y: Int): Int? {
+            val dimple = dimple ?: return null
+            if (!dimple.contains(x, y)) return null
+            if (dimple.contains(x - 1, y) && dimple.contains(x + 1, y) && dimple.contains(x, y - 1) && dimple.contains(x, y + 1)) return colors.base
+            return if (x - dimple.x + y - dimple.y < 0) colors.shadow else colors.highlight
+        }
+
+        // How many steps it takes to reach a cell that isn't interior, where a cell touching the outline counts 1
+        private fun distance(x: Int, y: Int, dx: Int, dy: Int): Int {
+            var steps = 1
+            while (interior[x + dx * steps, y + dy * steps]) {
+                steps++
+            }
+            return steps
+        }
+
+        private fun shapeColor(x: Int, y: Int, pressed: Boolean): Int {
+            if (!mask[x, y]) return Color.TRANSPARENT
+            if (!interior[x, y]) return colors.outline
+
+            if (!art.sixteenBit) {
+                val topLeft = !interior[x, y - 1] || !interior[x - 1, y]
+                val bottomRight = !interior[x, y + 1] || !interior[x + 1, y]
+                return when {
+                    topLeft && !bottomRight -> if (pressed) colors.shadow else colors.highlight
+                    bottomRight && !topLeft -> if (pressed) colors.highlight else colors.shadow
+                    else -> colors.base
+                }
+            }
+
+            val up = distance(x, y, 0, -1)
+            val toLeft = distance(x, y, -1, 0)
+            val isDitherCell = (x + y) % 2 == 0
+            if (pressed) {
+                return if (up <= 2 || toLeft == 1 || (up == 3 && isDitherCell)) colors.lip else colors.shadow
+            }
+            val down = distance(x, y, 0, 1)
+            val toRight = distance(x, y, 1, 0)
+            return when {
+                (up == 2 && toLeft in 2..4) || (up == 3 && toLeft == 2) -> colors.glint
+                down <= 2 || toRight == 1 || (down == 3 && isDitherCell) -> colors.shadow
+                up <= 2 || toLeft == 1 -> colors.highlight
+                else -> colors.base
+            }
+        }
+
+        // The lip is the shape moved down by 1 to lip cells, wherever the shape itself isn't. A pressed face covers the top of it
+        private fun isLip(x: Int, y: Int): Boolean {
+            if (mask[x, y]) return false
+            for (depth in 1..art.lip) {
+                if (mask[x, y - depth]) return true
+            }
+            return false
+        }
+
+        private fun isButton(x: Int, y: Int) = mask[x, y] || isLip(x, y)
+    }
+
+    /**
      * Where icons fit: their scale and the top-left corner of their box, drop shadow included, in detail cells.
      */
     private class Placement(val scale: Int, val left: Int, val top: Int)
@@ -272,11 +383,9 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         iconScale: Int,
     ): PartBitmaps {
         val colors = art.colorsFor(part.input, part.isDpad)
-        val mask = grid.mask
-        val columns = mask.width
-        val rows = mask.height
+        val columns = grid.mask.width
+        val rows = grid.mask.height
         val perCell = art.detailPerCell
-        val interior = partInterior.cells
         val detailInterior = partInterior.detail
 
         // What's drawn on the face goes on the detail grid, with its drop shadow kept apart so that it can be left off
@@ -324,101 +433,20 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         val inkColor = if (isDimmed) colors.shadow else colors.ink
 
         // The D-pad's centre gets a small round dent: a shadow on its top-left inner edge and a light bottom-right one. Cell x spans x to x + 1
-        val hasDimple = part.isDpad && part.input == null
         val dimpleRadius = min(DIMPLE_RADIUS, faceBounds.width() / detailSize / 6f)
         val faceCentre = grid.toDetail(faceBounds.centerX(), faceBounds.centerY())
-        val dimpleX = faceCentre[0] - 0.5f
-        val dimpleY = faceCentre[1] - 0.5f
-
-        fun isInDimple(x: Int, y: Int): Boolean {
-            val dx = x - dimpleX
-            val dy = y - dimpleY
-            return dx * dx + dy * dy <= dimpleRadius * dimpleRadius
-        }
-
-        fun dimpleColor(x: Int, y: Int): Int? {
-            if (!hasDimple || dimpleRadius < MIN_DIMPLE_RADIUS || !isInDimple(x, y)) return null
-            if (isInDimple(x - 1, y) && isInDimple(x + 1, y) && isInDimple(x, y - 1) && isInDimple(x, y + 1)) return colors.base
-            return if (x - dimpleX + y - dimpleY < 0) colors.shadow else colors.highlight
-        }
-
-        // How many steps it takes to reach a cell that isn't interior, where a cell touching the outline counts 1
-        fun distance(x: Int, y: Int, dx: Int, dy: Int): Int {
-            var steps = 1
-            while (interior[x + dx * steps, y + dy * steps]) {
-                steps++
-            }
-            return steps
-        }
-
-        fun shapeColor(x: Int, y: Int, pressed: Boolean): Int {
-            if (!mask[x, y]) return Color.TRANSPARENT
-            if (!interior[x, y]) return colors.outline
-
-            if (!art.sixteenBit) {
-                val topLeft = !interior[x, y - 1] || !interior[x - 1, y]
-                val bottomRight = !interior[x, y + 1] || !interior[x + 1, y]
-                return when {
-                    topLeft && !bottomRight -> if (pressed) colors.shadow else colors.highlight
-                    bottomRight && !topLeft -> if (pressed) colors.highlight else colors.shadow
-                    else -> colors.base
-                }
-            }
-
-            val up = distance(x, y, 0, -1)
-            val toLeft = distance(x, y, -1, 0)
-            val isDitherCell = (x + y) % 2 == 0
-            if (pressed) {
-                return if (up <= 2 || toLeft == 1 || (up == 3 && isDitherCell)) colors.lip else colors.shadow
-            }
-            val down = distance(x, y, 0, 1)
-            val toRight = distance(x, y, 1, 0)
-            return when {
-                (up == 2 && toLeft in 2..4) || (up == 3 && toLeft == 2) -> colors.glint
-                down <= 2 || toRight == 1 || (down == 3 && isDitherCell) -> colors.shadow
-                up <= 2 || toLeft == 1 -> colors.highlight
-                else -> colors.base
-            }
-        }
-
-        // The lip is the shape moved down by 1 to lip cells, wherever the shape itself isn't. A pressed face covers the top of it
-        fun isLip(x: Int, y: Int): Boolean {
-            if (mask[x, y]) return false
-            for (depth in 1..art.lip) {
-                if (mask[x, y - depth]) return true
-            }
-            return false
-        }
-
-        fun isButton(x: Int, y: Int) = mask[x, y] || isLip(x, y)
-
-        fun lipColor(x: Int, y: Int): Int {
-            if (!isLip(x, y)) return Color.TRANSPARENT
-            if (!art.sixteenBit) return colors.outline
-            // 16-bit lips are outlined where they meet empty space
-            return if (!isButton(x, y + 1) || !isButton(x - 1, y) || !isButton(x + 1, y)) colors.outline else colors.lip
-        }
-
-        val shapeColors = IntArray(columns * rows) { shapeColor(it % columns, it / columns, false) }
-        val pressedShapeColors = IntArray(columns * rows) { shapeColor(it % columns, it / columns, true) }
-
-        // Ink and its drop shadow go on top of the interior, at detail size
-        fun faceColor(x: Int, y: Int, shape: IntArray): Int {
-            val cell = (y / perCell) * columns + x / perCell
-            if (!detailInterior[x, y]) return shape[cell]
-            if (ink[x, y]) return inkColor
-            if (inkShadow[x, y]) return colors.inkShadow
-            return dimpleColor(x, y) ?: shape[cell]
-        }
+        val hasDimple = part.isDpad && part.input == null && dimpleRadius >= MIN_DIMPLE_RADIUS
+        val dimple = if (hasDimple) Dimple(faceCentre[0] - 0.5f, faceCentre[1] - 0.5f, dimpleRadius) else null
+        val shader = PartShader(art, colors, grid.mask, partInterior, ink, inkShadow, inkColor, dimple)
 
         val left = grid.originX.roundToInt()
         val top = grid.originY.roundToInt()
         val bounds = Rect(left, top, left + columns * cellSize, top + rows * cellSize)
         val pressedBounds = Rect(bounds).apply { offset(0, art.travel * cellSize) }
         return PartBitmaps(
-            lip = bitmapOf(detailInterior.width, detailInterior.height) { x, y -> lipColor(x / perCell, y / perCell) },
-            face = bitmapOf(detailInterior.width, detailInterior.height) { x, y -> faceColor(x, y, shapeColors) },
-            pressedFace = bitmapOf(detailInterior.width, detailInterior.height) { x, y -> faceColor(x, y, pressedShapeColors) },
+            lip = bitmapOf(detailInterior.width, detailInterior.height) { x, y -> shader.lipColor(x / perCell, y / perCell) },
+            face = bitmapOf(detailInterior.width, detailInterior.height) { x, y -> shader.faceColor(x, y, false) },
+            pressedFace = bitmapOf(detailInterior.width, detailInterior.height) { x, y -> shader.faceColor(x, y, true) },
             bounds = bounds,
             pressedBounds = pressedBounds,
         )
