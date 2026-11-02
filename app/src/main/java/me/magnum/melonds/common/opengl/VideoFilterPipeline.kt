@@ -36,9 +36,6 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     private companion object {
         const val TAG = "VideoFilterPipeline"
         val COLOR_ATTACHMENTS = intArrayOf(GLES30.GL_COLOR_ATTACHMENT0)
-        // Height of the frame texture when the 3D renderer isn't upscaled: both screens and the empty lines between them. The width can't tell,
-        // since widescreen makes the frame wider without upscaling it
-        const val NATIVE_TEXTURE_HEIGHT = FRAME_TEXTURE_HEIGHT
     }
 
     // A screen shader that fails to build falls back to the no-filter shader. A pre-pass that fails is left out, so the screen shader gets its
@@ -111,7 +108,8 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
             return output
         }
 
-        val isUpscaled = height > NATIVE_TEXTURE_HEIGHT
+        // The width can't tell, since widescreen makes the frame wider without upscaling it
+        val isUpscaled = height > FRAME_TEXTURE_HEIGHT
         var inputTexture = frame.textureId
         var inputWidth = width
         var inputHeight = height

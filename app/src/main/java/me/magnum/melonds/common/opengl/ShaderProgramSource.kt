@@ -12,14 +12,13 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
     }
 
     companion object {
-        // The frame texture holds both screens stacked vertically, top screen first (from v = 0), with 2 empty lines between them. This height
+        // The frame texture holds both screens stacked vertically, top screen first (from v = 0), with 2 empty lines between them. FRAME_TEXTURE_HEIGHT
         // is in DS pixels, and so is the topScreenWidth uniform, the frame's width: SCREEN_WIDTH, or more when widescreen widens the top
         // screen's 3D view. The bottom screen is then SCREEN_WIDTH wide in the middle, with black bars beside it. When the OpenGL or Compute
         // renderer is upscaled the texture is that many times bigger, so the filters that work on texels (HQ2x, HQ4x, Quilez, xBR, Scale2x,
         // FXAA, Sharp, MMPX) read the real size from the texSize uniform. Only LCD and scanlines use the DS size, since they draw one
         // line/subpixel group per DS pixel. The scalers can't stay on the DS grid: upscaled 3D isn't aligned to it (some games draw everything
         // in 3D, sprites included), so DS-grid neighbours would make them copy pixels into the wrong places
-        private const val LOGICAL_TEXTURE_HEIGHT = FRAME_TEXTURE_HEIGHT
 
         // Fragment shader precision: high where the GPU supports it, medium otherwise
         private const val PRECISION_HEADER = "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
@@ -107,8 +106,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // that the fragment belongs to, so the other screen, the empty lines and the black bars never bleed in. Needs tex, texSize and
         // topScreenWidth to be declared before it. SCREEN_BAND_FUNCTIONS is for GLSL ES 1.00 shaders and SCREEN_BAND_FUNCTIONS_300 for
         // #version 300 es ones, which have no texture2D()
-        private const val SCREEN_BAND_RANGE_FUNCTIONS = "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${LOGICAL_TEXTURE_HEIGHT}.0;\n" +
-                "const float bottomScreenStart = ${SCREEN_HEIGHT + SCREEN_GAP}.0 / ${LOGICAL_TEXTURE_HEIGHT}.0;\n" +
+        private const val SCREEN_BAND_RANGE_FUNCTIONS = "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+                "const float bottomScreenStart = ${SCREEN_HEIGHT + SCREEN_GAP}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
                 SCREEN_COLUMN_RANGE_FUNCTIONS +
                 "" +
                 "// Range of v (xy) and u (zw) coordinates (texel centres) of the screen that contains p\n" +
@@ -224,7 +223,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
                     "    uv = vUV;\n" +
                     "    alpha = vAlpha;\n" +
-                    "    omega = 3.141592654 * 2.0 * vec2(topScreenWidth, $LOGICAL_TEXTURE_HEIGHT);\n" +
+                    "    omega = 3.141592654 * 2.0 * vec2(topScreenWidth, $FRAME_TEXTURE_HEIGHT);\n" +
                     "}",
             PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
@@ -265,11 +264,11 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "void main()\n" +
                     "{\n" +
                     "    // In main(), since ES 1.00 globals can only start from constants\n" +
-                    "    vec2 inputSize = vec2(topScreenWidth, $LOGICAL_TEXTURE_HEIGHT);\n" +
-                    "    vec2 outputSize = vec2(topScreenWidth, $LOGICAL_TEXTURE_HEIGHT);\n" +
+                    "    vec2 inputSize = vec2(topScreenWidth, $FRAME_TEXTURE_HEIGHT);\n" +
+                    "    vec2 outputSize = vec2(topScreenWidth, $FRAME_TEXTURE_HEIGHT);\n" +
                     "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
                     "    uv = vUV;\n" +
-                    "    vec2 textureSize = vec2(topScreenWidth, $LOGICAL_TEXTURE_HEIGHT);\n" +
+                    "    vec2 textureSize = vec2(topScreenWidth, $FRAME_TEXTURE_HEIGHT);\n" +
                     "    alpha = vAlpha;\n" +
                     "    omega = vec2(3.1415 * outputSize.x * textureSize.x / inputSize.x, 2.0 * 3.1415 * textureSize.y);\n" +
                     "}",
