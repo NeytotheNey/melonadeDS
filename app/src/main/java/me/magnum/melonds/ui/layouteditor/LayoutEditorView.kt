@@ -399,7 +399,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         // The desired size can be negative when the finger goes past the fixed corner, so the side always comes from the corner being dragged
         val edgeX = if (corner.isLeft) fixedX - desiredWidth else fixedX + desiredWidth
         val edgeY = if (corner.isTop) fixedY - desiredHeight else fixedY + desiredHeight
-        // Same minimum as constrainSize, so a snapped size isn't bumped off its line again
+        // So the snapped size isn't bumped off its line again by constrainSize
         val minWidth = getMinWidth(ratio)
         val minHeight = ratio?.let { minWidth / it } ?: minComponentSize.toFloat()
         val snappedX = LayoutEditorSnapping.snapResizedEdge(edgeX.roundToInt(), fixedX, ceil(minWidth).toInt(), !corner.isLeft, xAxis)

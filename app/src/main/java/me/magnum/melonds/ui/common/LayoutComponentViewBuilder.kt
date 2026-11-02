@@ -19,7 +19,7 @@ abstract class LayoutComponentViewBuilder {
     }
 
     /**
-     * Spreads out the buttons of a view made by [build], from 0 (as built) to 1. The buttons keep their size relative to the whole control, which takes up
+     * Sets the spacing of the buttons of a view made by [build], from 0 to 1. The buttons keep their size relative to the whole control, which takes up
      * more room, so the view has to be made bigger for them to keep their size on screen. Only the D-pad and the face buttons have a spacing, so by
      * default this does nothing.
      */
