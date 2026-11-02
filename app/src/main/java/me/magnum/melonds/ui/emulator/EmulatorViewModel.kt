@@ -42,7 +42,6 @@ import me.magnum.melonds.common.romprocessors.RomFileProcessorFactory
 import me.magnum.melonds.common.runtime.ScreenshotFrameBufferProvider
 import me.magnum.melonds.domain.model.Cheat
 import me.magnum.melonds.domain.model.ConsoleType
-import me.magnum.melonds.domain.model.FpsCounterPosition
 import me.magnum.melonds.domain.model.RomInfo
 import me.magnum.melonds.domain.model.RuntimeBackground
 import me.magnum.melonds.domain.model.SaveStateSlot
@@ -81,6 +80,7 @@ import me.magnum.melonds.impl.emulator.EmulatorSession
 import me.magnum.melonds.impl.layout.UILayoutProvider
 import me.magnum.melonds.ui.emulator.component.RetroAchievementsSubmissionHandler
 import me.magnum.melonds.ui.emulator.firmware.FirmwarePauseMenuOption
+import me.magnum.melonds.ui.emulator.model.EmulatorScreenSettings
 import me.magnum.melonds.ui.emulator.model.EmulatorState
 import me.magnum.melonds.ui.emulator.model.EmulatorUiEvent
 import me.magnum.melonds.ui.emulator.model.LaunchArgs
@@ -1139,24 +1139,14 @@ class EmulatorViewModel @Inject constructor(
         return layoutsRepository.getLayouts().map { it.toLuaLayoutChoices() }
     }
 
-    fun isSustainedPerformanceModeEnabled(): Boolean {
-        return settingsRepository.isSustainedPerformanceModeEnabled()
-    }
-
-    fun isFramePacingEnabled(): Boolean {
-        return settingsRepository.isFramePacingVsyncEnabled()
-    }
-
-    fun isDisplayLock60HzEnabled(): Boolean {
-        return settingsRepository.isFramePacingLock60HzEnabled()
-    }
-
-    fun getFpsCounterPosition(): FpsCounterPosition {
-        return settingsRepository.getFpsCounterPosition()
-    }
-
-    fun showStatusBar(): Boolean {
-        return settingsRepository.showStatusBar()
+    fun getScreenSettings(): EmulatorScreenSettings {
+        return EmulatorScreenSettings(
+            isSustainedPerformanceModeEnabled = settingsRepository.isSustainedPerformanceModeEnabled(),
+            isFramePacingEnabled = settingsRepository.isFramePacingVsyncEnabled(),
+            isDisplayLock60HzEnabled = settingsRepository.isFramePacingLock60HzEnabled(),
+            fpsCounterPosition = settingsRepository.getFpsCounterPosition(),
+            showStatusBar = settingsRepository.showStatusBar(),
+        )
     }
 
     private suspend fun getRomEnabledCheats(romInfo: RomInfo): List<Cheat> {

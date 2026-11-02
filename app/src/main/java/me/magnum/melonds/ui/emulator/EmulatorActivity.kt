@@ -340,9 +340,7 @@ class EmulatorActivity : AppCompatActivity() {
     }
     private val settingsLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         viewModel.onSettingsChanged()
-        setupSustainedPerformanceMode()
-        setupFramePacing()
-        setupFpsCounter()
+        applyScreenSettings()
         // The pause menu might have been shown while away (e.g. audio focus lost to a phone call). Leave the game paused behind it in that case
         if (!activeOverlays.hasActiveOverlays()) {
             viewModel.resumeEmulator()
@@ -754,9 +752,7 @@ class EmulatorActivity : AppCompatActivity() {
                         is EmulatorState.RunningFirmware -> {
                             frontendInputHandler.resetFastForward()
                             reapplyLuaUiSettings()
-                            setupSustainedPerformanceMode()
-                            setupFramePacing()
-                            setupFpsCounter()
+                            applyScreenSettings()
                             binding.textLoading.isGone = true
                             binding.viewLayoutControls.isVisible = true
                             backPressedCallback.isEnabled = true
@@ -949,7 +945,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     private fun setupFullscreen() {
         // Runs on every focus change, so a change made in the settings is picked up when returning to the game
-        window.setupGameSystemBars(viewModel.showStatusBar())
+        window.setupGameSystemBars(viewModel.getScreenSettings().showStatusBar)
     }
 
     private fun startMotionManagerIfNeeded(rom: Rom) {
@@ -959,15 +955,17 @@ class EmulatorActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupSustainedPerformanceMode() {
-        window.setSustainedPerformanceMode(viewModel.isSustainedPerformanceModeEnabled())
-    }
-
-    private fun setupFramePacing() {
-        // The emulator itself picks up the setting through the emulator configuration. This only sets the surfaces' frame rate
-        frameRenderCoordinator.setFramePacingEnabled(viewModel.isFramePacingEnabled())
-        displayLock60HzEnabled = viewModel.isDisplayLock60HzEnabled()
+    /**
+     * Sets up the window, the surfaces and the FPS counter from the settings. The status bar is set up in setupFullscreen() instead.
+     */
+    private fun applyScreenSettings() {
+        val settings = viewModel.getScreenSettings()
+        window.setSustainedPerformanceMode(settings.isSustainedPerformanceModeEnabled)
+        // The emulator itself picks up frame pacing through the emulator configuration. This only sets the surfaces' frame rate
+        frameRenderCoordinator.setFramePacingEnabled(settings.isFramePacingEnabled)
+        displayLock60HzEnabled = settings.isDisplayLock60HzEnabled
         updateDisplayModeLock(ContextCompat.getDisplayOrDefault(this))
+        setupFpsCounter(settings.fpsCounterPosition)
     }
 
     /**
@@ -987,8 +985,7 @@ class EmulatorActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupFpsCounter() {
-        val fpsCounterPosition = viewModel.getFpsCounterPosition()
+    private fun setupFpsCounter(fpsCounterPosition: FpsCounterPosition) {
         if (fpsCounterPosition == FpsCounterPosition.HIDDEN) {
             binding.textFps.isGone = true
         } else {
