@@ -37,7 +37,7 @@ fun CaptionText(
     onTextLayout: (TextLayoutResult) -> Unit = {},
     style: TextStyle = MaterialTheme.typography.bodySmall,
 ) {
-    // Keep the alpha of the current content colour so that captions inside disabled items are also shown as disabled
+    // Keep the alpha of the current content color so that captions inside disabled items are also shown as disabled
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = LocalContentColor.current.alpha)) {
         Text(
             text = text,

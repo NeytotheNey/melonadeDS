@@ -123,7 +123,7 @@ class TextInputDialogState {
         onCancel: () -> Unit = { },
         keyboardOptions: KeyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         highlightInitialText: Boolean = false,
-        // Opens the keyboard straight away. Otherwise the field is only focused
+        // Opens the keyboard straight away instead of only focusing the field
         showKeyboard: Boolean = false,
         // Enter does the keyboard action instead of adding a new line
         singleLine: Boolean = false,

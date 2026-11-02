@@ -19,8 +19,8 @@ import me.magnum.melonds.ui.common.ProvideEnabledContentColor
 import me.magnum.melonds.ui.common.component.text.CaptionText
 
 /**
- * A row showing a setting's [value] that launches [onLaunchAction] when tapped. With no [onLaunchAction] it only shows the value. An icon
- * button in [trailingContent] brings its own inset, so the row's end padding shrinks to 8 dp for it
+ * A row showing a setting's [value] that launches [onLaunchAction] when tapped, with its end padding shrunk to 8 dp for an icon button in
+ * [trailingContent]
  */
 @Composable
 fun ActionLauncherItem(

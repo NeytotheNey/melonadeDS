@@ -5,7 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 
 /**
- * Dims the content colour of [content] to the M3 disabled alpha when [enabled] is false.
+ * Dims the content color of [content] to the M3 disabled alpha when [enabled] is false.
  */
 @Composable
 fun ProvideEnabledContentColor(enabled: Boolean, content: @Composable () -> Unit) {

@@ -40,9 +40,7 @@ import me.magnum.melonds.ui.common.component.text.CaptionText
 import kotlin.math.roundToInt
 
 /**
- * The control for one of a script's options: a switch, a slider or a dropdown. [value] is the option's value as text (as
- * LuaScriptOption.resolve() gives it), and [onValueChange] gets the new one. Sliders only report once they're let go. [layouts] are the
- * player's layouts, which layout options offer (null while they're being read)
+ * Switch, slider or dropdown for one script option, where [value] is the option's canonical text and sliders report only on release
  */
 @Composable
 fun LuaScriptOptionControl(
@@ -165,7 +163,7 @@ private fun ChoiceControl(
 }
 
 /**
- * A dropdown with "Don't change" and the player's layouts. A layout that was deleted shows as not found until another is picked
+ * A dropdown of "Don't change" plus the player's layouts, where a deleted layout shows as not found
  */
 @Composable
 private fun LayoutControl(
@@ -204,8 +202,7 @@ private fun LayoutControl(
 }
 
 /**
- * A row with [label] and [selectedLabel] that opens a menu of [itemLabels] and reports the index picked. It can't be opened while
- * [itemLabels] is null
+ * A row with [label] and [selectedLabel] that opens a menu of [itemLabels], while they're not null, and reports the index picked
  */
 @Composable
 private fun DropdownControl(
