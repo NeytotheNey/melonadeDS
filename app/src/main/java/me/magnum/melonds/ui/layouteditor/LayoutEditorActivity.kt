@@ -166,14 +166,9 @@ class LayoutEditorActivity : AppCompatActivity() {
     private var shownEditorDialogs = 0
     private var isWaitingForEditorToSettle = false
     private val editorSettledRunnable = Runnable { onEditorSettled() }
-    private var latestUiInsets: Insets? = null
-    private var latestFolds: List<ScreenFold>? = null
-    private var latestDisplays: LayoutDisplayPair? = null
-    private var reportedUiSize: Point? = null
-    private var reportedDisplays: LayoutDisplayPair? = null
-    private var reportedUiInsets: Insets? = null
-    private var reportedFolds: List<ScreenFold>? = null
-    private var reportedOrientation: Orientation? = null
+    // The insets, folds and displays as last received. The size and orientation are read when needed
+    private var latestInputs = LayoutVariantInputs()
+    private var reportedInputs = LayoutVariantInputs()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -189,7 +184,7 @@ class LayoutEditorActivity : AppCompatActivity() {
         setContentView(container)
         ViewCompat.setOnApplyWindowInsetsListener(container) { _, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout())
-            latestUiInsets = Insets(insets.left, insets.top, insets.right, insets.bottom)
+            latestInputs = latestInputs.copy(uiInsets = Insets(insets.left, insets.top, insets.right, insets.bottom))
             updateLayoutVariantInputs()
             checkEditorSettled()
 
@@ -270,7 +265,7 @@ class LayoutEditorActivity : AppCompatActivity() {
                         }
                     }
 
-                    latestFolds = folds
+                    latestInputs = latestInputs.copy(folds = folds)
                     updateLayoutVariantInputs()
                     // The folds are only on this display, so the editor on an external display doesn't get them
                     layoutEditorManager.layoutEditorView.setScreenFolds(folds)
@@ -318,35 +313,19 @@ class LayoutEditorActivity : AppCompatActivity() {
     private fun updateLayoutVariantInputs() {
         if (shownEditorDialogs > 0 || isWaitingForEditorToSettle) return
 
-        val uiSize = Point(layoutEditorManager.width, layoutEditorManager.height).takeIf { it.x > 0 && it.y > 0 && it != reportedUiSize }
-        val uiInsets = latestUiInsets?.takeIf { it != reportedUiInsets }
-        val folds = latestFolds?.takeIf { it != reportedFolds }
-        val orientation = getSystemOrientation(resources.configuration).takeIf { it != reportedOrientation }
-        val displays = latestDisplays?.takeIf { it != reportedDisplays }
-        if (uiSize == null && uiInsets == null && folds == null && orientation == null && displays == null) return
+        val uiSize = Point(layoutEditorManager.width, layoutEditorManager.height).takeIf { it.x > 0 && it.y > 0 }
+        val latest = latestInputs.copy(uiSize = uiSize, orientation = getSystemOrientation(resources.configuration))
+        val changed = latest.changedSince(reportedInputs)
+        if (changed == LayoutVariantInputs()) return
 
         // Stored first, so that the changes go to the variant they were made in
         storeLayoutChanges()
-        uiSize?.let {
-            reportedUiSize = it
-            viewModel.setCurrentUiSize(it.x, it.y)
-        }
-        uiInsets?.let {
-            reportedUiInsets = it
-            viewModel.setUiInsets(it)
-        }
-        folds?.let {
-            reportedFolds = it
-            viewModel.setScreenFolds(it)
-        }
-        orientation?.let {
-            reportedOrientation = it
-            viewModel.setCurrentSystemOrientation(it)
-        }
-        displays?.let {
-            reportedDisplays = it
-            viewModel.setConnectedDisplays(it)
-        }
+        reportedInputs = reportedInputs.updatedWith(changed)
+        changed.uiSize?.let { viewModel.setCurrentUiSize(it.x, it.y) }
+        changed.uiInsets?.let { viewModel.setUiInsets(it) }
+        changed.folds?.let { viewModel.setScreenFolds(it) }
+        changed.orientation?.let { viewModel.setCurrentSystemOrientation(it) }
+        changed.displays?.let { viewModel.setConnectedDisplays(it) }
     }
 
     /**
@@ -359,7 +338,7 @@ class LayoutEditorActivity : AppCompatActivity() {
         val insets = ViewCompat.getRootWindowInsets(layoutEditorManager)
         val isKeyboardShown = insets != null && (insets.isVisible(WindowInsetsCompat.Type.ime()) || insets.isVisible(WindowInsetsCompat.Type.navigationBars()))
         val uiSize = Point(layoutEditorManager.width, layoutEditorManager.height)
-        if (uiSize == reportedUiSize || !isKeyboardShown) {
+        if (uiSize == reportedInputs.uiSize || !isKeyboardShown) {
             // Posted so that the views are laid out at their new size first
             layoutEditorManager.removeCallbacks(editorSettledRunnable)
             layoutEditorManager.post(editorSettledRunnable)
@@ -378,7 +357,7 @@ class LayoutEditorActivity : AppCompatActivity() {
         val currentDisplay = ContextCompat.getDisplayOrDefault(this)
         val secondaryDisplay = secondaryDisplaySelector.getSecondaryDisplay(this)
 
-        latestDisplays = deviceLayoutDisplayMapper.mapDisplaysToLayoutDisplays(currentDisplay, secondaryDisplay)
+        latestInputs = latestInputs.copy(displays = deviceLayoutDisplayMapper.mapDisplaysToLayoutDisplays(currentDisplay, secondaryDisplay))
         updateLayoutVariantInputs()
 
         showExternalLayoutEditor(secondaryDisplay)
@@ -448,4 +427,37 @@ class LayoutEditorActivity : AppCompatActivity() {
             picasso.cancelRequest(it)
         }
     }
+}
+
+/**
+ * What the layout editor's shown layout variant is picked for. Null means not known yet, or unchanged in [changedSince]'s result.
+ */
+private data class LayoutVariantInputs(
+    val uiSize: Point? = null,
+    val uiInsets: Insets? = null,
+    val folds: List<ScreenFold>? = null,
+    val orientation: Orientation? = null,
+    val displays: LayoutDisplayPair? = null,
+) {
+    /**
+     * Returns the known inputs that differ from [reported], with the rest null.
+     */
+    fun changedSince(reported: LayoutVariantInputs) = LayoutVariantInputs(
+        uiSize = uiSize?.takeIf { it != reported.uiSize },
+        uiInsets = uiInsets?.takeIf { it != reported.uiInsets },
+        folds = folds?.takeIf { it != reported.folds },
+        orientation = orientation?.takeIf { it != reported.orientation },
+        displays = displays?.takeIf { it != reported.displays },
+    )
+
+    /**
+     * Returns these inputs with the known ones of [changed] put in.
+     */
+    fun updatedWith(changed: LayoutVariantInputs) = LayoutVariantInputs(
+        uiSize = changed.uiSize ?: uiSize,
+        uiInsets = changed.uiInsets ?: uiInsets,
+        folds = changed.folds ?: folds,
+        orientation = changed.orientation ?: orientation,
+        displays = changed.displays ?: displays,
+    )
 }
