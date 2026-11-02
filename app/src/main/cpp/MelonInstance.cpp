@@ -112,7 +112,7 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
 
 MelonInstance::~MelonInstance()
 {
-    // Normally done in stop(). The scripts can't outlive the NDS, which their API (and their __gc metamethods) use
+    // Normally done in stop(), but the scripts can't outlive the NDS, which their API (and their __gc metamethods) use
     luaEngine.stop();
     frameQueue.clear();
     net->UnregisterInstance(instanceId);
@@ -166,7 +166,7 @@ bool MelonInstance::loadRom(std::string romPath, std::string sramPath)
     FileRead(sramData.get(), sramFileLength, 1, sramFile);
     CloseFile(sramFile);
 
-    // The CRC of the whole file identifies the dump. It takes a moment for big ROMs, so it's only worked out for the debug log
+    // The CRC of the whole file identifies the dump, but it takes a moment for big ROMs, so it's only worked out for the debug log
     hasRomCrc32 = DebugLog::isEnabled();
     romCrc32 = hasRomCrc32 ? CRC32(romData.get(), (int) romFileLength) : 0;
 
@@ -334,8 +334,7 @@ void MelonInstance::reset()
 
 u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 {
-    // A width change only needs the existing GL or Compute renderer told. If the renderer is about to be set up again, updateRenderer()
-    // applies it
+    // A width change only needs the existing GL or Compute renderer told, since updateRenderer() applies it to one that's about to be set up again
     int requestedWidth = requestedWideViewWidth.load(std::memory_order_relaxed);
     if (requestedWidth != wideViewWidth)
     {
@@ -357,7 +356,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 
     int screenWidth;
     int screenHeight;
-    // In DS pixels. The bottom screen is always 256 wide, centred under it with black bars beside it when this is wider
+    // In DS pixels, with the 256 wide bottom screen centered under it between black bars when this is wider
     int topScreenWidth = 256;
     if (currentRenderer == Renderer::OpenGl)
     {
@@ -445,13 +444,12 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         // Do nothing. Emulator already renders into the texture, which was set-up above
     }
 
-    // on_frame_end(), which also draws the frame's Lua drawings. Scripts only stop during runLuaFrame() and endFrame(), and endFrame() leaves
-    // their drawings out, so the overlay is empty once none runs
+    // on_frame_end(), which also draws the frame's Lua drawings (endFrame() leaves a stopping script's drawings out, so the overlay is empty once
+    // none runs)
     if (hasLuaFrameRun) [[unlikely]]
         luaEngine.endFrame();
 
-    // Lua drawings, before the fence so that they're presented with this frame. While no script runs, this only clears the frame's old
-    // drawings, if it has any
+    // Lua drawings, before the fence so they're presented with this frame (with no script running this only clears the frame's old drawings)
     const LuaOverlay& luaOverlay = luaEngine.getOverlay();
     if (luaOverlay.hasDrawings() || renderFrame->overlayTexture) [[unlikely]]
     {
@@ -504,7 +502,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         if (needsRewindCapture)
             finishRewindScreenshot(true);
 
-        // A rewind capture doesn't wait for the GPU: its screenshot is copied in a frame or so later. A player's screenshot is waited for
+        // A rewind capture doesn't wait for the GPU (its screenshot is copied in a frame or so later), but a player's screenshot is waited for
         if (needsScreenshot)
             screenshotRenderer->renderScreenshot(&nds->GPU, currentRenderer, renderFrame, screenshotOverlay);
         else
@@ -545,8 +543,8 @@ void MelonInstance::applyRewindSettings()
 
 void MelonInstance::finishRewindScreenshot(bool wait)
 {
-    // No state waits for it if its save failed, and then the screenshot is dropped. Resets and rewinds only happen while the emulator thread
-    // is parked, and it finishes this before it parks
+    // No state waits for it if its save failed, and then the screenshot is dropped (resets and rewinds can't get in the way, since they only happen
+    // while the emulator thread is parked, and it finishes this first)
     RewindSaveState* state = rewindManager.FindRewindSaveState(pendingRewindScreenshotFrame);
     if (screenshotRenderer->finishScreenshotReadback(state ? state->screenshot : nullptr, wait))
         pendingRewindScreenshotFrame = -1;
@@ -556,9 +554,8 @@ void MelonInstance::stop()
 {
     luaEngine.stop();
 
-    // The RetroAchievements manager is kept until the instance is destroyed. Savestates and RetroAchievements calls on other threads use it
-    // under presentationMutex, which the emulator thread doesn't hold here, so freeing it now could free it under them. The instance is
-    // always destroyed right after stopping (it can't be started again), and the manager's teardown doesn't need the emulator thread
+    // The RetroAchievements manager is kept until the instance is destroyed, since other threads use it under presentationMutex, which isn't held
+    // here
     screenshotRenderer->cleanup();
 }
 
@@ -786,7 +783,7 @@ bool MelonInstance::loadStateWithBackup(Savestate* state)
 
 bool MelonInstance::saveLuaState(std::vector<u8>& data)
 {
-    // Like a player's save. The buffer grows as needed, and only the part the state uses is kept
+    // Like a player's save, with a buffer that grows as needed, keeping only the part the state uses
     Savestate state;
     if (state.Error)
         return false;
@@ -804,10 +801,8 @@ bool MelonInstance::saveLuaState(std::vector<u8>& data)
 
 bool MelonInstance::loadLuaState(const std::vector<u8>& data)
 {
-    // Like a player's load: it goes back to the backup if it fails. It runs on the emulator thread between frames, the same place as a
-    // rewind save, so the renderers resync the way they do after any load (the core resets the VRAM caches and restarts the software
-    // renderer's thread in DoSavestate)
-    // Reading never writes to the buffer
+    // Like a player's load, backed up and restored on failure, and run between frames on the emulator thread like a rewind save, so the renderers
+    // resync as after any load (the const_cast is safe: reading never writes to the buffer)
     Savestate state(const_cast<u8*>(data.data()), (u32) data.size(), false);
     if (!loadStateWithBackup(&state))
     {
@@ -908,8 +903,8 @@ void MelonInstance::updateRenderer()
                 break;
             default: __builtin_unreachable();
         }
-        // New() returns nullptr if the GL setup failed, and the core puts a software renderer in its place. Track that, so nothing below
-        // casts it to the renderer that was asked for, and remember it so other settings changes don't run the failing New() again
+        // New() returns nullptr if the GL setup failed and the core puts a software renderer in its place, so track that: nothing below may cast it
+        // to the requested renderer, and other settings changes mustn't run the failing New() again
         if (!renderer && newRenderer != Renderer::Software)
         {
             Platform::Log(Platform::LogLevel::Error, "Failed to create the %s renderer, using the software renderer\n", newRenderer == Renderer::OpenGl ? "OpenGL" : "Compute");
@@ -939,7 +934,7 @@ void MelonInstance::updateRenderer()
         {
             auto glRenderSettings = static_cast<OpenGlRenderSettings&>(*currentConfiguration->renderSettings);
             auto& glRenderer = static_cast<GLRenderer&>(nds->GPU.GetRenderer3D());
-            // Every time, since the renderer may be a new one at 256. Set first so that a new renderer's targets are only sized once
+            // Every time, since the renderer may be a new one at 256, and first so a new renderer's targets are only sized once
             glRenderer.SetViewWidth(wideViewWidth);
             glRenderer.SetRenderSettings(glRenderSettings.betterPolygons, glRenderSettings.scale);
             break;
@@ -966,7 +961,7 @@ void MelonInstance::updateRenderer()
 #endif
     // Runs between frames, so the 2D thread can start or stop right away
     nds->GPU.SetThreaded2D(threaded2d);
-    // Only the OpenGL and compute renderers use it (the core ignores it for software). A change drops the hi-res copies
+    // Only the OpenGL and compute renderers use it (the core ignores it for software), and a change drops the hi-res copies
     nds->GPU.SetHiresCapture(hiresCapture);
 }
 
@@ -1022,16 +1017,16 @@ void MelonInstance::setDateTime()
 
 void MelonInstance::syncDateTimeToDevice()
 {
-    // The RTC is driven by the emulator's scheduler, so it stops while emulation is paused and falls behind the device's time. Only ever move
-    // it forward: some games (like Pokemon) treat the clock going backward as tampering
+    // The RTC stops while emulation is paused and falls behind the device's time, so only ever move it forward: some games (like Pokemon) treat the
+    // clock going backward as tampering
     if (!nds || !currentConfiguration->syncRtcToDevice)
         return;
 
     int year, month, day, hour, minute, second;
     nds->RTC.GetDateTime(year, month, day, hour, minute, second);
 
-    // Compare wall-clock readings (the local time setDateTime() writes) with timegm so that DST plays no part. Otherwise the clock could
-    // still go backward as the game sees it during the DST fall-back hour
+    // Compare wall-clock readings (the local time setDateTime() writes) with timegm so DST plays no part, or the clock could still go backward during
+    // the DST fall-back hour
     std::tm dsTime = {};
     dsTime.tm_year = year - 1900;
     dsTime.tm_mon = month - 1;
@@ -1072,7 +1067,7 @@ bool MelonInstance::runLuaFrame()
         LuaInputOverride inputOverride = luaEngine.runFrame(frame, userInput);
         hasFrameRun = true;
 
-        // A script may have been switched off during the call. If none is left, the player's input is restored below
+        // A script may have been switched off during the call, and if none is left the player's input is restored below
         if (luaEngine.isActive())
         {
             u32 held = (userInput.held & ~inputOverride.release) | inputOverride.press;
@@ -1092,7 +1087,7 @@ bool MelonInstance::runLuaFrame()
         }
     }
 
-    // No script left, so the UI thread applies the input again. Its last changes may have been skipped while the flag was set
+    // No script left, so the UI thread applies the input again (its last changes may have been skipped while the flag was set)
     isLuaInputActive = false;
     nds->SetKeyMask(inputMask.load());
     PackedTouch touch = PackedTouch::unpack(userTouch.load());
