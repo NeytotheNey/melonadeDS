@@ -2,62 +2,88 @@
 
 Read this, then `PLAN-polish.md`. The plan has the per-item file references, the phase order and the verification list per phase. This file says where things stand, what is untested, and what the next session does first.
 
-## Where things stand (2026-11-01)
+## Where things stand (2026-11-02)
 
-- **Branch:** `claude/friendly-heisenberg-3eipz2` in this repo, on top of `material3`. Phases 1, 2 and 3 are applied, one commit per concern (21 for Phase 1, 9 for Phase 2, 8 for Phase 3), each phase followed by a status commit on the plan. The core submodule is untouched by the pass.
-- **Phase 1 (delete and fix):** verified on the Z Fold 8 on 2026-11-01 (commit `4768a989` records what was checked: debug build, 147 JVM tests, `LuaStorageTest`, reset, rewind, fast-forward, a Wide pick, the four button styles, a Lua options save, the licence entries).
-- **Phase 2 (native consolidation):** applied in `8a0a19ac..7ac57ee9`, written without the Android SDK and syntax-checked with host `clang++` only.
-- **Phase 3 (split `LuaEngine.cpp`):** applied in `4cd096a6..90b696be`, same host `clang++` check. It touched no Kotlin.
-- **Phases 2 and 3 verified together** on the Z Fold 8 on 2026-11-01: the whole checklist below passes (`PLAN-polish.md` status has the detail), except that only Low audio latency can be tested, because the setting is hidden and always sends Low. The run found an older bug, a blocked `melon.mem` I/O read raising "invalid option '%0'", fixed in `73105f89`.
-- **Phases 4 to 7:** not started. Phase 4 (Kotlin consolidation) is next.
+- **Branch:** `claude/friendly-heisenberg-3eipz2` in this repo, on top of `material3`. Phases 1, 2 and 3 are applied and verified on the Z Fold 8 (the plan's status has what was checked). The core submodule is untouched by the pass.
+- **Phase 4 (Kotlin consolidation):** applied in part, `f58360d9..812dc29d` (29 commits), written without the Android SDK. Every Kotlin file was type-checked with a standalone `kotlinc` and no Android classpath (recipe below), which caught one real error before it was committed and can prove nothing about code that touches Android types; three read-only reviews traced the rest by hand and found no behaviour change beyond the documented log-output changes. **Not built, not run on the phone.** That is the next session's first job.
+- **Phase 4 remaining:** the UI items that need the app running (listed below), plus the whole Layout editor and Compose rows headings.
+- **Phases 5 to 7:** not started.
 
-## What Phase 2 changed, in the order it should be tested
+## What Phases 2 and 3 changed
 
-| Commit | Change | What can break |
-|---|---|---|
-| `8a0a19ac` | `debug/DebugProperties.{h,cpp}`: one table for the fourteen `debug.melonade.*` switches; the threaded2d/hirescap overrides only exist in debug builds | A switch no longer flipping its target. The summary line moved from the core's tag to `melonade-debug` |
-| `18f19126` | `applyFastForwardPacing()`, `FramePacingState::reset()`, static clock helpers in `MelonDSAndroidJNI.cpp` | Fast-forward on/off, a settings change while fast-forwarding, pacing after a pause |
-| `59347132` | `MonotonicClock.h`; all logcat tags under `melonade-*` in `MelonLog.h`; `LOG_*` macros instead of raw `__android_log_print` | **Logcat filters on `melonDS`, `melonDS-core`, `melonDS-lua` or `OpenGL` match nothing now.** `emu.sh log` and the tester agent were updated |
-| `80423514` | `renderer/FramePacing.cpp` (bodies out of the header); `EMULATOR_TARGET_FPS` in `Configuration.h` | Link errors only |
-| `a757d74d` | `logDebugFrameState()` out of line; `DebugLog.h` forward-declares `NDS` | Compile errors only |
-| `55cb0429` | `MelonDSAudio.cpp` state all static; `enum class AudioLatency` in `Configuration.h`; the achieved-speed meter moved into `AudioDiagnostics` | The audio latency setting (Low/Medium/High must still pick LowLatency/None/PowerSaving); `ff_speed` in the debug log's audio line and perf field 9 |
-| `0d1eccb0` | `sanitizeAscii()`, `formatOptional()`, `PackedTouch` | The `core start: cart title=` line; `n/a` fields in the audio line; touch input, with and without a Lua script running |
-| `1f8afac7` | UPPER_SNAKE renames (`REWIND_BUFFER_SIZE`, `MIN_DRIFT_SECONDS`, `MAX_DATA_LENGTH`, SaveManager's two) | Compile errors only |
-| `7ac57ee9` | Native getters for the perf sample field count, audio totals count and event data size; Kotlin `check()`s them when `MelonEmulator` is first used and in `EmulatorMessageQueue.start()` | A failed check throws `IllegalStateException` at emulator start, which is the point |
+Verified on the phone on 2026-11-01; the per-commit tables that used to be here are in the git history of this file (`git show f98472c2:HANDOFF-polish.md`). Two facts still worth knowing: every logcat tag is `melonade-*` now (`melonDS`, `melonDS-core`, `melonDS-lua` and `OpenGL` match nothing), and the Lua API lives in `LuaEngine.cpp` plus `LuaSandbox.cpp`, `LuaMemoryApi.cpp`, `LuaDrawApi.cpp`, `LuaFolderApi.cpp`, `LuaStateApi.cpp`, `LuaStorageApi.cpp` with the shared types in `LuaEngineInternal.h`.
 
-The tag mapping: `melonDS` → `melonade` (core messages while the debug log is off, and anything general), `melonDS-core` → `melonade-core`, `melonDS-lua` → `melonade-lua` (native and the two Kotlin Lua stores), `OpenGL` → `melonade-gl`, `melonade-cpu` and `melonade-audio` unchanged, and `melonade-debug` now also carries the native debug-only lines (CAPWAIT, REWIND, CPU pinning, the switch summary). The debug log recorder's header lists the tags.
+## What Phase 4 changed, in the order it should be tested
 
-## What Phase 3 changed, in the order it should be tested
+Emulator and layout refactors (`f58360d9..22ca650c`):
 
 | Commit | Change | What can break |
 |---|---|---|
-| `4cd096a6` | `LOG_DEBUGLOG(tag, ...)` in `debug/DebugLog.h`, used for the five debug-log-only lines in the engine | Nothing visible; the lines still only appear while the debug log is on |
-| `fc53a1ab` | `luaSetBoolRequest<&LuaScript::x>` for swap/show_controls/fast_forward; `queueScriptSwitch()`; `LuaScript::clearRequests()` | Screen swap, controls and fast-forward requests from a script; disable/enable/restart from the Mods tab |
-| `9e914df5` | `raiseLimitError()` (ends in `std::abort()` after `luaL_error`, which never returns); `findInFolder()`; `callSavestateHost()` | A script hitting the instruction, work or draw limit must be switched off with the right message; `require` and `melon.image.load` lookups; `melon.state` save and load |
-| `a090716f` | **The split.** `LuaEngine.cpp` keeps lifecycle, callbacks, `setupScript` and the game/input/screen/emu functions. New: `LuaEngineInternal.h` (`LuaScript`, `LuaDrawCommand`, `LuaImage`, `getScript()`, the API structs), `LuaSandbox.cpp`, `LuaMemoryApi.cpp`, `LuaDrawApi.cpp`, `LuaFolderApi.cpp`, `LuaStateApi.cpp`, `LuaStorageApi.cpp`; CMakeLists lists them | Link errors; a missing function in a `melon.*` table (every API table was moved by line range, so compare `melon.mem.arm7`, `draw`, `image`, `state`, `storage` against MODS.md); the image metatable (`img:size()` and `getmetatable(img) == false`) |
-| `9c59d358` | `addDrawCommand()` takes type, screen, geometry and colour | Every `melon.draw` call, text with a background, images with `src`/`scale`/`alpha` |
-| `3da285ca` | `LuaEngine.h` class comment | Nothing |
-| `ac3868da` | `kOptionType*` constants in `LuaScriptingJNI.cpp` | Options of each type (boolean, integer, number, string, layout) reaching `melon.options` |
-| `90b696be` | Test recipe to MODS.md "Testing" | Nothing |
+| `f58360d9`, `6044e486` | `FRAME_TEXTURE_HEIGHT` used directly in `ShaderProgramSource`/`VideoFilterPipeline` | Every video filter (the band constants are built from it) |
+| `16985422` | `VSYNC_PERIOD_RANGE_NS` and `Long.asVsyncPeriodOrZero()` in `ChoreographerFrameRenderer.Companion` | Frame pacing on both Choreographer renderers, 60 Hz lock |
+| `3423ec81` | `EmulatorSession.isHardcoreActive` | Savestate load, cheats and Lua scripts blocked in RA hardcore |
+| `b419ea06` | `EmulatorViewModel.endSession()`; the RA reset event is now emitted after the native stop | Stop, stop-and-exit, reset; RA popups dismissed on stop |
+| `3ae66bb6`, `84b24e7e` | `EmulatorManager.getLuaScript()`; one immutable `LuaScriptsState` in `AndroidEmulatorManager`, read without the lock | Mods tab status, disable/enable/restart a script, a script that errors out, two ROM loads in a row |
+| `47a5e42c` | `getRewindWindow()` on `Dispatchers.IO` | Rewind |
+| `0c295287` | `TouchscreenInputHandler.screenArea()` with a cached fallback `Rect` | Touch before the layout is applied |
+| `aba2d91b`, `f6ad52c4` | `MIN/MAX_WIDE_VIEW_WIDTH` in `NDS.kt`; `consoleAspectRatio` in `ScreensDrawing` | Wide picks, swapped screens' letterbox |
+| `22ca650c` | `LuaLayoutRequests.kt` split out of `LuaUiOverrides.kt` | Nothing visible |
 
-Design notes a reviewer will ask about: the API files are `struct LuaXxxApi { static const luaL_Reg table[]; private: static int fn(lua_State*); }`, and `LuaEngine` befriends the four that read its private state (`nds`, `isDrawingAllowed`, `folderContent`, the savestate fields); `LuaStorageApi` and `LuaSandbox` need no friendship. `setupScript` registers the moved tables with `newLibrary()` (`lua_newtable` + `luaL_setfuncs`) because `luaL_newlib` needs the array's size, which an out-of-line static member doesn't expose. `LuaSandbox::open()` pops each library table instead of the old `lua_settop(L, 1)`, and the image metatable is now made in `LuaFolderApi::install()` before the `melon` table instead of after it; neither is observable from a script.
+Lua stores, settings and domain model (`c6989818..5b55d8ee`, plus `99c6572e`):
 
-## Phone checklist for Phases 2 and 3 (do together)
+| Commit | Change | What can break |
+|---|---|---|
+| `c6989818` | Shared `NAME_ORDER`, `LUA_EXTENSION`/`isLuaScriptName`, `toShortHex()`, `LUA_LOG_TAG`; `REASON_*` built from the `MAX_*` constants | Script folder listing order, the "left out" reasons in the Mods tab |
+| `37733a9e` | `LuaScriptHeader` in `domain/model/emulator`, `LuaScriptHeaderParser` in `impl` | Header parsing (options shown in the Mods tab) |
+| `dea2f99e`, `9cf3914a`, `99c6572e` | `LuaScriptSetup.kt` split into five files; `LuaScriptOptionType(nativeId)` enum, `LuaScriptOptionValue.type` still the `Int` field native reads; ProGuard keeps for `LuaScriptOptionValue` and `LuaScriptDataSnapshot` | **Options of every type reaching `melon.options`, and `melon.storage` data surviving a restart, on a release build** |
+| `0ef14f4f`, `e693e1e9`, `234035b1` | `SettingsBackupFormat.*_FILE` everywhere; one `putValue`; `SettingsBackupManager` bound once | Settings backup and restore, including a layout and a controller config; the 33→34 migration only on an old install |
+| `5b55d8ee` | `PreferenceKeys` KDoc; `PreferenceKeysTest` parses `res/xml/pref_*.xml` and regexes the repository's defaults | The JVM test itself (it reads source as text; if it fails on a reformatted call, fix the regex or cut it to the key half) |
 
-1. Debug and release builds, the JVM tests and `LuaStorageTest`.
-2. A game under OpenGL and compute, and a reset. Touch with and without a Lua script running (PackedTouch).
-3. Fast-forward on and off at a limited speed and unlimited; change a setting from the pause menu while fast-forwarding; pause and resume with frame pacing on.
-4. Each `setprop debug.melonade.*` switch once (debug build): the `melonade-debug` summary line should show it. `cpusemu`/`cpus2d` pin lines are under the same tag.
-5. The audio latency setting at each value: the `audio stream opened` line's `performance=` and `requested_latency=` fields.
-6. One debug log session and one perf log session; compare the summary and the audio line against a pre-Phase-2 run (`ff_speed`, perf field 9, the `n/a` fields).
-7. Phase 3: a script that uses every part of the module once: `melon.mem` reads and writes on both CPUs (including a TCM address on the ARM9), every `melon.draw` call, `require` of a module in a subfolder (and a `require` loop, which must error with the chain), `melon.image.load` and `melon.image.new` drawn with `src`/`scale`/`alpha`, `melon.state` save, `has` and load, `melon.storage` set/get/keys/flush, `melon.screen.swap`, `melon.emu.fast_forward` and `set_layout`, `melon.log` with the debug log on. Then a script that runs a long loop and one that draws over 4096 times: both must be switched off with the limit's message in the app.
-8. Phase 3: options of every type (boolean, integer, number, string, layout) read from `melon.options`; disable, enable and restart with new options from the Mods tab; a reset with a running script.
+Diagnostics (`636e0a87..ba5dbd02`, plus `812dc29d`):
 
-## Phase 4 (next), notes for whoever starts it
+| Commit | Change | What can break |
+|---|---|---|
+| `636e0a87` | `LogDestination`, `getDefaultLogDirectory` and the MIME constants in `LogFolder`; `PerformanceLogger` takes a `LogFolder` | Perf log and debug log files landing in the picked folder, and the fallback when it isn't writable (the warning no longer prints the URI) |
+| `16df7a0f`, `a10cb970` | `PerformanceSummary.kt`, `SessionStatistics.kt`; table-driven summary with a `# Keys` block; `PerfCsv` helpers | The CSVs must be byte-identical to a pre-change run; the summary keeps the same keys in the same order |
+| `563a1596` | `PerformanceLogger.logStateChange` is the one façade, backed by `DebugLog`'s map | State lines (fold, display, pause) appearing once per change in each log, and replayed at session start |
+| `86e8427c`, `812dc29d` | `DiagnosticsInfo.settings/app/device` shared by both logs; `supportsJit()` | The `config` lines and the header of the debug log (see the expected diff below) |
+| `cd182c9f` | `impl/debug` + `impl/perf` → `impl/diagnostics`; `LogFolder` and `ExitReasonReporter` from `MelonModule`; `LogTags` | Hilt graph at startup (a missing binding fails the build, not the run); exit reasons reported at the next start after a crash |
+| `ba5dbd02` | `DurationHistogramTest` | JVM tests only |
 
-- All Kotlin. The plan section lists the work under five headings (diagnostics, emulator UI, layout editor and shared views, Compose rows, settings and package placement) and `docs/polish-findings/kotlin-*.md` have the `path:line` references. Its verification needs the emulator-tester agent on the foldable plus a perf-log and debug-log session each, so unlike Phases 2 and 3 it can't be checked in a container without the SDK; if the SDK is still unavailable, do the diagnostics split and the pure refactors first (they're testable by the JVM tests) and leave the UI items for a session that can run the app.
-- `LuaScriptOptionValue.TYPE_*` → `enum class LuaScriptOptionType(nativeId)` (plan: "Domain/package placement") pairs with Phase 3's `kOptionType*` constants in `LuaScriptingJNI.cpp`: keep the native ids 0..4 as they are.
+Expected output differences when diffing against a pre-Phase-4 run (anything else is a bug):
+
+- Perf summary: a `# Keys` block of `# key: description` lines between `complete:` and `# App`; `# App` gains `app_upstream_version`, `app_installed`, `build_flavor`, `build_debuggable`, and `build_type` moves down two places; `# Device` gains `device_board`, `device_abis`, `device_fingerprint`, `android_security_patch`. Everything from `display_refresh_rate_hz` down is unchanged. CSVs identical.
+- Debug log header: the `app:`/`build:`/`device:`/`abis:`/`android:`/`fingerprint:` prose lines become the same `key: value` lines as the perf summary; `device_soc` is absent below API 31 instead of `soc n/a`; `app_installed` has no `.SSS Z` suffix. `started:`, `pid:`, `command:`, `tags:` identical.
+- Debug log `config` lines: `jit`→`jit_enabled`, `renderer`→`video_renderer`, `resolution_scaling`→`internal_resolution_scaling`, a new `default_console_type`, and the 17 shared settings emitted as one block after `device_64bit` in the perf summary's order. Values unchanged.
+
+## Phone checklist for Phase 4
+
+1. Debug and release builds (the release build matters this time: the ProGuard keeps), the JVM tests (expect 147 + 4 histogram + 2 `PreferenceKeysTest`, and `LuaScriptHeaderParserTest` replaces `LuaScriptHeaderTest`), `LuaStorageTest`.
+2. A game under OpenGL and compute with a non-default filter; a Wide pick; swapped screens; touch before and after the layout settles.
+3. Frame pacing on both renderers, 60 Hz lock on and off; rewind; reset; stop and stop-and-exit with an RA popup open (it must dismiss).
+4. Mods tab: a folder with subfolders, a script that fails to load, disable/enable/restart, options of every type read from `melon.options`, `melon.storage` data surviving a restart, and the same on the release build. Load a second ROM after the first without leaving the app.
+5. Settings backup, then restore on top (layouts, controller config, ROM data); RA hardcore blocks savestate load, cheats and scripts.
+6. One perf log session and one debug log session with the log folder picked, and one each with no folder picked; diff against a pre-Phase-4 run using the list above. Fold and unfold during the session for the state lines.
+7. Kill the app from the recents screen with the debug log on, start it again: the exit reason line appears.
+
+## Phase 4 remaining, notes for whoever continues
+
+- Needs the app running to verify, so do it in a session with the SDK: the Lua scripts dialog as Compose (`EmulatorActivity.kt` `showLuaScriptsDialog`), `EmulatorScreenSettings` + `applyScreenSettings()`, `RuntimeLayoutView.applyScreenAreasTo(renderer)` replacing the Activity/`ExternalPresentation` pair, `SCREEN_UNIFORMS` and one `screenBandFunctions(sampler)` in `ShaderProgramSource.kt`, `LuaUiSetting` into `ui/emulator/model` (add the import to `EmulatorActivity.kt`), `LuaSessionController`, `ControllerStyle.DEFAULT`/`toPreferenceValue()` with the entries built from the enum, `RomModsUiModel`, and the whole Layout editor and Compose rows headings of the plan.
+- `getPlayerLayoutPicks` stays public and top-level in `LuaLayoutRequests.kt` because `LuaUiOverridesTest` calls it; move it into the VM only together with the test.
+- `docs/polish-findings/*.md` still cite `impl/perf`, `impl/debug`, `impl/LuaScriptHeader.kt` and `LuaScriptOptionValue.TYPE_*`; they are the record of the review and go with the plan in Phase 7.
 - Don't touch `app/src/main/cpp/lua/` (vendored) or the submodules.
+
+## Type-checking Kotlin without the SDK
+
+`dl.google.com` is blocked from the cloud container, so no SDK; Maven Central is reachable (rate-limited, retry) and has the compiler. Fetch `kotlin-compiler-embeddable`, `kotlin-stdlib`, `kotlin-script-runtime`, `kotlin-reflect`, `kotlin-daemon-embeddable` (all at the version in `gradle/libs.versions.toml`), `org.jetbrains.intellij.deps:trove4j:1.0.20200330`, `org.jetbrains:annotations:13.0` and `kotlinx-coroutines-core-jvm` from `https://repo.maven.apache.org/maven2/`, then:
+
+```bash
+find app/src/main/java app/src/test/java -name '*.kt' > files.txt
+java -Xmx6g -cp '<all the jars>' org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -no-reflect \
+  -cp kotlin-stdlib.jar:kotlinx-coroutines-core-jvm.jar -jvm-target 17 -d /tmp/classes @files.txt > out.txt 2>&1
+```
+
+It reports about 18,000 errors, nearly all unresolved Android, Compose, Hilt and AndroidX references. Run it once on the unchanged tree, once after the change, normalise (`sed -E 's#^.*/([A-Za-z0-9_]+\.kt):[0-9]+:[0-9]+:#\1:#'`, sort, uniq) and `comm -13` the two: new lines that aren't `unresolved reference` to an Android name are real (a `'val' cannot be reassigned` from a shadowed parameter was caught this way). It takes about 40 s. Inference failures that cascade from an unresolved Android type also show up as new lines in new files, so read the list rather than counting it.
 
 ## Syntax-checking native code without the SDK
 
