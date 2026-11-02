@@ -12,7 +12,7 @@ Compute reused the GL compositor, which draws the wings and the wing hold. Softw
 
 - `GPU3D_Soft`: fixed 258×194 static buffers (`.h:463-481`), span clamps `xlimit > 256` (`.cpp:860-913`, `1109-1298`), `x < 256` loops in edge marking, fog and AA (`:1465-1578`), border column at `x+257` and a rear-plane `u8` X that wraps at 256 (`:1643-1700`). Edges come from the 9-bit `FinalPosition[0]` (`& 0x1FF`, `GPU3D.cpp:1148`); the wide X only goes into `HiresPosition` today, so it needs a 10+ bit wide X. It also needs `SetViewWidth`/`GetViewWidth`/`GetOutputWidth` overrides.
 - The 3D line handoff: `GPU3D::GetLine`'s 256-wide `ScrolledLine` and `Line3DBuffer[256]` (`GPU2D.h:171`). The per-scanline semaphore for threaded 3D doesn't change.
-- Capture must stay centre 256: `DoCapture` reads `_3DLine` (`GPU2D_Soft.cpp:421-469`), so pass it `_3DLine + (W-256)/2`.
+- Capture must stay center 256: `DoCapture` reads `_3DLine` (`GPU2D_Soft.cpp:421-469`), so pass it `_3DLine + (W-256)/2`.
 - Other users of the framebuffers that would need the W stride: `fbsize`, `LogHash2D`, the Lua overlay CPU blend, `ScreenshotRenderer`.
 - App: the frame upload and `topScreenWidth` in `MelonInstance.cpp`, and the "Software → 256" rule in the Kotlin gating (`WidescreenLaunch`, `EmulatorViewModel`, `RomModsUi`).
 - The wing hold only exists in the GL compositor. It would need a CPU port, or go without it (Phantom Hourglass and Mario Kart DS would flicker).
