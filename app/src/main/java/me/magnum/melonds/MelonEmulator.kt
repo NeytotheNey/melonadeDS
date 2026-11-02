@@ -19,8 +19,7 @@ import me.magnum.melonds.ui.emulator.rewind.model.RewindWindow
 import java.nio.ByteBuffer
 
 object MelonEmulator {
-    // The perf frame sample layout and the flags must match PERF_FRAME_* and PERF_STATE_FLAG_* in MelonDSAndroidJNI.cpp. The field count is
-    // checked below
+    // The perf frame sample layout and the flags must match PERF_FRAME_* and PERF_STATE_FLAG_* in MelonDSAndroidJNI.cpp (checked in init)
     const val PERF_FRAME_SAMPLE_FIELDS = 10
     const val PERF_FRAME_FLAG_FAST_FORWARD = 1L
     const val PERF_FRAME_FLAG_AFTER_PAUSE = 2L
@@ -32,7 +31,7 @@ object MelonEmulator {
     const val PERF_STATE_FLAG_PAUSED = 1
     const val PERF_STATE_FLAG_DS_SLEEP = 2
     const val PERF_STATE_FLAG_FAST_FORWARD = 4
-    // The layout of getAudioDiagnosticsTotals() must match AudioDiagnostics::Total in AudioDiagnostics.h. The count is checked below
+    // The layout of getAudioDiagnosticsTotals() must match AudioDiagnostics::Total in AudioDiagnostics.h (checked in init)
     const val AUDIO_TOTAL_CALLBACKS = 0
     const val AUDIO_TOTAL_CALLBACK_FRAMES = 1
     const val AUDIO_TOTAL_UNDERRUN_CALLBACKS = 2
@@ -118,38 +117,33 @@ object MelonEmulator {
     external fun getRuntimeAchievements(): Array<RASimpleRuntimeAchievement>
 
     /**
-     * Gives the emulator the game's Lua scripts, plus the [modules] they can `require` and the [images] they can load from the script folder,
-     * shared by every script for the session. Must be called after [setupEmulator] and before [startEmulation]. The scripts are loaded once
-     * the game starts. [areStateLoadsAllowed] is false when savestates can't be loaded (RetroAchievements hardcore), which `melon.state.load()`
-     * checks too.
+     * Gives the emulator the game's Lua scripts with the [modules] and [images] they share; call after [setupEmulator] and before
+     * [startEmulation].
      */
     external fun setupLuaScripts(scripts: Array<LuaScriptSetup>, modules: Array<LuaScriptModule>, images: Array<LuaScriptImage>, areStateLoadsAllowed: Boolean)
 
     /**
-     * Switches off the script at [scriptId] (its position in the list given to [setupLuaScripts]). Applied before the next frame runs
+     * Switches off the script at [scriptId] (its position in the list given to [setupLuaScripts]) before the next frame runs.
      */
     external fun disableLuaScript(scriptId: Int)
 
     /**
-     * Switches a stopped script back on, loading it again and calling its on_load(). If that fails, a stop event is sent like for any error.
-     * Applied before the next frame runs, in order with [disableLuaScript]
+     * Switches a stopped script back on before the next frame, loading it again and calling its on_load().
      */
     external fun enableLuaScript(scriptId: Int)
 
     /**
-     * Restarts the script at [scriptId] with new [options] (`on_unload()` if it runs, then a fresh load and `on_load()`), or starts it if it
-     * was off. Its storage is kept. Applied before the next frame runs, in order with [disableLuaScript] and [enableLuaScript]
+     * Restarts (or starts) the script at [scriptId] with new [options] before the next frame, keeping its storage.
      */
     external fun restartLuaScript(scriptId: Int, options: Array<LuaScriptOptionValue>)
 
     /**
-     * Takes the scripts' storage snapshots that are waiting to be saved. They're kept outside the emulator, so this also works after
-     * [stopEmulation]. Can return null if the JVM ran out of memory
+     * Takes the scripts' storage snapshots that are waiting to be saved, also after [stopEmulation].
      */
     external fun drainLuaData(): Array<LuaScriptDataSnapshot>?
 
     /**
-     * Controller sticks for Lua scripts, from -1 to 1 (down and right are positive). Only needed while a script runs.
+     * Controller sticks for Lua scripts, from -1 to 1 (down and right are positive).
      */
     external fun updateLuaSticks(leftX: Float, leftY: Float, rightX: Float, rightY: Float)
 
@@ -176,33 +170,31 @@ object MelonEmulator {
 	external fun startEmulation()
 
     /**
-     * Presents the frame for the vsync at [vsyncTimeNs] (CLOCK_MONOTONIC). When frame pacing is locked, frames are kept until the vsync they are
-     * due on. If [deadlineNs] is above 0, waits until then for a due frame before repeating the previous one.
+     * Presents the frame for the vsync at [vsyncTimeNs] (CLOCK_MONOTONIC), waiting until [deadlineNs] (if above 0) for a due frame before
+     * repeating the previous one.
      */
     external fun presentFrame(deadlineNs: Long, vsyncTimeNs: Long, frameRenderCallback: FrameRenderCallback)
 
     /**
-     * Publishes a display vsync timestamp (CLOCK_MONOTONIC, such as Choreographer's frame time) to the emulator, which uses it to lock frame
-     * pacing to the display. Must be called from the vsync callback, always on the same thread.
+     * Publishes a display vsync timestamp (CLOCK_MONOTONIC) for frame pacing to lock to; call it from the vsync callback, always on the same
+     * thread.
      */
     external fun onDisplayVsync(vsyncTimeNs: Long)
 
 	external fun getFPS(): Float
 
     /**
-     * Enables or disables per-frame performance capture on the emulator thread. Enabling it discards any pending samples. Must be called from the
-     * same thread (or serialized context) that calls [drainPerformanceFrameSamples].
+     * Enables or disables per-frame performance capture; call it from the same thread that calls [drainPerformanceFrameSamples].
      */
     external fun setPerformanceCaptureEnabled(enabled: Boolean)
 
     /**
-     * Turns the native side of the debug log on or off: core messages under the melonade-core tag (with repeats collapsed), the once per second
-     * CPU heartbeat and the exception checks. Off by default, in which case they cost one flag check.
+     * Turns the native side of the debug log on or off: core messages under the melonade-core tag, the CPU heartbeat and the exception checks.
      */
     external fun setDebugLogEnabled(enabled: Boolean)
 
     /**
-     * Copies pending frame samples into [buffer] and returns the number of samples copied. Each sample takes [PERF_FRAME_SAMPLE_FIELDS] entries:
+     * Copies pending frame samples into [buffer] and returns how many, each [PERF_FRAME_SAMPLE_FIELDS] entries in this order:
      * frame end timestamp (ns, CLOCK_MONOTONIC), work duration (ns), sleep duration (ns), interval since the previous frame end (ns), emulated line
      * count, flags ([PERF_FRAME_FLAG_FAST_FORWARD], [PERF_FRAME_FLAG_AFTER_PAUSE], [PERF_FRAME_FLAG_PACING_LOCKED], the refresh divisor at
      * [PERF_FRAME_PACING_DIVISOR_SHIFT] and [PERF_FRAME_FLAG_AUDIO_BUFFER_FULL]), the audio buffer fill after the frame's sleep (frames), the
@@ -222,9 +214,8 @@ object MelonEmulator {
     private external fun getAudioDiagnosticsTotalCount(): Int
 
     /**
-     * Fills [totals] ([AUDIO_TOTAL_COUNT] entries, see AUDIO_TOTAL_*) with the audio output counters. They're only counted while the debug log
-     * or a performance capture is on, and add up over the whole process, apart from the maxima, which restart with each capture. The xrun count
-     * is -1 if no stream could report it.
+     * Fills [totals] ([AUDIO_TOTAL_COUNT] entries, see AUDIO_TOTAL_*) with the audio output counters, counted only while the debug log or a
+     * performance capture is on.
      */
     external fun getAudioDiagnosticsTotals(totals: LongArray)
 
@@ -234,15 +225,12 @@ object MelonEmulator {
     external fun getAudioStreamInfo(): String?
 
     /**
-     * Takes the audio stream events (opens, open failures, errors) recorded since the performance capture started, up to the size of the
-     * arrays. Fills [timestamps] (ns, CLOCK_MONOTONIC), [names] and [details], and returns how many there were.
+     * Takes the audio stream events recorded since the performance capture started into [timestamps], [names] and [details], returning how many.
      */
     external fun drainAudioStreamEvents(timestamps: LongArray, names: Array<String?>, details: Array<String?>): Int
 
     /**
-     * Current emulation state as [PERF_STATE_FLAG_PAUSED], [PERF_STATE_FLAG_DS_SLEEP] and [PERF_STATE_FLAG_FAST_FORWARD] flags. Used by the
-     * performance logger to tell periods where no new frames are expected (emulator paused, DS lid closed) apart from real stalls, and to leave
-     * fast-forward out of the frame pacing stats.
+     * Current emulation state as [PERF_STATE_FLAG_PAUSED], [PERF_STATE_FLAG_DS_SLEEP] and [PERF_STATE_FLAG_FAST_FORWARD] flags.
      */
     external fun getPerformanceEmulationStateFlags(): Int
 
@@ -297,8 +285,7 @@ object MelonEmulator {
     external fun updateMotionData(ax: Float, ay: Float, az: Float, rx: Float, ry: Float, rz: Float)
 
     /**
-     * A new width for the top screen's 3D view during play (like EmulatorConfiguration.wideViewWidth, 0 for the normal width). Applied before
-     * the next frame. Only the OpenGL and Compute renderers use it
+     * Sets the top screen's 3D view width before the next frame (like EmulatorConfiguration.wideViewWidth, 0 for the normal width).
      */
     external fun setWideViewWidth(width: Int)
 }
