@@ -42,6 +42,24 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
                 cells[y * width + x] = value
             }
         }
+
+        /**
+         * Calls [action] with every cell's position, row by row.
+         */
+        inline fun forEachCell(action: (x: Int, y: Int) -> Unit) {
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    action(x, y)
+                }
+            }
+        }
+
+        /**
+         * Sets every cell to what [value] gives for its position, row by row.
+         */
+        inline fun fill(value: (x: Int, y: Int) -> Boolean) {
+            forEachCell { x, y -> this[x, y] = value(x, y) }
+        }
     }
 
     /**
@@ -143,11 +161,9 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         // The centre's cells in view pixels, grown by one cell all round
         val centre = grids[centreIndex]
         val keepOut = RectF()
-        for (y in 0 until centre.mask.height) {
-            for (x in 0 until centre.mask.width) {
-                if (centre.mask[x, y]) {
-                    keepOut.union(centre.originX + x * cellSize, centre.originY + y * cellSize, centre.originX + (x + 1) * cellSize, centre.originY + (y + 1) * cellSize)
-                }
+        centre.mask.forEachCell { x, y ->
+            if (centre.mask[x, y]) {
+                keepOut.union(centre.originX + x * cellSize, centre.originY + y * cellSize, centre.originX + (x + 1) * cellSize, centre.originY + (y + 1) * cellSize)
             }
         }
         if (keepOut.isEmpty) return
@@ -156,13 +172,11 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         for (i in parts.indices) {
             if (i == centreIndex || !parts[i].isDpad) continue
             val arm = grids[i]
-            for (y in 0 until arm.mask.height) {
-                for (x in 0 until arm.mask.width) {
-                    val left = arm.originX + x * cellSize
-                    val top = arm.originY + y * cellSize
-                    if (keepOut.intersects(left, top, left + cellSize, top + cellSize)) {
-                        arm.mask[x, y] = false
-                    }
+            arm.mask.forEachCell { x, y ->
+                val left = arm.originX + x * cellSize
+                val top = arm.originY + y * cellSize
+                if (keepOut.intersects(left, top, left + cellSize, top + cellSize)) {
+                    arm.mask[x, y] = false
                 }
             }
         }
@@ -171,17 +185,9 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     private fun interiorOf(mask: Mask): Interior {
         val perCell = art.detailPerCell
         val cells = Mask(mask.width, mask.height)
-        for (y in 0 until mask.height) {
-            for (x in 0 until mask.width) {
-                cells[x, y] = mask[x, y] && mask[x - 1, y] && mask[x + 1, y] && mask[x, y - 1] && mask[x, y + 1]
-            }
-        }
+        cells.fill { x, y -> mask[x, y] && mask[x - 1, y] && mask[x + 1, y] && mask[x, y - 1] && mask[x, y + 1] }
         val detail = Mask(mask.width * perCell, mask.height * perCell)
-        for (y in 0 until detail.height) {
-            for (x in 0 until detail.width) {
-                detail[x, y] = cells[x / perCell, y / perCell]
-            }
-        }
+        detail.fill { x, y -> cells[x / perCell, y / perCell] }
         return Interior(cells, detail)
     }
 
@@ -299,12 +305,10 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
                     icon.alpha = alpha
                 }
             }
-            for (y in 0 until raster.height) {
-                for (x in 0 until raster.width) {
-                    if (raster[x, y]) {
-                        ink[x, y] = true
-                        inkShadow[x + 1, y + 1] = true
-                    }
+            raster.forEachCell { x, y ->
+                if (raster[x, y]) {
+                    ink[x, y] = true
+                    inkShadow[x + 1, y + 1] = true
                 }
             }
         }
@@ -434,11 +438,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         val alphas = ByteArray(bitmap.rowBytes * height)
         bitmap.copyPixelsToBuffer(ByteBuffer.wrap(alphas))
         val mask = Mask(width, height)
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                mask[x, y] = (alphas[y * bitmap.rowBytes + x].toInt() and 0xFF) >= 128
-            }
-        }
+        mask.fill { x, y -> (alphas[y * bitmap.rowBytes + x].toInt() and 0xFF) >= 128 }
         bitmap.recycle()
         return mask
     }
