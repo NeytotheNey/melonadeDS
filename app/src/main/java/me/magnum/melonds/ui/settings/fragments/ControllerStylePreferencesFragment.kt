@@ -124,7 +124,7 @@ val ControllerStyle.displayNameRes: Int
         ControllerStyle.CLASSIC -> R.string.controller_style_classic
         ControllerStyle.DS_LITE -> R.string.controller_style_ds_lite
         ControllerStyle.CHARCOAL -> R.string.controller_style_charcoal
-        ControllerStyle.SUPER_COLOURS -> R.string.controller_style_super_colours
+        ControllerStyle.SUPER_COLOURS -> R.string.controller_style_super_colors
         ControllerStyle.INDIGO -> R.string.controller_style_indigo
         ControllerStyle.OUTLINE -> R.string.controller_style_outline
         ControllerStyle.SOFT_TINT -> R.string.controller_style_soft_tint
