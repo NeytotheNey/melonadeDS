@@ -9,22 +9,19 @@
 #include "MonotonicClock.h"
 
 /**
- * Opt-in audio output diagnostics, on while the debug log or a performance capture is. While they're off, the output callback only pays for the
- * [isEnabled] check. While they're on, it reads the monotonic clock and updates a few relaxed atomics: no locks, no allocation, no logging.
- *
- * The buffer between the emulator and the callback is the core's SPU output ring (SPU::OutputBuffer). The emulator thread writes it while it runs
- * a frame, the callback reads it (both under the SPU's own lock). The fill levels logged here are sampled on the emulator thread. The callback
- * reads the fill too, for its drift control, and only hands over what that control made of it (the skew and the filtered fill).
+ * Opt-in audio output diagnostics, on while the debug log or a performance capture is: while off the output callback only pays for the [isEnabled]
+ * check, and while on it only reads the clock and touches relaxed atomics (no locks, allocation or logging). The fills logged here are of the core's
+ * SPU output ring, sampled on the emulator thread.
  */
 namespace AudioDiagnostics
 {
 
-// SPU::InitOutput at the 48 kHz output rate (EmulatorArgsBuilder) gives a 2048 frame ring. It holds one frame less than that when full, and the
-// oldest samples are dropped from then on
+// SPU::InitOutput at the 48 kHz output rate (EmulatorArgsBuilder) gives a 2048 frame ring, which holds one frame less than that when full and drops
+// the oldest samples from then on
 constexpr int SPU_OUTPUT_SAMPLE_RATE = 48000;
 constexpr int SPU_OUTPUT_BUFFER_FRAMES = 2048;
 
-// Layout of getTotals(). Must match MelonEmulator.AUDIO_TOTAL_* (the count is checked at startup)
+// Layout of getTotals(); must match MelonEmulator.AUDIO_TOTAL_* (the count is checked at startup)
 enum Total
 {
     TOTAL_CALLBACKS = 0,
@@ -41,13 +38,12 @@ enum Total
     // The part of TOTAL_UNDERRUN_CALLBACKS and TOTAL_SILENCE_FRAMES that happened while fast-forwarding
     TOTAL_FAST_FORWARD_UNDERRUN_CALLBACKS,
     TOTAL_FAST_FORWARD_SILENCE_FRAMES,
-    // The output stream's AAudio buffer size now and when the stream opened, in frames. The last stream's if none is open, -1 if there never was
-    // one
+    // The output stream's AAudio buffer size now and when the stream opened, in frames: the last stream's if none is open, -1 if there never was one
     TOTAL_BUFFER_SIZE,
     TOTAL_BUFFER_SIZE_AT_OPEN,
     // How many times a stream's buffer grew after an xrun
     TOTAL_BUFFER_GROWS,
-    // Frames of silence the callback played while priming (waiting for the ring to fill after a start or after it ran dry). Not underruns
+    // Frames of silence the callback played while priming (waiting for the ring to fill after a start or after it ran dry), which aren't underruns
     TOTAL_PRIME_WAIT_FRAMES,
     // How many times the ring ran dry, so the callback primed again
     TOTAL_REPRIMES,
@@ -106,7 +102,7 @@ struct DriftState
 {
     // How far the skew is from its base, in parts per million
     std::atomic<int32_t> skewPpm { 0 };
-    // The low-pass filtered ring fill the control steers by, in frames. -1 while it isn't steering (muted or unlimited fast-forward)
+    // The low-pass filtered ring fill the control steers by, in frames, or -1 while it isn't steering (muted or unlimited fast-forward)
     std::atomic<int32_t> filteredFill { -1 };
 };
 
@@ -130,7 +126,7 @@ inline void storeMax(std::atomic<int64_t>& target, int64_t value)
 }
 
 /**
- * Output callback, on entry. Only call while [isEnabled].
+ * Output callback, on entry; only call while [isEnabled].
  */
 inline void onCallback(CallbackClock& clock, int32_t numFrames)
 {
@@ -153,8 +149,8 @@ inline void onCallback(CallbackClock& clock, int32_t numFrames)
 }
 
 /**
- * Output callback: the emulator had fewer than [numFrames] frames ready, so [missingFrames] were filled with silence or a repeated sample. Only
- * call while [isEnabled].
+ * Output callback: the emulator had fewer than [numFrames] frames ready, so [missingFrames] were filled with silence or a repeated sample; only call
+ * while [isEnabled].
  */
 inline void onUnderrun(int32_t missingFrames, bool isFastForward)
 {
@@ -168,7 +164,7 @@ inline void onUnderrun(int32_t missingFrames, bool isFastForward)
 }
 
 /**
- * Output callback, after it set the skew. [adjustment] is the skew's relative distance from its base. Only call while [isEnabled].
+ * Output callback, after it set the skew ([adjustment] is the skew's relative distance from its base); only call while [isEnabled].
  */
 inline void onDriftUpdate(double adjustment, int filteredFill)
 {
@@ -177,13 +173,13 @@ inline void onDriftUpdate(double adjustment, int filteredFill)
 }
 
 /**
- * Output callback: it grew the stream's buffer from [oldSize] to [newSize] frames after the xrun count reached [xruns]. Lock-free. The change is
- * logged later by the emulator thread (debug log) and the perf logger (stream events).
+ * Output callback, lock-free: it grew the stream's buffer from [oldSize] to [newSize] frames after the xrun count reached [xruns], for the emulator
+ * thread and the perf logger to log later.
  */
 void onBufferSizeChanged(int32_t oldSize, int32_t newSize, int32_t xruns);
 
 /**
- * Output callback: it played [numFrames] of silence while priming. Called whether or not the diagnostics are on.
+ * Output callback: it played [numFrames] of silence while priming, counted whether or not the diagnostics are on.
  */
 inline void onPrimeWait(int32_t numFrames)
 {
@@ -191,7 +187,7 @@ inline void onPrimeWait(int32_t numFrames)
 }
 
 /**
- * Output callback: the ring ran dry, so it primes again. Called whether or not the diagnostics are on.
+ * Output callback: the ring ran dry, so it primes again, counted whether or not the diagnostics are on.
  */
 inline void onReprime()
 {
@@ -199,7 +195,7 @@ inline void onReprime()
 }
 
 /**
- * Output callback: priming ended with the ring over the target, so it dropped [droppedFrames]. Called whether or not the diagnostics are on.
+ * Output callback: priming ended with the ring over the target, so it dropped [droppedFrames], counted whether or not the diagnostics are on.
  */
 inline void onPrimeTrim(int droppedFrames)
 {
@@ -208,11 +204,11 @@ inline void onPrimeTrim(int droppedFrames)
 }
 
 /**
- * A new emulation session set its audio up (MelonDSAndroid::setupAudio()). The TOTAL_SESSION_* counts start from here.
+ * A new emulation session set its audio up (MelonDSAndroid::setupAudio()), which starts the TOTAL_SESSION_* counts.
  */
 void onAudioSessionStart();
 
-// Stream lifecycle. Called with audioOutputMutex held (MelonDSAudio.cpp), except onStreamError, which runs on Oboe's error thread
+// Stream lifecycle, called with audioOutputMutex held (MelonDSAudio.cpp) except onStreamError, which runs on Oboe's error thread
 
 /**
  * [bufferSizeLimit] is the largest size the buffer may grow to, [isBufferTuned] whether it grows on xruns (low latency streams).
@@ -220,7 +216,7 @@ void onAudioSessionStart();
 void onStreamOpened(oboe::AudioStream& stream, MelonDSAndroid::AudioLatency requestedLatency, const char* reason, int32_t bufferSizeLimit, bool isBufferTuned);
 void onStreamOpenFailed(oboe::Result result, MelonDSAndroid::AudioLatency requestedLatency, const char* reason);
 void onStreamClosing(oboe::AudioStream& stream);
-// Before requestStart(). Callbacks still running from before a pause then can't bridge the pause
+// Before requestStart(), so callbacks still running from before a pause can't bridge the pause
 void onStreamStarting();
 // After requestStart() succeeded
 void onStreamStarted();
@@ -232,8 +228,8 @@ void onStreamError(oboe::Result result);
 void onXRunCount(oboe::AudioStream& stream);
 
 /**
- * Emulator thread, once per frame while [isEnabled]. [fillAfterFrame] is the SPU ring's fill level (in frames) right after the frame ran, the
- * high point. [fillBeforeNextFrame] is the one after the frame's sleep, the low point.
+ * Emulator thread, once per frame while [isEnabled]: [fillAfterFrame] is the SPU ring's fill in frames right after the frame ran (the high point),
+ * [fillBeforeNextFrame] the one after the frame's sleep (the low point).
  */
 struct FrameSample
 {
@@ -245,40 +241,38 @@ struct FrameSample
     bool isBufferFull = false;
     // The output skew's distance from its base (AudioDiagnostics::DriftState::skewPpm)
     int64_t skewPpm = 0;
-    // The speed paced fast-forward really reached (getAchievedSpeed()), in thousandths. -1 if unknown or not fast-forwarding
+    // The speed paced fast-forward really reached (getAchievedSpeed()) in thousandths, or -1 if unknown or not fast-forwarding
     int64_t achievedSpeedMilli = -1;
 };
 
 FrameSample onFrame(int fillAfterFrame, int fillBeforeNextFrame);
 
 /**
- * Emulator thread, after each frame's sleep. Measures the speed paced fast-forward really reaches from the frames' wall time [intervalMs].
- * [isPacedFastForward] is whether fast-forward is on with a speed limit, [requestedSpeed] that limit.
+ * Emulator thread, after each frame's sleep: measures the speed paced fast-forward really reaches from the frames' wall time [intervalMs], with
+ * [requestedSpeed] the limit when [isPacedFastForward].
  */
 void onEmulatorFrameEnd(double intervalMs, bool isPacedFastForward, float requestedSpeed);
-// Emulator thread, when it parks for a pause. The achieved speed starts over
+// Emulator thread, when it parks for a pause, which starts the achieved speed over
 void onEmulatorPaused();
 /**
- * Lock-free. The speed paced fast-forward really reaches (1 is normal speed), smoothed over about 0.35 s, or 0 if it isn't known yet for the
- * current fast-forward state. Only logged: the audio plays at the requested speed.
+ * Lock-free: the speed paced fast-forward really reaches (1 is normal speed), smoothed over about 0.35 s, or 0 if it isn't known yet for the current
+ * fast-forward state.
  */
 float getAchievedSpeed();
 
 /**
- * Emulator thread, from the debug log's heartbeat. Logs this second's audio line: callback count, frames and timing, underruns and silence
- * frames, xruns, the ring's fill (min and avg of the low points, max of the high points) with the frames that ended with it full, the drift
- * control's skew and filtered fill, fast-forward's achieved speed, and the stream's buffer size. Also logs the buffer size changes since the last line.
+ * Emulator thread, from the debug log's heartbeat: logs this second's audio line and the buffer size changes since the last one.
  */
 void logSecond(uint32_t frame);
 
 /**
- * Emulator thread (or while it's parked). Starts the per-second stats from scratch and logs the current stream's facts.
+ * Emulator thread (or while it's parked): starts the per-second stats from scratch and logs the current stream's facts.
  */
 void resetForDebugLog();
 // resetForDebugLog() runs on recording start and on game start, so the stream's facts are only logged if they weren't since the stream opened
 
 /**
- * Fills [totals] (TOTAL_COUNT entries). Cumulative since the process started, apart from the maxima.
+ * Fills [totals] (TOTAL_COUNT entries), cumulative since the process started apart from the maxima.
  */
 void getTotals(int64_t* totals);
 
@@ -299,8 +293,8 @@ struct StreamEvent
 };
 
 /**
- * Takes up to [maxEvents] of the stream events (opens, failures, errors) recorded while a performance capture was on, oldest first. Returns how
- * many were copied into [events]. Events beyond MAX_PENDING_EVENTS are dropped.
+ * Takes up to [maxEvents] of the stream events (opens, failures, errors) recorded while a performance capture was on, oldest first, and returns how
+ * many were copied into [events] (at most MAX_PENDING_EVENTS are kept).
  */
 std::size_t takeEvents(StreamEvent* events, std::size_t maxEvents);
 

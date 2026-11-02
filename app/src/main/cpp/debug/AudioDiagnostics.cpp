@@ -19,8 +19,8 @@ CallbackCounters counters;
 DriftState driftState;
 std::atomic<uint32_t> callbackClockGeneration = 0;
 
-// Guards everything below that isn't atomic, apart from the emulator thread's stats. Never taken in the output callback. When it's taken
-// together with audioOutputMutex, audioOutputMutex is always taken first
+// Guards everything below that isn't atomic, apart from the emulator thread's stats; never taken in the output callback, and always taken after
+// audioOutputMutex when both are held
 static std::mutex stateMutex;
 static bool isDebugLogOn = false;
 static bool isPerfCaptureOn = false;
@@ -88,16 +88,15 @@ struct SecondStats
 static SecondStats second;
 static int64_t frameSilenceBaseline = 0;
 
-// The speed paced fast-forward really reaches, smoothed, in thousandths (low 32 bits), with the audio rate generation it was measured under
-// (high 32 bits). Only the emulator thread writes it. A speed of 0 means unknown
+// The speed paced fast-forward really reaches, smoothed, in thousandths (low 32 bits, 0 means unknown), with the audio rate generation it was
+// measured under (high 32 bits); only the emulator thread writes it
 static std::atomic<uint64_t> achievedSpeed = 0;
-// Time constant of the achieved speed's smoothing. Short enough to follow a slow scene within a fraction of a second, long enough not to wobble
-// with the frame-to-frame pacing
+// Time constant of the achieved speed's smoothing, short enough to follow a slow scene and long enough not to wobble with the frame-to-frame pacing
 static constexpr double ACHIEVED_SPEED_SECONDS = 0.35;
 // The speed is only published once it covers this much wall time
 static constexpr double ACHIEVED_SPEED_MIN_SECONDS = 0.1;
-// Emulator thread only. Emulated frames and wall time, each decayed with ACHIEVED_SPEED_SECONDS, so their ratio is the frame rate over about
-// that long. Measured over wall time rather than per frame, since the frames come in bursts (work, then sleep)
+// Emulator thread only: emulated frames and wall time, each decayed with ACHIEVED_SPEED_SECONDS, so their ratio is the frame rate over about that
+// long (by wall time, since the frames come in bursts)
 struct AchievedSpeedMeter
 {
     bool isActive = false;
@@ -172,7 +171,7 @@ void onBufferSizeChanged(int32_t oldSize, int32_t newSize, int32_t xruns)
         return;
 
     uint32_t writeCount = bufferSizeChangeWriteCount.load(std::memory_order_relaxed);
-    // Full: nobody has taken them for a while. The newest one is dropped
+    // Full, since nobody has taken them for a while: the newest one is dropped
     if (writeCount - bufferSizeChangeReadCount.load(std::memory_order_acquire) >= MAX_BUFFER_SIZE_CHANGES)
         return;
 
@@ -184,8 +183,7 @@ void onBufferSizeChanged(int32_t oldSize, int32_t newSize, int32_t xruns)
     bufferSizeChangeWriteCount.store(writeCount + 1, std::memory_order_release);
 }
 
-// Must be called with stateMutex held. Logs the buffer size changes the output callback made since the last call, and keeps them for the perf
-// logger
+// Logs the buffer size changes the output callback made since the last call and keeps them for the perf logger; must be called with stateMutex held
 static void takeBufferSizeChanges()
 {
     uint32_t readCount = bufferSizeChangeReadCount.load(std::memory_order_relaxed);
@@ -209,7 +207,7 @@ static void takeBufferSizeChanges()
     bufferSizeChangeReadCount.store(readCount, std::memory_order_release);
 }
 
-// Must be called with stateMutex held. -1 if no stream so far could report them
+// -1 if no stream so far could report them; must be called with stateMutex held
 static int64_t getTotalXRuns()
 {
     return wereXRunsEverSupported ? closedStreamXRuns + streamXRuns : -1;
@@ -243,7 +241,7 @@ void setPerfCaptureEnabled(bool isEnabled)
 void onStreamOpened(oboe::AudioStream& stream, MelonDSAndroid::AudioLatency requestedLatency, const char* reason, int32_t sizeLimit, bool isBufferTuned)
 {
     bool isAAudio = stream.getAudioApi() == oboe::AudioApi::AAudio;
-    // Only AAudio streams can tell. The extension casts the underlying stream to an AAudio one
+    // Only AAudio streams can tell (the extension casts the underlying stream to an AAudio one)
     const char* mmap = isAAudio ? (oboe::OboeExtensions::isMMapUsed(&stream) ? "1" : "0") : "n/a";
     bool isXRunCountSupported = stream.isXRunCountSupported();
     int32_t sampleRate = stream.getSampleRate();
@@ -252,7 +250,7 @@ void onStreamOpened(oboe::AudioStream& stream, MelonDSAndroid::AudioLatency requ
     std::lock_guard<std::mutex> lock(stateMutex);
     // Changes the previous stream made are logged before this one's facts
     takeBufferSizeChanges();
-    // buffer_size is the size the stream started with. A tuned buffer grows from there up to buffer_max
+    // buffer_size is the size the stream started with, which a tuned buffer grows from up to buffer_max
     snprintf(streamInfo, sizeof(streamInfo),
             "api=%s sharing=%s performance=%s mmap=%s rate=%d channels=%d format=%s burst=%d capacity=%d buffer_size=%d buffer_ms=%.1f "
             "buffer_max=%d buffer_tuning=%s device=%d requested_latency=%s xruns=%s",
@@ -326,7 +324,7 @@ void onStreamPaused()
 
 void onStreamError(oboe::Result result)
 {
-    // isStreamRunning is left alone: the error can be for a stream that was already replaced. Closing the current one clears it
+    // isStreamRunning is left alone, since the error can be for a stream that was already replaced
     std::lock_guard<std::mutex> lock(stateMutex);
     streamErrors++;
     if (isDebugLogOn)
@@ -384,8 +382,8 @@ static void publishAchievedSpeed(uint32_t rateGeneration, double speed)
 
 void onEmulatorFrameEnd(double intervalMs, bool isPacedFastForward, float requestedSpeed)
 {
-    // A new fast-forward state (or speed, or unmute) bumps the generation, and so does a new session. The value published under the old one
-    // is ignored from then on, even if it lands after the bump
+    // A new fast-forward state (or speed, or unmute) or a new session bumps the generation, and a value published under the old one is ignored from
+    // then on, even if it lands after the bump
     uint32_t rateGeneration = MelonDSAndroid::getAudioRateGeneration();
     if (!isPacedFastForward)
     {
@@ -421,7 +419,7 @@ void onEmulatorFrameEnd(double intervalMs, bool isPacedFastForward, float reques
 
 void onEmulatorPaused()
 {
-    // The speed starts over after the pause. Published now, so the old one isn't logged while the stream starts again
+    // The speed starts over after the pause, published now so the old one isn't logged while the stream starts again
     achievedSpeedMeter.isActive = false;
     publishAchievedSpeed(MelonDSAndroid::getAudioRateGeneration(), 0);
 }
@@ -501,7 +499,7 @@ void logSecond(uint32_t frame)
     if (!areXRunsSupported)
         snprintf(xrunText, sizeof(xrunText), "n/a");
     else if (!isXRunCountCurrent)
-        // The stream was being opened or closed. The count is read again next second
+        // The stream was being opened or closed, so the count is read again next second
         snprintf(xrunText, sizeof(xrunText), "busy");
     else
         snprintf(xrunText, sizeof(xrunText), "%lld", (long long) (second.xruns >= 0 ? totalXRuns - second.xruns : 0));
