@@ -63,26 +63,12 @@ class AndroidEmulatorManager(
 
     private val achievementsSharedFlow = MutableSharedFlow<RAEvent>(replay = 0, extraBufferCapacity = Int.MAX_VALUE)
 
-    // Names of the session's Lua scripts: first the ones sent at launch (their position is the ID native uses), then the ones that couldn't be
-    // read, which native never sees. Then the IDs of the ones still running, and the errors that switched scripts off. Replaced at launch. The
-    // running set is shrunk by the message queue thread when an error switches a script off, and changed by the UI thread when the player
-    // switches one off or on, so changes to it go through luaScriptsLock
+    // The session's Lua scripts. Replaced at launch. The running set is shrunk by the message queue thread when an error switches a script
+    // off, and changed by the UI thread when the player switches one off or on, so changes go through luaScriptsLock and replace the whole
+    // state, which readers take without the lock
     private val luaScriptsLock = Any()
     @Volatile
-    private var luaScriptNames = emptyList<String>()
-    // How many of luaScriptNames were sent to native
-    @Volatile
-    private var loadedLuaScriptCount = 0
-    @Volatile
-    private var runningLuaScripts = emptySet<Int>()
-    @Volatile
-    private var luaScriptErrors = emptyMap<Int, String>()
-    // From each script's header, read from the source sent at launch, so it matches the script that is running
-    @Volatile
-    private var luaScriptHeaders = emptyList<LuaScriptHeader?>()
-    // The option values each script runs with: set at launch and changed by restartLuaScript()
-    @Volatile
-    private var luaScriptOptionValues = emptyList<Map<String, String>>()
+    private var luaScriptsState = LuaScriptsState.EMPTY
 
     // The running game's widescreen width: the launch one, then whatever setWideViewWidth() changed it to
     @Volatile
@@ -130,10 +116,10 @@ class AndroidEmulatorManager(
                 val scriptId = data.getInt()
                 val error = String(ByteArray(data.getInt()).apply { data.get(this) })
                 synchronized(luaScriptsLock) {
-                    runningLuaScripts = runningLuaScripts - scriptId
-                    luaScriptErrors = luaScriptErrors + (scriptId to error)
+                    val state = luaScriptsState
+                    luaScriptsState = state.copy(runningIds = state.runningIds - scriptId, errors = state.errors + (scriptId to error))
                 }
-                val scriptName = luaScriptNames.getOrNull(scriptId) ?: "?"
+                val scriptName = luaScriptsState.names.getOrNull(scriptId) ?: "?"
                 _emulatorEvents.tryEmit(EmulatorEvent.LuaScriptStopped(scriptId, scriptName, error))
             }
             EmulatorEventType.EventLuaSwapScreens -> {
@@ -261,74 +247,61 @@ class AndroidEmulatorManager(
     }
 
     override fun areLuaScriptsRunning(): Boolean {
-        return runningLuaScripts.isNotEmpty()
+        return luaScriptsState.runningIds.isNotEmpty()
     }
 
     override fun getLuaScripts(): List<LuaScriptStatus> {
-        synchronized(luaScriptsLock) {
-            return luaScriptNames.mapIndexed { id, name -> getLuaScriptStatus(id, name) }
-        }
+        return luaScriptsState.toStatuses()
     }
 
     override fun getLuaScript(scriptId: Int): LuaScriptStatus? {
-        synchronized(luaScriptsLock) {
-            val name = luaScriptNames.getOrNull(scriptId) ?: return null
-            return getLuaScriptStatus(scriptId, name)
-        }
-    }
-
-    // Called under luaScriptsLock
-    private fun getLuaScriptStatus(id: Int, name: String): LuaScriptStatus {
-        return LuaScriptStatus(
-            name = name,
-            description = luaScriptHeaders.getOrNull(id)?.description,
-            isRunning = id in runningLuaScripts,
-            lastError = luaScriptErrors[id],
-            options = luaScriptHeaders.getOrNull(id)?.options.orEmpty(),
-            optionValues = luaScriptOptionValues.getOrNull(id).orEmpty(),
-        )
+        return luaScriptsState.getStatus(scriptId)
     }
 
     override fun disableLuaScript(scriptId: Int) {
         synchronized(luaScriptsLock) {
-            if (scriptId !in runningLuaScripts) {
+            val state = luaScriptsState
+            if (scriptId !in state.runningIds) {
                 return
             }
-            runningLuaScripts = runningLuaScripts - scriptId
+            luaScriptsState = state.copy(runningIds = state.runningIds - scriptId)
         }
-        DebugLog.event { "Lua script ${luaScriptNames.getOrNull(scriptId)} switched off by the player" }
+        DebugLog.event { "Lua script ${luaScriptsState.names.getOrNull(scriptId)} switched off by the player" }
         MelonEmulator.disableLuaScript(scriptId)
     }
 
     override fun enableLuaScript(scriptId: Int): Boolean {
         synchronized(luaScriptsLock) {
+            val state = luaScriptsState
             // A script that couldn't be read at launch has nothing to run
-            if (scriptId !in 0 until loadedLuaScriptCount || scriptId in runningLuaScripts) {
+            if (scriptId !in 0 until state.loadedCount || scriptId in state.runningIds) {
                 return false
             }
             // If loading it fails, the stop event switches it off again with the new error
-            runningLuaScripts = runningLuaScripts + scriptId
-            luaScriptErrors = luaScriptErrors - scriptId
+            luaScriptsState = state.copy(runningIds = state.runningIds + scriptId, errors = state.errors - scriptId)
         }
-        DebugLog.event { "Lua script ${luaScriptNames.getOrNull(scriptId)} switched on by the player" }
+        DebugLog.event { "Lua script ${luaScriptsState.names.getOrNull(scriptId)} switched on by the player" }
         MelonEmulator.enableLuaScript(scriptId)
         return true
     }
 
     override fun restartLuaScript(scriptId: Int, optionValues: Map<String, String>): Boolean {
         val nativeOptions = synchronized(luaScriptsLock) {
-            if (scriptId !in 0 until loadedLuaScriptCount) {
+            val state = luaScriptsState
+            if (scriptId !in 0 until state.loadedCount) {
                 return false
             }
-            val options = luaScriptHeaders.getOrNull(scriptId)?.options.orEmpty()
+            val options = state.headers.getOrNull(scriptId)?.options.orEmpty()
             val resolvedValues = options.resolveValues(optionValues)
-            luaScriptOptionValues = luaScriptOptionValues.mapIndexed { id, values -> if (id == scriptId) resolvedValues else values }
             // If loading it fails, the stop event switches it off again with the new error
-            runningLuaScripts = runningLuaScripts + scriptId
-            luaScriptErrors = luaScriptErrors - scriptId
+            luaScriptsState = state.copy(
+                optionValues = state.optionValues.mapIndexed { id, values -> if (id == scriptId) resolvedValues else values },
+                runningIds = state.runningIds + scriptId,
+                errors = state.errors - scriptId,
+            )
             getNativeOptionValues(options, resolvedValues)
         }
-        DebugLog.event { "Lua script ${luaScriptNames.getOrNull(scriptId)} restarted with new options by the player" }
+        DebugLog.event { "Lua script ${luaScriptsState.names.getOrNull(scriptId)} restarted with new options by the player" }
         MelonEmulator.restartLuaScript(scriptId, nativeOptions)
         return true
     }
@@ -450,17 +423,21 @@ class AndroidEmulatorManager(
         val failedScripts = readResults.mapNotNull { (fileName, result) -> getLuaScriptReadError(result)?.let { fileName to it } }
 
         DebugLog.event { "Lua scripts: ${loadedScripts.size} of ${enabledScripts.size} enabled loaded" }
+        // Declarations are read from the source being sent, so they match the script that runs
+        val headers = loadedScripts.map { LuaScriptHeader.parse(it.second) } + failedScripts.map { null }
+        val optionValues = loadedScripts.mapIndexed { id, (fileName, _) ->
+            val storedValues = enabledScripts.firstOrNull { it.fileName == fileName }?.options.orEmpty()
+            headers[id]?.options.orEmpty().resolveValues(storedValues)
+        } + failedScripts.map { emptyMap() }
         synchronized(luaScriptsLock) {
-            luaScriptNames = loadedScripts.map { it.first } + failedScripts.map { it.first }
-            loadedLuaScriptCount = loadedScripts.size
-            runningLuaScripts = loadedScripts.indices.toSet()
-            luaScriptErrors = failedScripts.withIndex().associate { (index, script) -> loadedScripts.size + index to script.second }
-            luaScriptHeaders = loadedScripts.map { LuaScriptHeader.parse(it.second) } + failedScripts.map { null }
-            // Declarations are read from the source being sent, so they match the script that runs
-            luaScriptOptionValues = loadedScripts.mapIndexed { id, (fileName, _) ->
-                val storedValues = enabledScripts.firstOrNull { it.fileName == fileName }?.options.orEmpty()
-                luaScriptHeaders[id]?.options.orEmpty().resolveValues(storedValues)
-            } + failedScripts.map { emptyMap() }
+            luaScriptsState = LuaScriptsState(
+                names = loadedScripts.map { it.first } + failedScripts.map { it.first },
+                loadedCount = loadedScripts.size,
+                runningIds = loadedScripts.indices.toSet(),
+                errors = failedScripts.withIndex().associate { (index, script) -> loadedScripts.size + index to script.second },
+                headers = headers,
+                optionValues = optionValues,
+            )
         }
         if (loadedScripts.isNotEmpty()) {
             // Anything left from the last session is written first, so the data read below is the newest
@@ -477,8 +454,6 @@ class AndroidEmulatorManager(
                 val images = folderContent?.images.orEmpty()
                 "Lua folder content: ${modules.count { it.source != null }} of ${modules.size} modules, ${images.count { it.pixels != null }} of ${images.size} images"
             }
-            val headers = luaScriptHeaders
-            val optionValues = luaScriptOptionValues
             val scriptSetups = loadedScripts.mapIndexed { id, (fileName, source) ->
                 LuaScriptSetup(
                     name = fileName,
@@ -540,12 +515,7 @@ class AndroidEmulatorManager(
 
     private fun clearLuaScripts() {
         synchronized(luaScriptsLock) {
-            luaScriptNames = emptyList()
-            loadedLuaScriptCount = 0
-            runningLuaScripts = emptySet()
-            luaScriptErrors = emptyMap()
-            luaScriptHeaders = emptyList()
-            luaScriptOptionValues = emptyList()
+            luaScriptsState = LuaScriptsState.EMPTY
         }
         luaScriptDataStore.setSessionGameKey(null)
     }
@@ -594,6 +564,47 @@ class AndroidEmulatorManager(
             BadExceptionRegion -> EmulatorEvent.Stop.Reason.BadExceptionRegion
             PowerOff -> EmulatorEvent.Stop.Reason.PowerOff
             else -> null
+        }
+    }
+
+    /**
+     * The session's Lua scripts: first the ones sent at launch (their position is the ID native uses), then the ones that couldn't be read,
+     * which native never sees
+     */
+    private data class LuaScriptsState(
+        val names: List<String>,
+        // How many of names were sent to native
+        val loadedCount: Int,
+        val runningIds: Set<Int>,
+        // The errors that switched scripts off, by ID
+        val errors: Map<Int, String>,
+        // From each script's header, read from the source sent at launch, so it matches the script that is running
+        val headers: List<LuaScriptHeader?>,
+        // The option values each script runs with: set at launch and changed by restartLuaScript()
+        val optionValues: List<Map<String, String>>,
+    ) {
+        fun toStatuses(): List<LuaScriptStatus> {
+            return names.mapIndexed { id, name -> getStatus(id, name) }
+        }
+
+        fun getStatus(id: Int): LuaScriptStatus? {
+            val name = names.getOrNull(id) ?: return null
+            return getStatus(id, name)
+        }
+
+        private fun getStatus(id: Int, name: String): LuaScriptStatus {
+            return LuaScriptStatus(
+                name = name,
+                description = headers.getOrNull(id)?.description,
+                isRunning = id in runningIds,
+                lastError = errors[id],
+                options = headers.getOrNull(id)?.options.orEmpty(),
+                optionValues = optionValues.getOrNull(id).orEmpty(),
+            )
+        }
+
+        companion object {
+            val EMPTY = LuaScriptsState(emptyList(), 0, emptySet(), emptyMap(), emptyList(), emptyList())
         }
     }
 
