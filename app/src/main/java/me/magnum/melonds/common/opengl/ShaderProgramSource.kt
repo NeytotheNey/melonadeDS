@@ -102,32 +102,29 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // line/subpixel group per DS pixel. The scalers can't stay on the DS grid: upscaled 3D isn't aligned to it (some games draw everything
         // in 3D, sprites included), so DS-grid neighbours would make them copy pixels into the wrong places
 
+        // tex, texSize and topScreenWidth (see above), as most filters declare them
+        private const val SCREEN_UNIFORMS = "uniform sampler2D tex;\n" +
+                "uniform vec2 texSize;\n" +
+                "uniform float topScreenWidth;\n"
+
         // Helpers for filters that sample far enough to reach past the gap between the screens. sampleScreen() keeps samples inside the screen
         // that the fragment belongs to, so the other screen, the empty lines and the black bars never bleed in. Needs tex, texSize and
-        // topScreenWidth to be declared before it. SCREEN_BAND_FUNCTIONS is for GLSL ES 1.00 shaders and SCREEN_BAND_FUNCTIONS_300 for
-        // #version 300 es ones, which have no texture2D()
-        private const val SCREEN_BAND_RANGE_FUNCTIONS = "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
-                "const float bottomScreenStart = ${SCREEN_HEIGHT + SCREEN_GAP}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
-                SCREEN_COLUMN_RANGE_FUNCTIONS +
-                "" +
-                "// Range of v (xy) and u (zw) coordinates (texel centres) of the screen that contains p\n" +
-                "vec4 screenBand(vec2 p) {\n" +
-                "    vec2 band = p.y < 0.5 ? vec2(0.0, topScreenEnd) : vec2(bottomScreenStart, 1.0);\n" +
-                "    float halfTexel = 0.5 / texSize.y;\n" +
-                "    return vec4(band + vec2(halfTexel, -halfTexel), screenColumns(p));\n" +
-                "}\n"
-
-        private const val SCREEN_BAND_FUNCTIONS = SCREEN_BAND_RANGE_FUNCTIONS +
-                "" +
-                "vec3 sampleScreen(vec2 p, vec4 band) {\n" +
-                "    return texture2D(tex, vec2(clamp(p.x, band.z, band.w), clamp(p.y, band.x, band.y))).bgr;\n" +
-                "}\n"
-
-        private const val SCREEN_BAND_FUNCTIONS_300 = SCREEN_BAND_RANGE_FUNCTIONS +
-                "" +
-                "vec3 sampleScreen(vec2 p, vec4 band) {\n" +
-                "    return texture(tex, vec2(clamp(p.x, band.z, band.w), clamp(p.y, band.x, band.y))).bgr;\n" +
-                "}\n"
+        // topScreenWidth to be declared before it. textureFunction is texture2D for GLSL ES 1.00 shaders and texture for #version 300 es
+        // ones, which have no texture2D()
+        private fun screenBandFunctions(textureFunction: String): String {
+            return "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+                    "const float bottomScreenStart = ${SCREEN_HEIGHT + SCREEN_GAP}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+                    SCREEN_COLUMN_RANGE_FUNCTIONS +
+                    "// Range of v (xy) and u (zw) coordinates (texel centres) of the screen that contains p\n" +
+                    "vec4 screenBand(vec2 p) {\n" +
+                    "    vec2 band = p.y < 0.5 ? vec2(0.0, topScreenEnd) : vec2(bottomScreenStart, 1.0);\n" +
+                    "    float halfTexel = 0.5 / texSize.y;\n" +
+                    "    return vec4(band + vec2(halfTexel, -halfTexel), screenColumns(p));\n" +
+                    "}\n" +
+                    "vec3 sampleScreen(vec2 p, vec4 band) {\n" +
+                    "    return $textureFunction(tex, vec2(clamp(p.x, band.z, band.w), clamp(p.y, band.x, band.y))).bgr;\n" +
+                    "}\n"
+        }
 
         val BackgroundShader = ShaderProgramSource(
             TextureFiltering.LINEAR,
@@ -192,9 +189,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             TextureFiltering.LINEAR,
             DEFAULT_VERT_SHADER,
             PRECISION_HEADER +
-                    "uniform sampler2D tex;\n" +
-                    "uniform vec2 texSize;\n" +
-                    "uniform float topScreenWidth;\n" +
+                    SCREEN_UNIFORMS +
                     "varying vec2 uv;\n" +
                     "varying float alpha;\n" +
                     SCREEN_COLUMN_RANGE_FUNCTIONS +
@@ -313,9 +308,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             TextureFiltering.NEAREST,
             DEFAULT_VERT_SHADER,
             PRECISION_HEADER +
-                    "uniform sampler2D tex;\n" +
-                    "uniform vec2 texSize;\n" +
-                    "uniform float topScreenWidth;\n" +
+                    SCREEN_UNIFORMS +
                     "varying vec2 uv;\n" +
                     "varying float alpha;\n" +
                     SCREEN_COLUMN_RANGE_FUNCTIONS +
@@ -594,9 +587,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             TextureFiltering.LINEAR,
             DEFAULT_VERT_SHADER,
             PRECISION_HEADER +
-                    "uniform sampler2D tex;\n" +
-                    "uniform vec2 texSize;\n" +
-                    "uniform float topScreenWidth;\n" +
+                    SCREEN_UNIFORMS +
                     "varying float alpha;\n" +
                     "varying vec2 uv;\n" +
                     SCREEN_COLUMN_RANGE_FUNCTIONS +
@@ -628,12 +619,10 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             TextureFiltering.NEAREST,
             DEFAULT_VERT_SHADER,
             PRECISION_HEADER +
-                    "uniform sampler2D tex;\n" +
-                    "uniform vec2 texSize;\n" +
-                    "uniform float topScreenWidth;\n" +
+                    SCREEN_UNIFORMS +
                     "varying vec2 uv;\n" +
                     "varying float alpha;\n" +
-                    SCREEN_BAND_FUNCTIONS +
+                    screenBandFunctions("texture2D") +
                     COLOR_FUNCTIONS +
                     "" +
                     "void main() {\n" +
@@ -677,11 +666,9 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             TextureFiltering.LINEAR,
             PRE_PASS_VERT_SHADER,
             PRECISION_HEADER +
-                    "uniform sampler2D tex;\n" +
-                    "uniform vec2 texSize;\n" +
-                    "uniform float topScreenWidth;\n" +
+                    SCREEN_UNIFORMS +
                     "varying vec2 uv;\n" +
-                    SCREEN_BAND_FUNCTIONS +
+                    screenBandFunctions("texture2D") +
                     "" +
                     "const float FXAA_SPAN_MAX = 8.0;\n" +
                     "const float FXAA_REDUCE_MUL = 1.0 / 8.0;\n" +
@@ -764,13 +751,11 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "}",
             "#version 300 es\n" +
                     "precision highp float;\n" +
-                    "uniform sampler2D tex;\n" +
-                    "uniform vec2 texSize;\n" +
-                    "uniform float topScreenWidth;\n" +
+                    SCREEN_UNIFORMS +
                     "in vec2 uv;\n" +
                     "in float alpha;\n" +
                     "out vec4 fragColor;\n" +
-                    SCREEN_BAND_FUNCTIONS_300 +
+                    screenBandFunctions("texture") +
                     COLOR_FUNCTIONS +
                     "" +
                     "void main() {\n" +
@@ -829,11 +814,9 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             TextureFiltering.NEAREST,
             PRE_PASS_VERT_SHADER,
             PRECISION_HEADER +
-                    "uniform sampler2D tex;\n" +
-                    "uniform vec2 texSize;\n" +
-                    "uniform float topScreenWidth;\n" +
+                    SCREEN_UNIFORMS +
                     "varying vec2 uv;\n" +
-                    SCREEN_BAND_FUNCTIONS +
+                    screenBandFunctions("texture2D") +
                     "" +
                     "float luma(vec3 col) {\n" +
                     "    return dot(col, vec3(0.2126, 0.7152, 0.0722));\n" +
