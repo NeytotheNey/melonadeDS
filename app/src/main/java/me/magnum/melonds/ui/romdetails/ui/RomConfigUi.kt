@@ -40,6 +40,7 @@ import me.magnum.melonds.ui.romdetails.model.RomConfigUiModel
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiState
 import me.magnum.melonds.ui.romdetails.model.RomConfigUpdateEvent
 import me.magnum.melonds.ui.romdetails.model.RomGbaSlotConfigUiModel
+import me.magnum.melonds.ui.romdetails.model.RomModsUiModel
 import me.magnum.melonds.ui.theme.MelonTheme
 import java.util.Date
 import java.util.UUID
@@ -215,6 +216,7 @@ private fun PreviewRomConfigUi() {
                     layoutName = "Default",
                     gbaSlotConfig = RomGbaSlotConfigUiModel(type = RomGbaSlotConfigUiModel.Type.GbaRom)
                 ),
+                RomModsUiModel(),
             ),
             onConfigUpdate = { },
         )

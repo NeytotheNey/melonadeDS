@@ -28,6 +28,7 @@ import me.magnum.melonds.ui.romdetails.model.RomConfigUiModel
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiState
 import me.magnum.melonds.ui.romdetails.model.RomConfigUpdateEvent
 import me.magnum.melonds.ui.romdetails.model.RomDetailsTab
+import me.magnum.melonds.ui.romdetails.model.RomModsUiModel
 import me.magnum.melonds.ui.romdetails.model.RomRetroAchievementsUiState
 import me.magnum.melonds.ui.theme.MelonTheme
 import me.magnum.rcheevosapi.model.RAAchievement
@@ -167,6 +168,7 @@ private fun PreviewRomScreen() {
                 RomConfigUiModel(
                     layoutName = "Default",
                 ),
+                RomModsUiModel(),
             ),
             retroAchievementsUiState = RomRetroAchievementsUiState.LoggedOut(null),
             onNavigateBack = { },

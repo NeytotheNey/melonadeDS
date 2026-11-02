@@ -432,6 +432,7 @@ private fun PreviewRomModsUi() {
                         dataSizes = mapOf("aim.lua" to 3000L),
                     ),
                 ),
+                RomModsUiModel(),
             ),
             onConfigUpdate = { },
         )
