@@ -11,7 +11,7 @@ class DisplayCadenceStatisticsTest {
     private val period120HzNs = 8_333_333L
     private val period60HzNs = 16_666_667L
 
-    private fun PerformanceLogger.SessionStatistics.trackSample(
+    private fun SessionStatistics.trackSample(
         timestampNs: Long,
         isNewFrame: Boolean,
         refreshPeriodNs: Long,
@@ -23,7 +23,7 @@ class DisplayCadenceStatisticsTest {
 
     @Test
     fun refreshRateDroppingTo60HzMidSessionIsNotCountedAsRepeatsOrJudder() {
-        val stats = PerformanceLogger.SessionStatistics()
+        val stats = SessionStatistics()
         // The display reported 120Hz when the session started, like when the 60Hz lock lands just after
         stats.setInitialRefreshRate(120f)
 
@@ -57,7 +57,7 @@ class DisplayCadenceStatisticsTest {
 
     @Test
     fun refreshRateChangeWhilePausedIsNotCountedButIsReported() {
-        val stats = PerformanceLogger.SessionStatistics()
+        val stats = SessionStatistics()
         stats.setInitialRefreshRate(60f)
 
         var timestamp = 0L
@@ -89,7 +89,7 @@ class DisplayCadenceStatisticsTest {
 
     @Test
     fun displayReportedAt60HzWhileRunningAt120HzExpectsEveryFrameShownTwice() {
-        val stats = PerformanceLogger.SessionStatistics()
+        val stats = SessionStatistics()
         stats.setInitialRefreshRate(60f)
 
         var timestamp = 0L
@@ -108,7 +108,7 @@ class DisplayCadenceStatisticsTest {
 
     @Test
     fun missingVsyncPeriodFallsBackToTheStartRate() {
-        val stats = PerformanceLogger.SessionStatistics()
+        val stats = SessionStatistics()
         stats.setInitialRefreshRate(120f)
 
         var timestamp = 0L
@@ -126,7 +126,7 @@ class DisplayCadenceStatisticsTest {
 
     @Test
     fun unknownRefreshRateDoesNotMeasureHoldsOrRepeats() {
-        val stats = PerformanceLogger.SessionStatistics()
+        val stats = SessionStatistics()
         stats.setInitialRefreshRate(null)
 
         var timestamp = 0L
@@ -145,7 +145,7 @@ class DisplayCadenceStatisticsTest {
 
     @Test
     fun fastForwardAt120HzDoesNotOffsetRepeatsAt60Hz() {
-        val stats = PerformanceLogger.SessionStatistics()
+        val stats = SessionStatistics()
         stats.setInitialRefreshRate(60f)
 
         var timestamp = 0L
@@ -174,7 +174,7 @@ class DisplayCadenceStatisticsTest {
 
     @Test
     fun repeatRunSpanningARefreshRateChangeIsCountedOnce() {
-        val stats = PerformanceLogger.SessionStatistics()
+        val stats = SessionStatistics()
         stats.setInitialRefreshRate(120f)
 
         var timestamp = 0L
