@@ -38,21 +38,18 @@
 
         <TextView
             android:id="@android:id/title"
+            style="@style/PreferenceRowTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textAlignment="viewStart"
-            android:textAppearance="?attr/textAppearanceBodyLarge"
-            android:textColor="@color/preference_title_text"
             android:ellipsize="end" />
 
         <TextView
             android:id="@android:id/summary"
+            style="@style/PreferenceRowSummary"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:textAlignment="viewStart"
-            android:textAppearance="?attr/textAppearanceBodyMedium"
-            android:textColor="@color/preference_summary_text"
             android:maxLines="20" />
     </LinearLayout>
 

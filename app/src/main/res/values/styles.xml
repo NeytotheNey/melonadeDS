@@ -129,6 +129,18 @@
         <item name="iconSpaceReserved">false</item>
     </style>
 
+    <!-- Title and summary text of the settings row layouts -->
+    <style name="PreferenceRowTitle">
+        <item name="android:textAlignment">viewStart</item>
+        <item name="android:textAppearance">?attr/textAppearanceBodyLarge</item>
+        <item name="android:textColor">@color/preference_title_text</item>
+    </style>
+
+    <style name="PreferenceRowSummary">
+        <item name="android:textAppearance">?attr/textAppearanceBodyMedium</item>
+        <item name="android:textColor">@color/preference_summary_text</item>
+    </style>
+
     <style name="Button.Ripple.Small" parent="android:Widget.ImageButton">
         <item name="android:background">@drawable/drawable_ripple_small</item>
         <item name="android:scaleType">fitCenter</item>
