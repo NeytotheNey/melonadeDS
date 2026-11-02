@@ -7,17 +7,13 @@ import java.io.IOException
 import java.security.MessageDigest
 
 /**
- * Keeps what scripts save with melon.storage, in app-private files: `files/lua-data/<game key>/<script file name>.bin`. Native encodes the
- * data (it's a blob the app never looks into) and hands over snapshots; this writes them and reads them back at launch. The data stays when
- * its script leaves the folder, so putting the script back brings it back.
- *
- * Thread safe: writes go through a temp file and a rename, under one lock.
+ * Stores the blobs scripts save with melon.storage under `files/lua-data/<game key>/<script>.bin`; writes are atomic and the data outlives the
+ * script leaving the folder.
  */
 class LuaScriptDataStore(private val context: Context) {
 
     private val lock = Any()
-    // The game key of the emulator session whose scripts are running, if any. Their data lives in native memory until the session ends, and a
-    // running script would write deleted data back, so it can't be deleted meanwhile
+    // Game key of the session running scripts, whose data can't be deleted meanwhile because native would write it back
     @Volatile
     private var sessionGameKey: String? = null
 
@@ -38,7 +34,7 @@ class LuaScriptDataStore(private val context: Context) {
                 return null
             }
             return try {
-                // Native never makes a blob this large, so a larger file isn't one of its blobs. It's left for native to replace
+                // Native never makes a blob this large, so a larger file is left for native to replace
                 if (file.length() > MAX_DATA_SIZE) {
                     Log.w(LUA_LOG_TAG, "Saved data of $scriptName is too large, so it's not used")
                     null
@@ -53,7 +49,7 @@ class LuaScriptDataStore(private val context: Context) {
     }
 
     /**
-     * Saves [data] for [scriptName]. Empty data deletes the file
+     * Saves [data] for [scriptName], deleting the file when it's empty
      */
     fun write(gameKey: String, scriptName: String, data: ByteArray) {
         synchronized(lock) {
@@ -82,7 +78,7 @@ class LuaScriptDataStore(private val context: Context) {
     }
 
     /**
-     * How many bytes [scriptName] has saved. 0 if nothing
+     * How many bytes [scriptName] has saved, 0 if nothing
      */
     fun getSize(gameKey: String, scriptName: String): Long {
         synchronized(lock) {
@@ -91,8 +87,7 @@ class LuaScriptDataStore(private val context: Context) {
     }
 
     /**
-     * Deletes the saved data of [scriptName]. Ignored while a session of the same game is running scripts (see [setSessionGameKey]). That can't
-     * happen from the ROM details screen today, since the emulator is stopped before that screen is shown again, but it's cheap to make sure
+     * Deletes [scriptName]'s data unless its game is running scripts (see [setSessionGameKey])
      */
     fun delete(gameKey: String, scriptName: String) {
         synchronized(lock) {
@@ -122,20 +117,18 @@ class LuaScriptDataStore(private val context: Context) {
         private const val MAX_PLAIN_NAME_BYTES = 200
 
         /**
-         * Native's limit. A saved blob is never larger
+         * Native's limit for a saved blob
          */
         const val MAX_DATA_SIZE = 256 * 1024
 
-        // Retail codes are 4 uppercase letters or digits. Anything else (NUL bytes, spaces, ndstool's ####) is a placeholder
+        // Retail codes are 4 uppercase letters or digits, and anything else (NUL bytes, spaces, ndstool's ####) is a placeholder
         private val GAME_CODE = Regex("[A-Z0-9]{4}")
         private val PLACEHOLDER_GAME_CODES = setOf("0000")
         private val GAME_KEY = Regex("[A-Z0-9]{4}|$HOMEBREW_PREFIX[0-9a-f]{16}")
 
         /**
-         * The folder a game's script data goes in. A real game code is used as is, so the data survives the ROM being moved. Homebrew often
-         * keeps a placeholder code, and ROMs that share one shouldn't share data, so those are keyed by the ROM's URI instead (and lose their
-         * data if the ROM moves). [gameCode] is null if the header couldn't be read, in which case there's no key: guessing one would start the
-         * game with no data and save it in the wrong place, so its scripts keep their data for the session only
+         * Folder key for a game: the real game code, or a hash of the ROM URI for placeholder codes shared by homebrew; null when the header
+         * couldn't be read, so data stays session-only
          */
         fun getGameKey(gameCode: String?, romUri: String): String? {
             if (gameCode == null) {
@@ -150,8 +143,7 @@ class LuaScriptDataStore(private val context: Context) {
         }
 
         /**
-         * The data file's name for a script: its own file name plus `.bin`, unless that couldn't be a file name here (a path separator, a
-         * NUL, `.`/`..`, or too long), in which case it's a hash of the name
+         * The script's file name plus `.bin`, or a hash when the name can't be a file name here (a path separator, a NUL, `.`/`..`, or too long)
          */
         fun getFileName(scriptName: String): String {
             val isPlainNameSafe = scriptName.isNotEmpty() && scriptName != "." && scriptName != ".." &&

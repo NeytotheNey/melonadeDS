@@ -21,9 +21,8 @@ import java.io.InputStream
 internal const val LUA_LOG_TAG = LogTags.LUA
 
 /**
- * Reads the games' Lua scripts from the folder linked to each game (see RomModsConfig.luaScriptFolder). The app only ever reads that
- * folder: scripts are added and removed by the user, outside the app. The ROM details screen lists the folder, and the emulator reads the
- * enabled scripts at launch. Native never opens script files itself.
+ * Reads each game's Lua scripts from its linked folder (see RomModsConfig.luaScriptFolder); the app never writes there and native never opens
+ * script files.
  */
 class LuaScriptStorage(private val context: Context) {
 
@@ -41,13 +40,11 @@ class LuaScriptStorage(private val context: Context) {
     }
 
     /**
-     * The `.lua` files at the top of the folder, in no particular order. Subfolders are skipped. Returns null if the folder can't be read:
-     * the permission was lost, it was moved or deleted, it's on a card that isn't in, or a cloud provider is still fetching it
+     * Top-level `.lua` files, unordered, or null when the folder can't be read (lost permission, moved, missing card, cloud still fetching)
      */
     fun listScripts(folderUri: Uri): List<ScriptFile>? {
         return try {
-            // Some providers list a missing folder as empty, which would drop every script, so the folder itself is checked first.
-            // isDirectory is also false when the permission is gone
+            // Checked first because some providers list a missing folder as empty (and isDirectory is false once the permission is gone)
             val folder = DocumentFile.fromTreeUri(context, folderUri)?.takeIf { it.isDirectory } ?: return null
             listChildren(folder.uri, DocumentsContract.getDocumentId(folder.uri))
                 ?.filter { !it.isFolder && LuaScriptFolderContent.isLuaScriptName(it.name) }
@@ -59,12 +56,10 @@ class LuaScriptStorage(private val context: Context) {
     }
 
     /**
-     * Lists a folder of the tree [treeUri] with one query. The children's handles are their document IDs. Returns null if the provider says
-     * the list isn't complete
+     * Lists one folder of [treeUri] with a single query, using document IDs as handles; null when the provider says the list is incomplete
      */
     private fun listChildren(treeUri: Uri, documentId: String): List<LuaScriptFolderContent.Child<String>>? {
-        // DocumentFile asks the provider once per file for its name and once for its type, which is slow in a big folder, so the children are
-        // queried in one go instead
+        // One query instead of DocumentFile's two calls per file, which are slow in a big folder
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId)
         val projection = arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -73,8 +68,7 @@ class LuaScriptStorage(private val context: Context) {
             DocumentsContract.Document.COLUMN_SIZE,
         )
         return context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
-            // Cloud providers can answer with part of the list (or none of it) while they fetch the rest, or with an error. That isn't the
-            // folder's real content, so the folder counts as unreadable and the script list is kept
+            // A partial or failed cloud listing isn't the folder's content, so it counts as unreadable and the script list is kept
             val extras = cursor.extras
             if (extras?.getBoolean(DocumentsContract.EXTRA_LOADING) == true || extras?.getString(DocumentsContract.EXTRA_ERROR) != null) {
                 return null
@@ -94,8 +88,8 @@ class LuaScriptStorage(private val context: Context) {
     class FolderContent(val modules: List<LuaScriptModule>, val images: List<LuaScriptImage>)
 
     /**
-     * Reads the modules and images the scripts can use from the folder's tree (see [LuaScriptFolderContent] for the rules and caps). Images
-     * are decoded here. It lists up to 65 folders and reads a few MB, so never on the main thread. Returns null if the folder can't be read
+     * Reads and decodes the scripts' modules and images (rules in [LuaScriptFolderContent]), or null if the folder can't be read; it lists up
+     * to 65 folders and reads a few MB, so never call it on the main thread
      */
     fun readFolderContent(folderUri: Uri): FolderContent? {
         return try {
@@ -195,9 +189,7 @@ class LuaScriptStorage(private val context: Context) {
     }
 
     /**
-     * Reads scripts for the emulator, in the order given. The folder is listed once, and each script is looked up in it by name
-     *
-     * @param folderUri The game's script folder. With none, every script is [ReadResult.FolderNotFound]
+     * Reads the given scripts in order from [folderUri], listing it once; with no folder every result is [ReadResult.FolderNotFound].
      */
     fun readScripts(folderUri: Uri?, fileNames: List<String>): List<Pair<String, ReadResult>> {
         val scriptFiles = folderUri?.let { listScripts(it) }?.associateBy { it.name }
@@ -226,7 +218,7 @@ class LuaScriptStorage(private val context: Context) {
     }
 
     /**
-     * The script's header (see [LuaScriptHeader]), or null if the file can't be read. Only the start of the file is read
+     * The script's header (see [LuaScriptHeader]) from the start of the file, or null if it can't be read
      */
     fun readHeader(scriptFile: ScriptFile): LuaScriptHeader? {
         return try {
@@ -238,8 +230,7 @@ class LuaScriptStorage(private val context: Context) {
     }
 
     /**
-     * Older versions copied picked scripts into `files/scripts/`. Scripts are read from a linked folder now, and those copies were only ever
-     * made by the app, so they're deleted. Does nothing once they're gone
+     * Deletes the `files/scripts/` copies made before linked folders
      */
     fun deleteOldScriptCopies() {
         val oldScriptsFolder = File(context.filesDir, OLD_SCRIPTS_FOLDER)

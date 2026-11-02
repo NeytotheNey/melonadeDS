@@ -4,8 +4,7 @@ import me.magnum.melonds.domain.model.emulator.LuaScriptHeader
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
 
 /**
- * Reads a script's [LuaScriptHeader] from its leading comment block. No Lua runs to read it, and only the first [READ_LIMIT] bytes are
- * looked at.
+ * Reads a script's [LuaScriptHeader] from the leading comment block in its first [READ_LIMIT] bytes, without running any Lua.
  */
 object LuaScriptHeaderParser {
     const val READ_LIMIT = 8 * 1024
@@ -28,8 +27,7 @@ object LuaScriptHeaderParser {
     private val COMMON_ATTRIBUTES = setOf("type", "label", "default")
 
     /**
-     * How each option type is read: the attributes it takes besides [COMMON_ATTRIBUTES], and a parser that returns null if the line is
-     * bad. A new type is one more entry here
+     * Attributes each option type takes besides [COMMON_ATTRIBUTES], and its parser (null on a bad line)
      */
     private class OptionType(val attributes: Set<String>, val parse: (OptionLine) -> LuaScriptOption?)
 
@@ -105,7 +103,7 @@ object LuaScriptHeaderParser {
 
             val descriptionMatch = DESCRIPTION_KEY.matchEntire(text)
             if (descriptionMatch != null) {
-                // An empty description line is skipped, and is never used as the fallback either. The first one wins
+                // The first non-empty description line wins, and an empty one is never used as the fallback either
                 val descriptionText = descriptionMatch.groupValues[1].trim()
                 if (description == null && descriptionText.isNotEmpty()) {
                     description = capDescription(descriptionText)
@@ -126,8 +124,8 @@ object LuaScriptHeaderParser {
     }
 
     /**
-     * Reads what follows `option:`. Null if anything about it is off: a bad key, an unknown type or attribute, an attribute given twice,
-     * an unclosed quote, or values the type doesn't allow
+     * Parses what follows `option:`, or returns null on any malformed part (a bad key, an unknown type or attribute, an attribute given twice,
+     * an unclosed quote, or values the type doesn't allow)
      */
     private fun parseOption(text: String): LuaScriptOption? {
         val key = text.takeWhile { !it.isWhitespace() }
@@ -148,8 +146,7 @@ object LuaScriptHeaderParser {
     }
 
     /**
-     * `name=value` pairs split by spaces. A value is either everything up to the next space, or quoted (`"..."`, which can hold spaces
-     * but not quotes)
+     * `name=value` pairs split by spaces, where a value runs to the next space or is quoted (`"..."`, which can hold spaces but not quotes)
      */
     private fun parseAttributes(text: String): Map<String, String>? {
         val attributes = mutableMapOf<String, String>()

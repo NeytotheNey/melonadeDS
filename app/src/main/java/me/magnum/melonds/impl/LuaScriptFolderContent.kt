@@ -1,21 +1,14 @@
 package me.magnum.melonds.impl
 
 /**
- * The rules for what the scripts of a linked folder can use besides themselves: Lua modules for `require` and PNG images for
- * `melon.image.load`. Kept apart from [LuaScriptStorage] so they can be tested without a device.
- *
- * The folder is walked at launch, breadth first, at most [MAX_DEPTH] levels of subfolders deep and through at most [MAX_FOLDERS] subfolders,
- * with one listing per folder. Every part of a path (folder names, and file names without their extension) must be made of
- * `[A-Za-z0-9_-]`, or that folder or file is skipped. Modules are the `.lua` files in subfolders (the top-level ones are the scripts):
- * `lib/util.lua` is `lib.util` and `lib/init.lua` is `lib`. Images are the `.png` files anywhere in the tree, named by their path
- * (`img/hud.png`). Both are taken in path order until a cap is reached, and the ones left out keep the reason so the script's error can say
- * why.
+ * Rules for the modules (`require`) and PNG images (`melon.image.load`) a linked folder offers its scripts, kept free of Android so they can be
+ * unit tested.
  */
 object LuaScriptFolderContent {
 
     const val MAX_DEPTH = 4
     const val MAX_FOLDERS = 64
-    // Modules and images found by the walk. Past this the walk gives up, so a folder with thousands of files can't hold up the launch
+    // Modules and images the walk finds before it gives up, so a folder with thousands of files can't hold up the launch
     const val MAX_FOUND_FILES = 4096
 
     private const val MEGA = 1024 * 1024
@@ -49,19 +42,19 @@ object LuaScriptFolderContent {
     val NAME_ORDER: Comparator<String> = compareBy(String.CASE_INSENSITIVE_ORDER) { name: String -> name }.thenBy { it }
 
     /**
-     * An entry of a folder listing. [handle] is whatever the lister needs to list or read it later
+     * An entry of a folder listing, with whatever [handle] the lister needs to list or read it later
      */
     class Child<T>(val name: String, val isFolder: Boolean, val size: Long?, val handle: T)
 
     /**
-     * A module or image found by [walk]. [path] is relative to the linked folder, with `/` between parts
+     * A module or image found by [walk], with its [path] relative to the linked folder and `/` between parts
      */
     class FoundFile<T>(val path: String, val size: Long?, val handle: T)
 
     class Module<T>(val name: String, val file: FoundFile<T>)
 
     /**
-     * What [walk] found, in path order. [gaveUp] is set when a cap stopped it early
+     * What [walk] found, in path order, with [gaveUp] set when a cap stopped it early
      */
     class WalkResult<T>(val modules: List<Module<T>>, val images: List<FoundFile<T>>, val gaveUp: Boolean)
 
@@ -77,8 +70,8 @@ object LuaScriptFolderContent {
     }
 
     /**
-     * The module name `require` knows the file at [path] by, or null if it isn't a module: top-level files are scripts, and files with a
-     * path part outside `[A-Za-z0-9_-]` are skipped
+     * The module name `require` uses for [path] (`lib/util.lua` is `lib.util`, `lib/init.lua` is `lib`), or null for a top-level script or a
+     * path part outside `[A-Za-z0-9_-]`
      */
     fun getModuleName(path: String): String? {
         val parts = path.split('/')
@@ -110,8 +103,8 @@ object LuaScriptFolderContent {
     }
 
     /**
-     * Walks the folder tree from [root]. [listChildren] lists a folder, or returns null if it can't be read (that folder is then skipped).
-     * Returns null if the root itself can't be read
+     * Walks breadth first from [root], at most [MAX_DEPTH] deep and [MAX_FOLDERS] folders; a folder [listChildren] can't read is skipped, an
+     * unreadable root returns null
      */
     fun <T> walk(root: T, listChildren: (T) -> List<Child<T>>?): WalkResult<T>? {
         val rootChildren = listChildren(root) ?: return null
@@ -124,7 +117,7 @@ object LuaScriptFolderContent {
         var gaveUp = false
 
         fun addChildren(children: List<Child<T>>, folderPath: String, depth: Int) {
-            // Some providers list two documents with the same name. Only the first one counts
+            // Some providers list two documents with the same name, and only the first one counts
             for (child in children.distinctBy { it.name }.sortedWith(compareBy(NAME_ORDER) { it.name })) {
                 val path = if (folderPath.isEmpty()) child.name else "$folderPath/${child.name}"
                 if (child.isFolder) {
@@ -171,8 +164,7 @@ object LuaScriptFolderContent {
     }
 
     /**
-     * One file per module name. `x.lua` wins over `x/init.lua`, like Lua's own search order, and otherwise the first in path order wins
-     * (`x.lua` and `x.LUA`, say)
+     * One file per module name: `x.lua` wins over `x/init.lua` like in Lua's own search order, otherwise the first in path order wins
      */
     private fun <T> pickModules(modules: List<Module<T>>): List<Module<T>> {
         val order = compareBy<Module<T>> { removeExtension(it.file.path.substringAfterLast('/'), LUA_EXTENSION) == INIT_MODULE }
@@ -181,9 +173,7 @@ object LuaScriptFolderContent {
     }
 
     /**
-     * Takes modules in path order until a cap is reached. For each module, [checkBeforeRead] says whether it's left out without reading it;
-     * otherwise it's read with at most [readLimit] bytes and given to [take]. Once a module doesn't fit, every later one is left out too, so
-     * the reads stop at about the total cap
+     * Takes modules in path order until a cap is hit; after the first one that doesn't fit, every later one is left out
      */
     class ModuleBudget {
         private var consideredCount = 0
@@ -191,7 +181,7 @@ object LuaScriptFolderContent {
         private var isFull = false
 
         /**
-         * Why the next module is left out before reading it, or null to read it. [listedSize] is its size from the folder listing, if known
+         * Why the next module is left out before reading it (given its [listedSize] from the folder listing, if known), or null to read it
          */
         fun checkBeforeRead(listedSize: Long?): String? {
             if (consideredCount >= MAX_MODULE_COUNT) {
@@ -211,7 +201,7 @@ object LuaScriptFolderContent {
         val readLimit: Int get() = minOf(MAX_MODULE_SIZE, bytesLeft) + 1
 
         /**
-         * Takes a module of [size] bytes (read with [readLimit]). Returns null if it fits, or why it doesn't
+         * Takes a module of [size] bytes (read with [readLimit]), returning null if it fits or why it doesn't
          */
         fun take(size: Int): String? {
             if (size <= MAX_MODULE_SIZE && size <= bytesLeft) {
@@ -225,8 +215,7 @@ object LuaScriptFolderContent {
     }
 
     /**
-     * Takes images in path order until a cap is reached, like [ModuleBudget]. [checkBeforeDecode] runs before the image's size is read, and
-     * [take] once it's known
+     * Takes images in path order until a cap is hit, like [ModuleBudget], with [checkBeforeDecode] before the size is read and [take] after
      */
     class ImageBudget {
         private var consideredCount = 0
@@ -242,7 +231,7 @@ object LuaScriptFolderContent {
         }
 
         /**
-         * Takes an image of [width] x [height] pixels. Returns null if it fits, or why it doesn't
+         * Takes an image of [width] x [height] pixels, returning null if it fits or why it doesn't
          */
         fun take(width: Int, height: Int): String? {
             if (width > MAX_IMAGE_SIDE || height > MAX_IMAGE_SIDE) {
