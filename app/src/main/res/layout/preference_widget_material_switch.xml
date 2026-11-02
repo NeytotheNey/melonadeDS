@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- M3 switch for SwitchPreference, which finds it by id, so the id must stay @android:id/switch_widget -->
 <com.google.android.material.materialswitch.MaterialSwitch
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@android:id/switch_widget"
