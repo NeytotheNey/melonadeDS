@@ -13,7 +13,7 @@ enum class LayoutEditorGridSize(val dp: Int) {
 }
 
 /**
- * The layout editor's snap grid setting, stored in the default shared preferences. The editors on the device and on an external display share it.
+ * Snap grid setting shared by the on-device and external editors, stored in the default shared preferences.
  */
 class LayoutEditorGridSettings(context: Context) {
     private val preferences = PreferenceManager.getDefaultSharedPreferences(context)
@@ -30,8 +30,7 @@ class LayoutEditorGridSettings(context: Context) {
         set(value) = preferences.edit { putString(PreferenceKeys.LAYOUT_EDITOR_GRID_SIZE, value.name) }
 
     /**
-     * Calls [onChanged] whenever the setting changes. The returned listener must be kept and passed to [removeListener] later, since the
-     * preferences only hold a weak reference to it.
+     * Registers [onChanged], whose returned listener must be kept and passed to [removeListener] since the preferences hold it weakly.
      */
     fun addListener(onChanged: () -> Unit): SharedPreferences.OnSharedPreferenceChangeListener {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->

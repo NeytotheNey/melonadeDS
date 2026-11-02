@@ -70,7 +70,7 @@ internal class LayoutEditorOverlayDrawer(private val context: Context) {
     }
 
     /**
-     * Draws the resize handles of an item with the given bounds. With [cornerOnly], only the bottom-right one.
+     * Draws the resize handles of an item with the given bounds, or only the bottom-right one with [cornerOnly].
      */
     fun drawHandles(canvas: Canvas, left: Float, top: Float, right: Float, bottom: Float, cornerOnly: Boolean) {
         if (!cornerOnly) {
