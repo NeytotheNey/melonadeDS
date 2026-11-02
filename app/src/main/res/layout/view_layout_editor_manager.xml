@@ -18,7 +18,7 @@
         android:layout_height="match_parent"
         android:focusable="false" />
 
-    <!-- Keeps the item panel clear of the display cutout and the status bar (their insets are set as padding in code). Touches outside the panel go through to the editor -->
+    <!-- Panel container padded for cutout/status-bar insets in code; touches outside the panel reach the editor -->
     <FrameLayout
         android:id="@+id/layout_item_panel_container"
         android:layout_width="match_parent"
@@ -110,7 +110,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/layout_editor_aspect_ratio_16_9" />
 
-                    <!-- Only shown for a wide layout's top screen. The text names the layout's ratio -->
+                    <!-- Wide-ratio chip, shown only for a wide layout's top screen -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/button_aspect_ratio_wide"
                         style="@style/Button.EditorChoice"
@@ -242,7 +242,7 @@
         </me.magnum.melonds.ui.layouteditor.LayoutEditorPanelScrollView>
     </FrameLayout>
 
-    <!-- Compact toolbar shown next to the selected item. Its position is set in code -->
+    <!-- Compact toolbar beside the selected item, positioned in code -->
     <LinearLayout
         android:id="@+id/layout_item_pill"
         android:layout_width="wrap_content"
@@ -292,7 +292,7 @@
             android:src="@drawable/ic_check" />
     </LinearLayout>
 
-    <!-- Always visible menu button. Kept as the last child so it draws above everything else. Its position is set in code -->
+    <!-- Menu button, last child so it draws on top, positioned in code -->
     <ImageButton
         android:id="@+id/button_floating_menu"
         android:layout_width="40dp"

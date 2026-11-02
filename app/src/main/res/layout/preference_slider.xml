@@ -48,7 +48,7 @@
         android:stepSize="1"
         app:labelBehavior="gone" />
 
-    <!-- Never shown. SeekBarPreference looks these views up when it binds the row -->
+    <!-- Hidden views SeekBarPreference requires when binding -->
     <SeekBar
         android:id="@+id/seekbar"
         android:layout_width="0dp"

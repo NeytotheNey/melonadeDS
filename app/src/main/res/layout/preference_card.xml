@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Row used by the settings pages. PreferenceCardDecoration rounds the card corners depending on where the row sits in its group -->
+<!-- Settings row; PreferenceCardDecoration rounds its corners by position in the group -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
