@@ -40,6 +40,10 @@ On a short read, fade the last frame to zero over ~1–2 ms instead of holding i
 
 When the emulator can't hold full speed (charging throttles, heavy scenes, slow fast-forward), the ring runs dry and ±0.5% can't fix it. DuckStation and PCSX2 use SoundTouch, Dolphin uses granular synthesis. Bigger piece (new library, more CPU), so only if throttled sessions show it's needed.
 
+### 7. Decide the hidden latency setting
+
+`settings_audio_latency_enabled` is false, so the audio latency setting is hidden, but `MelonDSAndroidConfiguration.cpp` still applies whatever value is saved. The polish pass left it as is (user's call, 2026-11-02). Decide from measurements whether the setting makes an audible or measurable difference now that drift control and the growing AAudio buffer size things: if it does, show it again; if not, remove the pref, its two arrays, two strings and the switch.
+
 ## Already fine
 
 - Resampling quality: blip_buf is band-limited, no aliasing to fix.
