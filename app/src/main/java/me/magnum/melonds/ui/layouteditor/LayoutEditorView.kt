@@ -2,7 +2,6 @@ package me.magnum.melonds.ui.layouteditor
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.SharedPreferences
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -37,7 +36,6 @@ private const val UNSELECTED_ALPHA = 0.5f
 private const val HANDLE_TOUCH_FRACTION = 0.25f
 // Small views only get the bottom-right handle, so it can take up more of them
 private const val SMALL_VIEW_HANDLE_TOUCH_FRACTION = 0.4f
-private const val MIN_GRID_CELL_PX = 4
 
 class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(context, attrs) {
     enum class Anchor {
@@ -147,10 +145,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     private val sizeLabelBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, R.color.layoutEditorPanelBackground) }
     private val sizeLabelPadding = context.dpToPixels(8f)
 
-    private val gridSettings = LayoutEditorGridSettings(context)
-    private var gridSettingsListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
-    private var isSnapEnabled = false
-    private var gridCellSize = 1
+    private val snapGrid = SnapGrid(context) { invalidate() }
     private var screenFolds = emptyList<ScreenFold>()
     // The editor background is always black, whatever the theme, so the grid is always light
     private val gridPaint = Paint().apply {
@@ -170,27 +165,17 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
                 otherClickListener?.onClick(it)
             }
         }
-        loadGridSettings()
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        // The setting can also be changed from the editor on the other display, so follow every change
-        gridSettingsListener = gridSettings.addListener { loadGridSettings() }
-        loadGridSettings()
+        snapGrid.attach()
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        gridSettingsListener?.let { gridSettings.removeListener(it) }
-        gridSettingsListener = null
+        snapGrid.detach()
         removeCallbacks(updateAnchorRunnable)
-    }
-
-    private fun loadGridSettings() {
-        isSnapEnabled = gridSettings.isSnapEnabled
-        gridCellSize = max(MIN_GRID_CELL_PX, context.dpToPixels(gridSettings.gridSize.dp.toFloat()).roundToInt())
-        invalidate()
     }
 
     /**
@@ -313,7 +298,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
 
     override fun dispatchDraw(canvas: Canvas) {
         // The grid goes behind the components, the handles in front of them
-        if (isSnapEnabled) {
+        if (snapGrid.isEnabled) {
             drawGrid(canvas)
         }
         super.dispatchDraw(canvas)
@@ -357,11 +342,11 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         val viewWidth = width.toFloat()
         val viewHeight = height.toFloat()
         // The same lines the snapping uses: from the middle of the editor out, plus the editor edges
-        LayoutEditorSnapping.gridLines(width, gridCellSize).forEach {
+        LayoutEditorSnapping.gridLines(width, snapGrid.cellSize).forEach {
             val x = insetLine(it, width, gridPaint)
             canvas.drawLine(x, 0f, x, viewHeight, gridPaint)
         }
-        LayoutEditorSnapping.gridLines(height, gridCellSize).forEach {
+        LayoutEditorSnapping.gridLines(height, snapGrid.cellSize).forEach {
             val y = insetLine(it, height, gridPaint)
             canvas.drawLine(0f, y, viewWidth, y, gridPaint)
         }
@@ -488,7 +473,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
             desiredWidth = max(desiredWidth, desiredHeight * ratio)
             desiredHeight = desiredWidth / ratio
         }
-        if (isSnapEnabled) {
+        if (snapGrid.isEnabled) {
             val (snappedWidth, snappedHeight) = snapResize(view, corner, fixedX, fixedY, desiredWidth, desiredHeight, ratio)
             desiredWidth = snappedWidth
             desiredHeight = snappedHeight
@@ -538,8 +523,8 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
      */
     private fun getSnapAxes(view: LayoutComponentView, editorWidth: Int = width, editorHeight: Int = height): Pair<SnapAxis, SnapAxis> {
         val otherScreen = getOtherScreen(view.component)?.getRect()
-        val xAxis = SnapAxis(editorWidth, gridCellSize, getFoldGaps(vertical = true), otherScreen?.let { SnapSpan(it.x, it.width) })
-        val yAxis = SnapAxis(editorHeight, gridCellSize, getFoldGaps(vertical = false), otherScreen?.let { SnapSpan(it.y, it.height) })
+        val xAxis = SnapAxis(editorWidth, snapGrid.cellSize, getFoldGaps(vertical = true), otherScreen?.let { SnapSpan(it.x, it.width) })
+        val yAxis = SnapAxis(editorHeight, snapGrid.cellSize, getFoldGaps(vertical = false), otherScreen?.let { SnapSpan(it.y, it.height) })
         return xAxis to yAxis
     }
 
@@ -776,7 +761,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
      */
     private fun dragView(view: LayoutComponentView, startRect: Rect, offsetX: Float, offsetY: Float) {
         val rect = clampInside(startRect.copy(x = (startRect.x + offsetX).toInt(), y = (startRect.y + offsetY).toInt()))
-        applyRect(view, if (isSnapEnabled) snapPosition(view, rect) else rect)
+        applyRect(view, if (snapGrid.isEnabled) snapPosition(view, rect) else rect)
     }
 
     /**
@@ -909,7 +894,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         val (constrainedWidth, constrainedHeight) = constrainSize(ratio, newWidth, newHeight, editorWidth, editorHeight)
         val rect = view.getRect()
         val newRect = clampInside(anchor.place(anchor.xOf(rect), anchor.yOf(rect), constrainedWidth, constrainedHeight), editorWidth, editorHeight)
-        applyRect(view, if (isSnapEnabled) snapPosition(view, newRect, editorWidth, editorHeight) else newRect)
+        applyRect(view, if (snapGrid.isEnabled) snapPosition(view, newRect, editorWidth, editorHeight) else newRect)
     }
 
     /**
