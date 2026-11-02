@@ -39,7 +39,7 @@ void DisplayVsyncTracker::trackInterval(double interval)
         return;
     }
 
-    // Missed callbacks (gaps of 1.5 periods or more) and refresh rate changes end up here. Neither is averaged into the estimate
+    // Missed callbacks (gaps of 1.5 periods or more) and refresh rate changes end up here, and neither is averaged into the estimate
     if (candidateIntervalCount > 0 && std::fabs(interval - candidatePeriodNs) <= candidatePeriodNs * MATCHING_INTERVAL_TOLERANCE)
     {
         candidateIntervalCount++;
@@ -101,12 +101,8 @@ VsyncFramePacer::FrameSchedule VsyncFramePacer::scheduleNextFrame(int64_t nowNs,
         isOverloaded = false;
         lockedDivisor = divisor;
 
-        // If each frame still lasts as long (for example from 60Hz to 120Hz, with twice the refreshes per frame), keep the chain of frame
-        // starts, moved to the first point at or after it on the new grid. When the new grid contains the old one, the frames keep landing on
-        // the vsyncs they were going to. Re-locking from the current time instead can start the frame up to half a frame early when the work
-        // was short, and present two frames on back to back refreshes. When the new grid is on the other parity (for example from 120Hz to
-        // 60Hz), the chain moves later by half a refresh. Moving it earlier would make two frames due on the same vsync, and skip one of them.
-        // The small tolerance keeps an aligned chain from being pushed a whole refresh later because of the estimate error
+        // If each frame still lasts as long (for example from 60Hz to 120Hz), keep the chain of frame starts, moved to the first point at or after it
+        // on the new grid (the small tolerance keeps an aligned chain from being pushed a whole refresh later by the estimate error)
         bool isSameFramePeriod = std::llabs(framePeriodNs - lastFramePeriodNs) <= (int64_t) ((double) lastFramePeriodNs * MATCHING_FRAME_PERIOD_TOLERANCE);
         if (wasLocked && overBudgetFrames < OVERLOADED_AFTER_FRAMES && isSameFramePeriod)
         {
@@ -127,7 +123,7 @@ VsyncFramePacer::FrameSchedule VsyncFramePacer::scheduleNextFrame(int64_t nowNs,
         if (isOverBudget)
             return scheduleOverloadedFrame(nowNs, gridOriginNs, refreshPeriodNs, framePeriodNs);
 
-        // Back on budget. Re-lock below
+        // Back on budget, so re-lock below
         isOverloaded = false;
     }
     else if (isLocked)
@@ -146,7 +142,7 @@ VsyncFramePacer::FrameSchedule VsyncFramePacer::scheduleNextFrame(int64_t nowNs,
         if (isTargetPlausible && (lateNs <= lateSlackNs || isBufferEnabled))
             return scheduleLockedFrame(targetNs, dueOffsetNs, refreshPeriodNs, framePeriodNs);
 
-        // Behind without the buffer (the debt is dropped), or the grid moved. Re-lock below
+        // Behind without the buffer (the debt is dropped), or the grid moved: re-lock below
         isLocked = false;
     }
     else if (overBudgetFrames >= OVERLOADED_AFTER_FRAMES)
@@ -155,8 +151,7 @@ VsyncFramePacer::FrameSchedule VsyncFramePacer::scheduleNextFrame(int64_t nowNs,
         return scheduleOverloadedFrame(nowNs, gridOriginNs, refreshPeriodNs, framePeriodNs);
     }
 
-    // (Re-)lock to the closest grid point. If the previous one was less than a quarter of a refresh ago, start right away on it instead of
-    // waiting for the next one
+    // (Re-)lock to the closest grid point, starting right away on the previous one if it was less than a quarter of a refresh ago
     int64_t phaseNs = floorMod(nowNs - gridOriginNs, refreshPeriodNs);
     int64_t targetNs = phaseNs <= lateSlackNs ? nowNs - phaseNs : nowNs + (refreshPeriodNs - phaseNs);
     isLocked = true;
@@ -187,10 +182,9 @@ int64_t VsyncFramePacer::getNextGridPoint(int64_t nowNs, int64_t gridOriginNs, i
 VsyncFramePacer::FrameSchedule VsyncFramePacer::scheduleLockedFrame(int64_t targetNs, int64_t dueOffsetNs, int64_t refreshPeriodNs, int64_t framePeriodNs)
 {
     int64_t dueNs = targetNs + dueOffsetNs;
-    // Keep the presentation order when switching modes (for example from overloaded, or when the buffer is turned off): a frame must be due
-    // at least one refresh after the previous one, or the previous one would be dropped. When each frame lasts a single refresh, that would
-    // keep the extra latency forever after turning the buffer off, so the frame is only kept from being due before the previous one (which
-    // skips one frame at the switch)
+    // Keep the presentation order when switching modes (from overloaded, or when the buffer is turned off): a frame must be due at least one refresh
+    // after the previous one, except with one refresh per frame, where it's only kept from being due before it, so the extra latency doesn't stay
+    // forever after turning the buffer off
     int64_t minDueNs = framePeriodNs == refreshPeriodNs ? lastDueNs : lastDueNs + refreshPeriodNs;
     if (lastDueNs != 0 && dueNs < minDueNs)
         dueNs = minDueNs;
@@ -203,8 +197,8 @@ VsyncFramePacer::FrameSchedule VsyncFramePacer::scheduleLockedFrame(int64_t targ
 
 VsyncFramePacer::FrameSchedule VsyncFramePacer::scheduleOverloadedFrame(int64_t nowNs, int64_t gridOriginNs, int64_t refreshPeriodNs, int64_t framePeriodNs)
 {
-    // One frame period after the previous frame's due time, but not before the vsync after the next one. The chain falls behind the current
-    // time while overloaded, in which case the frame is simply presented as soon as it's ready
+    // One frame period after the previous frame's due time, but not before the vsync after the next one; while overloaded the chain falls behind the
+    // current time and the frame is just presented when it's ready
     int64_t dueNs = 0;
     if (lastDueNs != 0)
     {
