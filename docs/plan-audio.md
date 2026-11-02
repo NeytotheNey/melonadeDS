@@ -1,6 +1,6 @@
 # Audio pass
 
-Measurements are in PERF-NOTES.md ("Audio"). Before this pass it was about 44 ms from the SPU to the speaker (14 ms in the SPU ring, 30 ms in the AAudio buffer), and the only audible cuts came from folds draining the ring.
+Measurements are in the local `PERF-NOTES.md` ("Audio"; see [README.md](README.md)). Before this pass it was about 44 ms from the SPU to the speaker (14 ms in the SPU ring, 30 ms in the AAudio buffer), and the only audible cuts came from folds draining the ring.
 
 ## How audio flows
 
@@ -8,13 +8,13 @@ Measurements are in PERF-NOTES.md ("Audio"). Before this pass it was about 44 ms
 2. The Oboe callback (AAudio, Shared, LowLatency, MMAP, 96-frame bursts) locks the same mutex in `SPU::ReadOutput`, copies, applies volume, and pads a short read by repeating the last frame, or silence if nothing came.
 3. The stream is 48 kHz I16, which matches the device, so Oboe never resamples. Oboe is 1.10.0, with the ADPF performance hint on.
 
-## Done (steps 1 and 2, committed in `1f181515` and `4146bf4f`)
+## Done (steps 1 and 2, `1f181515` and `4146bf4f`)
 
-- **Drift control:** a PI controller steers the ring towards 960 frames (20 ms) with at most ±0.5% skew. The callback computes the skew into an atomic and the emulator thread applies it in `BufferAudio()`, which also removed the old `blip_set_rates` data race.
+- **Drift control:** a PI controller steers the ring towards 960 frames (20 ms) with at most ±0.5% skew, applied on the emulator thread.
 - **Smaller AAudio buffer:** starts at 3 bursts and grows one burst per xrun.
-- **Priming and trims:** the callback plays silence until the ring reaches 960 at start/resume (480 after a real underrun). A (re)started stream keeps priming until the emulator thread trims the ring to 840 at the start of its next frame (the low point); reprimes trim in the callback. Priming and trims only run for bursts of 256 frames or less; bigger-burst streams get plain drift control.
-- **Logging:** `skew_ppm`, `fill_filtered`, `buffer_size`, `ff_speed` in the debug log; `audio_skew_ppm`, `audio_ff_speed` in the perf CSV; skew, buffer, prime and FF-speed stats in the summary. Summary totals exclude fast-forward.
-- **Tried and parked:** scaling the fast-forward base rate by the measured FF speed. On the phone the pitch glided between 1.45x and 2x, so the base is the requested multiplier again, and slow FF scenes still run dry until step 6.
+- **Priming and trims:** silence until the ring reaches 960 at start/resume (480 after an underrun), then a trim to 840; only for bursts of 256 frames or less.
+- **Logging:** skew, fill, buffer size and FF speed in the debug log, perf CSV and summary; summary totals exclude fast-forward.
+- **Tried and parked:** scaling the fast-forward base rate by the measured FF speed made the pitch glide, so slow FF scenes still run dry until step 6.
 
 Still owed: a phone run of the `4146bf4f` build (resumes and short pauses, checking the logged FF speed).
 
