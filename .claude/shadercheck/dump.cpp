@@ -29,8 +29,7 @@ static void dumpGL(){
   w("HiresCaptureFS.frag", std::string(kHiresCaptureFS_Head) + kCompositePixelFS + kHiresCaptureFS_Main);
 }
 
-// ComputeRenderer::CompileShader's assembly (compute_assembly.inc, cut from GPU3D_Compute.cpp by check.sh) with the scale 1 settings.
-// shaderFileName ends up as the defines joined by '_'.
+// ComputeRenderer::CompileShader's assembly (compute_assembly.inc, cut from GPU3D_Compute.cpp by check.sh) with the scale 1 settings
 static void dumpCompute(const std::string& source, const std::initializer_list<const char*>& defines){
   const int ScreenWidth = 256, ScreenHeight = 192, MaxWorkTiles = 12288, TileSize = 8;
   const int CoarseTileCountY = 4, CoarseTileArea = 32, ClearCoarseBinMaskLocalSize = 64;
