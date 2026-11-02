@@ -186,7 +186,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     private fun labelCentre(part: RaisedButtonView.Part, grid: PartGrid, transform: Matrix): FloatArray {
         val centre = floatArrayOf(part.labelX, part.labelY)
         transform.mapPoints(centre)
-        return floatArrayOf((centre[0] - grid.originX) / detailSize, (centre[1] - grid.originY) / detailSize)
+        return grid.toDetail(centre[0], centre[1])
     }
 
     /**
@@ -212,7 +212,14 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     private fun iconCentre(part: RaisedButtonView.Part, grid: PartGrid, face: Path, glyph: Path): FloatArray {
         val bounds = RectF()
         if (part.glyph != null) glyph.computeBounds(bounds, true) else face.computeBounds(bounds, true)
-        return floatArrayOf((bounds.centerX() - grid.originX) / detailSize, (bounds.centerY() - grid.originY) / detailSize)
+        return grid.toDetail(bounds.centerX(), bounds.centerY())
+    }
+
+    /**
+     * Converts a point in view pixels to detail cells on this grid.
+     */
+    private fun PartGrid.toDetail(x: Float, y: Float): FloatArray {
+        return floatArrayOf((x - originX) / detailSize, (y - originY) / detailSize)
     }
 
     /**
@@ -312,8 +319,9 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         // The D-pad's centre gets a small round dent: a shadow on its top-left inner edge and a light bottom-right one. Cell x spans x to x + 1
         val hasDimple = part.isDpad && part.input == null
         val dimpleRadius = min(DIMPLE_RADIUS, faceBounds.width() / detailSize / 6f)
-        val dimpleX = (faceBounds.centerX() - grid.originX) / detailSize - 0.5f
-        val dimpleY = (faceBounds.centerY() - grid.originY) / detailSize - 0.5f
+        val faceCentre = grid.toDetail(faceBounds.centerX(), faceBounds.centerY())
+        val dimpleX = faceCentre[0] - 0.5f
+        val dimpleY = faceCentre[1] - 0.5f
 
         fun isInDimple(x: Int, y: Int): Boolean {
             val dx = x - dimpleX
