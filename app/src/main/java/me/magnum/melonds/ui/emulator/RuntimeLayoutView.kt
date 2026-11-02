@@ -350,11 +350,7 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     }
 
     private fun updateScreenInputs() {
-        val (touchScreenComponent, nonTouchScreenComponent) = if (areScreensSwapped) {
-            LayoutComponent.TOP_SCREEN to LayoutComponent.BOTTOM_SCREEN
-        } else {
-            LayoutComponent.BOTTOM_SCREEN to LayoutComponent.TOP_SCREEN
-        }
+        val (nonTouchScreenComponent, touchScreenComponent) = getDrawnScreens()
         systemInputHandler?.let {
             getLayoutComponentView(touchScreenComponent)?.view?.setOnTouchListener(TouchscreenInputHandler(it, ::getTouchScreenArea))
         }
