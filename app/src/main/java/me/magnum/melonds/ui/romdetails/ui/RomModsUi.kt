@@ -61,6 +61,7 @@ import me.magnum.melonds.ui.romdetails.model.RomConfigUiModel
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiState
 import me.magnum.melonds.ui.romdetails.model.RomConfigUpdateEvent
 import me.magnum.melonds.ui.romdetails.model.RomLuaScriptsUiModel
+import me.magnum.melonds.ui.romdetails.model.RomModsUiModel
 import me.magnum.melonds.ui.theme.MelonTheme
 import java.util.UUID
 
@@ -77,6 +78,7 @@ fun RomModsUi(
             modifier = modifier,
             contentPadding = contentPadding,
             romConfig = romConfigUiState.romConfigUiModel,
+            romMods = romConfigUiState.romModsUiModel,
             onConfigUpdate = onConfigUpdate,
         )
     }
@@ -97,12 +99,13 @@ private fun Content(
     modifier: Modifier,
     contentPadding: PaddingValues,
     romConfig: RomConfigUiModel,
+    romMods: RomModsUiModel,
     onConfigUpdate: (RomConfigUpdateEvent) -> Unit,
 ) {
     Column(
         modifier = modifier.verticalScroll(rememberScrollState()).padding(contentPadding),
     ) {
-        WidescreenSection(romConfig, onConfigUpdate)
+        WidescreenSection(romConfig, romMods, onConfigUpdate)
         LuaScriptsSection(romConfig, onConfigUpdate)
     }
 }
@@ -110,6 +113,7 @@ private fun Content(
 @Composable
 private fun WidescreenSection(
     romConfig: RomConfigUiModel,
+    romMods: RomModsUiModel,
     onConfigUpdate: (RomConfigUpdateEvent) -> Unit,
 ) {
     val wideViewWidth = romConfig.mods.validWideViewWidth
@@ -117,7 +121,7 @@ private fun WidescreenSection(
     SectionTitle(stringResource(id = R.string.widescreen))
 
     // The width is still kept, for when the renderer is switched to OpenGL or Compute
-    if (!romConfig.isWidescreenSupported) {
+    if (!romMods.isWidescreenSupported) {
         SectionNote(stringResource(id = R.string.widescreen_needs_hardware_renderer))
     }
 
@@ -131,10 +135,11 @@ private fun WidescreenSection(
     if (wideViewWidth != null) {
         val aspectOptions = stringArrayResource(id = R.array.widescreen_aspect_options)
         // A layout that was deleted or isn't marked wide anymore counts as automatic, like at launch
-        val wideLayout = romConfig.wideLayouts?.firstOrNull { it.id != null && it.id == romConfig.mods.wideLayoutId }
+        val wideLayout = romMods.wideLayouts?.firstOrNull { it.id != null && it.id == romConfig.mods.wideLayoutId }
         val automaticAspect = WidescreenAspect.fromViewWidth(wideViewWidth)
         WideLayoutItem(
             romConfig = romConfig,
+            wideLayouts = romMods.wideLayouts,
             wideLayout = wideLayout,
             newLayoutWideAspect = wideLayout?.commonWideAspect ?: automaticAspect,
             onConfigUpdate = onConfigUpdate,
@@ -162,6 +167,7 @@ private fun WidescreenSection(
 @Composable
 private fun WideLayoutItem(
     romConfig: RomConfigUiModel,
+    wideLayouts: List<LayoutConfiguration>?,
     wideLayout: LayoutConfiguration?,
     newLayoutWideAspect: WidescreenAspect,
     onConfigUpdate: (RomConfigUpdateEvent) -> Unit,
@@ -177,7 +183,7 @@ private fun WideLayoutItem(
         name = stringResource(id = R.string.wide_layout),
         value = if (wideLayout == null) stringResource(id = R.string.wide_layout_automatic) else layoutDisplayName(wideLayout.name),
         // Until the layouts are read it isn't known which one is picked
-        enabled = romConfig.wideLayouts != null,
+        enabled = wideLayouts != null,
         onLaunchAction = {
             // The stored pick, so that backing out keeps it. The picker falls back to automatic if that layout isn't wide (anymore)
             val intent = Intent(context, LayoutSelectorActivity::class.java).apply {
@@ -190,7 +196,7 @@ private fun WideLayoutItem(
         },
     )
 
-    if (romConfig.wideLayouts?.isEmpty() == true) {
+    if (wideLayouts?.isEmpty() == true) {
         SectionNote(stringResource(id = R.string.wide_layout_none))
     }
 }

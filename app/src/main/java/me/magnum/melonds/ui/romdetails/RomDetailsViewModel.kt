@@ -43,6 +43,7 @@ import me.magnum.melonds.ui.romdetails.model.LuaScriptEvent
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiState
 import me.magnum.melonds.ui.romdetails.model.RomConfigUpdateEvent
 import me.magnum.melonds.ui.romdetails.model.RomGbaSlotConfigUiModel
+import me.magnum.melonds.ui.romdetails.model.RomModsUiModel
 import me.magnum.melonds.ui.romlist.RomIcon
 import javax.inject.Inject
 
@@ -102,9 +103,11 @@ class RomDetailsViewModel @Inject constructor(
                 val romConfigUiModel = romDetailsUiMapper.mapRomConfigToUi(romConfig)
                 // What was read from the previous folder says nothing about the new one
                 val currentFolderState = folderState?.takeIf { it.folderUri == romConfig.mods.luaScriptFolder }
-                romConfigUiModel.copy(
+                val romModsUiModel = RomModsUiModel(
                     isWidescreenSupported = renderer != VideoRenderer.SOFTWARE,
                     wideLayouts = layouts?.filter { it.isWide },
+                )
+                val romConfigWithScripts = romConfigUiModel.copy(
                     luaScripts = romConfigUiModel.luaScripts.copy(
                         isFolderMissing = currentFolderState?.isReadable == false,
                         isFolderEmpty = currentFolderState?.isReadable == true && romConfig.mods.luaScripts.isEmpty(),
@@ -114,8 +117,9 @@ class RomDetailsViewModel @Inject constructor(
                         layouts = layouts?.toLuaLayoutChoices(),
                     ),
                 )
+                RomConfigUiState.Ready(romConfigWithScripts, romModsUiModel)
             }.collect {
-                uiStateFlow.value = RomConfigUiState.Ready(it)
+                uiStateFlow.value = it
             }
         }
 
