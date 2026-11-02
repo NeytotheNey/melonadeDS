@@ -64,9 +64,7 @@ android {
         }
         getByName("debug") {
             applicationIdSuffix = ".dev"
-            // Debug builds are used for on-device perf testing, so optimize native code but keep symbols.
-            // -PnativeBuildType=Debug builds it at -O0 instead, to check optimization-dependent bugs.
-            // MELONADE_DEBUG_TOOLS turns on native debug-only tools, like the 2D frame hash log (MelonInstance.cpp).
+            // Debug builds are optimized (RelWithDebInfo) for on-device perf tests; -PnativeBuildType=Debug gives -O0, and MELONADE_DEBUG_TOOLS turns on native debug-only tools
             val nativeBuildType = providers.gradleProperty("nativeBuildType").getOrElse("RelWithDebInfo")
             externalNativeBuild {
                 cmake {
@@ -119,7 +117,7 @@ android {
 }
 
 androidComponents {
-    // minSdk >= 28 stores dex uncompressed, which doubles the unminified debug APK. Release builds are minified, so they keep the default
+    // Compress dex in debug APKs, which are not minified and double in size otherwise
     onVariants(selector().withBuildType("debug")) { variant ->
         variant.packaging.dex.useLegacyPackaging.set(true)
     }
@@ -136,8 +134,7 @@ room {
     schemaDirectory("$projectDir/schemas")
 }
 
-// Generates the open source licences list (res/raw/aboutlibraries.json) from the dependencies of each variant. It runs offline, so licence
-// texts are never downloaded: they come from config/licenses, along with the native code and shaders Gradle can't see (config/libraries)
+// Generates res/raw/aboutlibraries.json offline from each variant's dependencies plus config/libraries and config/licenses
 aboutLibraries {
     offlineMode = true
     collect {
@@ -151,8 +148,7 @@ aboutLibraries {
         requireLicense = true
     }
     license {
-        // Fails the build when a dependency brings a licence that config/licenses has no text for. The shared BSD entries there hold the
-        // copyright notice of the libraries below, so any other library under those licences needs its own entry first
+        // Fail the build on a licence that config/licenses has no text for; the BSD map lists the libraries whose notices the shared entries hold
         strictMode = com.mikepenz.aboutlibraries.plugin.StrictMode.FAIL
         allowedLicenses.addAll(
             "Apache-2.0", "0BSD", "CC0-1.0", "MIT", "Unlicense", "GPL-2.0-or-later", "GPL-3.0-only", "GPL-3.0-or-later", "LGPL-2.1-or-later",
@@ -204,7 +200,7 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
 
     debugImplementation(libs.compose.ui.tooling)
-    // Debug builds only. Configured in src/debug (LeakCanaryInitializer) so that it never dumps the heap while a game is open
+    // LeakCanaryInitializer (src/debug) stops heap dumps while a game is open
     debugImplementation(libs.leakcanary)
 
     implementation(libs.aboutlibraries.compose.m3)

@@ -28,8 +28,7 @@ target_include_directories(enet INTERFACE ${ANDROID-CPP}/enet/include)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/${CORE-LIB}/cmake")
 add_subdirectory(${CORE-LIB}/src/net ./net-utils)
 
-# Lua for per-game scripts. Only the library is built (no lua.c/luac.c), and the sources are kept unchanged, except for
-# lstrlib.c: the copy in lua/patched/ is built instead (see lua/LICENSE)
+# Lua library only (no lua.c/luac.c); lstrlib.c comes from lua/patched/, see lua/LICENSE
 file(GLOB LUA_SOURCES ${ANDROID-CPP}/lua/*.c)
 list(FILTER LUA_SOURCES EXCLUDE REGEX "/lstrlib\.c$")
 add_library(lua STATIC ${LUA_SOURCES} ${ANDROID-CPP}/lua/patched/lstrlib.c)
@@ -99,6 +98,5 @@ target_include_directories(melonDS-android-frontend PUBLIC
 )
 target_link_libraries(melonDS-android-frontend android core net-utils oboe faad enet rcheevos lua EGL GLESv3)
 
-# Bind the library's own symbols at link time, so calls between its functions (the core's hot paths included)
-# don't go through PLT stubs. Symbols stay exported, so the JNI entry points are unaffected
+# -Bsymbolic binds the library's own calls at link time so the core's hot paths skip the PLT; JNI exports are unaffected
 target_link_options(melonDS-android-frontend PRIVATE -Wl,-Bsymbolic)
