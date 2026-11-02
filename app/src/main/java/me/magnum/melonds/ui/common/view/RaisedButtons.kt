@@ -41,8 +41,8 @@ object RaisedButtons {
         return 512f + 2f * SPACING_EXTRA * spacing
     }
 
-    fun dpad(context: Context, style: ControllerStyle): RaisedButtonView {
-        return build(context, style, spacedDesignSize(0f), PAD_DEPTH, dpadParts(0f))
+    fun dpad(context: Context, style: ControllerStyle, spacing: Float = 0f): RaisedButtonView {
+        return build(context, style, spacedDesignSize(spacing), PAD_DEPTH, dpadParts(spacing))
     }
 
     /**
@@ -72,8 +72,8 @@ object RaisedButtons {
         )
     }
 
-    fun abxy(context: Context, style: ControllerStyle): RaisedButtonView {
-        return build(context, style, spacedDesignSize(0f), PAD_DEPTH, abxyParts(0f))
+    fun abxy(context: Context, style: ControllerStyle, spacing: Float = 0f): RaisedButtonView {
+        return build(context, style, spacedDesignSize(spacing), PAD_DEPTH, abxyParts(spacing))
     }
 
     /**

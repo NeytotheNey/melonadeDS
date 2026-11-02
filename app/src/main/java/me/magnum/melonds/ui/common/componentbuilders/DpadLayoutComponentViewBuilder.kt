@@ -12,6 +12,10 @@ class DpadLayoutComponentViewBuilder : LayoutComponentViewBuilder() {
         return RaisedButtons.dpad(context, style)
     }
 
+    override fun build(context: Context, style: ControllerStyle, spacing: Float): View {
+        return RaisedButtons.dpad(context, style, spacing)
+    }
+
     override fun applySpacing(view: View, spacing: Float) {
         (view as? RaisedButtonView)?.setParts(RaisedButtons.dpadParts(spacing), RaisedButtons.spacedDesignSize(spacing))
     }

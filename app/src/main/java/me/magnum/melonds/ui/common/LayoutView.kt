@@ -66,10 +66,7 @@ open class LayoutView(context: Context, attrs: AttributeSet?) : FrameLayout(cont
 
     protected fun addPositionedLayoutComponent(layoutComponent: PositionedLayoutComponent): LayoutComponentView {
         val viewBuilder = viewBuilderFactory.getLayoutComponentViewBuilder(layoutComponent.component)
-        val view = viewBuilder.build(context, controllerStyle)
-        if (layoutComponent.spacing > 0f) {
-            viewBuilder.applySpacing(view, layoutComponent.spacing)
-        }
+        val view = viewBuilder.build(context, controllerStyle, layoutComponent.spacing)
 
         val viewParams = LayoutParams(layoutComponent.rect.width, layoutComponent.rect.height).apply {
             leftMargin = layoutComponent.rect.x

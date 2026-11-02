@@ -12,6 +12,10 @@ class ButtonsLayoutComponentViewBuilder : LayoutComponentViewBuilder() {
         return RaisedButtons.abxy(context, style)
     }
 
+    override fun build(context: Context, style: ControllerStyle, spacing: Float): View {
+        return RaisedButtons.abxy(context, style, spacing)
+    }
+
     override fun applySpacing(view: View, spacing: Float) {
         (view as? RaisedButtonView)?.setParts(RaisedButtons.abxyParts(spacing), RaisedButtons.spacedDesignSize(spacing))
     }
