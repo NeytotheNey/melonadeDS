@@ -10,7 +10,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.view.Display
-import android.view.Gravity
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -19,9 +18,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
-import android.widget.CheckedTextView
-import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -53,7 +49,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
-import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.squareup.picasso.Picasso
 import dagger.hilt.android.AndroidEntryPoint
@@ -111,6 +106,7 @@ import me.magnum.melonds.ui.emulator.model.RuntimeInputLayoutConfiguration
 import me.magnum.melonds.ui.emulator.model.LuaUiEvent
 import me.magnum.melonds.ui.emulator.ui.LuaScriptOptionsDialog
 import me.magnum.melonds.ui.emulator.ui.LuaScriptOptionsDialogState
+import me.magnum.melonds.ui.emulator.ui.LuaScriptsDialog
 import me.magnum.melonds.ui.emulator.model.ToastEvent
 import me.magnum.melonds.ui.emulator.render.ChoreographerFrameRenderer
 import me.magnum.melonds.ui.emulator.render.ChoreographerFrameRendererFactory
@@ -367,6 +363,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     private val rewindWindowState = mutableStateOf<RewindWindowState>(RewindWindowState.Hidden)
     private val showAchievementList = mutableStateOf(false)
+    private val luaScriptsDialogState = mutableStateOf<List<LuaScriptStatus>?>(null)
     private val luaScriptOptionsDialogState = mutableStateOf<LuaScriptOptionsDialogState?>(null)
     private val showPendingSubmissionsDialog = mutableStateOf(false)
 
@@ -523,6 +520,16 @@ class EmulatorActivity : AppCompatActivity() {
                             viewModel.resumeEmulator()
                             showAchievementList.value = false
                         }
+                    )
+                }
+
+                luaScriptsDialogState.value?.let { scripts ->
+                    LuaScriptsDialog(
+                        scripts = scripts,
+                        onDisableScript = viewModel::disableLuaScript,
+                        onEnableScript = viewModel::enableLuaScript,
+                        onOpenOptions = ::openLuaScriptOptionsDialog,
+                        onDismiss = ::closeLuaScriptsDialog,
                     )
                 }
 
@@ -1221,93 +1228,30 @@ class EmulatorActivity : AppCompatActivity() {
             .show()
     }
 
-    /**
-     * Lists the session's scripts, ticked while they run. Unticking one switches it off and ticking it switches it back on, for this session
-     * only. A running script with options has an "Options…" button, which opens [LuaScriptOptionsDialog] in place of this dialog
-     */
     private fun showLuaScriptsDialog(scripts: List<LuaScriptStatus>) {
-        val isRunning = BooleanArray(scripts.size) { scripts[it].isRunning }
-        // Cleared when a script is switched back on, like the session's own copy
-        val lastErrors = MutableList(scripts.size) { scripts[it].lastError }
-        var dialog: AlertDialog? = null
-
-        val rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        scripts.forEachIndexed { position, script ->
-            // The checkbox row the old list used, with the options button next to it
-            val checkedTextView = layoutInflater.inflate(android.R.layout.simple_list_item_multiple_choice, rows, false) as CheckedTextView
-            // A list gave its rows a touch ripple, which plain views don't have
-            val rippleBackground = android.util.TypedValue()
-            theme.resolveAttribute(android.R.attr.selectableItemBackground, rippleBackground, true)
-            checkedTextView.setBackgroundResource(rippleBackground.resourceId)
-            val optionsButton = MaterialButton(this, null, androidx.appcompat.R.attr.borderlessButtonStyle).apply {
-                text = getString(R.string.lua_script_options_button)
-            }
-
-            fun updateRow() {
-                checkedTextView.text = getLuaScriptLabel(script, isRunning[position], lastErrors[position])
-                checkedTextView.isChecked = isRunning[position]
-                optionsButton.isVisible = isRunning[position] && script.options.isNotEmpty()
-            }
-
-            checkedTextView.setOnClickListener {
-                if (isRunning[position]) {
-                    viewModel.disableLuaScript(position)
-                    isRunning[position] = false
-                } else if (viewModel.enableLuaScript(position)) {
-                    // If it fails to load, its error shows the next time the dialog opens
-                    isRunning[position] = true
-                    lastErrors[position] = null
-                }
-                updateRow()
-            }
-            optionsButton.setOnClickListener {
-                // Added before this dialog goes, so the emulator stays paused in between
-                activeOverlays.addActiveOverlay(EmulatorOverlay.LUA_SCRIPT_OPTIONS_DIALOG)
-                luaScriptOptionsDialogState.value = LuaScriptOptionsDialogState(position, script.name, script.options, script.optionValues)
-                // Dismissed rather than cancelled, so the emulator doesn't resume
-                dialog?.dismiss()
-            }
-            updateRow()
-
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(checkedTextView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                addView(optionsButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-            }
-            rows.addView(row)
-        }
-
         activeOverlays.addActiveOverlay(EmulatorOverlay.LUA_SCRIPTS_DIALOG)
-        dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.label_rom_config_mods)
-            .setView(ScrollView(this).apply { addView(rows) })
-            .setPositiveButton(R.string.close) { dialog, _ ->
-                dialog.cancel()
-            }
-            .setOnDismissListener {
-                activeOverlays.removeActiveOverlay(EmulatorOverlay.LUA_SCRIPTS_DIALOG)
-            }
-            .setOnCancelListener {
-                viewModel.resumeEmulator()
-            }
-            .show()
+        luaScriptsDialogState.value = scripts
+    }
+
+    private fun closeLuaScriptsDialog() {
+        luaScriptsDialogState.value = null
+        activeOverlays.removeActiveOverlay(EmulatorOverlay.LUA_SCRIPTS_DIALOG)
+        viewModel.resumeEmulator()
+    }
+
+    private fun openLuaScriptOptionsDialog(scriptId: Int, script: LuaScriptStatus) {
+        // Added before the scripts dialog goes, so the emulator stays paused in between
+        activeOverlays.addActiveOverlay(EmulatorOverlay.LUA_SCRIPT_OPTIONS_DIALOG)
+        luaScriptOptionsDialogState.value = LuaScriptOptionsDialogState(scriptId, script.name, script.options, script.optionValues)
+        // Closed without resuming the emulator
+        luaScriptsDialogState.value = null
+        activeOverlays.removeActiveOverlay(EmulatorOverlay.LUA_SCRIPTS_DIALOG)
     }
 
     private fun closeLuaScriptOptionsDialog() {
         luaScriptOptionsDialogState.value = null
         activeOverlays.removeActiveOverlay(EmulatorOverlay.LUA_SCRIPT_OPTIONS_DIALOG)
         viewModel.resumeEmulator()
-    }
-
-    private fun getLuaScriptLabel(script: LuaScriptStatus, isRunning: Boolean, lastError: String?): String {
-        // The tick already shows that a script runs, so its description takes the second line when it has one
-        val state = when {
-            isRunning -> script.description ?: getString(R.string.lua_script_running)
-            lastError != null -> getString(R.string.lua_script_off_error, lastError)
-            else -> getString(R.string.lua_script_off)
-        }
-        return "${script.name}\n$state"
     }
 
     private fun showRomLoadErrorDialog() {
