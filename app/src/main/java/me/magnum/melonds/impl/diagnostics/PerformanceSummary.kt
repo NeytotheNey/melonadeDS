@@ -12,7 +12,7 @@ private const val AUDIO_BUFFER_CAPACITY_FRAMES = 2048
 private const val AUDIO_BUFFER_SAMPLE_RATE = 48000
 
 /**
- * One "key: value" line of the summary. [description] is printed in the summary's key list, so the file explains its own keys.
+ * One "key: value" line of the summary, whose [description] is printed in the summary's key list.
  */
 internal class SummaryEntry(val key: String, val value: Any?, val description: String?)
 

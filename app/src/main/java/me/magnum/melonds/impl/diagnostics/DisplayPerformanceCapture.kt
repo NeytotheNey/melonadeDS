@@ -3,14 +3,11 @@ package me.magnum.melonds.impl.diagnostics
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Collects one sample per presented display frame for [PerformanceLogger]. Samples are recorded by the frame render thread (single producer) and
- * drained by the logger (single consumer) through a preallocated lock-free ring, so recording never allocates or blocks.
- *
- * Each sample takes [FIELDS] entries: presentation timestamp (ns, [System.nanoTime]), render CPU duration (ns), flags ([FLAG_VALID],
- * [FLAG_NEW_FRAME], [FLAG_EMULATION_PAUSED], [FLAG_DS_SLEEP], [FLAG_FAST_FORWARD]), the number of emulator frames that were skipped (produced
- * but never presented) before this one and the display's vsync period when it was rendered (ns, 0 if unknown).
+ * One sample per presented display frame, recorded by the render thread and drained by [PerformanceLogger] through a lock-free
+ * single-producer/single-consumer ring.
  */
 object DisplayPerformanceCapture {
+    // Per sample: presentation time (ns), render CPU time (ns), FLAG_* bits, emulator frames skipped before it, vsync period (ns, 0 if unknown)
     const val FIELDS = 5
     const val FLAG_VALID = 1L
     const val FLAG_NEW_FRAME = 2L
@@ -36,7 +33,7 @@ object DisplayPerformanceCapture {
     private var lastFrameSequence = 0L
 
     /**
-     * Must be called from the consumer. Enabling discards pending samples.
+     * Consumer only; enabling discards pending samples.
      */
     fun setEnabled(enabled: Boolean) {
         if (enabled) {
@@ -88,7 +85,7 @@ object DisplayPerformanceCapture {
     }
 
     /**
-     * Must be called from the consumer. Copies pending samples into [buffer] and returns the number of samples copied.
+     * Consumer only; copies pending samples into [buffer] and returns how many.
      */
     fun drain(buffer: LongArray): Int {
         val read = readIndex.get()

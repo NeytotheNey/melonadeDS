@@ -37,10 +37,8 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.math.abs
 
 /**
- * Opt-in logger used to compare builds. While a session is active, it drains the frame samples captured by the emulator thread and the display
- * samples captured by the render thread about once per second, writes them to CSV files together with a memory sample (plus a PSS breakdown every
- * 30 s) and the events reported through [logEvent] and [logStateChange], and keeps a summary with aggregated statistics up to date. All work happens
- * on a background thread.
+ * Opt-in logger that drains the emulator and display frame samples about once a second and writes CSVs plus a running summary, all on a
+ * background thread.
  */
 class PerformanceLogger(
     private val context: Context,
@@ -65,9 +63,7 @@ class PerformanceLogger(
     private var lastSessionJob: Job? = null
 
     /**
-     * Starts a new logging session if performance logging is enabled. Any active session is stopped first.
-     *
-     * @param sessionName Name of the ROM (or firmware) being run. Used in the file names and in the summary
+     * Starts a session named after the ROM or firmware if performance logging is enabled, stopping any active one first.
      */
     @Synchronized
     fun startSession(sessionName: String) {
@@ -88,7 +84,6 @@ class PerformanceLogger(
                     Log.w(TAG, "Previous performance log session is taking too long to finish. Skipping session for $sessionName")
                     // Forgotten right away, so that isSessionActive() lets the caller start a new one later
                     clearSession(session)
-                    // Keep waiting so that the next session doesn't overlap with the one that is still running
                     previousSessionJob.join()
                     return@launch
                 }
@@ -103,7 +98,7 @@ class PerformanceLogger(
     }
 
     /**
-     * Stops the active session, if any. The remaining samples are written and the summary is finalized in the background.
+     * Stops the active session; remaining samples and the final summary are written in the background.
      */
     @Synchronized
     fun stopSession() {
@@ -124,8 +119,7 @@ class PerformanceLogger(
     }
 
     /**
-     * Records an event (for example the activity being paused) in the active session's events file. Does nothing if there's no active session.
-     * Cheap and safe to call from any thread: the event is only queued here and written by the logger's background thread.
+     * Queues an event for the active session's events file; safe to call from any thread.
      */
     @Synchronized
     fun logEvent(event: String, detail: String = "") {
@@ -133,8 +127,8 @@ class PerformanceLogger(
     }
 
     /**
-     * Like [logEvent], but only records [value] if it differs from the last value reported for [key], and also logs it as a [DebugLog] state
-     * change. The current value of every key is also written at the start of each session.
+     * Like [logEvent] plus a [DebugLog] state change, but only when [value] differs from the last value for [key]; every key is also written
+     * at session start.
      */
     @Synchronized
     fun logStateChange(key: String, value: String) {
@@ -164,7 +158,7 @@ class PerformanceLogger(
             private set
         var wasAudioStreamOpenAtStart = false
             private set
-        // The open size of the first stream that opened during the session, or -1. Only used if no stream was open at the start
+        // Open size of the first stream that opened during the session (-1 if none), used only when no stream was open at the start
         var firstAudioBufferSizeAtOpen = -1L
             private set
 
@@ -174,8 +168,7 @@ class PerformanceLogger(
         // The rate the display reported at session start, used when no display sample was counted
         var displayRefreshRate: Float? = null
             private set
-        // Re-read at session start and before every periodic summary. Not re-read for the final summary, since by then the emulator screen may be
-        // gone and the display back at its normal rate
+        // Re-read at session start and before each periodic summary, not for the final one (the display may already be back at its normal rate)
         var lastDisplayState: DisplayStateSnapshot? = null
             private set
         var startMemorySnapshot: PssSnapshot? = null
@@ -203,12 +196,11 @@ class PerformanceLogger(
         }
 
         suspend fun run() {
-            // Full PSS breakdown. This reads /proc/self/smaps while holding the process' mmap lock, which can stall the emulator thread (the JIT
-            // maps and protects memory). So apart from the samples before capture starts and after it ends, it's only taken every 30 s, and the
-            // time each sample took is logged so that the frames it stalled can be told apart
+            // A full PSS read walks /proc/self/smaps under the mmap lock and can stall the JIT, so it only runs before/after capture and every
+            // 30 s, with its duration logged
             startMemorySnapshot = takePssSnapshot()
 
-            // Start capturing straight away so that start-up frames are kept. Samples wait in the buffers until the first drain
+            // Start capturing straight away so that start-up frames are kept
             MelonEmulator.setPerformanceCaptureEnabled(true)
             DisplayPerformanceCapture.setEnabled(true)
             MelonEmulator.getAudioDiagnosticsTotals(audioTotalsAtStart)
@@ -237,7 +229,6 @@ class PerformanceLogger(
                 eventsWriter = logDestination.openWriter("${filePrefix}_events.csv").apply {
                     write("t_s,event,detail\n")
                 }
-                // The first row carries the PSS sample taken just before capture started
                 sampleMemory(startMemorySnapshot)
 
                 var drainCount = 0
@@ -340,7 +331,7 @@ class PerformanceLogger(
                         lineBuilder.append(audioSkewPpm)
                     }
                     lineBuilder.append(',')
-                    // The speed paced fast-forward really reached, blank when unknown. Thousandths, so they're written like milliseconds
+                    // The speed paced fast-forward really reached, in thousandths so it's written like milliseconds; blank when unknown
                     if (audioFill >= 0 && audioFastForwardSpeedMilli >= 0) {
                         lineBuilder.appendMillis(audioFastForwardSpeedMilli * 1000)
                     }
@@ -392,7 +383,7 @@ class PerformanceLogger(
                         lineBuilder.append(previousHold)
                     }
                     lineBuilder.append(',')
-                    // The vsync period the sample was rendered at. Blank when unknown
+                    // The vsync period the sample was rendered at, blank when unknown
                     if (refreshPeriod > 0) {
                         lineBuilder.appendMillis(refreshPeriod)
                     }
@@ -433,12 +424,12 @@ class PerformanceLogger(
         }
 
         /**
-         * Writes a memory row. [pssSnapshot] fills the PSS columns, which are left empty if it's null.
+         * Writes a memory row, with the PSS columns left empty when [pssSnapshot] is null.
          */
         private fun sampleMemory(pssSnapshot: PssSnapshot?) {
             val writer = memoryWriter ?: return
 
-            // Only cheap sources here. /proc/self/statm reads memory counters without walking the memory mappings
+            // Only cheap sources here: /proc/self/statm doesn't walk the memory mappings
             val rss = readResidentSetSizeKb()
             val nativeHeapAllocated = Debug.getNativeHeapAllocatedSize() / 1024
             val runtime = Runtime.getRuntime()
@@ -478,7 +469,7 @@ class PerformanceLogger(
         }
 
         /**
-         * Takes a full PSS breakdown and adds it to the statistics. It can take tens of ms, so it must only run on the logger's thread.
+         * Takes a full PSS breakdown and adds it to the statistics; it can take tens of ms, so only call it on the logger's thread.
          */
         private fun takePssSnapshot(): PssSnapshot {
             val sampleStartNs = System.nanoTime()
@@ -601,14 +592,14 @@ internal object PerfCsv {
     }
 
     /**
-     * Keeps a value in one CSV field. Event names and details are short labels, so separators are simply replaced.
+     * Keeps a value in one CSV field by replacing separators.
      */
     fun String.toCsvField(): String {
         return replace(',', ';').replace('\n', ' ').replace('\r', ' ')
     }
 
     /**
-     * Appends a nanosecond value as milliseconds with 3 decimal places. Avoids String.format, which is too slow for thousands of lines per second.
+     * Appends nanoseconds as milliseconds with 3 decimals, without String.format (too slow at thousands of lines a second).
      */
     fun StringBuilder.appendMillis(nanoseconds: Long): StringBuilder {
         val microseconds = (abs(nanoseconds) + 500) / 1000

@@ -19,7 +19,7 @@ internal class SessionStatistics {
         // Rounded to the nearest ns
         private const val TARGET_FRAME_INTERVAL_NS = (1_000_000_000L + EMULATOR_TARGET_FPS / 2) / EMULATOR_TARGET_FPS
         const val MISSED_FRAME_THRESHOLD_NS = TARGET_FRAME_INTERVAL_NS * 3 / 2
-        // Holds from 1 to 31 refreshes get their own bucket. The last bucket counts 32 and above
+        // Holds from 1 to 31 refreshes get their own bucket, and the last one counts 32 and above
         private const val HOLD_HISTOGRAM_SIZE = 33
         // If refresh_hz / 60 is within this of a whole number, every frame is expected to be held exactly that many refreshes
         const val HOLD_WHOLE_NUMBER_TOLERANCE = 0.05
@@ -69,8 +69,7 @@ internal class SessionStatistics {
     private var displayRenderDurationSum = 0L
     private var currentRepeatRun = 0L
 
-    // Frame hold cadence. A hold is the time from one new frame to the next, in refresh periods, measured when the next one arrives. Time is used
-    // instead of counting samples because render callbacks can be merged or dropped, so there isn't always one sample per refresh
+    // A hold is the time between two new frames in refresh periods, measured by time because render callbacks can be merged or dropped
     var displayFastForwardSamples = 0L
         private set
     var displayHoldFrames = 0L
@@ -81,24 +80,21 @@ internal class SessionStatistics {
     var displayRepeatRunsOverExpected = 0L
         private set
     private val displayHoldHistogram = LongArray(HOLD_HISTOGRAM_SIZE)
-    // Timestamp of the current frame's first sample. Only valid when its start was seen (not after a pause, fast-forward, an invalid frame or a
-    // refresh rate change)
+    // Timestamp of the current frame's first sample; invalid after a pause, fast-forward, an invalid frame or a rate change
     private var currentFrameStartNs = 0L
     private var hasCurrentFrameStart = false
 
-    // Refresh rates the display samples were rendered at, in the order they were first seen. The rate can change mid-session (the 60Hz lock
-    // landing late, fast-forward dropping it, a fold), so every sample is measured against the rate in effect for it
+    // Refresh rates seen, in first-seen order; every sample is measured against the rate in effect for it
     private val refreshRates = ArrayList<RefreshRateStatistics>()
-    // Rate of the latest sample that carried one, or the one given to setInitialRefreshRate before that. null while unknown, in which case
-    // holds aren't measured and no repeats are expected
+    // Rate of the latest sample (or the initial one); null while unknown, when no holds or repeats are expected
     var currentRefreshRate: RefreshRateStatistics? = null
         private set
     // Whether the latest sample's rate differs from the previous sample's (or is the first one known)
     var refreshRateChangedOnLastSample = false
         private set
     private var previousSampleRefreshRate: RefreshRateStatistics? = null
-    // The rate-weighted stats below only use the samples counted in the repeat stats that aren't fast-forwarded. Fast-forward drops the 60Hz
-    // lock and shows a new frame on almost every refresh, so its samples would expect repeats that never happen and offset real ones
+    // Rate-weighted stats only use counted non-fast-forward samples, since fast-forward drops the 60Hz lock and shows a new frame almost every
+    // refresh
     var cadenceCountedFrames = 0L
         private set
     var cadenceRepeatedFrames = 0L
@@ -116,7 +112,7 @@ internal class SessionStatistics {
     // Whether the current repeat run has already been counted in displayRepeatRunsOverExpected
     private var isRepeatRunOverExpected = false
 
-    // Sliding judder window in 1 second steps. Each slot holds the counts of one second
+    // Sliding judder window in 1 second steps, one slot per second
     private val judderWindowFrames = LongArray(JUDDER_WINDOW_SECONDS)
     private val judderWindowOffCadence = LongArray(JUDDER_WINDOW_SECONDS)
     private var judderWindowSecond = 0L
@@ -168,7 +164,7 @@ internal class SessionStatistics {
         }
     }
 
-    // Every frame counts towards audioFramesWithSilence. The buffer stats leave out fast-forward and after-pause frames
+    // Every frame counts towards audioFramesWithSilence, but the buffer stats leave out fast-forward and after-pause frames
     var audioFramesWithSilence = 0L
         private set
     var audioFramesWithSilenceOutsideFastForward = 0L
@@ -354,7 +350,7 @@ internal class SessionStatistics {
                 if (currentRepeatRun > displayLongestRepeatRun) {
                     displayLongestRepeatRun = currentRepeatRun
                 }
-                // Checked against the rate in effect now, since a run can span a rate change. Counted once per run
+                // Checked against the current rate and counted once per run
                 if (refreshRate != null && !isRepeatRunOverExpected && currentRepeatRun > refreshRate.expectedLongestRepeatRun) {
                     isRepeatRunOverExpected = true
                     displayRepeatRunsOverExpected++
@@ -394,8 +390,7 @@ internal class SessionStatistics {
             return
         }
 
-        // Every window that ends at a completed second is checked before its oldest second is dropped. After a full window of steps every slot
-        // is empty, so longer gaps don't need more steps
+        // Each completed second's window is checked before its slot is reused; after a full window of steps every slot is empty
         var steps = 0
         while (judderWindowSecond < second && steps < JUDDER_WINDOW_SECONDS) {
             checkJudderWindow()
@@ -424,8 +419,8 @@ internal class SessionStatistics {
     }
 
     /**
-     * Highest off-cadence percentage in any window of [JUDDER_WINDOW_SECONDS] seconds (sliding in 1 second steps) with at least
-     * [JUDDER_WINDOW_MIN_FRAMES] measured holds, including the window that is still in progress.
+     * Worst off-cadence percentage over any [JUDDER_WINDOW_SECONDS] window with at least [JUDDER_WINDOW_MIN_FRAMES] holds, including the
+     * current one.
      */
     fun worstJudderWindowPct(): Double? {
         val current = currentJudderWindowPct()
@@ -438,8 +433,8 @@ internal class SessionStatistics {
     }
 
     /**
-     * Compact hold histogram, for example "1:2918 2:17640 3:2873 4:37 5+:6". Lists every hold up to 2 above the longest on-cadence one (at
-     * least up to 4) and groups the rest.
+     * Compact histogram such as "1:2918 2:17640 3:2873 4:37 5+:6": every hold up to 2 above the longest on-cadence one (at least 4), then the
+     * rest.
      */
     fun formatHoldHistogram(): String {
         val longestOnCadenceHold = refreshRates.filter { it.holdFrames > 0 }.maxOfOrNull { it.onCadenceMaxHold } ?: currentRefreshRate?.onCadenceMaxHold ?: 0L
@@ -457,8 +452,7 @@ internal class SessionStatistics {
     }
 
     /**
-     * Time-weighted average of the refresh rates of the counted samples outside fast-forward (each sample lasts one refresh period), or null if
-     * none had a known rate.
+     * Time-weighted average rate of the counted non-fast-forward samples, or null if none had a known rate.
      */
     fun averageRefreshRate(): Double? {
         val countedTimeNs = refreshRates.sumOf { it.countedSamples * it.periodNs }
@@ -466,8 +460,7 @@ internal class SessionStatistics {
     }
 
     /**
-     * Share of the counted samples outside fast-forward expected to be repeats, from each sample's refresh rate. Before any sample is counted,
-     * the current rate's.
+     * Expected repeat share from each counted sample's rate, or the current rate's before any sample.
      */
     fun expectedRepeatRatio(): Double? {
         return if (ratedCountedSamples > 0) expectedRepeatSum / ratedCountedSamples else currentRefreshRate?.expectedRepeatRatio
@@ -494,8 +487,7 @@ internal class SessionStatistics {
     }
 
     /**
-     * The on-cadence holds, for example "2". If holds were measured at more than one refresh rate, those of each rate, most holds first, for
-     * example "1 at 60.00 Hz, 2 at 120.00 Hz".
+     * On-cadence holds, e.g. "2", or per rate (most holds first) when measured at several, e.g. "1 at 60.00 Hz, 2 at 120.00 Hz".
      */
     fun formatOnCadenceHolds(): String? {
         val ratesWithHolds = refreshRates.filter { it.holdFrames > 0 }.sortedByDescending { it.holdFrames }
@@ -610,8 +602,7 @@ internal class RefreshRateStatistics(val refreshRate: Double) {
 }
 
 /**
- * Fixed-size histogram of durations, so that memory use doesn't grow with the session length. Values from 0 to 250 ms go into 0.05 ms buckets
- * and anything above goes into an overflow bucket. Count, sum, sum of squares, min and max are tracked exactly.
+ * Fixed-size duration histogram: 0.05 ms buckets up to 250 ms plus an overflow bucket; count, sum, sum of squares, min and max are exact.
  */
 internal class DurationHistogram {
     companion object {
@@ -658,7 +649,7 @@ internal class DurationHistogram {
     }
 
     /**
-     * Nearest-rank percentile. Values inside a bucket are approximated by the bucket's midpoint (and by the average for the overflow bucket).
+     * Nearest-rank percentile, approximating values by the bucket midpoint (overflow bucket: its average).
      */
     fun percentile(percentile: Double): Long {
         val rank = ceil(percentile * count).toLong().coerceIn(1L, count)
