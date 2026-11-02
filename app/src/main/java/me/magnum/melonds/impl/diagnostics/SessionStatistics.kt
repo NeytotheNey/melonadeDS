@@ -1,8 +1,8 @@
-package me.magnum.melonds.impl.perf
+package me.magnum.melonds.impl.diagnostics
 
 import androidx.annotation.VisibleForTesting
 import me.magnum.melonds.domain.model.EMULATOR_TARGET_FPS
-import me.magnum.melonds.impl.perf.PerfCsv.formatRefreshRate
+import me.magnum.melonds.impl.diagnostics.PerfCsv.formatRefreshRate
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil

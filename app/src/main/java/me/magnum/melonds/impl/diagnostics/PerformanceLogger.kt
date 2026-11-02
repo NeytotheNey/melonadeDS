@@ -1,4 +1,4 @@
-package me.magnum.melonds.impl.perf
+package me.magnum.melonds.impl.diagnostics
 
 import android.content.Context
 import android.hardware.display.DisplayManager
@@ -22,15 +22,11 @@ import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.extensions.find60HzMode
 import me.magnum.melonds.extensions.getModesAtCurrentResolution
-import me.magnum.melonds.impl.debug.DebugLog
-import me.magnum.melonds.impl.debug.DiagnosticsInfo
-import me.magnum.melonds.impl.debug.LogDestination
-import me.magnum.melonds.impl.debug.LogFolder
-import me.magnum.melonds.impl.perf.PerfCsv.appendFlag
-import me.magnum.melonds.impl.perf.PerfCsv.appendMillis
-import me.magnum.melonds.impl.perf.PerfCsv.appendSeconds
-import me.magnum.melonds.impl.perf.PerfCsv.formatRefreshRate
-import me.magnum.melonds.impl.perf.PerfCsv.toCsvField
+import me.magnum.melonds.impl.diagnostics.PerfCsv.appendFlag
+import me.magnum.melonds.impl.diagnostics.PerfCsv.appendMillis
+import me.magnum.melonds.impl.diagnostics.PerfCsv.appendSeconds
+import me.magnum.melonds.impl.diagnostics.PerfCsv.formatRefreshRate
+import me.magnum.melonds.impl.diagnostics.PerfCsv.toCsvField
 import java.io.BufferedWriter
 import java.io.File
 import java.io.IOException

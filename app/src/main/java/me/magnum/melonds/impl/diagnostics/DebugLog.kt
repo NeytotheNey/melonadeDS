@@ -1,4 +1,4 @@
-package me.magnum.melonds.impl.debug
+package me.magnum.melonds.impl.diagnostics
 
 import android.util.Log
 import me.magnum.melonds.MelonEmulator
@@ -15,7 +15,7 @@ import me.magnum.melonds.utils.supportsJit
  * hardcore toggle.
  */
 object DebugLog {
-    const val TAG = "melonade-debug"
+    const val TAG = LogTags.DEBUG
 
     @Volatile
     var isEnabled = false
@@ -48,7 +48,7 @@ object DebugLog {
 
     /**
      * Logs "[key]: [value]" if [value] differs from the last value reported for [key], such as the fold posture or the display in use.
-     * Returns whether it differed. [me.magnum.melonds.impl.perf.PerformanceLogger.logStateChange] is the entry point, so that both logs see every change.
+     * Returns whether it differed. [PerformanceLogger.logStateChange] is the entry point, so that both logs see every change.
      */
     fun stateChange(key: String, value: String): Boolean {
         synchronized(currentStates) {

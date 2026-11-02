@@ -28,6 +28,10 @@ import me.magnum.melonds.domain.services.DSiNandManager
 import me.magnum.melonds.domain.services.EmulatorLaunchPreconditionChecker
 import me.magnum.melonds.impl.AndroidDSiNandManager
 import me.magnum.melonds.impl.*
+import me.magnum.melonds.impl.diagnostics.DebugLogRecorder
+import me.magnum.melonds.impl.diagnostics.ExitReasonReporter
+import me.magnum.melonds.impl.diagnostics.LogFolder
+import me.magnum.melonds.impl.diagnostics.PerformanceLogger
 import me.magnum.melonds.impl.input.ControllerConfigurationFactory
 import me.magnum.melonds.impl.input.DefaultControllerConfigurationFactory
 import me.magnum.melonds.impl.layout.DeviceLayoutDisplayMapper
@@ -35,9 +39,6 @@ import me.magnum.melonds.impl.layout.DefaultLayoutProvider
 import me.magnum.melonds.impl.layout.UILayoutProvider
 import me.magnum.melonds.impl.layout.devicemapper.AynThorLayoutDisplayMapper
 import me.magnum.melonds.impl.layout.devicemapper.DefaultLayoutDisplayMapper
-import me.magnum.melonds.impl.debug.DebugLogRecorder
-import me.magnum.melonds.impl.debug.LogFolder
-import me.magnum.melonds.impl.perf.PerformanceLogger
 import me.magnum.melonds.impl.romprocessors.Api24RomFileProcessorFactory
 import me.magnum.melonds.ui.romdetails.RomDetailsUiMapper
 import me.magnum.rcheevosapi.RAApi
@@ -73,8 +74,14 @@ object MelonModule {
 
     @Provides
     @Singleton
-    fun provideDebugLogRecorder(@ApplicationContext context: Context, settingsRepository: SettingsRepository, sharedPreferences: SharedPreferences, logFolder: LogFolder): DebugLogRecorder {
-        return DebugLogRecorder(context, settingsRepository, sharedPreferences, logFolder)
+    fun provideExitReasonReporter(@ApplicationContext context: Context, sharedPreferences: SharedPreferences, logFolder: LogFolder): ExitReasonReporter {
+        return ExitReasonReporter(context, sharedPreferences, logFolder)
+    }
+
+    @Provides
+    @Singleton
+    fun provideDebugLogRecorder(@ApplicationContext context: Context, settingsRepository: SettingsRepository, logFolder: LogFolder, exitReasonReporter: ExitReasonReporter): DebugLogRecorder {
+        return DebugLogRecorder(context, settingsRepository, logFolder, exitReasonReporter)
     }
 
     @Provides

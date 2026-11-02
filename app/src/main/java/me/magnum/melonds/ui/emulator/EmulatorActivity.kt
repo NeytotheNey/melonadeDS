@@ -80,11 +80,11 @@ import me.magnum.melonds.domain.model.ui.Orientation
 import me.magnum.melonds.extensions.find60HzMode
 import me.magnum.melonds.extensions.setLayoutOrientation
 import me.magnum.melonds.extensions.setupGameSystemBars
+import me.magnum.melonds.impl.diagnostics.DebugLog
+import me.magnum.melonds.impl.diagnostics.PerformanceLogger
 import me.magnum.melonds.impl.emulator.LifecycleOwnerProvider
 import me.magnum.melonds.impl.layout.DeviceLayoutDisplayMapper
 import me.magnum.melonds.impl.layout.SecondaryDisplaySelector
-import me.magnum.melonds.impl.debug.DebugLog
-import me.magnum.melonds.impl.perf.PerformanceLogger
 import me.magnum.melonds.impl.system.AppForegroundStateObserver
 import me.magnum.melonds.parcelables.RomInfoParcelable
 import me.magnum.melonds.parcelables.RomParcelable

@@ -1,4 +1,4 @@
-package me.magnum.melonds.impl.debug
+package me.magnum.melonds.impl.diagnostics
 
 import android.content.Context
 import android.net.Uri

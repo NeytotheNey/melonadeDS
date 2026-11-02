@@ -1,4 +1,4 @@
-package me.magnum.melonds.impl.perf
+package me.magnum.melonds.impl.diagnostics
 
 import java.util.concurrent.atomic.AtomicLong
 

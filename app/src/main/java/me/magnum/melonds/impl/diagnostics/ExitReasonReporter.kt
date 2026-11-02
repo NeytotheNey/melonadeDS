@@ -1,4 +1,4 @@
-package me.magnum.melonds.impl.debug
+package me.magnum.melonds.impl.diagnostics
 
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo

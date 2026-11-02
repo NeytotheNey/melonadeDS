@@ -43,7 +43,7 @@ import me.magnum.melonds.impl.LuaScriptDataStore
 import me.magnum.melonds.impl.LuaScriptHeaderParser
 import me.magnum.melonds.impl.LuaScriptStorage
 import me.magnum.melonds.impl.camera.DSiCameraSourceMultiplexer
-import me.magnum.melonds.impl.debug.DebugLog
+import me.magnum.melonds.impl.diagnostics.DebugLog
 import me.magnum.melonds.ui.emulator.rewind.model.RewindSaveState
 import me.magnum.melonds.ui.emulator.rewind.model.RewindWindow
 

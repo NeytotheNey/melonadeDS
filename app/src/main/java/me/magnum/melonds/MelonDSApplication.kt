@@ -25,7 +25,7 @@ import me.magnum.melonds.common.uridelegates.UriHandler
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.impl.LuaScriptStorage
 import me.magnum.melonds.impl.PendingSettingsRestore
-import me.magnum.melonds.impl.debug.DebugLogRecorder
+import me.magnum.melonds.impl.diagnostics.DebugLogRecorder
 import me.magnum.melonds.migrations.Migrator
 import javax.inject.Inject
 

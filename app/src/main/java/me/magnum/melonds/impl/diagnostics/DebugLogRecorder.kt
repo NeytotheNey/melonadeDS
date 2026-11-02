@@ -1,7 +1,6 @@
-package me.magnum.melonds.impl.debug
+package me.magnum.melonds.impl.diagnostics
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
@@ -28,8 +27,8 @@ import java.util.Locale
 class DebugLogRecorder(
     private val context: Context,
     private val settingsRepository: SettingsRepository,
-    private val preferences: SharedPreferences,
     private val logFolder: LogFolder,
+    private val exitReasonReporter: ExitReasonReporter,
 ) {
 
     private companion object {
@@ -39,7 +38,6 @@ class DebugLogRecorder(
         const val LOGCAT_BUFFERS = "main,system,crash"
     }
 
-    private val exitReasonReporter = ExitReasonReporter(context, preferences, logFolder)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var session: Session? = null
 
@@ -67,7 +65,7 @@ class DebugLogRecorder(
             // Covers both a crash in the previous run and the debug log being turned on right after a problem
             scope.launch { exitReasonReporter.reportNewExits() }
         } else {
-            Log.i(DebugLog.TAG, "Debug log turned off")
+            DebugLog.event { "Debug log turned off" }
             session?.requestStop()
             session = null
             DebugLog.setEnabled(false)
@@ -160,8 +158,7 @@ class DebugLogRecorder(
             }
             append("pid: ").append(Process.myPid()).append('\n')
             append("command: ").append(logcatCommand).append('\n')
-            append("tags: ").append(DebugLog.TAG).append(" (markers, game configuration, fold and display changes), melonade-cpu (heartbeat, exceptions, GPU state), ")
-                .append("melonade-audio (audio stream, dropouts, buffer fill), melonade-lua (scripts), melonade-core (emulator core messages)\n")
+            append("tags: ").append(LogTags.described.joinToString(", ") { (tag, contents) -> "$tag ($contents)" }).append('\n')
             append("---\n")
         }
     }

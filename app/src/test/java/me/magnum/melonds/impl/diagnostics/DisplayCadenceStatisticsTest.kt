@@ -1,4 +1,4 @@
-package me.magnum.melonds.impl.perf
+package me.magnum.melonds.impl.diagnostics
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

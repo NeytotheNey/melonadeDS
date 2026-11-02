@@ -6,7 +6,7 @@ import android.os.Message
 import me.magnum.melonds.MelonDSAndroidInterface
 import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
-import me.magnum.melonds.impl.perf.DisplayPerformanceCapture
+import me.magnum.melonds.impl.diagnostics.DisplayPerformanceCapture
 import me.magnum.melonds.ui.emulator.EmulatorSurfaceView
 
 class FrameRenderCoordinator {

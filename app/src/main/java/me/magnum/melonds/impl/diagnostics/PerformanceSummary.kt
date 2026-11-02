@@ -1,9 +1,8 @@
-package me.magnum.melonds.impl.perf
+package me.magnum.melonds.impl.diagnostics
 
 import android.content.Context
 import me.magnum.melonds.MelonEmulator
-import me.magnum.melonds.impl.debug.DiagnosticsInfo
-import me.magnum.melonds.impl.perf.PerfCsv.appendMillis
+import me.magnum.melonds.impl.diagnostics.PerfCsv.appendMillis
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.roundToLong

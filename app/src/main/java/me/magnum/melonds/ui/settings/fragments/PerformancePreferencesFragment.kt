@@ -9,7 +9,7 @@ import me.magnum.melonds.common.DirectoryAccessValidator
 import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.common.UriPermissionManager
 import me.magnum.melonds.extensions.isSustainedPerformanceModeAvailable
-import me.magnum.melonds.impl.debug.LogFolder
+import me.magnum.melonds.impl.diagnostics.LogFolder
 import me.magnum.melonds.ui.settings.PreferenceFragmentHelper
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
 import me.magnum.melonds.ui.settings.preferences.StoragePickerPreference

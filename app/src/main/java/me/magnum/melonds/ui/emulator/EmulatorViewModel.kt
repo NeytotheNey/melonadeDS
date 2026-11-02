@@ -76,9 +76,9 @@ import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.domain.services.EmulatorManager
 import me.magnum.melonds.impl.LuaScriptFolderSync
 import me.magnum.melonds.impl.LuaScriptStorage
+import me.magnum.melonds.impl.diagnostics.PerformanceLogger
 import me.magnum.melonds.impl.emulator.EmulatorSession
 import me.magnum.melonds.impl.layout.UILayoutProvider
-import me.magnum.melonds.impl.perf.PerformanceLogger
 import me.magnum.melonds.ui.emulator.component.RetroAchievementsSubmissionHandler
 import me.magnum.melonds.ui.emulator.firmware.FirmwarePauseMenuOption
 import me.magnum.melonds.ui.emulator.model.EmulatorState
