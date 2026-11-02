@@ -279,9 +279,10 @@ class RaisedButtonView(
         canvas.restoreToCount(save)
     }
 
-    private companion object {
-        const val OUTLINE_PRESSED_SCALE = 0.9f
-        const val SOFT_TINT_PRESSED_SCALE = 0.94f
-        const val ICON_SIZE = 0.55f
+    companion object {
+        private const val OUTLINE_PRESSED_SCALE = 0.9f
+        private const val SOFT_TINT_PRESSED_SCALE = 0.94f
+        // How big icons get as a share of the face's smaller side, here and in the pixel painter
+        internal const val ICON_SIZE = 0.55f
     }
 }

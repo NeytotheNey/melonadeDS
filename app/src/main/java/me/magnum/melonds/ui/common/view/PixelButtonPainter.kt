@@ -211,14 +211,14 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * The biggest scale [icon] can have on a face, so that its larger side is at most [ICON_SIZE] of the face's smaller side, like the vector icons. It's
+     * The biggest scale [icon] can have on a face, so that its larger side is at most [RaisedButtonView.ICON_SIZE] of the face's smaller side. It's
      * never below 1, so icons on small faces are left to the fit checks.
      */
     private fun iconScaleLimit(icon: PixelIcon, face: Path): Int {
         val bounds = RectF().also { face.computeBounds(it, true) }
         // Counted in unrounded detail cells, since rounding the cell size down would otherwise add cells and let icons grow at normal sizes
         val faceCells = min(bounds.width(), bounds.height()) / max(detailSize.toFloat(), art.pixelSizeDp / art.detailPerCell * density)
-        return floor(faceCells * ICON_SIZE / max(icon.width, icon.height)).toInt().coerceAtLeast(1)
+        return floor(faceCells * RaisedButtonView.ICON_SIZE / max(icon.width, icon.height)).toInt().coerceAtLeast(1)
     }
 
     /**
@@ -509,8 +509,6 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         const val OVERLAP_TOLERANCE = 0.5f
         // In detail cells. Smaller D-pads get a smaller dent, or none if it would be tiny
         const val DIMPLE_RADIUS = 3.5f
-        // How big hand-drawn icons and arrows can get, as a share of the face's smaller side. The same as RaisedButtonView's vector icons
-        const val ICON_SIZE = 0.55f
         const val MIN_DIMPLE_RADIUS = 1.5f
 
         val LABEL_FALLBACKS = mapOf(
