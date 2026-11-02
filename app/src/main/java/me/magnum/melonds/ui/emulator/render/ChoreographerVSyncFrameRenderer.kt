@@ -31,8 +31,7 @@ class ChoreographerVSyncFrameRenderer(
     }
 
     /**
-     * The system's vsync period for this app, from the spacing of the frame timelines (one vsync apart), or 0 if it can't be told. It follows a
-     * refresh rate change from the first vsync at the new rate, and late callbacks don't affect it.
+     * The system's vsync period for this app, from the spacing of the frame timelines (one vsync apart), or 0 if it can't be told.
      */
     private fun getVsyncPeriodNanos(data: Choreographer.FrameData): Long {
         // The array is reused by Choreographer, so this doesn't allocate

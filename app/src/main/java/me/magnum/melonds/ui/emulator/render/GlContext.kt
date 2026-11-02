@@ -31,7 +31,7 @@ class GlContext(sharedEglContext: Long? = null) {
             throw GlContextException("Failed to create context: ${EGL14.eglGetError()}")
         }
 
-        // Create a small pbuffer surface for making the context current without a window surface. Used for freeing GL objects when there may be no window surface left
+        // Pbuffer so the context can be made current to free GL objects without a window surface
         val pbufferAttributess = intArrayOf(
             EGL14.EGL_WIDTH, 1,
             EGL14.EGL_HEIGHT, 1,

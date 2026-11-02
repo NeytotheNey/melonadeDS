@@ -42,8 +42,7 @@ class ChoreographerOldFrameRenderer(private val frameRenderCoordinator: FrameRen
         lastFrameTimeNs = frameTimeNanos
 
         val frameDeadline = framePeriodNs.takeIf { it > ChoreographerFrameRenderer.DEADLINE_FRAME_TIME_THRESHOLD }?.plus(frameTimeNanos)
-        // Only reported once measured, so that the performance logger doesn't take the default for the display's refresh period. The median is
-        // taken every 11 intervals, so a refresh rate change is only reported up to about 22 callbacks later
+        // Only reported once measured, so that the performance logger doesn't take the default for the display's refresh period
         val vsyncPeriodNs = if (isFramePeriodMeasured) framePeriodNs.asVsyncPeriodOrZero() else 0L
         frameRenderCoordinator.renderFrame(frameDeadline, frameTimeNanos, vsyncPeriodNs)
         Choreographer.getInstance().postFrameCallback(this)

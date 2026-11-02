@@ -11,8 +11,7 @@ interface EmulatorRenderer {
     fun drawFrame(presentFrameWrapper: PresentFrameWrapper)
 
     /**
-     * Frees the renderer's GL objects. Called on the render thread, with the GL context current, when the renderer won't draw again. The next
-     * [onSurfaceCreated] would create them again.
+     * Frees the renderer's GL objects when it won't draw again; called on the render thread with the GL context current.
      */
     fun release()
 }

@@ -18,9 +18,7 @@ class FrameRenderCoordinator {
     private val surfacesLock = Any()
     private val managedSurfaces = mutableListOf<EmulatorSurfaceView>()
     private val surfacesPendingRemoval = mutableListOf<EmulatorSurfaceView>()
-    // Surfaces whose renderer may still own GL objects, including removed ones that can be added again. Their textures, buffers and programs are
-    // shared with the emulator's context, which lives as long as the process, so destroying the render context doesn't free them. They are
-    // released when the surface is removed for good, or when the render thread stops
+    // Surfaces whose renderer may still own GL objects, which are shared with the emulator's context and so outlive the render context
     private val surfacesToRelease = mutableSetOf<EmulatorSurfaceView>()
     private val surfacesPendingRelease = mutableListOf<EmulatorSurfaceView>()
     // Only accessed from the main thread
@@ -66,7 +64,7 @@ class FrameRenderCoordinator {
      * Called from the Choreographer callback (main thread) on every vsync.
      *
      * @param vsyncTimeNanos The vsync's timestamp (Choreographer's frame time, CLOCK_MONOTONIC)
-     * @param vsyncPeriodNanos The vsync period that this callback runs at, or 0 if it's not known. Only used by the performance logger
+     * @param vsyncPeriodNanos The vsync period, or 0 if unknown
      */
     fun renderFrame(frameDeadlineNanos: Long?, vsyncTimeNanos: Long, vsyncPeriodNanos: Long) {
         MelonEmulator.onDisplayVsync(vsyncTimeNanos)
@@ -74,8 +72,7 @@ class FrameRenderCoordinator {
     }
 
     /**
-     * Asks the system to run the emulator surfaces at a refresh rate compatible with 60 FPS while frame pacing is enabled. Must be called from the
-     * main thread.
+     * Asks the system to run the emulator surfaces at a refresh rate compatible with 60 FPS while frame pacing is enabled; main thread only.
      */
     fun setFramePacingEnabled(enabled: Boolean) {
         framePacingEnabled = enabled
@@ -83,8 +80,7 @@ class FrameRenderCoordinator {
     }
 
     /**
-     * Fast-forward isn't paced, so the 60 FPS frame rate vote is dropped while it's active to let the display run at its full refresh rate. Must be
-     * called from the main thread.
+     * Drops the 60 FPS frame rate vote while fast-forward is active, since it isn't paced; main thread only.
      */
     fun setFastForwardActive(active: Boolean) {
         fastForwardActive = active
@@ -116,8 +112,7 @@ class FrameRenderCoordinator {
         @Volatile private var running = true
         private val renderStatistics = RenderStatistics()
 
-        // Latest frame render request. Written by the main thread and taken by this one when it handles MSG_RENDER_FRAME, so that no Bundle is
-        // allocated on every vsync. Only the latest request matters, like with the pending message that each new request replaces
+        // Latest frame render request, written by the main thread and taken by this one on MSG_RENDER_FRAME so no Bundle is allocated per vsync
         private val renderRequestLock = Any()
         private var hasPendingRenderRequest = false
         private var pendingFrameDeadlineNanos = 0L
