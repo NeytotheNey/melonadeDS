@@ -19,8 +19,8 @@ import java.io.File
 import java.io.IOException
 
 /**
- * Applies a restore staged by [SettingsBackupManager.restore] at app start, before any preference, data file or migration is read (so it's
- * created by hand, not by Hilt), with a rollback snapshot so a failure keeps the previous settings.
+ * Applies a restore staged by [SettingsBackupManager.restore] at app start, before anything reads the preferences or data files and before
+ * the migrations run (so it's created by hand, not by Hilt), with a rollback snapshot so a failure keeps the previous settings.
  */
 class PendingSettingsRestore(
     private val context: Context,

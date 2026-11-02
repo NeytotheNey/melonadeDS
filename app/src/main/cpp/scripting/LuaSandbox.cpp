@@ -219,7 +219,8 @@ static int safeTableMove(lua_State* L)
 }
 
 /**
- * The length that table.insert/remove/sort go up to, capped and without __len, since either can make #t huge without the table holding anything
+ * The length that table.insert/remove/sort go up to, capped and without __len, since a sparse table or __len can make #t huge without the table
+ * holding anything
  */
 static lua_Integer checkTableLength(lua_State* L)
 {

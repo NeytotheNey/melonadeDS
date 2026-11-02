@@ -197,8 +197,8 @@ class PerformanceLogger(
         }
 
         suspend fun run() {
-            // A full PSS read walks /proc/self/smaps under the mmap lock and can stall the JIT, so it only runs before/after capture and every
-            // 30 s, with its duration logged
+            // A full PSS read walks /proc/self/smaps under the mmap lock and can stall the emulator thread (its JIT maps memory), so it only
+            // runs before/after capture and every 30 s, with its duration logged
             startMemorySnapshot = takePssSnapshot()
 
             // Start capturing straight away so that start-up frames are kept

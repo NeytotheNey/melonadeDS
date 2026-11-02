@@ -86,7 +86,7 @@ internal class SessionStatistics {
 
     // Refresh rates seen, in first-seen order; every sample is measured against the rate in effect for it
     private val refreshRates = ArrayList<RefreshRateStatistics>()
-    // Rate of the latest sample (or the initial one); null while unknown, when no holds or repeats are expected
+    // Rate of the latest sample (or the initial one); null while unknown, when holds aren't measured and no repeats are expected
     var currentRefreshRate: RefreshRateStatistics? = null
         private set
     // Whether the latest sample's rate differs from the previous sample's (or is the first one known)

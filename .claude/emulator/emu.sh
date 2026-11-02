@@ -31,7 +31,7 @@ case "${1:-help}" in
   stop)
     "${A[@]}" emu kill ;;
   build)
-    # Overwrites the shared debug APK with an x86_64 one (the phone needs an arm64 rebuild after), path conversion back on for gradlew
+    # Overwrites the shared debug APK with an x86_64 one (the phone needs an arm64 rebuild after); turns path conversion back on for gradlew
     cd "$REPO" && env -u MSYS_NO_PATHCONV JAVA_HOME="$JDK" bash ./gradlew assembleGitHubProdDebug \
       -Pandroid.injected.build.abi=x86_64 -Pandroid.injected.testOnly=false --console=plain > "$REPO/logs/build-x86_64.log" 2>&1
     rc=$?; tail -3 "$REPO/logs/build-x86_64.log"; exit $rc ;;
@@ -83,7 +83,7 @@ case "${1:-help}" in
     if [ "${3:-}" = "--full" ]; then echo "$full (full size)"; else
       "${PY[@]}" half "$full" "$OUT/shots/${name}_half.png" 2; echo "$OUT/shots/${name}_half.png"; fi ;;
   ui)
-    # ui [filter]: labelled and clickable nodes with tap centres, from the accessibility tree (no screenshot)
+    # ui [filter]: labeled and clickable nodes with tap centers, from the accessibility tree (no screenshot)
     ok=
     for try in 1 2 3; do
       "${A[@]}" shell rm -f /sdcard/ui.xml

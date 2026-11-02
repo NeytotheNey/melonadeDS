@@ -6,8 +6,8 @@
 #include <cstdint>
 
 /**
- * Lock-free single-producer, single-consumer ring of fixed-size int64 samples, allocated up front so a push never allocates, blocks or does I/O, that
- * drops (and counts) samples when full.
+ * Lock-free single-producer, single-consumer ring of fixed-size int64 samples that drops (and counts) samples when full, allocated up front so
+ * a push never allocates, blocks or does I/O.
  */
 template<std::size_t Capacity, std::size_t Fields>
 class FrameSampleRing
