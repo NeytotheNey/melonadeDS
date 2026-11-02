@@ -6,7 +6,7 @@ Read this, then `PLAN-polish.md`. The plan has the per-item file references, the
 
 - **Branch:** `claude/friendly-heisenberg-3eipz2` in this repo, on top of `material3`. Phases 1, 2 and 3 are applied and verified on the Z Fold 8 (the plan's status has what was checked). The core submodule is untouched by the pass.
 - **Phase 4 (Kotlin consolidation):** applied in part, `f58360d9..812dc29d` (29 commits), written without the Android SDK. Every Kotlin file was type-checked with a standalone `kotlinc` and no Android classpath (recipe below), which caught one real error before it was committed and can prove nothing about code that touches Android types; three read-only reviews traced the rest by hand and found no behaviour change beyond the documented log-output changes. Built and verified on 2026-11-01: the debug build on the Z Fold 8 and a release build signed with the debug keystore on the OnePlus 7 Pro (`-Pandroid.injected.signing.*`, since this PC has no release keystore). The checklist below passes except an RA popup dismissing on stop and the unwritable-log-folder fallback, which weren't checked. For item 7 use `kill -9`: a recents swipe is a user-requested exit, which the reporter skips. The plan's status has the detail. A Lua ITCM check on the script's first frame fails in DS mode because the game hasn't enabled ITCM yet; check after boot.
-- **Phase 4 remaining:** the UI items that need the app running (listed below), plus the whole Layout editor and Compose rows headings.
+- **Phase 4 rest:** applied on 2026-11-01, `043e6634..6c0217d6` (40 commits), with the SDK: compiles, 153 JVM tests pass, the debug APK builds, three reviews found no behaviour change. **Not phone-tested yet**; the checklist is "Phone checklist for the rest of Phase 4" below. The plan's status has what was skipped and why.
 - **Phases 5 to 7:** not started.
 
 ## What Phases 2 and 3 changed
@@ -66,9 +66,18 @@ Expected output differences when diffing against a pre-Phase-4 run (anything els
 6. One perf log session and one debug log session with the log folder picked, and one each with no folder picked; diff against a pre-Phase-4 run using the list above. Fold and unfold during the session for the state lines.
 7. Kill the app from the recents screen with the debug log on, start it again: the exit reason line appears.
 
-## Phase 4 remaining, notes for whoever continues
+## Phone checklist for the rest of Phase 4
 
-- Needs the app running to verify, so do it in a session with the SDK: the Lua scripts dialog as Compose (`EmulatorActivity.kt` `showLuaScriptsDialog`), `EmulatorScreenSettings` + `applyScreenSettings()`, `RuntimeLayoutView.applyScreenAreasTo(renderer)` replacing the Activity/`ExternalPresentation` pair, `SCREEN_UNIFORMS` and one `screenBandFunctions(sampler)` in `ShaderProgramSource.kt`, `LuaUiSetting` into `ui/emulator/model` (add the import to `EmulatorActivity.kt`), `LuaSessionController`, `ControllerStyle.DEFAULT`/`toPreferenceValue()` with the entries built from the enum, `RomModsUiModel`, and the whole Layout editor and Compose rows headings of the plan.
+1. **Back on the Compose dialogs (Android 13+).** Pause menu → Mods opens the new Lua scripts dialog; press back (gesture, 3-button and controller B). A review suspects `DetachedDialog` never sees back because the manifest sets `enableOnBackInvokedCallback="true"` and `DetachedDialogLayout` registers no `OnBackInvokedCallback`; if so the script options and achievements dialogs have the same problem. Fix in its own commit: register one in `onAttachedToWindow` via `findOnBackInvokedDispatcher()`, as `ExternalLayoutEditorPresentation` does.
+2. Lua scripts dialog: untick/retick a script, tick one that fails (error shows next time), Options… keeps the game paused through the handover and Save/Cancel resumes it, Close resumes, a long list scrolls, D-pad navigation.
+3. Screen areas and settings: a Wide pick and a normal layout, swapped and not, screen alpha and on-top layouts, touch moves with the swap, back swipe blocked over the touch screen; the same on an external display. Change status bar, sustained performance, frame pacing, 60 Hz lock and FPS counter mid-game and return.
+4. Every filter on OpenGL and compute (Sharp included, one upscaled), screen shadows on, a script drawing an overlay; no shader errors in logcat.
+5. Layout editor: centre buttons on odd sizes, resize from all four handles at 4:3/16:9/Free/Wide locks down to the minimum, snapping to the other screen, tap vs small drag, the menu button moving out of the pill's way, 1x/2x/3x/Fit, grid on/off and size, overlay drawing, rotate/fold/plug a display while editing, a value dialog with the keyboard open, D-pad/ABXY spacing above 0 in game and in the editor.
+6. All 9 controller styles in game, in the editor and in the style page, 8-bit and 16-bit shading, pressed looks, toggle buttons with off/dimmed icons; the chosen style survives the update and a fresh install shows "Classic".
+7. ROM Mods tab looks as before: widescreen switch and caption, script rows with and without a description (same height), hardcore disables switches without greying names, the fixed aspect-ratio row, the folder row (2-line path, X removes, tap opens picker), the software-renderer note, "no wide layouts", the wide layout row disabled while loading. Lua choice and layout options: pick each, "Don't change", a deleted layout shows "Layout not found", unnamed layouts numbered.
+
+## Phase 4 notes
+
 - `getPlayerLayoutPicks` stays public and top-level in `LuaLayoutRequests.kt` because `LuaUiOverridesTest` calls it; move it into the VM only together with the test.
 - `docs/polish-findings/*.md` still cite `impl/perf`, `impl/debug`, `impl/LuaScriptHeader.kt` and `LuaScriptOptionValue.TYPE_*`; they are the record of the review and go with the plan in Phase 7.
 - Don't touch `app/src/main/cpp/lua/` (vendored) or the submodules.
