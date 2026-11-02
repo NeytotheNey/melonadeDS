@@ -6,7 +6,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,7 +25,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,7 +38,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.magnum.melonds.R
 import me.magnum.melonds.common.Permission
@@ -57,6 +54,7 @@ import me.magnum.melonds.ui.common.component.LuaScriptOptionControl
 import me.magnum.melonds.ui.common.component.text.CaptionText
 import me.magnum.melonds.ui.common.preference.ActionLauncherItem
 import me.magnum.melonds.ui.common.preference.SingleChoiceItem
+import me.magnum.melonds.ui.common.preference.SwitchItem
 import me.magnum.melonds.ui.layouts.LayoutSelectorActivity
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiModel
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiState
@@ -115,22 +113,16 @@ private fun WidescreenSection(
 ) {
     val wideViewWidth = romConfig.mods.validWideViewWidth
 
-    Text(
-        text = stringResource(id = R.string.widescreen),
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-    )
+    SectionTitle(stringResource(id = R.string.widescreen))
 
     // The width is still kept, for when the renderer is switched to OpenGL or Compute
     if (!romConfig.isWidescreenSupported) {
-        CaptionText(
-            text = stringResource(id = R.string.widescreen_needs_hardware_renderer),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+        SectionNote(stringResource(id = R.string.widescreen_needs_hardware_renderer))
     }
 
-    WidescreenSwitchItem(
+    SwitchItem(
+        name = stringResource(id = R.string.widescreen_enable),
+        caption = stringResource(id = R.string.widescreen_description),
         isOn = wideViewWidth != null,
         onToggle = { isOn -> onConfigUpdate(RomConfigUpdateEvent.WideViewWidthUpdate(if (isOn) WidescreenAspect.DEFAULT.viewWidth else null)) },
     )
@@ -149,9 +141,10 @@ private fun WidescreenSection(
 
         if (wideLayout != null) {
             // Each of the layout's variants has its own ratio
-            InfoItem(
+            ActionLauncherItem(
                 name = stringResource(id = R.string.widescreen_aspect_ratio),
                 value = stringResource(id = R.string.wide_layout_aspect_ratio),
+                onLaunchAction = null,
             )
         } else {
             SingleChoiceItem(
@@ -201,69 +194,7 @@ private fun WideLayoutItem(
     )
 
     if (romConfig.wideLayouts?.isEmpty() == true) {
-        CaptionText(
-            text = stringResource(id = R.string.wide_layout_none),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        )
-    }
-}
-
-/**
- * A row that only shows a value, which can't be changed here
- */
-@Composable
-private fun InfoItem(
-    name: String,
-    value: String,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 64.dp)
-            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = name,
-            style = MaterialTheme.typography.bodyLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        CaptionText(
-            text = value,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-private fun WidescreenSwitchItem(
-    isOn: Boolean,
-    onToggle: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onToggle(!isOn) }
-            .focusable()
-            .heightIn(min = 64.dp)
-            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-            Text(
-                text = stringResource(id = R.string.widescreen_enable),
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            CaptionText(text = stringResource(id = R.string.widescreen_description))
-        }
-        Switch(
-            checked = isOn,
-            onCheckedChange = null,
-        )
+        SectionNote(stringResource(id = R.string.wide_layout_none))
     }
 }
 
@@ -276,18 +207,10 @@ private fun LuaScriptsSection(
     val scriptsUiModel = romConfig.luaScripts
     val areScriptsBlocked = scriptsUiModel.areScriptsBlockedByHardcore
 
-    Text(
-        text = stringResource(id = R.string.lua_scripts),
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-    )
+    SectionTitle(stringResource(id = R.string.lua_scripts))
 
     if (areScriptsBlocked) {
-        CaptionText(
-            text = stringResource(id = R.string.lua_scripts_off_in_hardcore),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+        SectionNote(stringResource(id = R.string.lua_scripts_off_in_hardcore))
     }
 
     val folderPickerLauncher = rememberLauncherForActivityResult(DirectoryPickerContract(Permission.READ)) { uri ->
@@ -295,10 +218,22 @@ private fun LuaScriptsSection(
             onConfigUpdate(RomConfigUpdateEvent.LuaScriptFolderUpdate(uri))
         }
     }
-    ScriptFolderItem(
-        folderPath = scriptsUiModel.folderPath,
-        onPickFolder = { folderPickerLauncher.launch(romConfig.mods.luaScriptFolder) },
-        onRemoveFolder = { onConfigUpdate(RomConfigUpdateEvent.LuaScriptFolderUpdate(null)) },
+    val folderPath = scriptsUiModel.folderPath
+    ActionLauncherItem(
+        name = stringResource(id = R.string.lua_script_folder),
+        value = folderPath ?: stringResource(id = R.string.lua_script_folder_not_set),
+        onLaunchAction = { folderPickerLauncher.launch(romConfig.mods.luaScriptFolder) },
+        valueMaxLines = 2,
+        trailingContent = {
+            if (folderPath != null) {
+                IconButton(onClick = { onConfigUpdate(RomConfigUpdateEvent.LuaScriptFolderUpdate(null)) }) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(id = R.string.lua_script_folder_remove),
+                    )
+                }
+            }
+        },
     )
 
     val folderMessage = when {
@@ -307,18 +242,19 @@ private fun LuaScriptsSection(
         else -> null
     }
     if (folderMessage != null) {
-        CaptionText(
-            text = stringResource(id = folderMessage),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+        SectionNote(stringResource(id = folderMessage))
     }
 
     luaScripts.forEach { script ->
         val header = scriptsUiModel.headers[script.fileName]
-        LuaScriptItem(
-            script = script,
-            description = header?.description,
-            isSwitchEnabled = !areScriptsBlocked,
+        // Two lines tall even without a description, so the scripts line up
+        SwitchItem(
+            name = script.fileName,
+            caption = header?.description,
+            captionMaxLines = 1,
+            isOn = script.enabled,
+            enabled = !areScriptsBlocked,
+            isTwoLine = true,
             onToggle = { isOn -> onConfigUpdate(RomConfigUpdateEvent.LuaScriptToggle(script.fileName, isOn)) },
         )
         if (header != null && (header.options.isNotEmpty() || header.unreadableOptionCount > 0)) {
@@ -443,86 +379,21 @@ private fun LuaScriptDataItem(
 }
 
 @Composable
-private fun ScriptFolderItem(
-    folderPath: String?,
-    onPickFolder: () -> Unit,
-    onRemoveFolder: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onPickFolder() }
-            .focusable()
-            .heightIn(min = 64.dp)
-            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stringResource(id = R.string.lua_script_folder),
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            CaptionText(
-                text = folderPath ?: stringResource(id = R.string.lua_script_folder_not_set),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (folderPath != null) {
-            IconButton(onClick = onRemoveFolder) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = stringResource(id = R.string.lua_script_folder_remove),
-                )
-            }
-        }
-    }
+private fun SectionTitle(text: String) {
+    Text(
+        text = text,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
 }
 
 @Composable
-private fun LuaScriptItem(
-    script: RomLuaScript,
-    description: String?,
-    isSwitchEnabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .run {
-                if (isSwitchEnabled) {
-                    clickable { onToggle(!script.enabled) }.focusable()
-                } else {
-                    this
-                }
-            }
-            .heightIn(min = 64.dp)
-            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-            Text(
-                text = script.fileName,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (description != null) {
-                CaptionText(
-                    text = description,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        Switch(
-            checked = script.enabled,
-            onCheckedChange = null,
-            enabled = isSwitchEnabled,
-        )
-    }
+private fun SectionNote(text: String) {
+    CaptionText(
+        text = text,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
 }
 
 @MelonPreviewSet
