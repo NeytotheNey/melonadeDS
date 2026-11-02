@@ -8,8 +8,7 @@ data class PositionedLayoutComponent(
     val alpha: Float = 1f,
     val onTop: Boolean = false,
     /**
-     * How far apart the buttons of the D-pad or the face buttons are, from 0 (default) to 1. The buttons keep their size, so [rect] is bigger to make room.
-     * Other components ignore it.
+     * D-pad/ABXY spacing from 0 to 1; [rect] grows so the buttons keep their size.
      */
     val spacing: Float = 0f,
 ) {

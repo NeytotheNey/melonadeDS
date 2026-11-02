@@ -7,9 +7,8 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * The aspect ratios widescreen offers, in the order of R.array.widescreen_aspect_options. [viewWidth] is the width of the top screen's 3D
- * view that gives it: SCREEN_HEIGHT times the ratio, rounded to an even number and kept to what the core takes (256 to 768). That's 308, 342,
- * 426 and 448. [key] is how a wide variant stores it (UILayout.wideAspect), so the order can change
+ * Widescreen ratios in R.array.widescreen_aspect_options order; [viewWidth] is the even 3D-view width that gives each, and [key] is what a
+ * wide variant stores.
  */
 enum class WidescreenAspect(val key: String, widthRatio: Int, heightRatio: Int) {
     RATIO_16_10("16:10", 16, 10),
@@ -19,7 +18,7 @@ enum class WidescreenAspect(val key: String, widthRatio: Int, heightRatio: Int) 
 
     val viewWidth = ((SCREEN_HEIGHT * widthRatio / (heightRatio * 2f)).roundToInt() * 2).coerceIn(MIN_WIDE_VIEW_WIDTH, MAX_WIDE_VIEW_WIDTH)
 
-    // The shape the top screen is drawn at, which comes from the rounded width, so it's a little off the nominal ratio for some of them
+    // Drawn shape, derived from the rounded width
     val aspectRatio get() = viewWidth / SCREEN_HEIGHT.toFloat()
 
     companion object {
