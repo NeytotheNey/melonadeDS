@@ -7,34 +7,32 @@
 #include "debug/AudioDiagnostics.h"
 
 /**
- * Steers the SPU output ring towards a target fill by nudging the output skew (the blip_buf resampling ratio) a little, like RetroArch's dynamic
- * rate control: skew = base * (1 + adjustment). A higher skew makes fewer output frames per emulated second, so a ring that's too full gets a
- * positive adjustment. Only used from the output callback.
+ * Steers the SPU output ring towards a target fill by nudging the output skew (the blip_buf resampling ratio) a little, like RetroArch's dynamic rate
+ * control, from the output callback only. A higher skew makes fewer output frames per emulated second, so a ring that's too full gets a positive
+ * adjustment.
  */
 class AudioDriftController {
 public:
-    // 20 ms at the 48 kHz output rate. Plain mode streams (large bursts) may use another (OboeCallback::setBurstFrames())
+    // 20 ms at the 48 kHz output rate; plain mode streams (large bursts) may use another (OboeCallback::setBurstFrames())
     static constexpr double TARGET_FILL_FRAMES = 960.0;
-    // Time constant of the fill's low-pass filter. The fill saw-tooths by ~300 frames every video frame (the emulator makes a frame's audio in
-    // ~10 ms, then idles), and the filter keeps that from wobbling the pitch
+    // Time constant of the fill's low-pass filter, which keeps the ~300-frame saw-tooth the fill makes every video frame from wobbling the pitch
     static constexpr double FILL_FILTER_SECONDS = 0.5;
-    // Adjustment at a fill error the size of the target (an empty ring, or one twice the target). With the filter above this makes a critically
-    // damped loop that settles within 5% of the target in about 3 s
+    // Adjustment at a fill error the size of the target (an empty ring, or one twice the target), which with the filter above makes a critically
+    // damped loop that settles in about 3 s
     static constexpr double PROPORTIONAL_GAIN = 0.01;
-    // The integral term catches up with the proportional one after this long at a constant error. It's what makes the fill settle on the target
-    // when the base rate is a bit off
+    // The integral term catches up with the proportional one after this long at a constant error, which settles the fill on the target when the base
+    // rate is a bit off
     static constexpr double INTEGRAL_SECONDS = 20.0;
     // The adjustment stays within ±0.5% (about 9 cents)
     static constexpr double MAX_ADJUSTMENT = 0.005;
-    // Below this part of the target, the raw fill counts as starving: the filtered fill (which lags) is pulled down to the raw one, the skew
-    // can't go above its base and the integral holds. The fill's normal low point sits only ~200-300 frames under the filtered fill, well
-    // above half the target
+    // Below this part of the target the raw fill counts as starving: the filtered fill is pulled down to it, the skew can't go above its base and the
+    // integral holds
     static constexpr double STARVING_FILL_FRACTION = 0.5;
 
     void reset();
     void setTargetFill(double frames) { targetFill = frames; }
     /**
-     * [fill] is the ring's fill after this callback read [numFrames] from it. Returns the new adjustment.
+     * [fill] is the ring's fill after this callback read [numFrames] from it; returns the new adjustment.
      */
     double update(int fill, int32_t numFrames, int32_t sampleRate);
     double getFilteredFill() const { return filteredFill; }
@@ -51,8 +49,8 @@ private:
 };
 
 /**
- * Grows the AAudio buffer of a low latency stream by a burst for every new xrun, up to a limit. It never shrinks it. Only used from the output
- * callback, apart from [enable], which is called before the stream starts.
+ * Grows a low latency stream's AAudio buffer by a burst for every new xrun, up to a limit and never down; only used from the output callback, apart
+ * from [enable], which is called before the stream starts.
  */
 class AudioBufferTuner {
 public:
@@ -79,12 +77,12 @@ private:
     AudioDiagnostics::CallbackClock diagnosticsClock;
     AudioDriftController driftController;
     AudioBufferTuner bufferTuner;
-    // What the drift control state belongs to. It restarts when any of them changes
+    // What the drift control state belongs to; it restarts when any of them changes
     const MelonDSAndroid::MelonInstance* driftInstance = nullptr;
     uint32_t driftRateGeneration = 0;
     bool isDriftSteering = false;
-    // Priming: while unprimed, the callback plays silence without reading the ring until the fill reaches the prime target (the reprime one
-    // after the ring ran dry). It starts unprimed, and goes unprimed again when the stream (re)starts, the instance changes, or the ring runs dry
+    // Priming: while unprimed, the callback plays silence without reading the ring until the fill reaches the prime target (the reprime one after the
+    // ring ran dry)
     bool isPrimed = false;
     bool isRepriming = false;
     const MelonDSAndroid::MelonInstance* primeInstance = nullptr;
@@ -94,10 +92,10 @@ private:
     bool isWaitingForTrimBeforeFrame = false;
     uint32_t trimBeforeFrameRequest = 0;
 
-    // Set from the stream's burst before it starts (setBurstFrames()). Priming mode (small bursts) primes, reprimes and trims at the fixed
-    // thresholds below. Plain mode (large bursts) only steers, to a target that leaves room for a burst
+    // Set from the stream's burst before it starts (setBurstFrames()): priming mode (small bursts) primes, reprimes and trims at the thresholds
+    // below, plain mode (large bursts) only steers, to a target that leaves room for a burst
     bool isPrimingMode = true;
-    // A callback larger than this never reprimes when it comes up short. It's just padded
+    // A callback larger than this never reprimes when it comes up short, it's just padded
     int32_t maxRepriminingCallbackFrames = MIN_REPRIMING_CALLBACK_LIMIT_FRAMES;
 
 public:
@@ -106,8 +104,8 @@ public:
     static constexpr int REPRIME_FRAMES = 480;
     static constexpr int TRIM_THRESHOLD_FRAMES = 1200;
     static constexpr int TRIM_KEEP_FRAMES = 960;
-    // A (re)started stream's ring is trimmed to this at the start of a frame, the low point. The low point sits ~130 frames under the filtered fill
-    // at normal speed and ~70 at 2x fast-forward, so this starts the drift control close to its target
+    // A (re)started stream's ring is trimmed to this at the start of a frame, the low point, which sits ~130 frames under the filtered fill at normal
+    // speed (~70 at 2x), so the drift control starts close to its target
     static constexpr int TRIM_BEFORE_FRAME_KEEP_FRAMES = 840;
     // Streams with bursts up to this many frames use priming mode
     static constexpr int32_t MAX_PRIMING_BURST_FRAMES = 256;
@@ -123,11 +121,11 @@ public:
     OboeCallback(int volume, void (*onErrorCallback)(oboe::AudioStream* stream)) : OboeCallback(volume, onErrorCallback, nullptr) { };
     OboeCallback(int volume, void (*onErrorCallback)(oboe::AudioStream* stream), std::ostream* recordingStream);
     /**
-     * Turns on the buffer growth for a low latency stream. Must be called before the stream starts.
+     * Turns on the buffer growth for a low latency stream; must be called before the stream starts.
      */
     void enableBufferTuning(int32_t burstFrames, int32_t maxBufferFrames, int32_t xruns, int32_t sampleRate);
     /**
-     * Picks priming or plain mode from the stream's burst size. Must be called before the stream starts.
+     * Picks priming or plain mode from the stream's burst size; must be called before the stream starts.
      */
     void setBurstFrames(int32_t burstFrames);
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t numFrames) override;

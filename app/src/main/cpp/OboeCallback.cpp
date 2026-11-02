@@ -40,7 +40,7 @@ double AudioDriftController::update(int fill, int32_t numFrames, int32_t sampleR
         hasFill = true;
     }
 
-    // The filter lags, so a ring that's running dry could still look too full. Recover from where the fill really is
+    // The filter lags, so a ring that's running dry could still look too full: recover from where the fill really is
     bool isStarving = fill < targetFill * STARVING_FILL_FRACTION;
     if (isStarving)
         filteredFill = std::min(filteredFill, (double) fill);
@@ -49,8 +49,8 @@ double AudioDriftController::update(int fill, int32_t numFrames, int32_t sampleR
     double proportional = PROPORTIONAL_GAIN * error;
     double integralStep = PROPORTIONAL_GAIN / INTEGRAL_SECONDS * error * numFrames / sampleRate;
 
-    // Anti-windup: while the adjustment is at a limit, the integral only moves back towards the middle. It holds while starving, which is a
-    // stall rather than a rate error
+    // Anti-windup: while the adjustment is at a limit the integral only moves back towards the middle, and it holds while starving (a stall, not a
+    // rate error)
     double unclamped = proportional + integral + integralStep;
     if (!isStarving && (unclamped < MAX_ADJUSTMENT || integralStep < 0) && (unclamped > -MAX_ADJUSTMENT || integralStep > 0))
         integral = std::clamp(integral + integralStep, -MAX_ADJUSTMENT, MAX_ADJUSTMENT);
@@ -79,7 +79,8 @@ void AudioBufferTuner::onCallback(oboe::AudioStream& stream, int32_t numFrames)
         return;
     framesUntilPoll = pollIntervalFrames;
 
-    // getXRunCount() and get/setBufferSizeInFrames() take Oboe's stream lock, as in Oboe's own LatencyTuner. They only run every ~100 ms or on an xrun
+    // getXRunCount() and get/setBufferSizeInFrames() take Oboe's stream lock (as in Oboe's own LatencyTuner), so they only run every ~100 ms or on an
+    // xrun
     oboe::ResultWithValue<int32_t> xruns = stream.getXRunCount();
     if (!xruns)
     {
@@ -94,7 +95,7 @@ void AudioBufferTuner::onCallback(oboe::AudioStream& stream, int32_t numFrames)
 
     int32_t oldSize = stream.getBufferSizeInFrames();
     int32_t requestedSize = std::min(oldSize + burstFrames * newXRuns, maxBufferFrames);
-    // AAudio allows this from the data callback. It only changes how much of the allocated capacity is used
+    // AAudio allows this from the data callback, and it only changes how much of the allocated capacity is used
     oboe::ResultWithValue<int32_t> newSize = stream.setBufferSizeInFrames(requestedSize);
     if (!newSize)
     {
@@ -144,11 +145,11 @@ void OboeCallback::updateOutputSkew(MelonDSAndroid::MelonInstance& instance, int
     bool isSteering = canSteer;
     if (MelonDSAndroid::isAudioFastForwarding())
     {
-        // Paced fast-forward plays its audio sped up (and pitched up). Muted fast-forward discards it, and unlimited fast-forward has no
-        // known rate to follow, so both keep the plain base without steering
+        // Paced fast-forward plays its audio sped up (and pitched up), while muted fast-forward discards it and unlimited has no known rate, so both
+        // keep the plain base without steering
         float speed = MelonDSAndroid::getAudioFastForwardSpeed();
-        // A scene too heavy for the requested speed makes less audio per second, so the ring runs dry. Following the speed really reached
-        // (AudioDiagnostics::getAchievedSpeed()) instead bent the pitch audibly
+        // Follows the requested speed even when a heavy scene can't reach it and the ring runs dry, since following the achieved speed
+        // (AudioDiagnostics::getAchievedSpeed()) bends the pitch audibly
         if (speed > 0 && !MelonDSAndroid::shouldMuteAudioOutput())
             baseSkew *= speed;
         else
@@ -167,7 +168,7 @@ void OboeCallback::updateOutputSkew(MelonDSAndroid::MelonInstance& instance, int
     if (isSteering)
         adjustment = driftController.update(instance.getAudioOutputBufferFill(), numFrames, sampleRate);
 
-    // Only stored here. The emulator thread applies it between two blip frames
+    // Only stored here; the emulator thread applies it between two blip frames
     instance.setAudioOutputSkew(baseSkew * (1.0 + adjustment));
 
     if (isDiagnosticsEnabled) [[unlikely]]
@@ -221,10 +222,8 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
         else
             isReady = currentInstance->getAudioOutputBufferFill() >= (isRepriming ? REPRIME_FRAMES : PRIME_FRAMES);
 
-        // The emulator keeps running while AAudio starts a stream (13-130 ms), so the ring is often full by now. Trimming it here lands at
-        // whatever phase of the emulator's frame this is: right after a frame's audio, the next low points sat ~500 frames under the target,
-        // and the skew at its limit for seconds. So a (re)started stream keeps priming until the emulator thread trimmed the ring at the start
-        // of its next frame (at most a frame away). The silence played meanwhile also fills the AAudio buffer, which a start empties
+        // The emulator keeps running while AAudio starts a stream (13-130 ms), so the ring is often full by now, and a (re)started stream keeps
+        // priming until the emulator thread has trimmed it at the start of its next frame
         if (isReady && !isRepriming && !isWaitingForTrimBeforeFrame)
         {
             trimBeforeFrameRequest = MelonDSAndroid::requestAudioOutputTrimBeforeFrame();
@@ -243,7 +242,7 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
         isPrimed = true;
         isWaitingForTrimBeforeFrame = false;
 
-        // A reprime ends with whatever the emulator caught up with, which is rarely over the threshold. Trimmed here if it is
+        // A reprime ends with whatever the emulator caught up with, which is rarely over the threshold, but it's trimmed here if it is
         if (isRepriming)
         {
             int droppedFrames = currentInstance->trimAudioOutput(TRIM_THRESHOLD_FRAMES, TRIM_KEEP_FRAMES);
@@ -264,8 +263,8 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
     {
         if (isDiagnosticsEnabled)
             AudioDiagnostics::onUnderrun(numFrames - std::max(num_in, 0), MelonDSAndroid::isAudioFastForwarding());
-        // The ring ran dry. Wait until it holds half the target again before playing on. An oversized callback (larger than a few bursts)
-        // coming up short says nothing about the ring, so it's only padded
+        // The ring ran dry: wait until it holds half the target again, but only pad an oversized callback (larger than a few bursts), whose shortfall
+        // says nothing about the ring
         if (!isMuted && isPrimingMode && numFrames <= maxRepriminingCallbackFrames)
         {
             isPrimed = false;
@@ -276,8 +275,8 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
 
     updateOutputSkew(*currentInstance, numFrames, stream->getSampleRate(), isPrimed, isDiagnosticsEnabled);
 
-    // When muted (fast-forward with the mute setting on), the SPU output was still read above and is
-    // discarded here. Leaving it in the SPU buffer would play it as a stale burst once fast-forward ends
+    // When muted (fast-forward with the mute setting on), the SPU output read above is discarded here, so it can't play as a stale burst once
+    // fast-forward ends
     if (num_in < 1 || isMuted)
     {
         memset(audioData, 0, len * sizeof(s16) * 2);
