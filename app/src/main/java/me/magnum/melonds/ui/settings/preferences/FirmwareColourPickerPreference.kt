@@ -56,21 +56,21 @@ class FirmwareColourPickerPreference(context: Context, attrs: AttributeSet?) : P
 
         binding.layoutGridColours.children.flatMap { (it as ViewGroup).children }.forEach {
             it.setOnClickListener {  view ->
-                val selectedColour = (view.tag as String).toInt()
-                updateSelectedColour(selectedColour)
-                if (callChangeListener(selectedColour)) {
-                    persistInt(selectedColour)
+                val selectedColor = (view.tag as String).toInt()
+                updateSelectedColor(selectedColor)
+                if (callChangeListener(selectedColor)) {
+                    persistInt(selectedColor)
                 }
                 alertDialog.dismiss()
             }
         }
     }
 
-    private fun updateSelectedColour(selectedColour: Int) {
-        val firmwareColour = FirmwareColour.entries[selectedColour]
-        colorMapper[firmwareColour]?.let {
-            val colourWithAlpha = (0xFF000000 or it.toLong())
-            viewSelectedColour.setBackgroundColor(colourWithAlpha.toInt())
+    private fun updateSelectedColor(selectedColor: Int) {
+        val firmwareColor = FirmwareColour.entries[selectedColor]
+        colorMapper[firmwareColor]?.let {
+            val colorWithAlpha = (0xFF000000 or it.toLong())
+            viewSelectedColour.setBackgroundColor(colorWithAlpha.toInt())
         }
     }
 
@@ -78,6 +78,6 @@ class FirmwareColourPickerPreference(context: Context, attrs: AttributeSet?) : P
         super.onBindViewHolder(holder)
 
         viewSelectedColour = holder.findViewById(R.id.viewSelectedColour)
-        updateSelectedColour(getPersistedInt(0))
+        updateSelectedColor(getPersistedInt(0))
     }
 }

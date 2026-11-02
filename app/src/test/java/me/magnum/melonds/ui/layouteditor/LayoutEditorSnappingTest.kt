@@ -38,18 +38,18 @@ class LayoutEditorSnappingTest {
     // Controls
 
     @Test
-    fun controlCentreSnapsToNearestGridPoint() {
+    fun controlCenterSnapsToNearestGridPoint() {
         // Centered, the 100 px control starts at 450 with its center on 500, and moved to 480 its center (530) is closer to 548
         assertEquals(498, LayoutEditorSnapping.snapCenter(480, 100, axis))
         assertEquals(450, LayoutEditorSnapping.snapCenter(465, 100, axis))
     }
 
     @Test
-    fun centredControlStaysWhereTheCentreButtonsPutIt() {
+    fun centeredControlStaysWhereTheCenterButtonsPutIt() {
         // Odd sizes on the cover screen, where half the length gets rounded
         val coverAxis = SnapAxis(limit = 1248, cell = 42)
-        val centredStart = (1248 - 75) / 2
-        assertEquals(centredStart, LayoutEditorSnapping.snapCenter(centredStart, 75, coverAxis))
+        val centeredStart = (1248 - 75) / 2
+        assertEquals(centeredStart, LayoutEditorSnapping.snapCenter(centeredStart, 75, coverAxis))
     }
 
     @Test
@@ -83,7 +83,7 @@ class LayoutEditorSnappingTest {
     }
 
     @Test
-    fun screenCanLandBackOnTheCentredPosition() {
+    fun screenCanLandBackOnTheCenteredPosition() {
         // Neither edge of the centered 251 px screen (374..625) is on a line, but the centered position still counts
         assertEquals(374, LayoutEditorSnapping.snapEdges(378, 251, axis))
     }
