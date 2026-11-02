@@ -15,7 +15,8 @@ import androidx.compose.ui.unit.dp
 import me.magnum.melonds.ui.common.component.text.CaptionText
 
 /**
- * A switch row. [isTwoLine] rows are as tall as an [ActionLauncherItem], with or without a [caption]
+ * A switch row. [isTwoLine] rows are as tall as an [ActionLauncherItem], with or without a [caption].
+ * Unlike [ActionLauncherItem], [enabled] greys out only the switch, not the [name] or [caption].
  */
 @Composable
 fun SwitchItem(
