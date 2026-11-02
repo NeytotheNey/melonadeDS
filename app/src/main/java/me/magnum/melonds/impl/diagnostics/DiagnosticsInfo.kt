@@ -70,7 +70,7 @@ internal object DiagnosticsInfo {
             "device_hardware" to Build.HARDWARE,
             "device_board" to Build.BOARD,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "device_soc" to "${Build.SOC_MANUFACTURER} ${Build.SOC_MODEL}" else null,
-            "device_abis" to Build.SUPPORTED_ABIS.joinToString(","),
+            "device_abis" to Build.SUPPORTED_ABIS.joinToString(", "),
             "device_fingerprint" to Build.FINGERPRINT,
             "android_version" to Build.VERSION.RELEASE,
             "android_sdk" to Build.VERSION.SDK_INT.toString(),

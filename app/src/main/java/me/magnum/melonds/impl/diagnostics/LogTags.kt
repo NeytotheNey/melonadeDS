@@ -1,7 +1,7 @@
 package me.magnum.melonds.impl.diagnostics
 
 /**
- * The logcat tags the app and its native code write under (MelonLog.h on the native side), listed in the debug log's header.
+ * The logcat tags listed in the debug log's header; the native side writes under the same names (MelonLog.h), plus melonade and melonade-gl.
  */
 internal object LogTags {
     const val DEBUG = "melonade-debug"

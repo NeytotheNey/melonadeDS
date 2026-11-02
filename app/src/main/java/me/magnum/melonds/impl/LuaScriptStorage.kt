@@ -10,6 +10,7 @@ import androidx.documentfile.provider.DocumentFile
 import me.magnum.melonds.domain.model.emulator.LuaScriptHeader
 import me.magnum.melonds.domain.model.emulator.LuaScriptImage
 import me.magnum.melonds.domain.model.emulator.LuaScriptModule
+import me.magnum.melonds.impl.diagnostics.LogTags
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
@@ -17,7 +18,7 @@ import java.io.InputStream
 /**
  * Logcat tag of the Kotlin side of Lua scripting, shared with the native side
  */
-internal const val LUA_LOG_TAG = "melonade-lua"
+internal const val LUA_LOG_TAG = LogTags.LUA
 
 /**
  * Reads the games' Lua scripts from the folder linked to each game (see RomModsConfig.luaScriptFolder). The app only ever reads that
