@@ -41,8 +41,7 @@ public:
     void RequestFlush(const u8* savedata, u32 savelen, u32 writeoffset, u32 writelen);
     void CheckFlush();
 
-    // Returns false if the data could not be flushed. A failed file flush leaves the data pending
-    // so that it gets retried. Returns true if there was nothing to flush.
+    // Returns false if the data could not be flushed (a failed file flush leaves it pending to be retried), true if there was nothing to flush.
     bool FlushSecondaryBuffer();
 
 private:
@@ -62,11 +61,9 @@ private:
     std::unique_ptr<u8[]> SecondaryBuffer;
     u32 SecondaryBufferLength;
 
-    // Serializes FlushSecondaryBuffer() calls. Kept separate from SecondaryBufferLock
-    // so that CheckFlush() never has to wait for file I/O.
+    // Serializes FlushSecondaryBuffer() calls, kept apart from SecondaryBufferLock so CheckFlush() never has to wait for file I/O.
     Platform::Mutex* FlushLock;
-    // Snapshot of SecondaryBuffer that gets written to the file outside of SecondaryBufferLock.
-    // Only touched while holding FlushLock.
+    // Snapshot of SecondaryBuffer written to the file outside of SecondaryBufferLock, only touched while holding FlushLock.
     std::unique_ptr<u8[]> WriteBuffer;
     u32 WriteBufferLength;
 

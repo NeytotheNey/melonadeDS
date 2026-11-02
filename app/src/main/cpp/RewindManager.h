@@ -48,8 +48,8 @@ public:
     bool ShouldCaptureState(int currentFrame);
     RewindSaveState* GetNextRewindSaveState(int currentFrame);
     /**
-     * Emulator thread, once per frame. While the window isn't full, the next capture's state is allocated ahead and its buffer written a slice
-     * per frame (up to a bit more than the biggest state so far), so that the capture doesn't page-fault a fresh buffer on its frame
+     * Emulator thread, once per frame: while the window isn't full, allocates the next capture's state ahead and writes its buffer a slice per frame
+     * (up to a bit more than the biggest state so far), so the capture doesn't page-fault a fresh buffer on its frame
      */
     void PrepareNextRewindSaveState();
     // The window's state for [frame], or null
@@ -70,7 +70,7 @@ private:
     // The state that PrepareNextRewindSaveState() gets ready (its buffer is null when there's none), and how much of its buffer is written
     RewindSaveState SpareState = {};
     u32 SpareStatePreparedSize = 0;
-    // The biggest state saved so far, which bounds how much of the next one's buffer is prepared. 0 before the first
+    // The biggest state saved so far (0 before the first), which bounds how much of the next one's buffer is prepared
     u32 LargestSavestateSize = 0;
     int RewindLengthSeconds;
     int RewindCapturingIntervalSeconds;

@@ -214,8 +214,8 @@ bool SaveManager::FlushSecondaryBuffer()
     bool flushed = true;
 
     Platform::Mutex_Lock(FlushLock);
-    // Only hold SecondaryBufferLock long enough to snapshot the data. Holding it during
-    // the file write would stall the emulator thread in CheckFlush() on slow storage.
+    // Only hold SecondaryBufferLock long enough to snapshot the data, since holding it during the file write would stall the emulator thread in
+    // CheckFlush() on slow storage.
     Platform::Mutex_Lock(SecondaryBufferLock);
 
     // There's no point in re-writing the exact same data.
@@ -240,7 +240,7 @@ bool SaveManager::FlushSecondaryBuffer()
     if (f)
     {
         bool written = FileWrite(WriteBuffer.get(), WriteBufferLength, 1, f) == 1;
-        // Always close the file, even after a short write. A failed close can also mean lost data.
+        // Always close the file, even after a short write, since a failed close can also mean lost data.
         bool closed = CloseFile(f);
         flushed = written && closed;
         if (flushed)
@@ -251,9 +251,8 @@ bool SaveManager::FlushSecondaryBuffer()
         flushed = false;
     }
 
-    // Only mark the version we wrote as flushed. If a flush was requested during the write,
-    // leave its timestamp alone so that it still gets its own debounced write. If the write
-    // failed, leave everything as is so that the data stays pending and gets retried.
+    // Only mark the version we wrote as flushed, so a flush requested during the write still gets its own debounced write and a failed write's data
+    // stays pending for a retry.
     if (flushed)
     {
         Platform::Mutex_Lock(SecondaryBufferLock);
