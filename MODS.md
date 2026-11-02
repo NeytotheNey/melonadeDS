@@ -4,7 +4,7 @@ Two mods, both set per game in ROM details → Mods tab and stored in `RomConfig
 
 ## Decisions to keep
 
-- **Our own Lua API, no compatibility.** MelonMix (KHMelonMix's per-game C++ plugins) and DraStic script compatibility are dropped. DraStic (`C:\Dev\drastic`, readme section 8) is a design reference only; old DraStic scripts get ported by hand.
+- **Our own Lua API, no compatibility.** MelonMix (KHMelonMix's per-game C++ plugins) and DraStic script compatibility are dropped. DraStic's own Lua API readme (section 8) is a design reference only; DraStic is closed source, so there's no repo to point at. Old DraStic scripts get ported by hand.
 - **RetroAchievements hardcore:** Lua is fully off, read-only scripts included (RA bans scripting outright). It's gated next to cheats (`impl/emulator/EmulatorSession.kt`), the Mods tab disables the switches and says why, and `melon.state.load` checks hardcore again anyway. WideMelon stays allowed: RA exempts widescreen hacks. Its one game-visible effect is that BoxTest is squeezed too.
 - **One linked SAF folder per game**, picked in the Mods tab (`OpenDocumentTree`, persisted read permission), not copied. Top-level `.lua` files are the scripts; subfolders hold modules and images. New scripts start switched off. The app never writes to or deletes from the folder.
 - Lua 5.4.9 from lua.org under `cpp/lua/`, unchanged except `cpp/lua/patched/lstrlib.c` (a work budget in pattern matching and plain find). `cpp/lua/LICENSE` says how to redo the patch on an upgrade.
