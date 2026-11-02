@@ -1,5 +1,5 @@
 <resources>
-    <!-- Base for AppTheme and EmulatorTheme: the colours used when dynamic colours are off or unavailable -->
+    <!-- Base for AppTheme and EmulatorTheme: the colors used when dynamic colors are off or unavailable -->
     <style name="Base.AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/m3Primary</item>
         <item name="colorOnPrimary">@color/m3OnPrimary</item>
@@ -47,7 +47,7 @@
         <item name="preferenceTheme">@style/ThemeOverlay.MelonDS.Preference</item>
     </style>
 
-    <!-- Applied on top of the activity theme by DynamicColors when dynamic colours are enabled -->
+    <!-- Applied on top of the activity theme by DynamicColors when dynamic colors are enabled -->
     <style name="ThemeOverlay.MelonDS.DynamicColors" parent="ThemeOverlay.Material3.DynamicColors.DayNight">
         <item name="melonDynamicColorsApplied">true</item>
     </style>
@@ -70,7 +70,7 @@
         <item name="android:windowLightStatusBar">false</item>
     </style>
 
-    <!-- Matches the Compose M3 TopAppBar: surface coloured, no elevation -->
+    <!-- Matches the Compose M3 TopAppBar: surface colored, no elevation -->
     <style name="Toolbar" parent="Widget.Material3.Toolbar.Surface">
         <item name="titleTextAppearance">@style/Toolbar.TitleText</item>
     </style>

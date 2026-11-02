@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Set by ThemeOverlay.MelonDS.DynamicColors so that Compose screens know if dynamic colours were applied to the activity -->
+    <!-- Set by ThemeOverlay.MelonDS.DynamicColors so that Compose screens know if dynamic colors were applied to the activity -->
     <attr name="melonDynamicColorsApplied" format="boolean" />
 </resources>

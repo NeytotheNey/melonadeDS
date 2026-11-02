@@ -39,12 +39,12 @@
     <color name="textLayoutEditor">@android:color/black</color>
     <color name="layoutEditorPanelBackground">#AFFF</color>
 
-    <!-- Launcher icon colours; nightly overrides the liquid ones -->
+    <!-- Launcher icon colors; nightly overrides the liquid ones -->
     <color name="launcherBackground">#FFD54A</color>
     <color name="launcherLiquid">#FF6B7A</color>
     <color name="launcherLiquidTop">#FF95A0</color>
 
-    <!-- The M3 colours closest to the old splash colours: #F44336, and #333 in dark mode -->
+    <!-- The M3 colors closest to the old splash colors: #F44336, and #333 in dark mode -->
     <color name="splashBackground">@color/m3PrimaryContainer</color>
 
     <color name="statusOk">#4A4</color>
