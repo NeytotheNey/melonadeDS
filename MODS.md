@@ -96,9 +96,9 @@ Kotlin (`impl/LuaScriptFolderContent.kt`) walks the subfolders at launch when an
 
 **Dual-screen wing hold.** Games with 3D on both screens (Phantom Hourglass, Mario Kart DS) move unit A every frame, so each screen's wings would flash at 30 Hz. The GL compositor keeps a copy of the output's wing columns (`HeldWingsTex`, blitted after drawing while both halves have had 3D lately). When unit A's wings appear in the other half, a half that had its own in the last 2 frames reuses them, only on lines that had bit 18 in the copy and would be black now, for at most 2 frames in a row; a width or scale change drops the copy. The half unit A is in comes from bit 22, so a window blacking out all of unit A's wings doesn't stop the hold. Single-screen 3D games never copy or hold.
 
-**Adreno gotcha:** held lines reach the shader as **bit 13 of the line's control word**, in a copy of the 384 control words the compositor uploads over the frame's (`GLCompositor::PrepareWingHold`). It used to be a `uvec4 uWingHold[3]` bit mask, but Adreno never applied the hold to word 0 (top lines 0–31), which gave black flickering corner notches on Phantom Hourglass's top screen (lines 21–31). Keep the flag in the control word.
+**Adreno gotcha:** held lines reach the shader as bit 13 of the line's control word (`GLCompositor::PrepareWingHold`), because Adreno never applied an earlier `uvec4 uWingHold[3]` mask to word 0, which gave flickering black notches on Phantom Hourglass's top screen; keep the flag in the control word.
 
-**Lesson:** for wing bugs, a per-line dump on the phone (reading back the output, the held texture and the 3D texture, plus each line's control bits) found the Adreno bug when code reasoning didn't. The dump was temporary and is gone; write a new one rather than guessing.
+**Lesson:** for wing bugs, a per-line dump on the phone (output, held texture, 3D texture and each line's control bits) found what code reasoning didn't, so write a new one rather than guess (the old one is gone).
 
 **Known limits:** edge pop-in in games that cull on the CPU or with PosTest; ortho 3D HUDs and full-screen 3D quads stay 256 wide; 2D-only scenes get black wings; wings show the 3D clear colour where 3D is transparent (filling them with the 2D backdrop is a possible fix); BoxTest and the polygon RAM limit make it visible to the game; loading a state made at another width gives a frame or two of squeezed geometry.
 
@@ -124,7 +124,7 @@ g++ -std=c++17 -O1 -Isrc/main/cpp/lua -Isrc/main/cpp src/test/cpp/LuaStorageTest
 ./lua-storage-test
 ```
 
-OpenGL, and so all WideMelon output, is phone-only: the emulator has no GLES 3.2, so there it can only check the Mods tab and layout UI. Phone-tested: Mods tab and per-game config, scripts UI and hardcore, `melon.draw` (OpenGL 4x with filters), linked folders. Emulator-only so far: the Lua extras (text size, circles, `on_frame_end`, save-state pictures, `require`, images, storage, options, `set_layout`, script savestates). The dual-screen wing hold is phone-tested (Phantom Hourglass, Mario Kart DS), and so is WideMelon on the compute renderer. The wings' window handling isn't phone-tested yet.
+OpenGL, and so all WideMelon output, is phone-only: the emulator has no GLES 3.2, so there it can only check the Mods tab and layout UI. Not phone-tested yet: the wings' window handling, and script drawings in savestate pictures.
 
 ## Remaining
 
