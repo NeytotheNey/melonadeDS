@@ -67,7 +67,7 @@ class RomDetailsViewModel @Inject constructor(
 
     private val _romConfig = MutableStateFlow(_rom.value.config)
 
-    // What the last read of the linked script folder found. Null until it has been read
+    // What the last read of the linked script folder found, or null until it has been read
     private val _luaScriptFolderState = MutableStateFlow<LuaScriptFolderState?>(null)
     // Same rule as EmulatorSession: hardcore only applies while logged in to RetroAchievements
     private val _areLuaScriptsBlockedByHardcore = MutableStateFlow(false)
@@ -75,8 +75,7 @@ class RomDetailsViewModel @Inject constructor(
     private var romReloadJob: Job? = null
     // How much each script has saved with melon.storage, by file name
     private val _luaScriptDataSizes = MutableStateFlow<Map<String, Long>>(emptyMap())
-    // Where the game's script data is kept (see LuaScriptDataStore.getGameKey). Read from the ROM's header the first time it's needed, and
-    // again next time if the header couldn't be read
+    // Where the game's script data is kept (see LuaScriptDataStore.getGameKey), read lazily from the ROM's header
     private var luaDataGameKey: String? = null
 
     // Buffered until the screen collects it, since a picker result can arrive before that (after the process was killed, for example)
@@ -84,7 +83,7 @@ class RomDetailsViewModel @Inject constructor(
     val luaScriptEvent = _luaScriptEvent.receiveAsFlow()
 
     /**
-     * @param folderUri The folder that was read. The rest only applies while the ROM is still linked to it
+     * @param folderUri The folder that was read; the rest only applies while the ROM is still linked to it
      * @param isReadable False if the folder couldn't be read, in which case the script list was kept as it was
      * @param headers Each script's header, by file name
      */
@@ -93,11 +92,11 @@ class RomDetailsViewModel @Inject constructor(
     val romConfigUiState by lazy {
         val uiStateFlow = MutableStateFlow<RomConfigUiState>(RomConfigUiState.Loading)
         viewModelScope.launch {
-            // For the scripts' layout options and the wide layout. Null until read, so the rest doesn't wait for them
+            // For the scripts' layout options and the wide layout, null until read so the rest doesn't wait for them
             val allLayouts = layoutsRepository.getLayouts()
                 .map<List<LayoutConfiguration>, List<LayoutConfiguration>?> { it }
                 .onStart { emit(null) }
-            // For the widescreen section. combine() takes up to 5 flows, so the renderer comes with the config
+            // For the widescreen section, paired with the config since combine() takes up to 5 flows
             val romConfigAndRenderer = combine(_romConfig, settingsRepository.getVideoRenderer()) { romConfig, renderer -> romConfig to renderer }
             combine(romConfigAndRenderer, _luaScriptFolderState, _areLuaScriptsBlockedByHardcore, _luaScriptDataSizes, allLayouts) { (romConfig, renderer), folderState, areLuaScriptsBlocked, dataSizes, layouts ->
                 val romConfigUiModel = romDetailsUiMapper.mapRomConfigToUi(romConfig)
@@ -127,7 +126,7 @@ class RomDetailsViewModel @Inject constructor(
     }
 
     /**
-     * Reads the hardcore setting again. Called whenever the screen resumes, since the setting can change in between
+     * Reads the hardcore setting again whenever the screen resumes, since it can change in between
      */
     fun refreshLuaScriptsHardcoreState() {
         viewModelScope.launch {
@@ -152,8 +151,7 @@ class RomDetailsViewModel @Inject constructor(
                 }
                 it.copy(gbaSlotConfig = newGbaSlotConfig)
             }
-            // The file permissions are only taken here, when a file is picked. Taking them on every save would throw if a grant was lost
-            // (after a settings restore, for example), and the script sync saves on its own when the screen resumes
+            // File permissions are taken only when a file is picked, since taking them on every save would throw if a grant was lost
             is RomConfigUpdateEvent.GbaRomPathUpdate -> currentRomConfig.let {
                 (currentRomConfig.gbaSlotConfig as? RomGbaSlotConfig.GbaRom)?.let { gbaConfig ->
                     event.gbaRomPath?.let { uri -> uriPermissionManager.persistFilePermissions(uri, Permission.READ) }
@@ -189,8 +187,7 @@ class RomDetailsViewModel @Inject constructor(
     }
 
     /**
-     * Reads the ROM again from the repository. Called whenever the screen resumes: the emulator runs on top of this screen and can change the
-     * config meanwhile (the pause menu saves script options), and without this the next change made here would write the old config back
+     * Reads the ROM again on resume, since the emulator on top can change its config and the next change here would otherwise write the old one back
      */
     fun reloadRom() {
         romReloadJob?.cancel()
@@ -202,8 +199,7 @@ class RomDetailsViewModel @Inject constructor(
                 null
             } ?: return@launch
 
-            // A copy, since the repository changes its ROMs in place. Changes made here are saved to the repository right away, so its config
-            // is never older than this one
+            // A copy, since the repository changes its ROMs in place
             val reloadedRom = repositoryRom.copy()
             if (reloadedRom != _rom.value) {
                 _rom.value = reloadedRom
@@ -220,9 +216,7 @@ class RomDetailsViewModel @Inject constructor(
     }
 
     /**
-     * Brings the script list in step with the linked folder (see [LuaScriptFolderSync]), and reads the scripts' headers and how much data
-     * they saved. Called when the Mods tab is shown and when the screen resumes, so files added to or removed from the folder outside the app
-     * show up
+     * Syncs the script list with the linked folder (see [LuaScriptFolderSync]) and reads the scripts' headers and saved-data sizes
      */
     fun syncLuaScripts() {
         luaScriptSyncJob?.cancel()
@@ -239,8 +233,7 @@ class RomDetailsViewModel @Inject constructor(
                 scriptFiles to headers
             }
 
-            // Applied to the config as it is now, so switches flipped while the folder was read are kept. If the folder was changed in the
-            // meantime, the sync started for the new one takes over
+            // Applied to the config as it is now, so switches flipped while the folder was read are kept
             val romConfig = _romConfig.value
             if (romConfig.mods.luaScriptFolder != folderUri) {
                 return@launch
@@ -279,8 +272,7 @@ class RomDetailsViewModel @Inject constructor(
     }
 
     /**
-     * Same key as the emulator uses, or null if the ROM's header can't be read (the emulator then keeps the data for the session only). Reads
-     * the header, so only on an IO thread
+     * Same key as the emulator uses, or null if the ROM's header can't be read; it reads the header, so call it only on an IO thread
      */
     private fun getLuaDataGameKey(): String? {
         luaDataGameKey?.let { return it }
@@ -296,8 +288,7 @@ class RomDetailsViewModel @Inject constructor(
     private fun updateLuaScriptFolder(newFolderUri: Uri?) {
         val oldFolderUri = _romConfig.value.mods.luaScriptFolder
         if (newFolderUri == oldFolderUri) {
-            // Picking the same folder again keeps the switches. It's read again, which clears the "can't find the folder" state if access
-            // to it was given back
+            // Picking the same folder again keeps the switches, and reading it again clears the "can't find the folder" state
             if (newFolderUri != null && !takeLuaScriptFolderPermission(newFolderUri)) {
                 _luaScriptEvent.trySend(LuaScriptEvent.FolderPickFailed)
                 return
@@ -342,7 +333,7 @@ class RomDetailsViewModel @Inject constructor(
                     }
                     isUsedByOtherRom || folderUri in getAppFolders()
                 } catch (e: Exception) {
-                    // When in doubt the permission is kept. Keeping one too many is harmless, releasing one in use breaks that folder
+                    // When in doubt the permission is kept, since releasing one in use breaks that folder
                     true
                 }
                 if (!isFolderStillUsed) {
