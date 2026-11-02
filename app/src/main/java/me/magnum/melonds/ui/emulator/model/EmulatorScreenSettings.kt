@@ -10,5 +10,4 @@ data class EmulatorScreenSettings(
     val isFramePacingEnabled: Boolean,
     val isDisplayLock60HzEnabled: Boolean,
     val fpsCounterPosition: FpsCounterPosition,
-    val showStatusBar: Boolean,
 )

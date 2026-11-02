@@ -1146,8 +1146,11 @@ class EmulatorViewModel @Inject constructor(
             isFramePacingEnabled = settingsRepository.isFramePacingVsyncEnabled(),
             isDisplayLock60HzEnabled = settingsRepository.isFramePacingLock60HzEnabled(),
             fpsCounterPosition = settingsRepository.getFpsCounterPosition(),
-            showStatusBar = settingsRepository.showStatusBar(),
         )
+    }
+
+    fun showStatusBar(): Boolean {
+        return settingsRepository.showStatusBar()
     }
 
     private suspend fun getRomEnabledCheats(romInfo: RomInfo): List<Cheat> {

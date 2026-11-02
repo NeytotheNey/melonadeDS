@@ -953,7 +953,7 @@ class EmulatorActivity : AppCompatActivity() {
 
     private fun setupFullscreen() {
         // Runs on every focus change, so a change made in the settings is picked up when returning to the game
-        window.setupGameSystemBars(viewModel.getScreenSettings().showStatusBar)
+        window.setupGameSystemBars(viewModel.showStatusBar())
     }
 
     private fun startMotionManagerIfNeeded(rom: Rom) {
