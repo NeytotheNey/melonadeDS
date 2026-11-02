@@ -31,7 +31,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    alpha = vAlpha;\n" +
                 "}"
 
-        // For pre-passes (see VideoFilter), which draw a full-target quad into a texture. No alpha, since nothing is blended
+        // For pre-passes (see VideoFilter), which draw a full-target quad into a texture with nothing blended
         private const val PRE_PASS_VERT_SHADER = "attribute vec2 vPos;\n" +
                 "attribute vec2 vUV;\n" +
                 "varying vec2 uv;\n" +
@@ -41,12 +41,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    uv = vUV;\n" +
                 "}"
 
-        // Every screen shader passes its final RGB colour through finishColor(). The pre-passes don't, since they work on the raw colours.
-        // It does nothing unless ShaderFactory defines COLOR_CORRECTION, for the "DS screen colours" setting. Then it applies Pokefan531's
-        // nds-color profile (hunterk's Color Mangler, public domain), which mimics the paler, cooler colours of the original DS's LCD: to linear
-        // with a gamma of 1.91, dimmed to 89%, mixed through the colour matrix, then back with the same gamma. pow() is undefined for negative
-        // values, which some filters can output and the matrix can make (its red row has a negative blue term), so both pow() inputs are
-        // clamped. Works in GLSL ES 1.00 and 3.00
+        // finishColor() applies Pokefan531's nds-color profile (hunterk's Color Mangler, public domain) when COLOR_CORRECTION is defined; both
+        // pow() inputs are clamped because filters can output negatives
         private const val COLOR_FUNCTIONS = "vec3 finishColor(vec3 rgb) {\n" +
                 "#ifdef COLOR_CORRECTION\n" +
                 "    vec3 c = pow(clamp(rgb, 0.0, 1.0), vec3(1.91)) * 0.89;\n" +
@@ -69,12 +65,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    gl_FragColor = vec4(finishColor(color.bgr), alpha);\n" +
                 "}"
 
-        // Keeps the samples of the screen that contains p off the parts beside its middle SCREEN_WIDTH columns in a wide frame, unless it's the
-        // screen drawn wide: the top one, or the bottom one when bottomScreenWide is 1 (the screens are swapped). screenColumns() is the range
-        // of u coordinates (texel centres) they can use. For the wide screen the range doesn't limit anything, since the texture's own edges
-        // (CLAMP_TO_EDGE) do the same, and neither does it on a SCREEN_WIDTH frame. Needs texSize and topScreenWidth to be declared before it,
-        // and declares bottomScreenWide (0, the top screen, when it's never set). sampleColumns() is for GLSL ES 1.00 filters that don't use
-        // sampleScreen(), and needs tex
+        // screenColumns(p) is the u range a wide frame lets the non-wide screen sample; needs texSize and topScreenWidth declared first
         private const val SCREEN_COLUMN_RANGE_FUNCTIONS = "uniform float bottomScreenWide;\n" +
                 "vec2 screenColumns(vec2 p) {\n" +
                 "    if ((p.y < 0.5) == (bottomScreenWide < 0.5) || topScreenWidth <= ${SCREEN_WIDTH}.0) {\n" +
@@ -85,8 +76,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    return vec2(0.5 - halfWidth + halfTexel, 0.5 + halfWidth - halfTexel);\n" +
                 "}\n"
 
-        // When there's nothing to keep the samples off, p goes to the texture as it is, so that filters which sample straight at their uv
-        // still do: any maths on it can cost precision on GPUs that sample a plain varying at full precision
+        // Samples p unchanged when there's nothing to clamp, since any math on it can cost precision on GPUs that sample a plain varying exactly
         private const val SAMPLE_COLUMNS_FUNCTIONS = "vec4 sampleColumns(vec2 p, vec2 columns) {\n" +
                 "    if (columns.x < 0.0) {\n" +
                 "        return texture2D(tex, p);\n" +
@@ -94,28 +84,21 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    return texture2D(tex, vec2(clamp(p.x, columns.x, columns.y), p.y));\n" +
                 "}\n"
 
-        // The frame texture holds both screens stacked vertically, top screen first (from v = 0), with 2 empty lines between them. FRAME_TEXTURE_HEIGHT
-        // is in DS pixels, and so is the topScreenWidth uniform, the frame's width: SCREEN_WIDTH, or more when widescreen widens the top
-        // screen's 3D view. The bottom screen is then SCREEN_WIDTH wide in the middle, with black bars beside it. When the OpenGL or Compute
-        // renderer is upscaled the texture is that many times bigger, so the filters that work on texels (HQ2x, HQ4x, Quilez, xBR, Scale2x,
-        // FXAA, Sharp, MMPX) read the real size from the texSize uniform. Only LCD and scanlines use the DS size, since they draw one
-        // line/subpixel group per DS pixel. The scalers can't stay on the DS grid: upscaled 3D isn't aligned to it (some games draw everything
-        // in 3D, sprites included), so DS-grid neighbours would make them copy pixels into the wrong places
+        // The frame texture stacks both screens top first with 2 empty lines between, FRAME_TEXTURE_HEIGHT by topScreenWidth DS pixels before
+        // upscaling; filters that need the real texel size read texSize instead
 
         // tex, texSize and topScreenWidth (see above), as most filters declare them
         private const val SCREEN_UNIFORMS = "uniform sampler2D tex;\n" +
                 "uniform vec2 texSize;\n" +
                 "uniform float topScreenWidth;\n"
 
-        // Helpers for filters that sample far enough to reach past the gap between the screens. sampleScreen() keeps samples inside the screen
-        // that the fragment belongs to, so the other screen, the empty lines and the black bars never bleed in. Needs tex, texSize and
-        // topScreenWidth to be declared before it. textureFunction is texture2D for GLSL ES 1.00 shaders and texture for #version 300 es
-        // ones, which have no texture2D()
+        // Helpers that clamp samples to the screen a fragment belongs to, so the gap and the other screen never bleed in (textureFunction is
+        // texture2D, or texture for #version 300 es)
         private fun screenBandFunctions(textureFunction: String): String {
             return "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
                     "const float bottomScreenStart = ${SCREEN_HEIGHT + SCREEN_GAP}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
                     SCREEN_COLUMN_RANGE_FUNCTIONS +
-                    "// Range of v (xy) and u (zw) coordinates (texel centres) of the screen that contains p\n" +
+                    "// Range of v (xy) and u (zw) coordinates (texel centers) of the screen that contains p\n" +
                     "vec4 screenBand(vec2 p) {\n" +
                     "    vec2 band = p.y < 0.5 ? vec2(0.0, topScreenEnd) : vec2(bottomScreenStart, 1.0);\n" +
                     "    float halfTexel = 0.5 / texSize.y;\n" +
@@ -146,9 +129,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "}"
         )
 
-        // The soft shadow drawn around each screen when the "Screen shadow" setting is on. Draws no texture (the filtering is unused). uv is
-        // how far the fragment is outside the screen on each axis, in shadow radii (see DSRenderer), so its length is the distance to the
-        // screen's rectangle. The shadow fades from alpha at the screen's edge to nothing 1 radius away
+        // Soft shadow around each screen; uv is the distance outside the screen in radii
         val ScreenShadowShader = ShaderProgramSource(
             TextureFiltering.LINEAR,
             DEFAULT_VERT_SHADER,
@@ -162,9 +143,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "}"
         )
 
-        // Lua drawings (melon.draw), drawn over each screen with the screen's quad. The overlay texture has the frame texture's layout at 2x and
-        // byte order, with premultiplied alpha, so it's blended with GL_ONE, GL_ONE_MINUS_SRC_ALPHA and fades with the screen's alpha. The
-        // filters and the DS screen colours never touch it. High precision where it can, so that the UVs land on the right texels
+        // Draws the premultiplied Lua overlay texture over a screen quad, blended with GL_ONE, GL_ONE_MINUS_SRC_ALPHA
         val OverlayShader = ShaderProgramSource(
             TextureFiltering.NEAREST,
             DEFAULT_VERT_SHADER,
@@ -613,8 +592,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
 
         // Scale2x (also known as EPX) by Andrea Mazzoleni
         // Algorithm description: https://www.scale2x.it/algorithm
-        // Each texel is drawn as 4 quadrants. A quadrant takes the colour of the 2 neighbours next to it if they match each other and the other
-        // 2 neighbours don't, which rounds off diagonal edges without blurring anything. Works on the real texture grid (see above)
+        // Each texel is drawn as 4 quadrants, each taking the color of its 2 neighbors when they match and the other 2 don't
         val Scale2xShader = ShaderProgramSource(
             TextureFiltering.NEAREST,
             DEFAULT_VERT_SHADER,
@@ -638,7 +616,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    vec3 C = sampleScreen(uv - vec2(ps.x, 0.0), band);\n" +
                     "    vec3 D = sampleScreen(uv + vec2(0.0, ps.y), band);\n" +
                     "" +
-                    "    // Neighbours next to the quadrant this fragment is in, and the ones on the opposite sides\n" +
+                    "    // Neighbors next to the quadrant this fragment is in, and the ones on the opposite sides\n" +
                     "    vec2 fp = fract(uv * texSize);\n" +
                     "    bool isLeft = fp.x < 0.5;\n" +
                     "    bool isUp = fp.y < 0.5;\n" +
@@ -656,12 +634,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         )
 
         // FXAA by Timothy Lottes (NVIDIA), the original simple version
-        // Finds the direction of an edge from the luma of the 4 diagonal neighbours and blurs along it. Like the original, the corners are
-        // sampled half a texel away, so with linear filtering each one is the average of 2x2 texels and 1 pixel wide detail (like text) doesn't
-        // count as an edge on its own. Texels whose neighbourhood has too little contrast are left untouched. The blur can reach up to 4 texels
-        // away, more than the gap between the screens, so every sample is kept inside the screen being drawn. This is a pre-pass (see
-        // VideoFilter): it has to run once per frame texel, because neighbouring screen pixels inside one texel would pick different edge
-        // directions
+        // Pre-pass; runs once per frame texel, blurring along the edge direction found from the 4 diagonal neighbors
         val FxaaPrePassShader = ShaderProgramSource(
             TextureFiltering.LINEAR,
             PRE_PASS_VERT_SHADER,
@@ -673,7 +646,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "const float FXAA_SPAN_MAX = 8.0;\n" +
                     "const float FXAA_REDUCE_MUL = 1.0 / 8.0;\n" +
                     "const float FXAA_REDUCE_MIN = 1.0 / 128.0;\n" +
-                    "// Minimum local contrast to count as an edge, relative to the brightest sample and absolute (for dark areas). High quality values\n" +
+                    "// Minimum local contrast to count as an edge, relative to the brightest sample and absolute (for dark areas)\n" +
                     "const float FXAA_EDGE_THRESHOLD = 1.0 / 8.0;\n" +
                     "const float FXAA_EDGE_THRESHOLD_MIN = 1.0 / 16.0;\n" +
                     "const vec3 luma = vec3(0.299, 0.587, 0.114);\n" +
@@ -720,7 +693,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    if (lumaB < lumaMin || lumaB > lumaMax) {\n" +
                     "        color = rgbA;\n" +
                     "    }\n" +
-                    "    // sampleScreen() reads the BGR texels as RGB. Swap back so the output keeps the channel order of the frame texture\n" +
+                    "    // Swap back to the frame texture's channel order, since sampleScreen() reads the BGR texels as RGB\n" +
                     "    gl_FragColor = vec4(color.bgr, 1.0);\n" +
                     "}"
         )
@@ -728,13 +701,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // sharp-shimmerless
         // Author: zadpos (Woohyun Kang)
         // License: Public domain
-        // Treats texels as rectangles instead of points: every texel covers exactly its own area of the screen, so all DS pixels are drawn the
-        // same size (no mix of 4 and 5 pixel wide columns that shimmers when the image scrolls). Only a screen pixel that a texel boundary
-        // crosses gets a blend of the 2 texels, weighted by how much of the pixel each one covers. The original gets the scale factor from
-        // the output size, but here it comes from the derivatives of the texel coordinates, so it works for both screens at any size and
-        // rotation without the renderers passing anything in. That needs fwidth(), which is why this one is a #version 300 es shader.
-        // When texels are smaller than pixels (high internal resolutions on a small screen), the pixel is treated as 1 texel wide, which
-        // turns this into plain linear filtering
+        // Draws every texel as a rectangle of the same size, blending only the pixels a texel boundary crosses, with the scale taken from fwidth()
         val SharpShader = ShaderProgramSource(
             TextureFiltering.LINEAR,
             "#version 300 es\n" +
@@ -759,15 +726,11 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     COLOR_FUNCTIONS +
                     "" +
                     "void main() {\n" +
-                    "    // Position of the pixel centre in texels, and the pixel size in texels per axis. fwidth() has to be taken on t itself,\n" +
-                    "    // which is continuous across the quad, not on anything floored or clamped. Capped at 1 texel (see above)\n" +
+                    "    // Pixel center and size in texels, with fwidth() taken on t itself since it's continuous across the quad\n" +
                     "    vec2 t = uv * texSize;\n" +
                     "    vec2 d = clamp(fwidth(t), 0.00001, 1.0);\n" +
                     "" +
-                    "    // The pixel covers t - d / 2 to t + d / 2. farTexel is the texel its far edge is in. If the near edge is in the same texel,\n" +
-                    "    // w is 1 or more and the sample lands on that texel centre. Otherwise the boundary at farTexel is inside the pixel, w is the\n" +
-                    "    // share of the pixel past it, and sampling w texels past the centre of the texel before it makes the bilinear filter blend\n" +
-                    "    // the 2 texels by area. With d = 1 this is always a sample at t, so linear filtering\n" +
+                    "    // Samples w texels past the center of the texel before farTexel, so the bilinear filter blends the 2 texels by area\n" +
                     "    vec2 farEdge = t + 0.5 * d;\n" +
                     "    vec2 farTexel = floor(farEdge);\n" +
                     "    vec2 w = min((farEdge - farTexel) / d, 1.0);\n" +
@@ -804,12 +767,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         //
         // adapted for glsl by hunterk
         //
-        // A 2x pixel art scaler in the spirit of Scale2x: it rounds off diagonal edges and fills in 1:1 and 2:1 slopes, but keeps square
-        // corners, thin lines and text intact, and never makes up new colours. It's a pre-pass (see VideoFilter) that renders at twice the
-        // frame texture's size, so each fragment is one quadrant of a source texel and texSize is the source size. Only runs at the DS's own
-        // resolution: when the 3D is upscaled, every DS pixel is already a block of texels and this would do nothing. Some samples reach 3
-        // texels away, more than the gap between the screens, so every sample is kept inside the screen being drawn. Needs NEAREST, since it
-        // compares texels for exact equality
+        // Pre-pass at twice the frame texture's size, so texSize is the source size; needs NEAREST since it compares texels for equality
         val MmpxPrePassShader = ShaderProgramSource(
             TextureFiltering.NEAREST,
             PRE_PASS_VERT_SHADER,
@@ -952,11 +910,10 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "        }\n" +
                     "    }\n" +
                     "" +
-                    "    // Determine which of our 4 output pixels we need to use. This pass renders at twice the size, so each fragment is one quadrant of\n" +
-                    "    // the source texel. v grows downwards like y in the original (v = 0 is the first line of the top screen), so a.y < 0.5 is the top half\n" +
+                    "    // Determine which of our 4 output pixels we need to use (v grows downwards, so a.y < 0.5 is the top half)\n" +
                     "    vec2 a = fract(uv * texSize);\n" +
                     "    vec3 color = (a.x < 0.5) ? (a.y < 0.5 ? J : L) : (a.y < 0.5 ? K : M);\n" +
-                    "    // sampleScreen() reads the BGR texels as RGB. Swap back so the output keeps the channel order of the frame texture\n" +
+                    "    // Swap back to the frame texture's channel order, since sampleScreen() reads the BGR texels as RGB\n" +
                     "    gl_FragColor = vec4(color.bgr, 1.0);\n" +
                     "}"
         )
