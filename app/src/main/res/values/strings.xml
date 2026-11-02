@@ -169,7 +169,7 @@
     <string name="settings_bios_and_firmware">BIOS and firmware</string>
     <string name="settings_bios_and_firmware_summary">Firmware profile, custom BIOS, DSi camera</string>
     <string name="settings_appearance_and_backup">Appearance and backup</string>
-    <string name="settings_appearance_and_backup_summary">Theme, Material You colors, backups</string>
+    <string name="settings_appearance_and_backup_summary">Theme, Material You colours, backups</string>
     <string name="settings_about">About</string>
     <string name="settings_about_summary">Version, credits and licences</string>
     <string name="settings_section_3d_rendering">3D rendering</string>
@@ -208,8 +208,8 @@
     <string name="settings_restore_newer_version">This backup was made with a newer version of melonadeDS. Update the app, then try again.</string>
     <string name="settings_restore_failed_kept">Restore failed, so your previous settings were kept.</string>
     <string name="theme">Theme</string>
-    <string name="dynamic_colors">Dynamic colors</string>
-    <string name="dynamic_colors_summary">Use colors based on your wallpaper (Material You)</string>
+    <string name="dynamic_colors">Dynamic colours</string>
+    <string name="dynamic_colors_summary">Use colours based on your wallpaper (Material You)</string>
     <string name="fast_forward_max_speed">Fast-forward max speed</string>
     <string name="rewind_description">When enabled, a save-state is periodically saved automatically. Whenever you want to go back on your progress by a short amount of time, just open the rewind screen and select the state that you want to resume from.\n\nBe aware that by enabling this feature, you may experience occasional stutters if your device is not powerful enough. A considerable amount of memory is also used depending on how often you want the state to be captured and for how long it should be kept.</string>
     <string name="rewind_save_period">Save period</string>
