@@ -1,9 +1,7 @@
 package me.magnum.melonds.domain.model.rom.config
 
 /**
- * A script in the game's linked folder. [options] are the values the player picked for the options the script declares (see
- * LuaScriptHeader), by option key, as text. Keys the script doesn't declare (anymore) are ignored, and a missing or bad value means the
- * option's default
+ * A script in the game's folder with the player's option values by key; unknown keys are ignored.
  */
 data class RomLuaScript(
     val fileName: String,

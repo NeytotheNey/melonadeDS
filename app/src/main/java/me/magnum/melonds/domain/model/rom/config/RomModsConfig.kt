@@ -6,16 +6,15 @@ import me.magnum.melonds.domain.model.MIN_WIDE_VIEW_WIDTH
 import java.util.UUID
 
 data class RomModsConfig(
-    // Width of the top screen's 3D view in pixels. Null means widescreen is off
+    // Width of the top screen's 3D view in pixels, or null when widescreen is off
     val wideViewWidth: Int? = null,
-    // Tree URI of the folder the game's scripts are read from, picked in the Mods tab. Null if none is linked
+    // Tree URI of the folder the game's scripts are read from, or null if none is linked
     val luaScriptFolder: Uri? = null,
     // The scripts found in that folder, kept in step with it by LuaScriptFolderSync
     val luaScripts: List<RomLuaScript> = emptyList(),
-    // The wide layout (LayoutConfiguration.isWide) that the game uses while widescreen is on. Null means automatic: the
-    // normal layout with its top screen widened, at wideViewWidth
+    // Wide layout used while widescreen is on, or null for automatic
     val wideLayoutId: UUID? = null,
 ) {
-    // wideViewWidth if the core takes it. Anything else counts as off (null), both at launch and in the Mods tab
+    // wideViewWidth if the core takes it, otherwise null (off)
     val validWideViewWidth: Int? get() = wideViewWidth?.takeIf { it in MIN_WIDE_VIEW_WIDTH..MAX_WIDE_VIEW_WIDTH && it % 2 == 0 }
 }

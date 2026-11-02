@@ -9,7 +9,7 @@ data class RomConfig(
     val gbaSlotConfig: RomGbaSlotConfig = RomGbaSlotConfig.None,
     val customName: String? = null,
     val mods: RomModsConfig = RomModsConfig(),
-    // Whether the player last left the game's screens swapped (by hand, never by a script). The game starts that way
+    // Whether the player left the screens swapped by hand, which the game then starts with
     val screensSwapped: Boolean = false,
 ) {
 
