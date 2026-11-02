@@ -464,7 +464,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         val edgeX = if (corner.isLeft) fixedX - desiredWidth else fixedX + desiredWidth
         val edgeY = if (corner.isTop) fixedY - desiredHeight else fixedY + desiredHeight
         // Same minimum as constrainSize, so a snapped size isn't bumped off its line again
-        val minWidth = ratio?.let { max(minComponentSize.toFloat(), minComponentSize * it) } ?: minComponentSize.toFloat()
+        val minWidth = getMinWidth(ratio)
         val minHeight = ratio?.let { minWidth / it } ?: minComponentSize.toFloat()
         val snappedX = LayoutEditorSnapping.snapResizedEdge(edgeX.roundToInt(), fixedX, ceil(minWidth).toInt(), !corner.isLeft, xAxis)
         val snappedY = LayoutEditorSnapping.snapResizedEdge(edgeY.roundToInt(), fixedY, ceil(minHeight).toInt(), !corner.isTop, yAxis)
@@ -542,11 +542,18 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
             val newHeight = desiredHeight.roundToInt().coerceAtMost(maxHeight).coerceAtLeast(minComponentSize)
             newWidth to newHeight
         } else {
-            val minWidth = max(minComponentSize.toFloat(), minComponentSize * ratio)
+            val minWidth = getMinWidth(ratio)
             val maxRatioWidth = min(maxWidth.toFloat(), maxHeight * ratio)
             val newWidth = desiredWidth.coerceAtMost(maxRatioWidth).coerceAtLeast(minWidth)
             newWidth.roundToInt() to (newWidth / ratio).roundToInt()
         }
+    }
+
+    /**
+     * Returns the smallest width an item can have. With a locked [ratio], it's the smallest that keeps both sides at least the minimum component size.
+     */
+    private fun getMinWidth(ratio: Float?): Float {
+        return if (ratio == null) minComponentSize.toFloat() else max(minComponentSize.toFloat(), minComponentSize * ratio)
     }
 
     /**
