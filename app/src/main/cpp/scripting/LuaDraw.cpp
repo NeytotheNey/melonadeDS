@@ -23,7 +23,7 @@ static inline u32 divideBy255(u32 value)
 }
 
 /**
- * Every channel of [color] times [factor] / 255, rounded. Two channels at a time, 16 bits each
+ * Every channel of [color] times [factor] / 255, rounded, two channels at a time in 16 bits each
  */
 static inline u32 scaleChannels(u32 color, u32 factor)
 {
@@ -62,7 +62,7 @@ u32 premultiplyColor(u32 color)
 }
 
 /**
- * Goes through text one character at a time. Each UTF-8 code point is one character
+ * Goes through text one character (UTF-8 code point) at a time
  */
 struct TextReader
 {
@@ -73,7 +73,7 @@ struct TextReader
     TextReader(const char* text, size_t length) : position((const unsigned char*) text), end((const unsigned char*) text + length) {}
 
     /**
-     * The next character as the font draws it: '\n', ASCII from ' ' to '~', or '?' for anything else. -1 at the end
+     * The next character as the font draws it: '\n', ASCII from ' ' to '~', or '?' for anything else, and -1 at the end
      */
     int next()
     {
@@ -134,8 +134,8 @@ void LuaOverlay::getOutlineSides(const Rect& rect, Rect sides[4])
 
 bool LuaOverlay::clipLine(int64_t& x0, int64_t& y0, int64_t& x1, int64_t& y1)
 {
-    // A point at (x, y) covers [x, x + 2) x [y, y + 2), so points from -1 can still be seen. Liang-Barsky, in doubles: the ends are at most a
-    // few trillion pixels out, which doubles hold exactly
+    // A point at (x, y) covers [x, x + 2) x [y, y + 2), so points from -1 can still be seen; Liang-Barsky in doubles, which hold the ends (a
+    // few trillion pixels out at most) exactly
     const double minX = -1.0, maxX = kScreenWidth - 1.0;
     const double minY = -1.0, maxY = kScreenHeight - 1.0;
     double startX = (double) x0, startY = (double) y0;
@@ -213,9 +213,7 @@ static int64_t squareRoot(int64_t value)
 
 int LuaOverlay::getCircleRowSpans(int64_t middleX, int64_t middleY, int64_t radius, bool isFilled, int y, Rect spans[2])
 {
-    // In half pixels, so that everything stays an integer: a pixel's centre is an odd number of half pixels from the middle on each axis. The
-    // pixels on the right of the middle are 1, 3, 5... half pixels away, so the n-th one is in if (2n - 1)^2 <= (2 * radius)^2 - dy^2. Fits
-    // in 64 bits, since the radius and the middle's distance from the screen are at most 2^29
+    // In half pixels, so that everything stays an integer: a pixel's center is an odd number of half pixels from the middle on each axis
     int64_t dy = 2 * (int64_t) y + 1 - 2 * middleY;
     int64_t outer = 4 * radius * radius - dy * dy;
     if (outer < 1)
@@ -349,8 +347,8 @@ void LuaOverlay::drawLine(Screen screen, int x0, int y0, int x1, int y1, u32 col
         return;
     addRows(screen, rowsStart, rowsEnd);
 
-    // Bresenham along the longer axis, with a span 2 pixels thick across it. Every pixel is drawn once, so a translucent line looks even. The
-    // line goes one pixel past its end, so that it covers both ends' DS pixels
+    // Bresenham along the longer axis, with a span 2 pixels thick across it, drawing every pixel once (so a translucent line looks even) and
+    // going one pixel past the end to cover both ends' DS pixels
     bool isXMajor = std::abs(x1 - x0) >= std::abs(y1 - y0);
     if (isXMajor ? x0 > x1 : y0 > y1)
     {
@@ -447,8 +445,7 @@ void LuaOverlay::drawImage(Screen screen, int x, int y, const u32* pixels, int s
         return;
     addRows(screen, (int) clipped.y0, (int) clipped.y1);
 
-    // The clipped rectangle starts at or after (x, y), so the offsets into the image are never negative. Each source pixel covers a
-    // [scale] x [scale] block, so the divisions are done once: where the first visible block is, and how much of it is cut off
+    // The clipped rectangle starts at or after (x, y), so the offsets into the image are never negative
     int x0 = (int) clipped.x0, x1 = (int) clipped.x1;
     int y0 = (int) clipped.y0, y1 = (int) clipped.y1;
     int firstColumn = (x0 - x) / scale;
