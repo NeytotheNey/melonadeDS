@@ -157,7 +157,7 @@
     <string name="settings_display_summary">Renderer, resolution, filter, FPS counter</string>
     <string name="settings_controls">Controls</string>
     <string name="settings_controls_summary">Key mapping, on-screen layouts, vibration</string>
-    <string name="settings_audio_summary">Volume, latency, microphone</string>
+    <string name="settings_audio_summary">Volume, quality, microphone</string>
     <string name="settings_performance">Performance</string>
     <string name="settings_performance_summary">JIT, fast-forward speed, logging</string>
     <string name="settings_game_library">Game library</string>
