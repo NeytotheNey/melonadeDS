@@ -32,11 +32,7 @@ import java.io.FileNotFoundException
 import java.io.IOException
 
 /**
- * Backs up the settings to a folder and restores them from one.
- *
- * A restore is done in two steps. [restore] checks the backup and copies it into an app-private staging folder, and then the app
- * restarts. On the next start, [PendingSettingsRestore] swaps the staged files and preferences in before anything else reads them. This
- * way the repositories, which keep their data in memory and save it back to the same files, can never write old data over a restore.
+ * Backs up the settings to a folder and stages restores from one (see [SettingsBackupFormat] for how a restore is applied).
  */
 class SettingsBackupManager(
     private val context: Context,
@@ -46,7 +42,7 @@ class SettingsBackupManager(
 ) {
 
     /**
-     * The backup was made by a newer version of the app. The migrations can't convert data back to an older format.
+     * The backup was made by a newer version of the app, whose data the migrations can't convert back.
      */
     class BackupFromNewerVersionException : IOException("The backup was made by a newer version of the app")
 
@@ -56,8 +52,7 @@ class SettingsBackupManager(
         // Typed, so a float that happens to be a whole number doesn't come back as an int
         val settingsJson = preferencesToJson(preferences.all.filterKeys { it !in KEPT_PREF_KEYS })
 
-        // A restore needs settings.json, so it's removed first and written last. An interrupted backup then leaves a folder that can't be
-        // restored, instead of one with files from two different backups
+        // settings.json is removed first and written last so an interrupted backup can't be restored
         root.findFile(SETTINGS_FILE)?.let {
             if (!it.delete()) {
                 throw IOException("Could not replace $SETTINGS_FILE")
@@ -68,8 +63,7 @@ class SettingsBackupManager(
     }
 
     /**
-     * Checks the backup in [treeUri] and stages it. Nothing the app uses is changed here. The app has to restart afterwards, and the
-     * restore is applied by [PendingSettingsRestore] on the next start, even if that restart doesn't happen right away.
+     * Checks the backup in [treeUri] and stages it; nothing changes until [PendingSettingsRestore] runs on the next start.
      */
     fun restore(treeUri: Uri) {
         val root = DocumentFile.fromTreeUri(context, treeUri) ?: throw IOException("Could not open the backup folder")
@@ -93,8 +87,8 @@ class SettingsBackupManager(
         }
 
         val stagingDir = File(context.filesDir, STAGING_DIR)
-        // Also removes an earlier restore that was staged but never applied. Its marker goes first, because deleteRecursively() removes
-        // files in no particular order, and a marker left with only some of the files would apply a partial restore
+        // Also removes an earlier unapplied restore, marker first because deleteRecursively() has no order and a marker left with only some
+        // of the files would apply a partial restore
         File(stagingDir, READY_MARKER).delete()
         stagingDir.deleteRecursively()
         if (!stagingDir.mkdirs()) {
@@ -111,9 +105,8 @@ class SettingsBackupManager(
     }
 
     /**
-     * Checks a data file the way the app loads it, because the loaders quietly fall back to empty data or defaults when a file can't be
-     * read, and the next save would then wipe the user's data. A backup from an older version is in an older format that only the
-     * migrations understand, so for those only the JSON itself is checked.
+     * Checks a data file the way its loader reads it (loaders fall back to empty data and the next save would wipe it); older-format files
+     * are only checked to be JSON.
      */
     private fun validateDataFile(fileName: String, text: String, isCurrentFormat: Boolean) {
         if (fileName == CONTROLLER_FILE && isCurrentFormat) {
@@ -131,8 +124,8 @@ class SettingsBackupManager(
             return
         }
 
-        // The same parser and DTOs as InternalLayoutsRepository and FileSystemRomsRepository. They read the text, not the parsed document, because
-        // Gson's tree path quietly truncates numbers that the text path rejects
+        // Same parser and DTOs as InternalLayoutsRepository and FileSystemRomsRepository, on the text because Gson's tree path truncates numbers
+        // the text path rejects
         when (fileName) {
             LAYOUTS_FILE -> {
                 val layoutListType = object : TypeToken<List<LayoutConfigurationDto>>() {}.type
@@ -148,8 +141,7 @@ class SettingsBackupManager(
     }
 
     /**
-     * Parses settings.json with the same parser [PendingSettingsRestore] applies it with, so anything it would reject fails here instead. The
-     * parser stops after the object, so it also checks that nothing other than whitespace comes after it.
+     * Parses settings.json with the same parser [PendingSettingsRestore] uses, so anything it would reject fails here instead.
      */
     private fun parseSettings(text: String): JSONObject {
         val tokener = JSONTokener(text)
@@ -188,15 +180,14 @@ class SettingsBackupManager(
     private fun writeDocument(root: DocumentFile, fileName: String, content: ByteArray) {
         val existingDocument = root.findFile(fileName)
         if (existingDocument != null) {
-            // "wt" truncates the file. Some providers don't truncate with the default "w" mode, which would leave the end of an older,
-            // longer backup in the file
+            // "wt" truncates, while some providers' "w" doesn't, which would leave the tail of a longer old backup
             val outputStream = runCatching { context.contentResolver.openOutputStream(existingDocument.uri, "wt") }.getOrNull()
             if (outputStream != null) {
                 outputStream.use { it.write(content) }
                 return
             }
 
-            // The provider doesn't support "wt". Recreate the document instead, so that "w" starts from an empty file
+            // The provider doesn't support "wt", so recreate the document for "w" to start from an empty file
             if (!existingDocument.delete()) {
                 throw IOException("Could not replace $fileName")
             }

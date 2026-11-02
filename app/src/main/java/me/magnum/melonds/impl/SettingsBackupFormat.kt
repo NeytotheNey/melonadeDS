@@ -7,8 +7,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * What a settings backup is made of, shared by [SettingsBackupManager], which writes and checks backups, and [PendingSettingsRestore], which
- * applies them. The same names are used in the backup folder and in the staging folder.
+ * File names and value encoding shared by [SettingsBackupManager], which writes backups and stages restores, and [PendingSettingsRestore],
+ * which applies a staged restore on the next start so in-memory repositories can't overwrite it.
  */
 internal object SettingsBackupFormat {
 
@@ -19,27 +19,27 @@ internal object SettingsBackupFormat {
     const val ROM_DATA_FILE = "rom_data.json"
     val DATA_FILES = listOf(CONTROLLER_FILE, LAYOUTS_FILE, ROM_DATA_FILE)
 
-    // The staged restore in filesDir. Its marker is written last, so only a fully staged restore is applied
+    // The staged restore in filesDir, whose marker is written last so only a fully staged restore is applied
     const val STAGING_DIR = "settings_restore"
     const val READY_MARKER = "ready"
 
     const val LAST_VERSION_KEY = "last_version"
 
     /**
-     * Preferences that belong to this install. They are left out of backups, and a restore keeps their current values.
+     * Preferences that belong to this install: left out of backups and kept as they are by a restore.
      */
     val KEPT_PREF_KEYS = setOf(
         // RetroAchievements login
         AndroidRAUserAuthStore.USERNAME_KEY,
         AndroidRAUserAuthStore.TOKEN_KEY,
-        // Folders and files picked with the system picker. The access to them doesn't carry over to another install
+        // Folders and files picked with the system picker, whose access doesn't carry over to another install
         "sram_dir",
         "rom_search_dirs",
         "bios_dir",
         "dsi_bios_dir",
         "dsi_camera_static_image",
         PreferenceKeys.PERF_LOG_DIR,
-        // Debug logging is turned on per install, so a restored backup never starts recording. Also which process exits have been reported
+        // Debug logging and the process exits it reported are per install, so a restored backup never starts recording
         PreferenceKeys.ENABLE_DEBUG_LOG,
         PreferenceKeys.DEBUG_LAST_REPORTED_EXIT_MS,
         // Tracks the RetroAchievements hash database, which isn't part of the backup
@@ -47,7 +47,7 @@ internal object SettingsBackupFormat {
     )
 
     /**
-     * Long preferences. Backups made before the values had types store them as plain numbers, which can't tell a Long from an Int.
+     * Long preferences, which backups made before the values had types store as plain numbers that can't tell a Long from an Int.
      */
     val LONG_PREF_KEYS = setOf(LAST_VERSION_KEY)
 
@@ -62,7 +62,7 @@ internal object SettingsBackupFormat {
     private const val TYPE_SET = "set"
 
     /**
-     * Keeps the type of every value, since JSON alone can't tell an Int from a Long or a Float. Used for backups and for the rollback snapshot.
+     * Keeps every value's type (JSON alone can't tell an Int from a Long or a Float), for backups and the rollback snapshot.
      */
     fun preferencesToJson(values: Map<String, *>): JSONObject {
         val json = JSONObject()
@@ -117,7 +117,7 @@ internal object SettingsBackupFormat {
     }
 
     /**
-     * Reads a long from a backup's settings. Backups made before the values had types store the plain number.
+     * Reads a long from a backup's settings, typed or a plain number (see [LONG_PREF_KEYS]).
      */
     fun getBackupLong(settingsJson: JSONObject, key: String): Long {
         return when (val value = settingsJson.get(key)) {

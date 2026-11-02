@@ -19,15 +19,8 @@ import java.io.File
 import java.io.IOException
 
 /**
- * Applies a settings restore that [SettingsBackupManager.restore] staged. It runs when the app starts, before anything reads the
- * preferences or the data files and before the migrations, so it can't use Hilt and is created by hand.
- *
- * Folders and files it uses, all in filesDir:
- * - [STAGING_DIR] holds the checked backup. Its [READY_MARKER] is written last, so only a fully staged restore is applied.
- * - [ROLLBACK_DIR] holds the data files and the preferences from before the restore. It's built in [ROLLBACK_TEMP_DIR] and renamed, so
- *   it's always complete, and it's only made once, so a retry after the process is killed still has the true originals.
- * - [ROLLBACK_NEEDED_MARKER] in [ROLLBACK_DIR] means applying failed and the originals have to be put back before anything else.
- * - [RESULT_FILE] tells the first screen whether the restore worked. It's read once by [consumeResult].
+ * Applies a restore staged by [SettingsBackupManager.restore] at app start, before any preference, data file or migration is read (so it's
+ * created by hand, not by Hilt), with a rollback snapshot so a failure keeps the previous settings.
  */
 class PendingSettingsRestore(
     private val context: Context,
@@ -36,12 +29,15 @@ class PendingSettingsRestore(
     companion object {
         private const val TAG = "PendingSettingsRestore"
 
+        // The data files and preferences from before the restore, built in ROLLBACK_TEMP_DIR and renamed so it's always complete
         private const val ROLLBACK_DIR = "settings_restore_rollback"
         private const val ROLLBACK_TEMP_DIR = "settings_restore_rollback.tmp"
+        // In ROLLBACK_DIR when applying failed and the originals have to be put back before anything else
         private const val ROLLBACK_NEEDED_MARKER = "rollback_needed"
         private const val PREFERENCES_SNAPSHOT_FILE = "preferences.json"
         private const val ABSENT_SUFFIX = ".absent"
         private const val TEMP_SUFFIX = ".tmp"
+        // Tells the first screen whether the restore worked, read once by consumeResult()
         private const val RESULT_FILE = "settings_restore_result"
         private const val RESULT_SUCCESS = "success"
         private const val RESULT_FAILED = "failed"
@@ -73,11 +69,11 @@ class PendingSettingsRestore(
     private val rollbackNeededMarker = File(rollbackDir, ROLLBACK_NEEDED_MARKER)
 
     fun applyIfPending() {
-        // Left behind by a copy that was interrupted. Nothing else is running yet, so none of them are in use
+        // Left behind by an interrupted copy, and not in use since nothing else is running yet
         filesDir.listFiles { file -> file.name.endsWith(".json$TEMP_SUFFIX") }?.forEach { it.delete() }
 
         when {
-            // An earlier attempt failed and couldn't put everything back. Finish that before anything else
+            // An earlier attempt failed and couldn't put everything back, so finish that before anything else
             rollbackNeededMarker.isFile -> {
                 if (rollBack()) {
                     cleanUp()
@@ -104,7 +100,7 @@ class PendingSettingsRestore(
             return
         }
 
-        // Only made once. If an earlier attempt was killed part way, the snapshot from before it still holds the true originals
+        // Only made once, so after an attempt killed part way the snapshot from before it still holds the true originals
         if (!rollbackDir.isDirectory) {
             try {
                 createRollbackSnapshot()
@@ -118,8 +114,7 @@ class PendingSettingsRestore(
         }
 
         try {
-            // A file that isn't in the backup means there was none, so the current one is removed. This keeps every data file in the same
-            // format as the restored "last_version", which the migrations rely on
+            // A file missing from the backup is removed, so every data file matches the restored "last_version" the migrations expect
             DATA_FILES.forEach { fileName ->
                 val stagedFile = File(stagingDir, fileName)
                 val destination = File(filesDir, fileName)
@@ -151,8 +146,7 @@ class PendingSettingsRestore(
     }
 
     /**
-     * Replaces all preferences with the ones in the backup. Keys that aren't in the backup go back to their defaults, except the ones in
-     * [KEPT_PREF_KEYS], which keep their current values.
+     * Replaces every preference with the backup's; keys not in the backup reset, except [KEPT_PREF_KEYS].
      */
     private fun applyPreferences(settingsJson: JSONObject) {
         val currentPreferences = preferences.all
@@ -168,7 +162,7 @@ class PendingSettingsRestore(
 
         for (key in settingsJson.keys()) {
             if (key in KEPT_PREF_KEYS) continue
-            // Backups are written with preferencesToJson(). Older ones have plain values without their types
+            // Backups are written with preferencesToJson(), but older ones have plain values without their types
             when (val value = settingsJson.get(key)) {
                 is JSONObject -> putTypedPreference(editor, key, value)
                 is Boolean -> editor.putBoolean(key, value)
@@ -205,8 +199,7 @@ class PendingSettingsRestore(
     }
 
     /**
-     * Saves the current data files and preferences in [rollbackDir]. A data file that doesn't exist is recorded with an empty marker file,
-     * so a rollback knows to remove it.
+     * Snapshots the data files (an empty `.absent` marker for a missing one) and the preferences into [rollbackDir].
      */
     private fun createRollbackSnapshot() {
         val tempDir = File(filesDir, ROLLBACK_TEMP_DIR)
@@ -231,7 +224,7 @@ class PendingSettingsRestore(
     }
 
     /**
-     * Puts back the data files and the preferences from [rollbackDir]. Returns true if everything was put back.
+     * Puts back the data files and the preferences from [rollbackDir], returning true if everything was put back.
      */
     private fun rollBack(): Boolean {
         var succeeded = true
@@ -272,8 +265,8 @@ class PendingSettingsRestore(
     }
 
     /**
-     * Removes both markers before any folder, because deleteRecursively() removes files in no particular order. An interrupted clean-up
-     * then never leaves a marker without the files it needs, which would make the restore or the rollback run again on partial data.
+     * Removes both markers before any folder, because deleteRecursively() has no order and a stray marker would re-run the restore or the
+     * rollback on partial data.
      */
     private fun cleanUp() {
         readyMarker.delete()
