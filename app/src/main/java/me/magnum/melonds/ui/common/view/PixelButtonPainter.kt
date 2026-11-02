@@ -57,6 +57,11 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     private class Interior(val cells: Mask, val detail: Mask)
 
     /**
+     * Where icons fit: their scale and the top-left corner of their box, drop shadow included, in detail cells.
+     */
+    private class Placement(val scale: Int, val left: Int, val top: Int)
+
+    /**
      * The size of one detail cell and of one cell of the shape, in physical pixels. See [setViewSize].
      */
     private var detailSize = 1
@@ -198,9 +203,8 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         for (i in parts.indices) {
             val letter = parts[i].label?.singleOrNull()?.let { PixelIcons.LETTERS[it] } ?: continue
             val centre = labelCentre(parts[i], grids[i], transform)
-            val fit = fitScale(listOf(letter), centre[0], centre[1], Int.MAX_VALUE, interiors[i].detail, true)
-            if (fit > 0) {
-                scale = min(scale, fit)
+            fit(listOf(letter), centre[0], centre[1], Int.MAX_VALUE, interiors[i].detail, true)?.let {
+                scale = min(scale, it.scale)
             }
         }
         return scale
@@ -243,9 +247,8 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
             val arrow = part.pixelIcon
             if (!part.isDpad || arrow == null) continue
             val centre = iconCentre(part, grids[i], faces[i], glyphs[i])
-            val fit = fitScale(listOf(arrow), centre[0], centre[1], iconScaleLimit(arrow, faces[i]), interiors[i].detail, true)
-            if (fit > 0) {
-                scale = min(scale, fit)
+            fit(listOf(arrow), centre[0], centre[1], iconScaleLimit(arrow, faces[i]), interiors[i].detail, true)?.let {
+                scale = min(scale, it.scale)
             }
         }
         return scale
@@ -469,10 +472,11 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * Returns the biggest whole scale, up to [maxScale], at which [icons] fit when centred on ([centreX], [centreY]) in detail cells, or 0 if they don't fit
-     * at all. They fit when every ink cell, and its drop shadow if there is one, lands on [interior]. The ink and its shadow are centred together.
+     * Returns the biggest whole scale, up to [maxScale], at which [icons] fit when centred on ([centreX], [centreY]) in detail cells, and where they go
+     * then, or null if they don't fit at all. They fit when every ink cell, and its drop shadow if there is one, lands on [interior]. The ink and its
+     * shadow are centred together.
      */
-    private fun fitScale(icons: List<PixelIcon>, centreX: Float, centreY: Float, maxScale: Int, interior: Mask, withShadow: Boolean): Int {
+    private fun fit(icons: List<PixelIcon>, centreX: Float, centreY: Float, maxScale: Int, interior: Mask, withShadow: Boolean): Placement? {
         val shadowSize = if (withShadow) 1 else 0
         val iconsWidth = icons.sumOf { it.width } + icons.size - 1
         val iconsHeight = icons.maxOf { it.height }
@@ -482,23 +486,19 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
             val fits = forEachInkCell(icons, left, top, scale) { cellLeft, cellTop ->
                 (cellTop until cellTop + scale + shadowSize).all { y -> (cellLeft until cellLeft + scale + shadowSize).all { x -> interior[x, y] } }
             }
-            if (fits) return scale
+            if (fits) return Placement(scale, left, top)
         }
-        return 0
+        return null
     }
 
     /**
-     * Adds [icons] to [ink], and their drop shadow to [inkShadow] if [withShadow] is set, at the biggest scale [fitScale] allows. Returns false, and adds
+     * Adds [icons] to [ink], and their drop shadow to [inkShadow] if [withShadow] is set, at the biggest scale [fit] allows. Returns false, and adds
      * nothing, if they don't fit at all.
      */
     private fun stamp(icons: List<PixelIcon>, centreX: Float, centreY: Float, maxScale: Int, interior: Mask, ink: Mask, inkShadow: Mask, withShadow: Boolean): Boolean {
-        val scale = fitScale(icons, centreX, centreY, maxScale, interior, withShadow)
-        if (scale == 0) return false
-
-        val shadowSize = if (withShadow) 1 else 0
-        val left = centredStart((icons.sumOf { it.width } + icons.size - 1) * scale + shadowSize, centreX)
-        val top = centredStart(icons.maxOf { it.height } * scale + shadowSize, centreY)
-        forEachInkCell(icons, left, top, scale) { cellLeft, cellTop ->
+        val placement = fit(icons, centreX, centreY, maxScale, interior, withShadow) ?: return false
+        val scale = placement.scale
+        forEachInkCell(icons, placement.left, placement.top, scale) { cellLeft, cellTop ->
             for (y in cellTop until cellTop + scale) {
                 for (x in cellLeft until cellLeft + scale) {
                     ink[x, y] = true
