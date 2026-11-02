@@ -43,7 +43,7 @@ class LayoutSelectorViewModel @Inject constructor(
                 .onEach { layouts ->
                     val currentSelectedLayoutId = _currentSelectedLayoutId.value.layoutId
                     // If the currently selected layout cannot be found in the layouts list, it was deleted (or, for wide layouts, it isn't marked
-                    // wide anymore). Fallback to the global layout (null ID), which is "Automatic" for wide layouts
+                    // wide anymore). Fall back to the global layout (null ID), which is "Automatic" for wide layouts
                     if (!layouts.any { it.id == currentSelectedLayoutId }) {
                         applyFallbackLayout()
                     }
