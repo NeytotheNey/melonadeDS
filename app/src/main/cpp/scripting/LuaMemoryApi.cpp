@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <cstring>
 #include <type_traits>
 #include "LuaEngineInternal.h"
@@ -80,7 +81,11 @@ int LuaMemoryApi::read(lua_State* L)
     {
         // Reading some I/O registers has side effects (like popping the IPC FIFO), so they are off limits
         if ((address & 0xFF000000) == 0x04000000)
-            return luaL_error(L, "can't read I/O register 0x%08X: reads can change the emulated state", (unsigned int) address);
+        {
+            char addressText[11];
+            snprintf(addressText, sizeof(addressText), "0x%08X", (unsigned int) address);
+            return luaL_error(L, "can't read I/O register %s: reads can change the emulated state", addressText);
+        }
 
         value = busRead<T>(nds, address, isArm9);
     }
