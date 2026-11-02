@@ -15,20 +15,18 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * Draws the parts of a [RaisedButtonView] as pixel art, for [ControllerAppearance.Pixel]. Each part's shape is snapped to a grid of whole physical
- * pixels centred on that part, so symmetric shapes stay symmetric, and shaded with a few flat colours. Everything drawn on the face (labels, arrows and
- * icons) goes on a finer detail grid that lines up with it: [PixelArt.detailPerCell] detail cells to a side per cell. The result is cached as three small
- * bitmaps per part (its lip, its face and its pressed face), which are drawn scaled up with no filtering so the pixels stay sharp.
+ * Draws a [RaisedButtonView]'s parts for [ControllerAppearance.Pixel] as cached pixel-art bitmaps snapped to a whole-pixel grid, with labels and
+ * icons on a finer detail grid.
  */
 class PixelButtonPainter(private val art: PixelArt, private val density: Float) {
 
     /**
-     * The cached bitmaps of one part, which all cover [bounds] in the view. The pressed face is drawn [PixelArt.travel] cells lower.
+     * One part's cached lip, face and pressed face bitmaps and where they're drawn.
      */
     private class PartBitmaps(val lip: Bitmap, val face: Bitmap, val pressedFace: Bitmap, val bounds: Rect, val pressedBounds: Rect)
 
     /**
-     * A grid of cells that are either in or out. Cells outside the grid count as out.
+     * A grid of cells that are either in or out, where cells outside the grid read as out.
      */
     private class Mask(val width: Int, val height: Int) {
         private val cells = BooleanArray(width * height)
@@ -63,19 +61,17 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * One part's shape snapped to its own grid of cells, whose top-left corner is at ([originX], [originY]) in view pixels. The grid has an empty border of
-     * one cell around the shape and room for the lip below it.
+     * A part's shape snapped to its own cell grid at ([originX], [originY]) in view pixels, with a one-cell border and room for the lip.
      */
     private class PartGrid(val originX: Float, val originY: Float, val mask: Mask)
 
     /**
-     * The interior cells of a part: the ones whose four neighbours are in the shape too. The rest of the shape is its outline. [detail] is the same on the
-     * detail grid.
+     * Cells whose four neighbors are also in the shape, on the cell grid and the [detail] grid.
      */
     private class Interior(val cells: Mask, val detail: Mask)
 
     /**
-     * The D-pad centre's round dent, centred on ([x], [y]) in detail cells.
+     * The D-pad center's round dent, centered on ([x], [y]) in detail cells.
      */
     private class Dimple(val x: Float, val y: Float, val radius: Float) {
         fun contains(cellX: Int, cellY: Int): Boolean {
@@ -86,7 +82,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * Colours one part: its shape and lip on the cell grid, and its ink, ink shadow and dimple on the detail grid over the interior.
+     * Colors one part: its shape and lip on the cell grid, and its ink, ink shadow and dimple on the detail grid over the interior.
      */
     private class PartShader(
         private val art: PixelArt,
@@ -106,7 +102,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         private val pressedShapeColors = IntArray(columns * mask.height) { shapeColor(it % columns, it / columns, true) }
 
         /**
-         * The lip's colour at a cell, transparent outside the lip.
+         * The lip's color at a cell, transparent outside the lip.
          */
         fun lipColor(x: Int, y: Int): Int {
             if (!isLip(x, y)) return Color.TRANSPARENT
@@ -116,7 +112,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         }
 
         /**
-         * The face's colour at a detail cell. Ink and its drop shadow go on top of the interior.
+         * The face's color at a detail cell, with ink and its drop shadow on top of the interior.
          */
         fun faceColor(x: Int, y: Int, pressed: Boolean): Int {
             val shape = if (pressed) pressedShapeColors else shapeColors
@@ -173,7 +169,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
             }
         }
 
-        // The lip is the shape moved down by 1 to lip cells, wherever the shape itself isn't. A pressed face covers the top of it
+        // The lip is the shape moved down by 1 to lip cells, wherever the shape itself isn't
         private fun isLip(x: Int, y: Int): Boolean {
             if (mask[x, y]) return false
             for (depth in 1..art.lip) {
@@ -191,7 +187,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     private class Placement(val scale: Int, val left: Int, val top: Int)
 
     /**
-     * The size of one detail cell and of one cell of the shape, in physical pixels. See [setViewSize].
+     * The size of one detail cell and of one cell of the shape, in physical pixels.
      */
     private var detailSize = 1
     private var cellSize = 1
@@ -212,9 +208,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     private var bitmaps = emptyArray<PartBitmaps>()
 
     /**
-     * Picks the pixel size for a view of the given size. It's the style's size, made smaller on small views so that they're still at least
-     * [PixelArt.minCells] cells across. It's rounded down to whole physical pixels, so faces never get fewer cells than that. Call it before [lipHeight] or
-     * [update] are used.
+     * Picks the cell size so small views still have at least [PixelArt.minCells] cells across; call it before [lipHeight] or [update] are used.
      */
     fun setViewSize(w: Int, h: Int) {
         val detailCells = art.minCells * art.detailPerCell
@@ -223,7 +217,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * Rebuilds the bitmaps of every part. [faces] and [glyphs] are the parts' shapes in view pixels, and [transform] takes design units to view pixels.
+     * Rebuilds every part's bitmaps from [faces] and [glyphs] in view pixels, with [transform] taking design units to view pixels.
      */
     fun update(parts: List<RaisedButtonView.Part>, faces: Array<Path>, glyphs: Array<Path>, transform: Matrix, isToggledOn: Boolean) {
         val grids = Array(parts.size) { snap(faces[it]) }
@@ -262,14 +256,13 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * The design gap between the D-pad's centre and its arms is much thinner than a cell, so their outlines would touch. This trims the inner end of each
-     * arm until there's at least one empty cell between it and the centre. Only the drawing changes, not the hit areas.
+     * Trims each D-pad arm so at least one empty cell separates it from the center; hit areas are unchanged.
      */
     private fun separateDpadArms(parts: List<RaisedButtonView.Part>, grids: Array<PartGrid>) {
         val centreIndex = parts.indexOfFirst { it.isDpad && it.input == null }
         if (centreIndex < 0) return
 
-        // The centre's cells in view pixels, grown by one cell all round
+        // The center's cells in view pixels, grown by one cell all round
         val centre = grids[centreIndex]
         val keepOut = RectF()
         centre.mask.forEachCell { x, y ->
@@ -303,7 +296,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * Where a part's label is centred, in detail cells.
+     * Where a part's label is centered, in detail cells.
      */
     private fun labelCentre(part: RaisedButtonView.Part, grid: PartGrid, transform: Matrix): FloatArray {
         val centre = floatArrayOf(part.labelX, part.labelY)
@@ -312,8 +305,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * Single letters in one view, like A, B, X and Y, are all drawn the same size: the biggest that fits every one of them in the big font. Letters that
-     * don't fit it at all fall back to the small font on their own.
+     * Single letters in one view share the biggest big-font scale that fits all of them; letters that don't fit fall back to the small font.
      */
     private fun sharedLetterScale(parts: List<RaisedButtonView.Part>, grids: Array<PartGrid>, interiors: Array<Interior>, transform: Matrix): Int {
         var scale = Int.MAX_VALUE
@@ -328,7 +320,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * Where a part's icon or arrow is centred, in detail cells: on its glyph if it has one, otherwise on its face.
+     * Where a part's icon or arrow is centered, in detail cells: on its glyph if it has one, otherwise on its face.
      */
     private fun iconCentre(part: RaisedButtonView.Part, grid: PartGrid, face: Path, glyph: Path): FloatArray {
         val bounds = RectF()
@@ -344,8 +336,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * The biggest scale [icon] can have on a face, so that its larger side is at most [RaisedButtonView.ICON_SIZE] of the face's smaller side. It's
-     * never below 1, so icons on small faces are left to the fit checks.
+     * The biggest scale that keeps [icon] within [RaisedButtonView.ICON_SIZE] of the face's smaller side, never below 1.
      */
     private fun iconScaleLimit(icon: PixelIcon, face: Path): Int {
         val bounds = RectF().also { face.computeBounds(it, true) }
@@ -392,13 +383,12 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         val faceBounds = RectF().also { face.computeBounds(it, true) }
         val icon = part.iconFor(isToggledOn)
         val pixelIcon = part.pixelIconFor(isToggledOn)
-        // Dimmed icons are drawn in the shadow colour instead, since see-through pixels don't suit pixel art
+        // Dimmed icons are drawn in the shadow color instead, since see-through pixels don't suit pixel art
         val isDimmed = icon != null && icon.alpha < 255
         val ink = Mask(detailInterior.width, detailInterior.height)
         val inkShadow = Mask(detailInterior.width, detailInterior.height)
         val iconAt = iconCentre(part, grid, face, glyph)
-        // Hand-drawn icons and arrows grow with the face, up to [iconScale]. They're tried with their drop shadow, then without it, then their compact
-        // version the same way. Only if none of those fit is the vector one rasterized
+        // Hand-drawn icons, then their compact version, are tried with and then without their shadow before the vector icon is rasterized
         val drewPixelIcon = listOfNotNull(pixelIcon, pixelIcon?.compact).any { option ->
             val maxScale = min(iconScaleLimit(option, face), iconScale)
             stamp(listOf(option), iconAt[0], iconAt[1], maxScale, detailInterior, ink, inkShadow, true) ||
@@ -423,7 +413,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         }
         if (part.label != null) {
             val centre = labelCentre(part, grid, transform)
-            // Long labels fall back to shorter ones on buttons too small for them. Single letters use the big font at the view's shared size when they fit
+            // Long labels fall back to shorter ones on buttons too small for them
             val candidates = listOf(part.label) + LABEL_FALLBACKS[part.label].orEmpty()
             candidates.firstOrNull { text ->
                 val bigFits = text.length == 1 && stampText(text, PixelIcons.LETTERS, centre, letterScale, detailInterior, ink, inkShadow)
@@ -432,7 +422,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
         }
         val inkColor = if (isDimmed) colors.shadow else colors.ink
 
-        // The D-pad's centre gets a small round dent: a shadow on its top-left inner edge and a light bottom-right one. Cell x spans x to x + 1
+        // The D-pad's center gets a small round dent, shadowed top-left and lit bottom-right; cell x spans x to x + 1, hence the half-cell shift
         val dimpleRadius = min(DIMPLE_RADIUS, faceBounds.width() / detailSize / 6f)
         val faceCentre = grid.toDetail(faceBounds.centerX(), faceBounds.centerY())
         val hasDimple = part.isDpad && part.input == null && dimpleRadius >= MIN_DIMPLE_RADIUS
@@ -453,8 +443,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * Draws something given in view pixels onto a grid of [width] by [height] cells of [size] pixels, whose top-left corner is at ([originX], [originY]) in
-     * view pixels. A cell is in when at least half of it is covered.
+     * Rasterizes [draw] onto a [width] by [height] grid of [size]-pixel cells at ([originX], [originY]); a cell is in when at least half-covered.
      */
     private fun rasterize(width: Int, height: Int, originX: Float, originY: Float, size: Int, draw: (Canvas) -> Unit): Mask {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ALPHA_8)
@@ -477,14 +466,12 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * The left or top edge of a box of [size] cells centred on [centre]. Centres sit on whole or half cells, so this works in half cells, and a box that
-     * can't be centred exactly goes half a cell up or left.
+     * The left or top edge of a [size]-cell box centered on [centre], worked out in half cells and rounding up or left.
      */
     private fun centredStart(size: Int, centre: Float) = Math.floorDiv((centre * 2).roundToInt() - size, 2)
 
     /**
-     * Calls [cell] with the top-left corner of every ink cell of [icons] side by side with a one cell gap, at the given scale. Stops early, and returns
-     * false, if [cell] returns false.
+     * Visits every ink cell of [icons] laid side by side with a one-cell gap; stops and returns false when [cell] returns false.
      */
     private fun forEachInkCell(icons: List<PixelIcon>, left: Int, top: Int, scale: Int, cell: (Int, Int) -> Boolean): Boolean {
         var iconLeft = left
@@ -500,9 +487,8 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * Returns the biggest whole scale, up to [maxScale], at which [icons] fit when centred on ([centreX], [centreY]) in detail cells, and where they go
-     * then, or null if they don't fit at all. They fit when every ink cell, and its drop shadow if there is one, lands on [interior]. The ink and its
-     * shadow are centred together.
+     * The biggest scale up to [maxScale] at which [icons] centered on ([centreX], [centreY]) land on [interior] with their shadow, and where they
+     * go, or null.
      */
     private fun fit(icons: List<PixelIcon>, centreX: Float, centreY: Float, maxScale: Int, interior: Mask, withShadow: Boolean): Placement? {
         val shadowSize = if (withShadow) 1 else 0
@@ -520,8 +506,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     }
 
     /**
-     * Adds [icons] to [ink], and their drop shadow to [inkShadow] if [withShadow] is set, at the biggest scale [fit] allows. Returns false, and adds
-     * nothing, if they don't fit at all.
+     * Stamps [icons] into [ink], and their shadow into [inkShadow] if [withShadow], at the biggest scale [fit] allows; returns false if none fits.
      */
     private fun stamp(icons: List<PixelIcon>, centreX: Float, centreY: Float, maxScale: Int, interior: Mask, ink: Mask, inkShadow: Mask, withShadow: Boolean): Boolean {
         val placement = fit(icons, centreX, centreY, maxScale, interior, withShadow) ?: return false
@@ -548,7 +533,7 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
     private companion object {
         // In view pixels, so that cells that only touch the keep-out area don't count as overlapping it
         const val OVERLAP_TOLERANCE = 0.5f
-        // In detail cells. Smaller D-pads get a smaller dent, or none if it would be tiny
+        // In detail cells; smaller D-pads get a smaller dent, or none if it would be tiny
         const val DIMPLE_RADIUS = 3.5f
         const val MIN_DIMPLE_RADIUS = 1.5f
 
