@@ -494,14 +494,21 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
      * Returns the snap lines for the given item along the x and y axes. A screen can also line up with the other screen.
      */
     private fun getSnapAxes(view: LayoutComponentView, editorWidth: Int = width, editorHeight: Int = height): Pair<SnapAxis, SnapAxis> {
-        val otherScreen = when (view.component) {
-            LayoutComponent.TOP_SCREEN -> views[LayoutComponent.BOTTOM_SCREEN]
-            LayoutComponent.BOTTOM_SCREEN -> views[LayoutComponent.TOP_SCREEN]
-            else -> null
-        }?.getRect()
+        val otherScreen = getOtherScreen(view.component)?.getRect()
         val xAxis = SnapAxis(editorWidth, gridCellSize, getFoldGaps(vertical = true), otherScreen?.let { SnapSpan(it.x, it.width) })
         val yAxis = SnapAxis(editorHeight, gridCellSize, getFoldGaps(vertical = false), otherScreen?.let { SnapSpan(it.y, it.height) })
         return xAxis to yAxis
+    }
+
+    /**
+     * Returns the view of the other screen when [component] is a screen, or null.
+     */
+    private fun getOtherScreen(component: LayoutComponent): LayoutComponentView? {
+        return when (component) {
+            LayoutComponent.TOP_SCREEN -> views[LayoutComponent.BOTTOM_SCREEN]
+            LayoutComponent.BOTTOM_SCREEN -> views[LayoutComponent.TOP_SCREEN]
+            else -> null
+        }
     }
 
     /**
@@ -797,12 +804,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
             it.onTop = onTop
             // Only one screen can be above the other
             if (onTop) {
-                val otherScreen = when (it.component) {
-                    LayoutComponent.TOP_SCREEN -> views[LayoutComponent.BOTTOM_SCREEN]
-                    LayoutComponent.BOTTOM_SCREEN -> views[LayoutComponent.TOP_SCREEN]
-                    else -> null
-                }
-                otherScreen?.onTop = false
+                getOtherScreen(it.component)?.onTop = false
             }
             rearrangeScreens()
             modifiedByUser = true
