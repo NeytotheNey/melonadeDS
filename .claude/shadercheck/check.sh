@@ -9,8 +9,12 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # The compute shaders' assembly and define lists are cut from ComputeRenderer (GPU3D_Compute.cpp), so they can't drift
 SRC="$CORE/src/GPU3D_Compute.cpp"
 sed -n '/shaderSource += "#version/,/shaderSource += source;/p' "$SRC" > "$OUT/compute_assembly.inc"
-grep -oE 'CompileShader\([^,]+, ComputeRendererShaders::[A-Za-z]+, \{[^}]*\}\)' "$SRC" | sed -E 's/^CompileShader\([^,]+, /COMPILE(/' > "$OUT/compute_shaders.inc"
+grep -oE 'CompileShader\([^,]+, ComputeRendererShaders::[A-Za-z0-9_]+, \{[^}]*\}\)' "$SRC" | sed -E 's/^CompileShader\([^,]+, /COMPILE(/' > "$OUT/compute_shaders.inc"
 [ -s "$OUT/compute_assembly.inc" ] && [ -s "$OUT/compute_shaders.inc" ] || { echo "no CompileShader assembly or calls found in $SRC"; exit 1; }
+# Every call must be on one line in the expected shape; the definition (ComputeRenderer::CompileShader) isn't counted
+calls=$(grep -oE '(^|[^:A-Za-z0-9_])CompileShader\(' "$SRC" | wc -l)
+got=$(wc -l < "$OUT/compute_shaders.inc")
+[ "$calls" -eq "$got" ] || { echo "found $calls CompileShader calls in $SRC but only extracted $got; check the grep in $0"; exit 1; }
 g++ -std=c++17 -I"$CORE/src" -I"$OUT" "$HERE/dump.cpp" -o "$OUT/dump"
 cd "$OUT" && ./dump
 rc=0
