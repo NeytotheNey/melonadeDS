@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
-        xmlns:app="http://schemas.android.com/apk/res-auto">
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
     <PreferenceCategory android:title="@string/settings_section_account">
 
@@ -15,7 +14,7 @@
             android:key="ra_hardcore_enabled"
             android:title="@string/hardcore_mode"
             android:summary="@string/hardcore_mode_summary"
-            app:dependency="ra_login"
+            android:dependency="ra_login"
             android:defaultValue="false" />
 
         <SwitchPreference
@@ -31,21 +30,21 @@
             android:key="ra_active_challenge_indicators"
             android:title="@string/show_active_challenge_indicators"
             android:summary="@string/show_active_challenge_indicators_summary"
-            app:dependency="ra_login"
+            android:dependency="ra_login"
             android:defaultValue="true" />
 
         <SwitchPreference
             android:key="ra_progress_indicators"
             android:title="@string/show_progress_indicators"
             android:summary="@string/show_progress_indicators_summary"
-            app:dependency="ra_login"
+            android:dependency="ra_login"
             android:defaultValue="true" />
 
         <SwitchPreference
             android:key="ra_leaderboard_indicators"
             android:title="@string/show_leaderboard_indicators"
             android:summary="@string/show_leaderboard_indicators_summary"
-            app:dependency="ra_login"
+            android:dependency="ra_login"
             android:defaultValue="true" />
     </PreferenceCategory>
 </PreferenceScreen>
