@@ -6,8 +6,8 @@
 namespace melonDS { class GPU; }
 
 /**
- * Debug builds only: `adb shell setprop debug.melonade.<switch> <value>` before a game starts changes one of the switches below, for A/B
- * tests. Clear one with an empty value (`adb shell "setprop debug.melonade.<switch> ''"`). Unset or empty means the default.
+ * Debug builds only: `adb shell setprop debug.melonade.<switch> <value>` before a game starts changes one of the switches below, and an unset or
+ * empty value (`adb shell "setprop debug.melonade.<switch> ''"`) means the default.
  *
  * On/off switches (0 or 1; the default is the core's, see GPU.h):
  *   hash2d         log a checksum of the 2D output every frame (GPU::Hash2DLogging, default 0)
@@ -32,7 +32,7 @@ namespace DebugProperties
 {
 
 /**
- * Reads debug.melonade.[name] into [value], which must hold PROP_VALUE_MAX bytes. Returns false if it's unset or empty.
+ * Reads debug.melonade.[name] into [value], which must hold PROP_VALUE_MAX bytes, and returns false if it's unset or empty.
  */
 bool read(const char* name, char* value);
 

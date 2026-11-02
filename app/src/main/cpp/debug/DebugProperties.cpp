@@ -20,7 +20,7 @@ struct BoolSwitch
     bool GPU::* target;
 };
 
-// The on/off switches. A value of 0 or 1 replaces the core's default, anything else keeps it
+// The on/off switches, where a value of 0 or 1 replaces the core's default and anything else keeps it
 static const BoolSwitch BOOL_SWITCHES[] = {
     { "hash2d", &GPU::Hash2DLogging },
     { "defercap", &GPU::DeferCapture2D },
