@@ -50,6 +50,7 @@ import me.magnum.melonds.domain.model.layout.WidescreenAspect
 import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import me.magnum.melonds.domain.model.rom.config.RomModsConfig
 import me.magnum.melonds.ui.common.MelonPreviewSet
+import me.magnum.melonds.ui.common.layoutDisplayName
 import me.magnum.melonds.ui.common.component.LuaScriptOptionControl
 import me.magnum.melonds.ui.common.component.text.CaptionText
 import me.magnum.melonds.ui.common.preference.ActionLauncherItem
@@ -174,11 +175,7 @@ private fun WideLayoutItem(
     }
     ActionLauncherItem(
         name = stringResource(id = R.string.wide_layout),
-        value = when {
-            wideLayout == null -> stringResource(id = R.string.wide_layout_automatic)
-            wideLayout.name.isNullOrBlank() -> stringResource(id = R.string.lua_script_option_layout_unnamed)
-            else -> wideLayout.name
-        },
+        value = if (wideLayout == null) stringResource(id = R.string.wide_layout_automatic) else layoutDisplayName(wideLayout.name),
         // Until the layouts are read it isn't known which one is picked
         enabled = romConfig.wideLayouts != null,
         onLaunchAction = {

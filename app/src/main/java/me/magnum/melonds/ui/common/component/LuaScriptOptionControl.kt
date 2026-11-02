@@ -35,6 +35,7 @@ import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.emulator.LuaLayoutChoice
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
 import me.magnum.melonds.ui.common.ProvideEnabledContentColor
+import me.magnum.melonds.ui.common.layoutDisplayName
 import me.magnum.melonds.ui.common.component.text.CaptionText
 import kotlin.math.roundToInt
 
@@ -180,9 +181,9 @@ private fun LayoutControl(
     val selectedLabel = when {
         layoutId == null -> stringResource(R.string.lua_script_option_layout_dont_change)
         layouts == null -> ""
-        else -> layouts.firstOrNull { it.id == layoutId }?.let { getLayoutLabel(it) } ?: stringResource(R.string.lua_script_option_layout_missing)
+        else -> layouts.firstOrNull { it.id == layoutId }?.let { layoutDisplayName(it.name, it.unnamedNumber) } ?: stringResource(R.string.lua_script_option_layout_missing)
     }
-    val itemLabels = layouts?.let { listOf(stringResource(R.string.lua_script_option_layout_dont_change)) + it.map { layout -> getLayoutLabel(layout) } }
+    val itemLabels = layouts?.let { listOf(stringResource(R.string.lua_script_option_layout_dont_change)) + it.map { layout -> layoutDisplayName(layout.name, layout.unnamedNumber) } }
 
     DropdownControl(
         label = option.label,
@@ -251,18 +252,6 @@ private fun DropdownControl(
                 )
             }
         }
-    }
-}
-
-/**
- * The layout's name, or "Unnamed layout" (numbered when there are several) for one without
- */
-@Composable
-private fun getLayoutLabel(layout: LuaLayoutChoice): String {
-    return when {
-        layout.name != null -> layout.name
-        layout.unnamedNumber > 0 -> stringResource(R.string.lua_script_option_layout_unnamed_numbered, layout.unnamedNumber)
-        else -> stringResource(R.string.lua_script_option_layout_unnamed)
     }
 }
 
