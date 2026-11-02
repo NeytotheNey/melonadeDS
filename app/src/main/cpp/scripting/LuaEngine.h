@@ -31,8 +31,7 @@ struct LuaOptionValue
         Integer,
         Number,
         String,
-        // A layout the player picked (or "Don't change"), which melon.screen.set_layout() names by its key. Scripts see [boolean]: whether
-        // the player picked one. The layout itself is only known to the app
+        // A layout the player picked (or "Don't change"), which melon.screen.set_layout() names by its key; scripts only see [boolean]
         Layout,
     };
 
@@ -48,17 +47,16 @@ struct LuaScriptSource
 {
     std::string name;
     std::string source;
-    // The script's saved melon.storage blob (see LuaStorage::decodeBlob()), empty if it has none. Dropped once it's decoded
+    // The script's saved melon.storage blob (see LuaStorage::decodeBlob()), empty if it has none and dropped once decoded
     std::string savedData;
-    // Where the app keeps the script's data, sent back with each snapshot. Empty: storage isn't saved
+    // Where the app keeps the script's data, sent back with each snapshot; empty means storage isn't saved
     std::string dataGameKey;
     std::vector<LuaOptionValue> options;
 };
 
 /**
  * What the scripts can use from their folder besides themselves: modules for require(), by module name, and images for melon.image.load(), by
- * path. Read by the app at launch and never changed during the session, so every script's state shares it. An entry that was left out (over a
- * cap, or unreadable) has no content, and [leftOutReason] says why
+ * path; read once at launch and never changed, so every script's state shares it
  */
 struct LuaFolderContent
 {
@@ -74,7 +72,7 @@ struct LuaFolderContent
     {
         int width = 0;
         int height = 0;
-        // 0xAARRGGBB, premultiplied. Empty when left out
+        // 0xAARRGGBB, premultiplied, empty when left out
         std::vector<melonDS::u32> pixels;
         std::string leftOutReason;
     };
@@ -84,7 +82,7 @@ struct LuaFolderContent
 };
 
 /**
- * Buttons as scripts see them: pressed = bit set. The bits match the DS key mask (A = bit 0 ... Y = bit 11), and TOUCH is the touchscreen
+ * Buttons as scripts see them, a set bit meaning pressed: the DS key mask bits (A = bit 0 ... Y = bit 11) plus TOUCH for the touchscreen
  */
 namespace LuaKey
 {
@@ -93,7 +91,7 @@ constexpr melonDS::u32 TOUCH = 1 << 12;
 }
 
 /**
- * The player's input before the scripts change it. [held] uses the LuaKey bits
+ * The player's input before the scripts change it, [held] in LuaKey bits
  */
 struct LuaUserInput
 {
@@ -103,8 +101,7 @@ struct LuaUserInput
 };
 
 /**
- * What the scripts want for the next frame: the final buttons are (held & ~release) | press, with LuaKey bits. [touchX]/[touchY] replace the
- * player's touch position while [hasTouchPosition] is set
+ * What the scripts want for the next frame: the final buttons are (held & ~release) | press, with LuaKey bits
  */
 struct LuaInputOverride
 {
@@ -116,20 +113,19 @@ struct LuaInputOverride
 };
 
 /**
- * Saves and loads the emulator's state for melon.state, so that LuaEngine never touches Savestate. Implemented by MelonInstance. Only called on
- * the emulator thread, between frames
+ * Saves and loads the emulator's state for melon.state, so that LuaEngine never touches Savestate. Implemented by MelonInstance and only called
+ * on the emulator thread, between frames
  */
 class LuaSavestateHost
 {
 public:
     virtual ~LuaSavestateHost() = default;
     /**
-     * Saves the whole state into [data] (resized to the state's size). False if it couldn't, in which case [data] is left as it was
+     * Saves the whole state into [data] (resized to fit), returning false and leaving [data] as it was if it couldn't
      */
     virtual bool saveLuaState(std::vector<melonDS::u8>& data) = 0;
     /**
-     * Loads a state [saveLuaState] made. Backs up the current state first and goes back to it if the load fails, like a player's load.
-     * Returns whether the state was loaded
+     * Loads a state [saveLuaState] made and returns whether it did, going back to a backup of the current state if the load fails
      */
     virtual bool loadLuaState(const std::vector<melonDS::u8>& data) = 0;
 };
@@ -149,27 +145,26 @@ public:
 
     /**
      * [areStateLoadsAllowed] is false when savestates can't be loaded in this session (RetroAchievements hardcore), so melon.state.load()
-     * refuses too. Scripts don't run in hardcore anyway, so this is only a second check
+     * refuses too
      */
     void setScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent, bool areStateLoadsAllowed);
     /**
-     * Loads the scripts given to [setScripts] and calls their on_load(game). Called once the game has started. [savestateHost] must outlive
-     * the scripts (until [stop])
+     * Loads the scripts given to [setScripts] and calls their on_load(game) once the game has started; [savestateHost] must outlive the
+     * scripts (until [stop])
      */
     void start(melonDS::NDS* nds, std::shared_ptr<MelonEventMessenger> eventMessenger, LuaSavestateHost* savestateHost);
     /**
-     * Whether any script is still running, or the player switched one on or off since the last frame (which [runFrame] applies). While
-     * neither is true, the emulator doesn't need to call [runFrame]
+     * Whether any script is still running, or the player switched one on or off since the last frame (which [runFrame] applies)
      */
     bool isActive() const { return activeScriptCount > 0 || isScriptSwitchPending.load(std::memory_order_relaxed); }
     /**
      * Reloads the scripts if the console was reset, calls on_state_loaded() if a state was loaded since the last frame, then on_frame(), and
-     * returns how the scripts want to change the input of the frame that is about to run. Called just before the frame runs
+     * returns how the scripts want to change the input of the frame that is about to run
      */
     LuaInputOverride runFrame(int frame, const LuaUserInput& userInput);
     /**
-     * Calls on_frame_end(), then draws the frame's drawings into [getOverlay]. Called once the frame has run, after every [runFrame] (also when
-     * no script is left running, so that the last drawings go away)
+     * Calls on_frame_end(), then draws the frame's drawings into [getOverlay]; must follow every [runFrame], also once no script is left
+     * running, so that the last drawings go away
      */
     void endFrame();
     /**
@@ -178,39 +173,37 @@ public:
     void stop();
 
     /**
-     * Calls on_state_loaded() before the next frame. Savestates and rewind load on other threads, so the call is only queued
+     * Calls on_state_loaded() before the next frame
      */
     void notifyStateLoaded() { isStateLoadPending.store(true, std::memory_order_relaxed); }
     /**
-     * Reloads the running scripts before the next frame. Reset runs on another thread, so it's only queued
+     * Reloads the running scripts before the next frame
      */
     void notifyReset() { isResetPending.store(true, std::memory_order_relaxed); }
     /**
-     * Switches a script off because the player asked to: on_unload() runs, and the app isn't told (it already knows). The app runs on another
-     * thread, so it's only queued and applied before the next frame
+     * Switches a script off because the player asked to: on_unload() runs, and the app isn't told (it already knows)
      */
     void disableScript(int id);
     /**
      * Switches a stopped script back on because the player asked to, the way a reset reloads it: a fresh state, its main chunk, then
-     * on_load(game). If that fails, it's switched off again and the app is told, like any error. Queued like [disableScript], in the same queue
+     * on_load(game)
      */
     void enableScript(int id);
     /**
-     * Restarts a script with new option values: on_unload() if it runs, then a fresh state, its main chunk and on_load(game), like
-     * [enableScript]. Queued like [disableScript], in the same queue. Also starts a stopped script
+     * Restarts a script, or starts a stopped one, with new option values: on_unload() if it runs, then a fresh state, its main chunk and
+     * on_load(game)
      */
     void restartScript(int id, std::vector<LuaOptionValue> options);
     /**
-     * Snapshots the storage of every script whose storage changed since its last snapshot. Called on the emulator thread when it parks for
-     * a pause
+     * Snapshots the storage of every script whose storage changed since its last snapshot, when the emulator thread parks for a pause
      */
     void flushStorage();
     /**
-     * Controller sticks from the app, from -1 to 1 (down and right are positive). Only sent while a script runs
+     * Controller sticks from the app, from -1 to 1 (down and right are positive)
      */
     void updateSticks(float leftX, float leftY, float rightX, float rightY);
     /**
-     * What the scripts drew for the frame [endFrame] was last called for. Empty while no script runs
+     * What the scripts drew for the frame [endFrame] was last called for, empty while no script runs
      */
     const LuaOverlay& getOverlay() const { return overlay; }
 
@@ -221,7 +214,7 @@ private:
     friend struct LuaFolderApi;
     friend struct LuaStateApi;
 
-    // From disableScript(), enableScript() and restartScript(), applied in the order they were asked for. The flag saves locking the mutex every frame
+    // From disableScript(), enableScript() and restartScript(), applied in the order they were asked for
     struct ScriptSwitch
     {
         enum class Action
@@ -254,7 +247,7 @@ private:
     static int setupScript(lua_State* L);
     static int runCallback(lua_State* L);
 
-    // melon.game, melon.input, melon.screen, melon.emu and melon.log. The rest of the module is in the Lua*Api.cpp files
+    // melon.game, melon.input, melon.screen, melon.emu and melon.log, the parts of the module not in the Lua*Api.cpp files
     static int luaGameCode(lua_State* L);
     static int luaGameTitle(lua_State* L);
     static int luaFrame(lua_State* L);
@@ -287,12 +280,12 @@ private:
     bool areStateLoadsAllowed = true;
     // Bytes held by every script's state slots together, capped at kMaxStateSlotMemory
     size_t stateSlotMemory = 0;
-    // The load melon.state.load() queued, run once every script's on_frame() has run (the last one asked for wins). -1 when there's none
+    // The load melon.state.load() queued, run once every script's on_frame() has run (the last one asked for wins), or -1
     int pendingStateLoadScript = -1;
     int pendingStateLoadSlot = 0;
     // A script's load ran, so on_state_loaded() is due before the next on_frame()
     bool isScriptStateLoaded = false;
-    // Counts runFrame() calls, for the save cooldown. melon.frame() can't be used, since it can stand still or go back (rewind)
+    // Counts runFrame() calls for the save cooldown, since melon.frame() can stand still or go back (rewind)
     int64_t framePass = 0;
     std::string gameCode;
     int currentFrame = 0;
