@@ -416,35 +416,35 @@ class LayoutEditorItemControls(
      * Returns the size of the screen at an integer scale of the DS resolution. The height follows the locked aspect ratio, if any. A wide top
      * screen keeps the DS height instead, so its middle part is at that scale
      */
-    private fun getScaleSize(scale: Int): Pair<Int, Int> {
+    private fun getScaleSize(scale: Int): Size {
         val ratio = lockedRatio
         if (screenAspectRatio == ScreenAspectRatio.WIDE && ratio != null) {
             val height = SCREEN_HEIGHT * scale
-            return (height * ratio).roundToInt() to height
+            return Size((height * ratio).roundToInt(), height)
         }
 
         val width = SCREEN_WIDTH * scale
         val height = ratio?.let { (width / it).roundToInt() } ?: (SCREEN_HEIGHT * scale)
-        return width to height
+        return Size(width, height)
     }
 
     /**
      * Returns the biggest size that fits in the editor with the current aspect ratio. When the ratio isn't locked, the screen's current proportions
      * are kept.
      */
-    private fun getFitSize(): Pair<Int, Int> {
-        val view = selectedView ?: return 0 to 0
+    private fun getFitSize(): Size {
+        val view = selectedView ?: return Size(0, 0)
         val ratio = lockedRatio ?: (view.getWidth() / view.getHeight().coerceAtLeast(1).toFloat())
         val width = min(editor.width.toFloat(), editor.height * ratio)
-        return width.roundToInt() to (width / ratio).roundToInt()
+        return Size(width.roundToInt(), (width / ratio).roundToInt())
     }
 
-    private fun fitsInEditor(size: Pair<Int, Int>): Boolean {
-        return size.first <= editor.width && size.second <= editor.height
+    private fun fitsInEditor(size: Size): Boolean {
+        return size.width <= editor.width && size.height <= editor.height
     }
 
-    private fun applyScale(size: Pair<Int, Int>) {
-        editor.resizeSelectedView(size.first.toFloat(), size.second.toFloat())
+    private fun applyScale(size: Size) {
+        editor.resizeSelectedView(size.width.toFloat(), size.height.toFloat())
     }
 
     /**

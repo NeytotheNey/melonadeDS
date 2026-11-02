@@ -559,20 +559,20 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     /**
      * Clamps a size to the minimum component size and to the given maximum. With a locked aspect ratio the height is derived from the width.
      */
-    private fun constrainSize(view: LayoutComponentView, desiredWidth: Float, desiredHeight: Float, maxWidth: Int, maxHeight: Int): Pair<Int, Int> {
+    private fun constrainSize(view: LayoutComponentView, desiredWidth: Float, desiredHeight: Float, maxWidth: Int, maxHeight: Int): Size {
         return constrainSize(getLockedAspectRatio(view), desiredWidth, desiredHeight, maxWidth, maxHeight)
     }
 
-    private fun constrainSize(ratio: Float?, desiredWidth: Float, desiredHeight: Float, maxWidth: Int, maxHeight: Int): Pair<Int, Int> {
+    private fun constrainSize(ratio: Float?, desiredWidth: Float, desiredHeight: Float, maxWidth: Int, maxHeight: Int): Size {
         return if (ratio == null) {
             val newWidth = desiredWidth.roundToInt().coerceAtMost(maxWidth).coerceAtLeast(minComponentSize)
             val newHeight = desiredHeight.roundToInt().coerceAtMost(maxHeight).coerceAtLeast(minComponentSize)
-            newWidth to newHeight
+            Size(newWidth, newHeight)
         } else {
             val minWidth = getMinWidth(ratio)
             val maxRatioWidth = min(maxWidth.toFloat(), maxHeight * ratio)
             val newWidth = desiredWidth.coerceAtMost(maxRatioWidth).coerceAtLeast(minWidth)
-            newWidth.roundToInt() to (newWidth / ratio).roundToInt()
+            Size(newWidth.roundToInt(), (newWidth / ratio).roundToInt())
         }
     }
 
