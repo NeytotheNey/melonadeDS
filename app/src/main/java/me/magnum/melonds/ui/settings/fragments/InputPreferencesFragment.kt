@@ -10,6 +10,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import me.magnum.melonds.R
 import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.common.vibration.TouchVibrator
+import me.magnum.melonds.domain.model.input.ControllerStyle
 import me.magnum.melonds.ui.inputsetup.InputSetupActivity
 import me.magnum.melonds.ui.layouts.LayoutListActivity
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
@@ -30,6 +31,9 @@ class InputPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         setPreferencesFromResource(R.xml.pref_input, rootKey)
         softInputBehaviourPreference = findPreference("soft_input_behaviour")!!
         controllerStylePreference = findPreference(PreferenceKeys.INPUT_CONTROLLER_STYLE)!!
+        // For the row's summary only, since the style is picked on its own page
+        controllerStylePreference.entries = ControllerStyle.entries.map { getString(it.displayNameRes) }.toTypedArray()
+        controllerStylePreference.entryValues = ControllerStyle.entries.map { it.toPreferenceValue() }.toTypedArray()
         val touchVibratePreference = findPreference<SwitchPreference>("input_touch_haptic_feedback_enabled")!!
         val vibrationStrengthPreference = findPreference<SeekBarPreference>("input_touch_haptic_feedback_strength")!!
         val keyMappingPreference = findPreference<Preference>("input_key_mapping")!!
@@ -62,6 +66,6 @@ class InputPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         super.onResume()
         // Set proper value for soft input behaviour preference since the value is not updated when returning from the fragment
         softInputBehaviourPreference.value = softInputBehaviourPreference.sharedPreferences?.getString(softInputBehaviourPreference.key, "hide_system_buttons_when_controller_connected")
-        controllerStylePreference.value = controllerStylePreference.sharedPreferences?.getString(controllerStylePreference.key, "classic")
+        controllerStylePreference.value = controllerStylePreference.sharedPreferences?.getString(controllerStylePreference.key, ControllerStyle.DEFAULT.toPreferenceValue())
     }
 }

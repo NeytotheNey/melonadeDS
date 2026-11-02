@@ -33,9 +33,6 @@
             android:key="input_controller_style"
             android:title="@string/controller_style"
             android:summary="%s"
-            android:entries="@array/controller_style_options"
-            android:entryValues="@array/controller_style"
-            android:defaultValue="classic"
             app:fragment="me.magnum.melonds.ui.settings.fragments.ControllerStylePreferencesFragment" />
 
         <me.magnum.melonds.ui.settings.preferences.SliderPreference

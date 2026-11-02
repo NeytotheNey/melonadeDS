@@ -91,20 +91,6 @@
         <item>device</item>
     </string-array>
 
-    <!-- Saved values of input_controller_style: the lowercase names of ControllerStyle, in the same order. Already saved on devices, so never
-         change them -->
-    <string-array name="controller_style">
-        <item>classic</item>
-        <item>ds_lite</item>
-        <item>charcoal</item>
-        <item>super_colours</item>
-        <item>indigo</item>
-        <item>outline</item>
-        <item>soft_tint</item>
-        <item>pixel_8</item>
-        <item>pixel_16</item>
-    </string-array>
-
     <string-array name="soft_input_behaviour">
         <item>always_visible</item>
         <item>hide_system_buttons_when_controller_connected</item>

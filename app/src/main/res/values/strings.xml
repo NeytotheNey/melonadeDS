@@ -298,6 +298,15 @@
     <string name="key_mapping_summary">Assign keys to controller inputs</string>
     <string name="soft_input_behaviour">Soft input behaviour</string>
     <string name="controller_style">Button style</string>
+    <string name="controller_style_classic">Classic</string>
+    <string name="controller_style_ds_lite">DS Lite</string>
+    <string name="controller_style_charcoal">Charcoal</string>
+    <string name="controller_style_super_colours">Super colours</string>
+    <string name="controller_style_indigo">Indigo</string>
+    <string name="controller_style_outline">Outline</string>
+    <string name="controller_style_soft_tint">Soft tint</string>
+    <string name="controller_style_pixel_8">8-bit</string>
+    <string name="controller_style_pixel_16">16-bit</string>
     <string name="vibrate_on_touch">Vibrate on touch</string>
     <string name="vibration_strength">Vibration strength</string>
     <string name="soft_input_opacity">Soft input opacity</string>
@@ -699,18 +708,6 @@
         <item>None</item>
         <item>Blow</item>
         <item>Device microphone</item>
-    </string-array>
-
-    <string-array name="controller_style_options">
-        <item>Classic</item>
-        <item>DS Lite</item>
-        <item>Charcoal</item>
-        <item>Super colours</item>
-        <item>Indigo</item>
-        <item>Outline</item>
-        <item>Soft tint</item>
-        <item>8-bit</item>
-        <item>16-bit</item>
     </string-array>
 
     <string-array name="soft_input_behaviour_options">

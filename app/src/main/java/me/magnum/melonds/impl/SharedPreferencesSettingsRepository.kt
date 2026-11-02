@@ -57,7 +57,6 @@ import me.magnum.melonds.impl.dtos.input.ControllerConfigurationDto
 import me.magnum.melonds.impl.input.ControllerConfigurationFactory
 import me.magnum.melonds.ui.Theme
 import me.magnum.melonds.utils.enumValueOfIgnoreCase
-import me.magnum.melonds.utils.enumValueOfIgnoreCaseOrNull
 import me.magnum.melonds.utils.supportsJit
 import java.io.File
 import java.util.UUID
@@ -547,9 +546,7 @@ class SharedPreferencesSettingsRepository(
 
     override fun getControllerStyle(): Flow<ControllerStyle> {
         return getOrCreatePreferenceSharedFlow(PreferenceKeys.INPUT_CONTROLLER_STYLE) {
-            // Saved as the lowercase name of the style. An unknown value falls back to the default
-            val stylePreference = preferences.getString(PreferenceKeys.INPUT_CONTROLLER_STYLE, null)
-            enumValueOfIgnoreCaseOrNull<ControllerStyle>(stylePreference) ?: ControllerStyle.CLASSIC
+            ControllerStyle.fromPreferenceValue(preferences.getString(PreferenceKeys.INPUT_CONTROLLER_STYLE, null))
         }
     }
 

@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -20,7 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -37,8 +38,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.edit
@@ -62,7 +63,6 @@ import me.magnum.melonds.ui.emulator.input.SingleButtonInputHandler
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
 import me.magnum.melonds.ui.settings.settingsContentPadding
 import me.magnum.melonds.ui.theme.MelonTheme
-import me.magnum.melonds.utils.enumValueOfIgnoreCaseOrNull
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -87,18 +87,11 @@ class ControllerStylePreferencesFragment : Fragment(), PreferenceFragmentTitlePr
 @Composable
 private fun ControllerStylePreferencesScreen(touchVibrator: TouchVibrator) {
     val context = LocalContext.current
-    val resources = LocalResources.current
-    val styleNames = remember {
-        resources.getStringArray(R.array.controller_style_options)
-    }
     val sharedPreferences = remember {
         PreferenceManager.getDefaultSharedPreferences(context)
     }
     var selectedStyle by remember(sharedPreferences) {
-        // Saved as the lowercase name of the style, like SharedPreferencesSettingsRepository reads it. An unknown value falls back to the default
-        val initialPreference = sharedPreferences.getString(PreferenceKeys.INPUT_CONTROLLER_STYLE, null)
-        val initialStyle = enumValueOfIgnoreCaseOrNull<ControllerStyle>(initialPreference) ?: ControllerStyle.CLASSIC
-        mutableStateOf(initialStyle)
+        mutableStateOf(ControllerStyle.fromPreferenceValue(sharedPreferences.getString(PreferenceKeys.INPUT_CONTROLLER_STYLE, null)))
     }
 
     LazyVerticalGrid(
@@ -108,22 +101,36 @@ private fun ControllerStylePreferencesScreen(touchVibrator: TouchVibrator) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        itemsIndexed(ControllerStyle.entries, key = { _, style -> style }) { index, style ->
+        items(ControllerStyle.entries, key = { it }) { style ->
             ControllerStyleItem(
                 style = style,
-                name = styleNames[index],
+                name = stringResource(style.displayNameRes),
                 isSelected = selectedStyle == style,
                 touchVibrator = touchVibrator,
                 onClick = {
                     selectedStyle = style
                     sharedPreferences.edit {
-                        putString(PreferenceKeys.INPUT_CONTROLLER_STYLE, style.name.lowercase())
+                        putString(PreferenceKeys.INPUT_CONTROLLER_STYLE, style.toPreferenceValue())
                     }
                 },
             )
         }
     }
 }
+
+@get:StringRes
+val ControllerStyle.displayNameRes: Int
+    get() = when (this) {
+        ControllerStyle.CLASSIC -> R.string.controller_style_classic
+        ControllerStyle.DS_LITE -> R.string.controller_style_ds_lite
+        ControllerStyle.CHARCOAL -> R.string.controller_style_charcoal
+        ControllerStyle.SUPER_COLOURS -> R.string.controller_style_super_colours
+        ControllerStyle.INDIGO -> R.string.controller_style_indigo
+        ControllerStyle.OUTLINE -> R.string.controller_style_outline
+        ControllerStyle.SOFT_TINT -> R.string.controller_style_soft_tint
+        ControllerStyle.PIXEL_8 -> R.string.controller_style_pixel_8
+        ControllerStyle.PIXEL_16 -> R.string.controller_style_pixel_16
+    }
 
 @Composable
 private fun ControllerStyleItem(
