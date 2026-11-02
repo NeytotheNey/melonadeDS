@@ -19,16 +19,15 @@ std::atomic_bool enabled = false;
 static std::atomic_bool frameStateResetPending = false;
 
 static const int64_t ONE_SECOND_NS = 1000000000LL;
-// New (not repeated) core lines allowed per second. Anything above that is dropped and counted
+// New (not repeated) core lines allowed per second, with anything above that dropped and counted
 static const uint32_t MAX_CORE_LINES_PER_SECOND = 200;
-// Immediate reports allowed per second, on top of the once per second heartbeat. Exceptions and GPU changes have separate budgets, so a game
-// that changes its display setup every frame can't hide an exception
+// Immediate reports allowed per second on top of the heartbeat, with separate budgets for exceptions and GPU changes so a game that changes its
+// display setup every frame can't hide an exception
 static const uint32_t MAX_EXCEPTION_REPORTS_PER_SECOND = 10;
 static const uint32_t MAX_GPU_CHANGE_REPORTS_PER_SECOND = 5;
 static const std::size_t MAX_LINE_LENGTH = 1024;
 
-// Core message dedupe. The core logs from the emulator thread and from others (audio, render), so this is guarded by a mutex. It's only taken
-// while the debug log is on
+// Core message dedupe, under a mutex (only taken while the debug log is on) since the core logs from several threads
 static std::mutex coreLogMutex;
 static char lastCoreMessage[MAX_LINE_LENGTH] = {};
 static int lastCorePriority = -1;
@@ -60,7 +59,7 @@ static void reportCoreRepeats()
     coreRepeatCount = 0;
 }
 
-// Must be called with coreLogMutex held. Starts a new rate limit window if a second has passed, and reports what the last one dropped
+// Starts a new rate limit window if a second has passed and reports what the last one dropped; must be called with coreLogMutex held
 static void advanceCoreWindow(int64_t nowNs)
 {
     if (nowNs - coreWindowStartNs < ONE_SECOND_NS)
@@ -227,7 +226,7 @@ static const char* getModeName(u32 cpsr)
     }
 }
 
-// Which exception vector the CPU is about to run, if any. The next instruction is at R15 - 4 (ARM state, which exceptions always switch to)
+// Which exception vector the CPU is about to run, if any (the next instruction is at R15 - 4, since exceptions always switch to ARM state)
 static const char* getExceptionVectorName(const ARM& cpu)
 {
     if (cpu.CPSR & 0x20)
@@ -252,7 +251,7 @@ static void checkCpuExceptionState(const ARM& cpu, CpuWatch& watch, u32 frame, i
     if (isFlagged)
     {
         bool isNewState = !watch.wasFlagged || mode != watch.lastMode;
-        // A new state is reported right away (within the budget). A CPU that stays in it is reported again once per second
+        // A new state is reported right away (within the budget), and a CPU that stays in it again once per second
         bool shouldReport = isNewState ? exceptionReportLimiter.take(nowNs) : nowNs - watch.lastReportNs >= ONE_SECOND_NS;
         if (shouldReport)
         {
@@ -274,8 +273,8 @@ static void checkCpuExceptionState(const ARM& cpu, CpuWatch& watch, u32 frame, i
 }
 
 /**
- * Whether the CPU is about to run code below 0x20 that isn't one of its exception vectors, which usually means a call through a null pointer.
- * [nextAddress] is set to the next instruction's address (R15 - 4 in ARM state, R15 - 2 in Thumb).
+ * Whether the CPU is about to run code below 0x20 that isn't one of its exception vectors (usually a null pointer call), with [nextAddress] set to
+ * the next instruction's address (R15 - 4 in ARM state, R15 - 2 in Thumb).
  */
 static bool isAtSuspiciousLowAddress(const ARM& cpu, u32& nextAddress)
 {
@@ -288,7 +287,7 @@ static bool isAtSuspiciousLowAddress(const ARM& cpu, u32& nextAddress)
     if (cpu.ExceptionBase != 0 || isThumb)
         return true;
 
-    // The core jumps to 0x04 (undefined), 0x08 (SWI), 0x0C and 0x10 (aborts, ARM9 only) and 0x18 (IRQ). 0x1C (FIQ) is never used but harmless.
+    // The core jumps to 0x04 (undefined), 0x08 (SWI), 0x0C and 0x10 (aborts, ARM9 only) and 0x18 (IRQ), while 0x1C (FIQ) is unused but harmless and
     // 0x00 (reset) and 0x14 (reserved) are never jumped to on purpose
     switch (nextAddress)
     {

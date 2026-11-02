@@ -10,7 +10,7 @@
 namespace melonDS { class NDS; }
 
 /**
- * Opt-in debug logging, turned on from Kotlin while the debug log recorder runs. While it's off, callers only pay for the [isEnabled] check.
+ * Opt-in debug logging, turned on from Kotlin while the debug log recorder runs, which costs callers only the [isEnabled] check while it's off.
  */
 namespace DebugLog
 {
@@ -35,21 +35,19 @@ void setEnabled(bool isEnabled);
     } while (0)
 
 /**
- * Writes a message from the core (melonDS::Platform::Log) to logcat with the melonade-core tag. Identical lines in a row are collapsed into a
- * "repeated N times" line, and new lines are capped per second, so a core that spams the log can't flood logcat or slow the emulator down.
+ * Writes a message from the core (melonDS::Platform::Log) to logcat under the melonade-core tag, collapsing identical lines in a row and capping new
+ * lines per second, so a core that spams the log can't flood logcat or slow the emulator down.
  */
 void logCoreMessage(melonDS::Platform::LogLevel level, const char* format, va_list args);
 
 /**
- * Called on the emulator thread after every frame while the debug log is on. Logs a CPU heartbeat, the GPU state and the audio stats (see
- * AudioDiagnostics) once per second, and logs
- * right away (rate limited) when a CPU enters an abort/undefined mode, stops at an exception vector or is about to run code below 0x20 that isn't
- * a vector (a null pointer call), or when the VRAM or display setup changes.
+ * Emulator thread, after every frame while the debug log is on: logs a CPU heartbeat, the GPU state and the audio stats once a second, and reports
+ * exception modes and vectors, null pointer calls and VRAM or display setup changes right away (rate limited).
  */
 void onFrame(melonDS::NDS& nds, bool isFastForward, float fps, int64_t lastFrameWorkNs);
 
 /**
- * Logs what the core was set up with when a game (or the firmware) starts or is reset. Must be called on the emulator thread, or while it's parked (reset).
+ * Logs what the core was set up with when a game (or the firmware) starts or is reset, on the emulator thread or while it's parked (reset).
  */
 void logGameStart(melonDS::NDS& nds, const char* reason, bool hasRomCrc32, uint32_t romCrc32);
 
