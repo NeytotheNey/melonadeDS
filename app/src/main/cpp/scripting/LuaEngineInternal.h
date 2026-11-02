@@ -10,8 +10,8 @@
 #include "lua.hpp"
 
 /**
- * Shared by the files that make up LuaEngine: the sandbox (LuaSandbox.cpp) and the API files (Lua*Api.cpp), one per part of the melon module.
- * Not for the rest of the frontend, which only sees LuaEngine.h
+ * Shared only by the files that make up LuaEngine: the sandbox (LuaSandbox.cpp) and the API files (Lua*Api.cpp), one per part of the melon
+ * module
  */
 namespace MelonDSAndroid
 {
@@ -24,8 +24,8 @@ constexpr int kStateSlotCount = 4;
 constexpr const char* kImageType = "melon.image";
 
 /**
- * A melon.image userdata. [pixels] (premultiplied) are the folder's for loaded images (LuaFolderContent, which outlives every state), and right
- * after this struct, inside the userdata, for new() ones
+ * A melon.image userdata, whose premultiplied [pixels] are the folder's for loaded images (LuaFolderContent, which outlives every state) and
+ * follow this struct inside the userdata for new() ones
  */
 struct LuaImage
 {
@@ -43,16 +43,15 @@ struct LuaDrawCommand
     {
         // A filled rectangle, clipped to the screen
         Rect,
-        // A rectangle outline. Its sides are capped to just outside the screen, which draws the same as the full rectangle
+        // A rectangle outline, its sides capped to just outside the screen (which draws the same as the full rectangle)
         Outline,
         // A line clipped by LuaOverlay::clipLine()
         Line,
-        // Text with its top left at (x0, y0), stored in LuaScript::drawText. x1 is its size (1 to LuaOverlay::kMaxTextSize)
+        // Text with its top left at (x0, y0) and a size of x1 (1 to LuaOverlay::kMaxTextSize), stored in LuaScript::drawText
         Text,
         // A circle around the corner (x0, y0) with a radius of x1 (see LuaOverlay::getCircleRowSpans()), filled if y1 isn't 0
         Circle,
-        // Part of an image with its top left at (x0, y0), see LuaOverlay::drawImage(). x1 is its scale (overlay pixels per image pixel), and
-        // color its alpha (0 to 255)
+        // Part of an image with its top left at (x0, y0), a scale of x1 (overlay pixels per image pixel) and color as its alpha (0 to 255)
         Image,
     };
 
@@ -83,11 +82,11 @@ struct LuaScript
     std::string chunkName;
     lua_State* L = nullptr;
     size_t memoryUsed = 0;
-    // Work budget of the current call, and the limit it ran into (if any). Once a limit is hit, the call keeps failing until it ends
+    // Work budget of the current call, and the limit it ran into (if any), after which the call keeps failing until it ends
     lua_Integer workLeft = 0;
     const char* limitError = nullptr;
 
-    // Input requests from the current frame. Cleared once the frame has run, so a script that stops calling them leaves no key held
+    // Input requests from the current frame, cleared once it has run so that a script that stops calling them leaves no key held
     melonDS::u32 press = 0;
     melonDS::u32 release = 0;
     // Kept until clear_touch()
@@ -110,21 +109,19 @@ struct LuaScript
         layoutKey.reset();
     }
 
-    // melon.state slots: whole savestates, empty when unused. Outside the Lua state, so they survive reloads (a reset). Freed when the
-    // script is switched off
+    // melon.state slots: whole savestates, empty when unused, kept outside the Lua state so they survive a reset (until the script is switched off)
     std::vector<melonDS::u8> stateSlots[kStateSlotCount];
     // LuaEngine::framePass of the last save, for the cooldown
     std::optional<int64_t> lastStateSaveFramePass;
 
-    // melon.draw calls from the current frame: on_frame()'s, then on_frame_end()'s. Text goes into one string, which the commands point into,
-    // of at most kMaxDrawTextBytes
+    // melon.draw calls from the current frame (on_frame()'s, then on_frame_end()'s), their text in one string of at most kMaxDrawTextBytes
     std::vector<LuaDrawCommand> drawCommands;
     std::string drawText;
     // The images drawn this frame, in a registry table (its reference), so that they can't be collected before they're drawn
     int drawnImagesRef = LUA_NOREF;
     int drawnImageCount = 0;
 
-    // melon.storage. Outside the Lua state, so that it survives reloads
+    // melon.storage, outside the Lua state so that it survives reloads
     LuaStorage::Store storage;
 };
 
@@ -134,13 +131,13 @@ inline LuaScript& getScript(lua_State* L)
 }
 
 /**
- * Charges [amount] steps of work done in C to the running script's budget, and raises an error once it's used up. Also called by
- * lua/patched/lstrlib.c
+ * Charges [amount] steps of work done in C to the running script's budget and raises an error once it's used up; lua/patched/lstrlib.c
+ * calls it too
  */
 extern "C" void melonade_charge_work(lua_State* L, lua_Integer amount);
 
 /**
- * Runs a LuaSavestateHost call, which allocates a whole savestate. Out of memory counts as a failed call
+ * Runs a LuaSavestateHost call, which allocates a whole savestate, counting out of memory as a failed call
  */
 template <typename Call>
 inline bool callSavestateHost(Call&& call)
@@ -161,7 +158,7 @@ inline bool callSavestateHost(Call&& call)
 namespace LuaSandbox
 {
 
-// lua_Alloc for a state whose user data is its LuaScript. Keeps the script under the memory limit and charges what it allocates as work
+// lua_Alloc for a state whose user data is its LuaScript: keeps the script under the memory limit and charges what it allocates as work
 void* allocate(void* userData, void* pointer, size_t oldSize, size_t newSize);
 // Opens the allowed libraries into a fresh state, with the functions that aren't safe removed or wrapped
 void open(lua_State* L);
