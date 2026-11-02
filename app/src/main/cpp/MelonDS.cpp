@@ -66,8 +66,8 @@ namespace MelonDSAndroid
         eventMessenger = androidEventMessenger;
         RetroAchievements::RetroAchievementsManager::EventMessenger = androidEventMessenger;
 
-        // Normally there is no instance left at this point, since cleanup() destroys it. If there is one, stop its audio first and destroy it
-        // with the GL context current, like cleanup() does
+        // Normally cleanup() has destroyed the instance by now, but if not, stop its audio first and destroy it with the GL context current, like
+        // cleanup() does
         if (instance)
         {
             cleanupAudio();
@@ -104,9 +104,8 @@ namespace MelonDSAndroid
             instance->loadCheats(std::move(cheats));
     }
 
-    // The RetroAchievements calls below come from coroutines that can outlive the emulator, so the instance may already be gone (or be
-    // destroyed by another thread meanwhile). Hold the lock for the whole call instead of copying the pointer out: a copy could make this
-    // thread the last owner, and the instance must be destroyed in destroyInstance(), with the GL context current
+    // The RetroAchievements calls below come from coroutines that can outlive the emulator, so they hold the lock for the whole call rather than copy
+    // the pointer out, which could make this thread the last owner (the instance must be destroyed in destroyInstance(), with the GL context current)
 
     void setupAchievements(
         std::list<RetroAchievements::RAAchievement> achievements,
@@ -155,7 +154,7 @@ namespace MelonDSAndroid
      * @param emulatorConfiguration The new emulator configuration
      */
     void updateEmulatorConfiguration(std::unique_ptr<EmulatorConfiguration> emulatorConfiguration) {
-        // Settings can change after the emulator was stopped. The next setConfiguration() replaces the configuration anyway
+        // Settings can change after the emulator was stopped, and the next setConfiguration() replaces the configuration anyway
         if (!instance)
             return;
 
@@ -425,14 +424,13 @@ namespace MelonDSAndroid
         }
         Platform::CloseFile(saveStateFile);
 
-        // Runs on an IO thread, so the emulator can be stopped and the instance destroyed meanwhile. Keep the lock until the load (and the
-        // backup restore if it fails) is done, so that it all happens on the same instance
+        // Runs on an IO thread, so keep the lock until the load (and the backup restore if it fails) is done, all on the same instance
         std::lock_guard lock(presentationMutex);
         if (!instance)
             return false;
 
         Savestate state(buffer.data(), size, false);
-        // The instance backs up the current state first, and goes back to it if the load fails. The scripts only hear about a load that worked
+        // The instance backs up the current state first and goes back to it if the load fails, and the scripts only hear about a load that worked
         if (!instance->loadState(&state))
         {
             Platform::Log(Platform::LogLevel::Error, "Failed to load state file \"%s\" into emulator\n", path);
@@ -489,15 +487,8 @@ namespace MelonDSAndroid
         if (!instance)
             return;
 
-        // The instance owns GL objects (frame textures and fences, the 3D renderer, the compositor), which its destructor deletes. It runs on the
-        // thread that stops the emulator (usually the main thread), which has no GL context current, so every glDelete* call would be a no-op and
-        // the objects would leak. The emulator thread has already released the emulator context in stop() (or never started), so make it current
-        // here while the instance is destroyed.
-        //
-        // The render thread may be presenting one of the instance's frames (and using its fences), or waiting for one. Wake it up, then wait
-        // for it to finish before destroying the frame queue. The lock is taken after waking it, because the render thread holds it while it
-        // waits. The render thread never keeps a reference to the instance: if it destroyed it, the glDelete* calls would run in the render
-        // context, where FBO and VAO names belong to the frontend's renderers
+        // Destroyed with the emulator GL context current, after waking the render thread (and only then taking the lock, which it holds while it
+        // waits), so the instance's GL objects are really deleted and nothing presents a frame of it meanwhile
         instance->abortPresentationWait();
         std::lock_guard lock(presentationMutex);
 

@@ -36,9 +36,9 @@ namespace MelonDSAndroid {
     extern std::string internalFilesDir;
     extern std::shared_ptr<MelonEventMessenger> eventMessenger;
     /**
-     * Held while the instance is replaced or destroyed, and by any thread other than the emulator thread that uses it (the render thread
-     * presenting a frame, savestates and RetroAchievements calls from coroutines), so the instance can't be destroyed under them. Recursive
-     * because the frame render callback can call back into the native code (isSleeping()) while presentFrame holds it.
+     * Held while the instance is replaced or destroyed and by any other thread that uses it (the render thread presenting a frame, savestate and
+     * RetroAchievements calls from coroutines), so it can't be destroyed under them; recursive because the frame render callback can call back into
+     * the native code (isSleeping()) while presentFrame holds it.
      */
     extern std::recursive_mutex presentationMutex;
 
@@ -72,46 +72,42 @@ namespace MelonDSAndroid {
      */
     extern void setWideViewWidth(int width);
     /**
-     * Gives the instance the game's Lua scripts, and the modules and images they can use. Must be called after setup() and before the emulator starts.
+     * Gives the instance the game's Lua scripts and the modules and images they can use, after setup() and before the emulator starts;
      * [areStateLoadsAllowed] is false when savestates can't be loaded (RetroAchievements hardcore), which melon.state.load() checks too
      */
     extern void setLuaScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent, bool areStateLoadsAllowed);
     /**
-     * Switches a Lua script off until the player switches it back on. Any thread
+     * Switches a Lua script off until the player switches it back on, from any thread
      */
     extern void disableLuaScript(int scriptId);
     /**
-     * Switches a stopped Lua script back on. Any thread
+     * Switches a stopped Lua script back on, from any thread
      */
     extern void enableLuaScript(int scriptId);
     /**
-     * Restarts a Lua script with new option values (it's started if it was off). Any thread
+     * Restarts a Lua script with new option values (starting it if it was off), from any thread
      */
     extern void restartLuaScript(int scriptId, std::vector<LuaOptionValue> options);
     /**
-     * Snapshots the Lua scripts' changed storage, for the app to save. Only on the emulator thread, between frames
+     * Snapshots the Lua scripts' changed storage for the app to save; emulator thread only, between frames
      */
     extern void flushLuaStorage();
     /**
-     * Copies the last rewind capture's screenshot into its state, which is read back from the GPU after the capture. Only on the emulator
-     * thread, between frames
+     * Copies the last rewind capture's screenshot, read back from the GPU after the capture, into its state; emulator thread only, between frames
      */
     extern void finishRewindScreenshot();
     extern void updateLuaSticks(float leftX, float leftY, float rightX, float rightY);
     extern void start();
     /**
-     * Runs one frame. [presentDueTimeNs] is the vsync (CLOCK_MONOTONIC, ns) the frame is meant to be presented on, or 0 to present it as soon as
-     * possible
+     * Runs one frame, to be presented on the vsync at [presentDueTimeNs] (CLOCK_MONOTONIC, ns), or as soon as possible if that's 0
      */
     extern u32 loop(int64_t presentDueTimeNs);
     /**
-     * Logs the CPU heartbeat and exception checks for the debug log. Must only be called by the emulator thread, after loop(), while the debug
-     * log is on
+     * Logs the CPU heartbeat and exception checks for the debug log; emulator thread only, after loop(), while the debug log is on
      */
     extern void logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs);
     /**
-     * The kernel thread ID of the core's 2D render thread, or 0 while threaded 2D is off. Must only be called by the emulator thread, after
-     * loop()
+     * The kernel thread ID of the core's 2D render thread, or 0 while threaded 2D is off; emulator thread only, after loop()
      */
     extern pid_t getGpu2DThreadId();
 #ifdef MELONADE_DEBUG_TOOLS
@@ -126,12 +122,12 @@ namespace MelonDSAndroid {
         int64_t spanNs = 0;
     };
     /**
-     * Fills in and zeroes the capture readback stats. Must only be called by the emulator thread, after loop()
+     * Fills in and zeroes the capture readback stats; emulator thread only, after loop()
      */
     extern void takeCaptureStats(CaptureStats& stats);
 #endif
     /**
-     * Frames waiting in the SPU output ring, for the audio diagnostics. Must only be called by the emulator thread, between frames
+     * Frames waiting in the SPU output ring, for the audio diagnostics; emulator thread only, between frames
      */
     extern int getAudioOutputBufferFill();
     extern Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs);
