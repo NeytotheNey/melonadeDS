@@ -97,8 +97,7 @@ class PendingSettingsRestoreTest {
 
     @Test
     fun oldUntypedBackupStillRestores() {
-        // Backups from before the values had types store plain JSON values. A whole-number float like 1.0 can't be told apart from an int in
-        // these files, so it comes back as an Int. That's a known limitation of the old format, so it isn't tested here
+        // Untyped backups can't tell a whole-number float like 1.0 from an int, a known limit of the old format that isn't tested here
         val oldBackup = """
             {
               "boolean": true,
@@ -127,9 +126,7 @@ class PendingSettingsRestoreTest {
 
     @Test
     fun oldUntypedDecimalParsedAsDoubleComesBackAsFloat() {
-        // On the device, Android's org.json parses a decimal like 0.5 to a Double. The org.json used in these tests parses it to a BigDecimal,
-        // so a staged file can't get a Double through. Instead, a JSONObject holding a real Double is passed straight to the private
-        // applyPreferences() through reflection
+        // The JVM org.json parses 0.5 to a BigDecimal where Android's gives a Double, so a real Double goes to applyPreferences() by reflection
         val oldBackup = JSONObject().put("float_fraction", 0.5)
         val preferences = FakeSharedPreferences()
         val restore = PendingSettingsRestore(context, preferences)

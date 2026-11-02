@@ -11,7 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The default layouts' utility button rows. The layouts are built at a density of 1, so sizes are in dp: L/R are 50, the small buttons 40 and the spacing 4
+ * The default layouts' utility button rows, built at a density of 1 so sizes are in dp: L/R are 50, the small buttons 40 and the spacing 4
  */
 class UtilityButtonsTest {
 
@@ -41,7 +41,7 @@ class UtilityButtonsTest {
         val layout = builder.buildDefaultPortraitLayout(360, 780, Insets.Zero)
 
         assertEquals(utilityButtons - LayoutComponent.BUTTON_PAUSE, getRowButtons(layout).map { it.component }.toSet())
-        // Centered, a spacing under the row (which is under the screens). Above it is the bottom screen
+        // Centered, a spacing under the row (which is under the screens, with the bottom screen above)
         assertEquals(Rect(160, rowTop(layout) + 44, 40, 40), layout.rectOf(LayoutComponent.BUTTON_PAUSE))
         assertNoOverlaps(layout)
     }
@@ -51,7 +51,7 @@ class UtilityButtonsTest {
         val layout = builder.buildDefaultPortraitLayout(317, 700, Insets.Zero)
 
         assertEquals(utilityButtons - LayoutComponent.BUTTON_PAUSE - LayoutComponent.BUTTON_SWAP_SCREENS, getRowButtons(layout).map { it.component }.toSet())
-        // Together, in their row order, centered under the row. The D-pad's top is less than two spacings under them, so they're halfway
+        // Together in their row order, centered under the row and halfway to the D-pad, whose top is less than two spacings under them
         val swapRect = layout.rectOf(LayoutComponent.BUTTON_SWAP_SCREENS)
         assertEquals(Rect(116, swapRect.y, 40, 40), swapRect)
         assertEquals(Rect(160, swapRect.y, 40, 40), layout.rectOf(LayoutComponent.BUTTON_PAUSE))
@@ -121,8 +121,7 @@ class UtilityButtonsTest {
     }
 
     /**
-     * No utility button overlaps another component, except the screens, which buttons may go over. Overlaps between the other components are
-     * none of the rows' business
+     * Buttons may overlap the screens but nothing else
      */
     private fun assertNoOverlaps(layout: ScreenLayout) {
         val components = layout.components.orEmpty()

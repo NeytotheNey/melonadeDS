@@ -28,7 +28,7 @@ class LayoutEditorSnappingTest {
 
     @Test
     fun gridLinesRunThroughTheMiddleOfTheCoverScreen() {
-        // The 1248 px cover screen, where a grid counted from 0 left centred controls off the grid
+        // The 1248 px cover screen, where a grid counted from 0 left centered controls off the grid
         val lines = LayoutEditorSnapping.gridLines(1248, 32)
         assertTrue(624 in lines)
         assertEquals(listOf(0, 16, 48), lines.take(3))
@@ -39,7 +39,7 @@ class LayoutEditorSnappingTest {
 
     @Test
     fun controlCentreSnapsToNearestGridPoint() {
-        // Centred, the 100 px control starts at 450 with its centre on 500. Moved to 480, its centre (530) is closer to 548 than to 500
+        // Centered, the 100 px control starts at 450 with its center on 500, and moved to 480 its center (530) is closer to 548
         assertEquals(498, LayoutEditorSnapping.snapCenter(480, 100, axis))
         assertEquals(450, LayoutEditorSnapping.snapCenter(465, 100, axis))
     }
@@ -54,7 +54,7 @@ class LayoutEditorSnappingTest {
 
     @Test
     fun controlNearAnEdgeStepsBackInsideOnTheGrid() {
-        // The nearest grid point would put the 160 px control 12 px past the edge, so it moves one cell inwards, still on the grid (centres at
+        // The nearest grid point would put the 160 px control 12 px past the edge, so it moves one cell inwards, still on the grid (centers at
         // 116 and 884, 8 cells either side of the middle)
         assertEquals(36, LayoutEditorSnapping.snapCenter(0, 160, axis))
         assertEquals(804, LayoutEditorSnapping.snapCenter(840, 160, axis))
@@ -84,7 +84,7 @@ class LayoutEditorSnappingTest {
 
     @Test
     fun screenCanLandBackOnTheCentredPosition() {
-        // Neither edge of the centred 251 px screen (374..625) is on a line, but the centred position still counts
+        // Neither edge of the centered 251 px screen (374..625) is on a line, but the centered position still counts
         assertEquals(374, LayoutEditorSnapping.snapEdges(378, 251, axis))
     }
 
@@ -100,13 +100,13 @@ class LayoutEditorSnappingTest {
 
     @Test
     fun screenLinesUpWithTheOtherScreen() {
-        // The other screen is at 100..460, so the threshold is 5% of 360 = 18 and its centre is 280
+        // The other screen is at 100..460, so the threshold is 5% of 360 = 18 and its center is 280
         val otherAxis = coarseAxis(otherScreen = SnapSpan(100, 360))
         // Start edges line up
         assertEquals(100, LayoutEditorSnapping.snapEdges(110, 300, otherAxis))
         // End edges line up
         assertEquals(160, LayoutEditorSnapping.snapEdges(165, 300, otherAxis))
-        // Centres line up
+        // Centers line up
         assertEquals(130, LayoutEditorSnapping.snapEdges(135, 300, otherAxis))
         // Flush side by side: this screen's start on the other's end
         assertEquals(460, LayoutEditorSnapping.snapEdges(470, 300, otherAxis))
@@ -130,7 +130,7 @@ class LayoutEditorSnappingTest {
 
     @Test
     fun resizedEdgeNeverSnapsBelowTheMinimumSize() {
-        // Fixed at 100 with a 50 px minimum, the edge can't go below 150. Line 116 is closer to the finger, but 164 is the nearest allowed one
+        // Fixed at 100 with a 50 px minimum the edge can't go below 150, so 164 wins over the closer line 116
         assertEquals(SnappedEdge(164, 44), LayoutEditorSnapping.snapResizedEdge(120, 100, 50, true, axis))
         // A finger dragged past the fixed edge snaps from the minimum size
         assertEquals(164, LayoutEditorSnapping.snapResizedEdge(50, 100, 50, true, axis).position)

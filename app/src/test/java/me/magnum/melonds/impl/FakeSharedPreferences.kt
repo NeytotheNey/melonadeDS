@@ -3,8 +3,7 @@ package me.magnum.melonds.impl
 import android.content.SharedPreferences
 
 /**
- * In-memory [SharedPreferences] for local unit tests, where android.jar only has stubs. Like the real one, clear() in an edit is applied
- * before the edit's other changes, whatever order they were made in.
+ * In-memory [SharedPreferences] for JVM tests; like the real one, clear() applies before the edit's other changes.
  */
 class FakeSharedPreferences(initialValues: Map<String, Any> = emptyMap()) : SharedPreferences {
 

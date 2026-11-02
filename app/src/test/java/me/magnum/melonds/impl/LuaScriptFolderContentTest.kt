@@ -10,8 +10,7 @@ import org.junit.Test
 class LuaScriptFolderContentTest {
 
     /**
-     * A folder tree for [LuaScriptFolderContent.walk]: folders are paths ("" is the root), and each maps to its children's names. A name
-     * ending in "/" is a folder
+     * A folder tree for [LuaScriptFolderContent.walk]: each folder path ("" is the root) maps to its children's names, folders ending in "/"
      */
     private class FakeTree(private val folders: Map<String, List<String>>, private val unreadable: Set<String> = emptySet()) {
         val listed = mutableListOf<String>()

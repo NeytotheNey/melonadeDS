@@ -294,8 +294,7 @@ class LuaUiOverridesTest {
     @Test
     fun aSavedSwapIsTheBaselineOfTheSessionsScripts() {
         val overrides = LuaUiOverrides()
-        // The game was left swapped. The saved value is the baseline of the first request, even if the screen's value doesn't match it (the
-        // screen shows the saved value before the scripts run, but it can't be told apart from a value left over)
+        // The game was left swapped, so the saved value is the first request's baseline even if the screen's value doesn't match it
         overrides.onSessionStarted(mapOf(swap to true))
         assertEquals(false, overrides.onScriptRequest(swap, scriptId = 0, value = false, currentValue = false))
 
@@ -342,7 +341,7 @@ class LuaUiOverridesTest {
         overrides.onSessionStarted(mapOf(swap to true))
         overrides.onSessionEnded()
 
-        // The next game wasn't left swapped. A value the screen still showed from the last game doesn't count
+        // The next game wasn't left swapped, so a value the screen still showed from the last game doesn't count
         overrides.onSessionStarted(mapOf(swap to false))
         overrides.onScriptRequest(swap, scriptId = 0, value = true, currentValue = true)
         assertEquals(mapOf(swap to false), overrides.onScriptStopped(0))

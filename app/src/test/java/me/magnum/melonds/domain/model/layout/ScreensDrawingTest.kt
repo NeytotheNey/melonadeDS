@@ -6,8 +6,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Rects are the ones the screen gives the renderer: the DS top screen's first (the layout's bottom screen rect when swapped), then the DS
- * bottom screen's. A 16:9 frame is 342 DS pixels wide (WidescreenAspect.RATIO_16_9)
+ * Rects are the DS top screen's then the DS bottom screen's, as given to the renderer (swapped, the top one is the layout's bottom rect), and
+ * a 16:9 frame is 342 DS pixels wide
  */
 class ScreensDrawingTest {
 

@@ -43,7 +43,7 @@ class DisplayCadenceStatisticsTest {
         assertEquals(0L, stats.unexpectedRepeats())
         assertEquals(0L, stats.displayOffCadenceFrames)
         assertEquals(0L, stats.displayRepeatRunsOverExpected)
-        // The hold that spans the change is skipped. Every hold at 60Hz is 1 refresh
+        // The hold that spans the change is skipped, and every hold at 60Hz is 1 refresh
         assertEquals(5L + 119L, stats.displayHoldFrames)
         assertEquals("1:119 2:5 3:0 4:0 5+:0", stats.formatHoldHistogram())
         assertEquals("1 at 60.00 Hz, 2 at 120.00 Hz", stats.formatOnCadenceHolds())
