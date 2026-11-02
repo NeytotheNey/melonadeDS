@@ -390,8 +390,8 @@ class PixelButtonPainter(private val art: PixelArt, private val density: Float) 
 
         // What's drawn on the face goes on the detail grid, with its drop shadow kept apart so that it can be left off
         val faceBounds = RectF().also { face.computeBounds(it, true) }
-        val icon = if (isToggledOn) part.icon else part.offIcon ?: part.icon
-        val pixelIcon = if (isToggledOn) part.pixelIcon else part.pixelOffIcon ?: part.pixelIcon
+        val icon = part.iconFor(isToggledOn)
+        val pixelIcon = part.pixelIconFor(isToggledOn)
         // Dimmed icons are drawn in the shadow colour instead, since see-through pixels don't suit pixel art
         val isDimmed = icon != null && icon.alpha < 255
         val ink = Mask(detailInterior.width, detailInterior.height)

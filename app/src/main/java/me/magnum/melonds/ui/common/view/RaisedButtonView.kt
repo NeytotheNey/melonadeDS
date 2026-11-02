@@ -45,7 +45,13 @@ class RaisedButtonView(
         // Hand-drawn versions of the glyph or icons, used instead of them by pixel styles
         val pixelIcon: PixelIcon? = null,
         val pixelOffIcon: PixelIcon? = null,
-    )
+    ) {
+        /** The icon shown in the given toggle state: [offIcon] while off, if there is one */
+        fun iconFor(isToggledOn: Boolean) = if (isToggledOn) icon else offIcon ?: icon
+
+        /** The hand-drawn icon shown in the given toggle state, chosen like [iconFor] */
+        fun pixelIconFor(isToggledOn: Boolean) = if (isToggledOn) pixelIcon else pixelOffIcon ?: pixelIcon
+    }
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
@@ -267,7 +273,7 @@ class RaisedButtonView(
         if (part.glyph != null) {
             canvas.drawPath(glyphs[index], labelPaint)
         }
-        val icon = if (isToggledOn) part.icon else part.offIcon ?: part.icon
+        val icon = part.iconFor(isToggledOn)
         // Tinted here rather than in setParts, since pixel styles rasterize the icon as a mask and never need the tint
         icon?.setTint(partColors.label)
         icon?.draw(canvas)
