@@ -164,7 +164,7 @@
     <string name="settings_game_library_summary">Game folders, icons, ROM cache</string>
     <string name="settings_saves_and_rewind">Saves and rewind</string>
     <string name="settings_saves_and_rewind_summary">Save locations, save states, rewind</string>
-    <string name="settings_retroachievements_summary">Account, hardcore mode, indicators</string> <!-- Keep words together because this is the official name -->
+    <string name="settings_retroachievements_summary">Account, hardcore mode, indicators</string>
     <string name="settings_cheats_summary">Turn cheats on, import a database</string>
     <string name="settings_bios_and_firmware">BIOS and firmware</string>
     <string name="settings_bios_and_firmware_summary">Firmware profile, custom BIOS, DSi camera</string>
