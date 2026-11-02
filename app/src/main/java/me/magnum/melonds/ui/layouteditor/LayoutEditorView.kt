@@ -3,20 +3,13 @@ package me.magnum.melonds.ui.layouteditor
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.RectF
 import android.util.AttributeSet
-import android.util.TypedValue
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
-import androidx.core.content.ContextCompat
-import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.*
 import me.magnum.melonds.domain.model.layout.LayoutComponent
 import me.magnum.melonds.domain.model.layout.PositionedLayoutComponent
@@ -124,38 +117,13 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     val selectedScreenAspectRatio: Float?
         get() = if (selectedScreenAspect == ScreenAspectRatio.WIDE) selectedScreenWideAspect?.aspectRatio else selectedScreenAspect.ratio
 
-    private val handleSize = context.dpToPixels(10f)
-    private val cornerHandleSize = context.dpToPixels(18f)
     private val maxHandleTouchSize = context.dpToPixels(48f)
     private val minHandleTouchSize = context.dpToPixels(20f)
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-    private val handleRect = RectF()
-    private val handleFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
-    private val handleStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = 0x99000000.toInt()
-        strokeWidth = context.dpToPixels(1f)
-    }
-    private val resizeIcon = ContextCompat.getDrawable(context, R.drawable.ic_open_in_full)?.mutate()?.apply { setTint(Color.BLACK) }
-    private val sizeLabelTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = ContextCompat.getColor(context, R.color.textLayoutEditor)
-        textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 14f, resources.displayMetrics)
-        textAlign = Paint.Align.CENTER
-    }
-    private val sizeLabelBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ContextCompat.getColor(context, R.color.layoutEditorPanelBackground) }
-    private val sizeLabelPadding = context.dpToPixels(8f)
+    private val overlayDrawer = LayoutEditorOverlayDrawer(context)
 
     private val snapGrid = SnapGrid(context) { invalidate() }
     private var screenFolds = emptyList<ScreenFold>()
-    // The editor background is always black, whatever the theme, so the grid is always light
-    private val gridPaint = Paint().apply {
-        color = ColorUtils.setAlphaComponent(Color.WHITE, 0x50)
-        strokeWidth = max(1f, context.dpToPixels(1f))
-    }
-    private val foldPaint = Paint().apply {
-        color = ColorUtils.setAlphaComponent(Color.WHITE, 0xB0)
-        strokeWidth = max(1f, context.dpToPixels(2f))
-    }
 
     init {
         super.setOnClickListener {
@@ -299,7 +267,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     override fun dispatchDraw(canvas: Canvas) {
         // The grid goes behind the components, the handles in front of them
         if (snapGrid.isEnabled) {
-            drawGrid(canvas)
+            overlayDrawer.drawGrid(canvas, width, height, snapGrid.cellSize, getFoldGaps(vertical = true), getFoldGaps(vertical = false))
         }
         super.dispatchDraw(canvas)
         val view = selectedView?.view ?: return
@@ -308,70 +276,10 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
         val top = view.y
         val right = left + view.width
         val bottom = top + view.height
-        if (!isSmallForHandles(view.width, view.height)) {
-            drawHandle(canvas, left, top, left + handleSize, top + handleSize)
-            drawHandle(canvas, right - handleSize, top, right, top + handleSize)
-            drawHandle(canvas, left, bottom - handleSize, left + handleSize, bottom)
-        }
-        drawHandle(canvas, right - cornerHandleSize, bottom - cornerHandleSize, right, bottom)
-        resizeIcon?.let {
-            val inset = context.dpToPixels(2f)
-            it.setBounds((right - cornerHandleSize + inset).toInt(), (bottom - cornerHandleSize + inset).toInt(), (right - inset).toInt(), (bottom - inset).toInt())
-            it.draw(canvas)
-        }
-
+        overlayDrawer.drawHandles(canvas, left, top, right, bottom, cornerOnly = isSmallForHandles(view.width, view.height))
         if (resizeGesture?.isDragging == true) {
-            val label = resources.getString(R.string.layout_editor_size_value, view.width, view.height)
-            val centerX = (left + right) / 2f
-            val centerY = (top + bottom) / 2f
-            val textWidth = sizeLabelTextPaint.measureText(label)
-            val fontMetrics = sizeLabelTextPaint.fontMetrics
-            val textHeight = fontMetrics.descent - fontMetrics.ascent
-            handleRect.set(
-                centerX - textWidth / 2f - sizeLabelPadding,
-                centerY - textHeight / 2f - sizeLabelPadding / 2f,
-                centerX + textWidth / 2f + sizeLabelPadding,
-                centerY + textHeight / 2f + sizeLabelPadding / 2f,
-            )
-            canvas.drawRoundRect(handleRect, sizeLabelPadding, sizeLabelPadding, sizeLabelBackgroundPaint)
-            canvas.drawText(label, centerX, centerY - (fontMetrics.ascent + fontMetrics.descent) / 2f, sizeLabelTextPaint)
+            overlayDrawer.drawSizeLabel(canvas, view.width, view.height, left, top, right, bottom)
         }
-    }
-
-    private fun drawGrid(canvas: Canvas) {
-        val viewWidth = width.toFloat()
-        val viewHeight = height.toFloat()
-        // The same lines the snapping uses: from the middle of the editor out, plus the editor edges
-        LayoutEditorSnapping.gridLines(width, snapGrid.cellSize).forEach {
-            val x = insetLine(it, width, gridPaint)
-            canvas.drawLine(x, 0f, x, viewHeight, gridPaint)
-        }
-        LayoutEditorSnapping.gridLines(height, snapGrid.cellSize).forEach {
-            val y = insetLine(it, height, gridPaint)
-            canvas.drawLine(0f, y, viewWidth, y, gridPaint)
-        }
-        getFoldGaps(vertical = true).flatMap { listOf(it.start, it.end) }.filter { it in 0..width }.distinct().forEach {
-            val x = insetLine(it, width, foldPaint)
-            canvas.drawLine(x, 0f, x, viewHeight, foldPaint)
-        }
-        getFoldGaps(vertical = false).flatMap { listOf(it.start, it.end) }.filter { it in 0..height }.distinct().forEach {
-            val y = insetLine(it, height, foldPaint)
-            canvas.drawLine(0f, y, viewWidth, y, foldPaint)
-        }
-    }
-
-    /**
-     * Moves lines at the editor edges inwards by half the stroke, so they aren't half cut off.
-     */
-    private fun insetLine(position: Int, limit: Int, paint: Paint): Float {
-        val halfStroke = paint.strokeWidth / 2f
-        return position.toFloat().coerceIn(halfStroke, max(halfStroke, limit - halfStroke))
-    }
-
-    private fun drawHandle(canvas: Canvas, left: Float, top: Float, right: Float, bottom: Float) {
-        handleRect.set(left, top, right, bottom)
-        canvas.drawRect(handleRect, handleFillPaint)
-        canvas.drawRect(handleRect, handleStrokePaint)
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
