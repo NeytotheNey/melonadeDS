@@ -461,8 +461,8 @@
     <string name="label_width">Width</string>
     <string name="label_height">Height</string>
     <string name="above_other_screen">Above other screen</string>
-    <string name="center_horizontal">Center horizontally</string>
-    <string name="center_vertical">Center vertically</string>
+    <string name="center_horizontal">Centre horizontally</string>
+    <string name="center_vertical">Centre vertically</string>
     <string name="menu">Menu</string>
     <string name="properties">Properties</string>
     <string name="revert_changes">Revert changes</string>
@@ -638,10 +638,10 @@
     <string-array name="fps_counter_position_options">
         <item>Hidden</item>
         <item>Top left</item>
-        <item>Top center</item>
+        <item>Top centre</item>
         <item>Top right</item>
         <item>Bottom left</item>
-        <item>Bottom center</item>
+        <item>Bottom centre</item>
         <item>Bottom right</item>
     </string-array>
 
@@ -735,7 +735,7 @@
 
     <string-array name="background_portrait_mode_options">
         <item>Stretch</item>
-        <item>Fit center</item>
+        <item>Fit centre</item>
         <item>Fit top</item>
         <item>Fit left</item>
         <item>Fit bottom</item>
