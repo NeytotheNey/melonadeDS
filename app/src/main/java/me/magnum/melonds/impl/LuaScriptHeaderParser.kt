@@ -48,7 +48,7 @@ object LuaScriptHeaderParser {
     }
 
     fun parse(source: ByteArray): LuaScriptHeader {
-        var lines = source.copyOf(minOf(source.size, READ_LIMIT)).decodeToString().removePrefix("﻿").lines()
+        var lines = source.copyOf(minOf(source.size, READ_LIMIT)).decodeToString().removePrefix("\uFEFF").lines()
         // The last line was cut off, so it could be half an option
         if (source.size > READ_LIMIT) {
             lines = lines.dropLast(1)
