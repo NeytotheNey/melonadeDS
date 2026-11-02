@@ -1,8 +1,7 @@
 package me.magnum.melonds.domain.model.emulator
 
 /**
- * One value of `melon.options`, typed the way the script sees it. Read by native code, so the fields can't be renamed. Booleans and
- * integers are in [integer], numbers in [number], and strings in [text] as UTF-8
+ * One value of `melon.options`, typed the way the script sees it; read by native code, so the fields can't be renamed.
  */
 class LuaScriptOptionValue(
     val key: String,

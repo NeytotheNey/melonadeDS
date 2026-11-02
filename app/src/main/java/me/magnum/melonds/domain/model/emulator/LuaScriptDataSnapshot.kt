@@ -1,8 +1,7 @@
 package me.magnum.melonds.domain.model.emulator
 
 /**
- * A snapshot of a script's melon.storage that native wants saved. [data] is empty when the storage is, in which case the file can go. Made
- * by native code
+ * A snapshot of a script's melon.storage to save, made by native code; empty [data] means delete the file.
  */
 class LuaScriptDataSnapshot(
     val gameKey: String,

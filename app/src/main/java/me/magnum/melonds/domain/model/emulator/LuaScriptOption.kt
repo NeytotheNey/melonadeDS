@@ -8,16 +8,14 @@ import kotlin.math.floor
 import kotlin.math.roundToLong
 
 /**
- * An option a script declares in its header (see LuaScriptHeader), which the player sets in the Mods tab or the pause menu. Values are kept
- * as text (in RomLuaScript.options) in the canonical form [resolve] gives, and the script sees them typed in `melon.options`.
+ * An option a script declares in its header (see LuaScriptHeader), stored as text in the canonical form [resolve] gives.
  */
 sealed class LuaScriptOption {
     abstract val key: String
     abstract val label: String
 
     /**
-     * [stored] if it's a valid value for this option (a number is moved onto the slider's steps), otherwise the default. Always the canonical
-     * text, so it can be stored as is
+     * [stored] as canonical text if it's valid for this option (a number is moved onto the slider's steps), otherwise the default.
      */
     abstract fun resolve(stored: String?): String
 
@@ -41,8 +39,7 @@ sealed class LuaScriptOption {
     }
 
     /**
-     * A slider from [min] to the last step that fits before [max], in steps of [step]. [decimals] is how many decimals the header used, so
-     * values are shown and stored without float noise (0.3, not 0.30000000000000004)
+     * A slider from [min] to the last step that fits before [max], in steps of [step], rounded to the header's [decimals].
      */
     data class Number(
         override val key: String,
@@ -55,7 +52,7 @@ sealed class LuaScriptOption {
     ) : LuaScriptOption() {
 
         /**
-         * How many steps the slider has. At least 1
+         * How many steps the slider has.
          */
         val stepCount: Int = getStepCount(min, max, step)
 
@@ -109,7 +106,7 @@ sealed class LuaScriptOption {
             private const val MAX_EXACT_INTEGER = 9007199254740992.0
 
             /**
-             * Whole steps from [min] that fit before [max]. 0 if none fits
+             * Whole steps from [min] that fit before [max], or 0 if none fits.
              */
             fun getStepCount(min: Double, max: Double, step: Double): Int {
                 if (!(step > 0) || !(max > min)) {
@@ -132,9 +129,7 @@ sealed class LuaScriptOption {
     }
 
     /**
-     * One of the player's layouts, which the script switches to with `melon.screen.set_layout(key)`. The value is the layout's UUID, or an
-     * empty string for "Don't change" (the default). Whether the layout still exists is only checked when the script asks for it, so a
-     * deleted layout's UUID can still be stored
+     * A layout option whose value is a layout UUID or empty for "Don't change"; existence is checked only when the script asks.
      */
     data class Layout(override val key: String, override val label: String) : LuaScriptOption() {
         override fun resolve(stored: String?): String {
@@ -167,7 +162,7 @@ sealed class LuaScriptOption {
 }
 
 /**
- * Every declared option's value for the script, from [stored] or the default. Keys that aren't declared are dropped
+ * Every declared option's value for the script, from [stored] or the default, dropping undeclared keys.
  */
 fun List<LuaScriptOption>.resolveValues(stored: Map<String, String>): Map<String, String> {
     return associate { it.key to it.resolve(stored[it.key]) }

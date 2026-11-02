@@ -4,17 +4,15 @@ import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import java.util.UUID
 
 /**
- * One of the player's layouts, as a layout option (LuaScriptOption.Layout) offers it.
+ * A layout offered by a layout option (LuaScriptOption.Layout).
  *
  * @param name The layout's name, or null if it has none
- * @param unnamedNumber For a layout with no name: its number among the unnamed ones (1, 2, ...), so they can be told apart, or 0 if it's the
- * only one. Always 0 for named layouts
+ * @param unnamedNumber Number that tells unnamed layouts apart (1, 2, ...), or 0 when named or the only unnamed one
  */
 data class LuaLayoutChoice(val id: UUID, val name: String?, val unnamedNumber: Int = 0)
 
 /**
- * The layouts in the order the layout list shows them. Layout names are optional and not unique, so unnamed layouts get a number when there's
- * more than one
+ * Layouts in list order, numbering unnamed ones when there are several.
  */
 fun List<LayoutConfiguration>.toLuaLayoutChoices(): List<LuaLayoutChoice> {
     val layouts = filter { it.id != null }
