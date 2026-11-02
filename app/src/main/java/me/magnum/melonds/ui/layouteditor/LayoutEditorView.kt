@@ -388,7 +388,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
             MotionEvent.ACTION_MOVE -> {
                 val offsetX = event.x - gesture.downX
                 val offsetY = event.y - gesture.downY
-                if (!gesture.isDragging && hypot(offsetX, offsetY) >= touchSlop) {
+                if (!gesture.isDragging && isPastTouchSlop(offsetX, offsetY)) {
                     gesture.isDragging = true
                     invalidate()
                 }
@@ -412,6 +412,13 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
             }
         }
         return true
+    }
+
+    /**
+     * Whether a finger has moved far enough from where it went down to start a drag or a resize.
+     */
+    private fun isPastTouchSlop(offsetX: Float, offsetY: Float): Boolean {
+        return hypot(offsetX, offsetY) >= touchSlop
     }
 
     /**
@@ -628,7 +635,7 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
                         val offsetY = view.y + motionEvent.y - downY
                         val start = startRect
                         if (!dragging) {
-                            if (hypot(offsetX, offsetY) >= touchSlop) {
+                            if (isPastTouchSlop(offsetX, offsetY)) {
                                 dragging = true
                             }
                         } else if (start != null) {
