@@ -16,14 +16,12 @@ import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import me.magnum.melonds.domain.model.RuntimeBackground
-import me.magnum.melonds.domain.model.layout.LayoutComponent
 import me.magnum.melonds.ui.emulator.DSRenderer
 import me.magnum.melonds.ui.emulator.EmulatorSurfaceView
 import me.magnum.melonds.ui.emulator.RuntimeLayoutView
 import me.magnum.melonds.ui.emulator.model.RuntimeInputLayoutConfiguration
 import me.magnum.melonds.ui.emulator.model.RuntimeRendererConfiguration
 import me.magnum.melonds.ui.layouteditor.model.LayoutTarget
-import kotlin.collections.orEmpty
 
 class ExternalPresentation(
     context: Context,
@@ -38,8 +36,6 @@ class ExternalPresentation(
     private val surfaceView: EmulatorSurfaceView
     private var currentBackground: RuntimeBackground? = null
     private var currentRendererConfiguration: RuntimeRendererConfiguration? = null
-    // RuntimeInputLayoutConfiguration.isWideLayout of the layout shown, for the renderer
-    private var isWideLayout = false
 
     init {
         window?.setFlags(
@@ -93,30 +89,9 @@ class ExternalPresentation(
     }
 
     fun updateRendererScreenAreas() {
-        val (topScreen, bottomScreen) = if (layoutView.areScreensSwapped()) {
-            LayoutComponent.BOTTOM_SCREEN to LayoutComponent.TOP_SCREEN
-        } else {
-            LayoutComponent.TOP_SCREEN to LayoutComponent.BOTTOM_SCREEN
-        }
-        val topView = layoutView.getLayoutComponentView(topScreen)
-        val bottomView = layoutView.getLayoutComponentView(bottomScreen)
-        emulatorRenderer.updateScreenAreas(
-            topScreenRect = topView?.getRect(),
-            bottomScreenRect = bottomView?.getRect(),
-            topAlpha = topView?.baseAlpha ?: 1f,
-            bottomAlpha = bottomView?.baseAlpha ?: 1f,
-            topOnTop = topView?.onTop ?: false,
-            bottomOnTop = bottomView?.onTop ?: false,
-            isWideLayout = isWideLayout,
-            areScreensSwapped = layoutView.areScreensSwapped(),
-        )
-
+        val touchScreenArea = layoutView.applyScreenAreasTo(emulatorRenderer)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val touchScreenArea = bottomView?.getRect()?.let {
-                val rect = android.graphics.Rect(it.x, it.y, it.right, it.bottom)
-                listOf(rect)
-            }
-            layoutView.systemGestureExclusionRects = touchScreenArea.orEmpty()
+            layoutView.systemGestureExclusionRects = touchScreenArea
         }
     }
 
@@ -133,7 +108,6 @@ class ExternalPresentation(
     }
 
     fun updateLayout(layoutConfiguration: RuntimeInputLayoutConfiguration) {
-        isWideLayout = layoutConfiguration.isWideLayout
         layoutView.instantiateLayout(layoutConfiguration, LayoutTarget.SECONDARY_SCREEN)
         updateRendererScreenAreas()
     }

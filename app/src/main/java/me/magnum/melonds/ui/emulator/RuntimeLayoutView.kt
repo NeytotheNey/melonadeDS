@@ -362,15 +362,46 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     }
 
     /**
-     * Where the renderer draws the bottom screen's middle SCREEN_WIDTH columns in [touchScreenView], in its coordinates. Worked out with the same
-     * getScreensDrawing() and the same rects the screen gives the renderer, at the time of each touch, since the frame width can change any time
+     * Gives [renderer] the screens' areas, opacity and stacking as this layout shows them. Returns the bottom screen's area for the system gesture
+     * exclusion rects, empty if the layout has no bottom screen.
      */
-    private fun getTouchScreenArea(touchScreenView: View): Rect? {
-        val (topScreen, bottomScreen) = if (areScreensSwapped) {
+    fun applyScreenAreasTo(renderer: DSRenderer): List<android.graphics.Rect> {
+        val (topScreen, bottomScreen) = getDrawnScreens()
+        val topView = getLayoutComponentView(topScreen)
+        val bottomView = getLayoutComponentView(bottomScreen)
+        renderer.updateScreenAreas(
+            topScreenRect = topView?.getRect(),
+            bottomScreenRect = bottomView?.getRect(),
+            topAlpha = topView?.baseAlpha ?: 1f,
+            bottomAlpha = bottomView?.baseAlpha ?: 1f,
+            topOnTop = topView?.onTop ?: false,
+            bottomOnTop = bottomView?.onTop ?: false,
+            isWideLayout = currentRuntimeLayout?.isWideLayout == true,
+            areScreensSwapped = areScreensSwapped,
+        )
+
+        return bottomView?.getRect()?.let {
+            listOf(android.graphics.Rect(it.x, it.y, it.right, it.bottom))
+        }.orEmpty()
+    }
+
+    /**
+     * The layout components the DS top and bottom screens are drawn in, in that order.
+     */
+    private fun getDrawnScreens(): Pair<LayoutComponent, LayoutComponent> {
+        return if (areScreensSwapped) {
             LayoutComponent.BOTTOM_SCREEN to LayoutComponent.TOP_SCREEN
         } else {
             LayoutComponent.TOP_SCREEN to LayoutComponent.BOTTOM_SCREEN
         }
+    }
+
+    /**
+     * Where the renderer draws the bottom screen's middle SCREEN_WIDTH columns in [touchScreenView], in its coordinates. Worked out with the same
+     * getScreensDrawing() and the same rects the screen gives the renderer, at the time of each touch, since the frame width can change any time
+     */
+    private fun getTouchScreenArea(touchScreenView: View): Rect? {
+        val (topScreen, bottomScreen) = getDrawnScreens()
         val bottomScreenRect = getLayoutComponentView(bottomScreen)?.getRect() ?: return null
         val drawing = getScreensDrawing(
             getLayoutComponentView(topScreen)?.getRect(),

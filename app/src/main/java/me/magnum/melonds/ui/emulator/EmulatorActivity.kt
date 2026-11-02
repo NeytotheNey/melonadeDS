@@ -187,8 +187,6 @@ class EmulatorActivity : AppCompatActivity() {
     lateinit var performanceLogger: PerformanceLogger
 
     private var presentation: ExternalPresentation? = null
-    // RuntimeInputLayoutConfiguration.isWideLayout of the layout shown, for the renderer
-    private var isWideLayout = false
     private var pauseMenuDialog: AlertDialog? = null
     private var displayLock60HzEnabled = false
 
@@ -1031,7 +1029,6 @@ class EmulatorActivity : AppCompatActivity() {
 
     private fun setupSoftInput(layoutConfiguration: RuntimeInputLayoutConfiguration?) {
         if (layoutConfiguration != null) {
-            isWideLayout = layoutConfiguration.isWideLayout
             setLayoutOrientation(layoutConfiguration.layoutOrientation)
             with(binding.viewLayoutControls) {
                 instantiateLayout(layoutConfiguration, LayoutTarget.MAIN_SCREEN)
@@ -1108,30 +1105,9 @@ class EmulatorActivity : AppCompatActivity() {
     }
 
     private fun updateRendererScreenAreas() {
-        val (topScreen, bottomScreen) = if (binding.viewLayoutControls.areScreensSwapped()) {
-            LayoutComponent.BOTTOM_SCREEN to LayoutComponent.TOP_SCREEN
-        } else {
-            LayoutComponent.TOP_SCREEN to LayoutComponent.BOTTOM_SCREEN
-        }
-        val topView = binding.viewLayoutControls.getLayoutComponentView(topScreen)
-        val bottomView = binding.viewLayoutControls.getLayoutComponentView(bottomScreen)
-        mainScreenRenderer.updateScreenAreas(
-            topView?.getRect(),
-            bottomView?.getRect(),
-            topView?.baseAlpha ?: 1f,
-            bottomView?.baseAlpha ?: 1f,
-            topView?.onTop ?: false,
-            bottomView?.onTop ?: false,
-            isWideLayout,
-            binding.viewLayoutControls.areScreensSwapped(),
-        )
-
+        val touchScreenArea = binding.viewLayoutControls.applyScreenAreasTo(mainScreenRenderer)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val touchScreenArea = bottomView?.getRect()?.let {
-                val rect = android.graphics.Rect(it.x, it.y, it.right, it.bottom)
-                listOf(rect)
-            }
-            window?.systemGestureExclusionRects = touchScreenArea.orEmpty()
+            window?.systemGestureExclusionRects = touchScreenArea
         }
     }
 
