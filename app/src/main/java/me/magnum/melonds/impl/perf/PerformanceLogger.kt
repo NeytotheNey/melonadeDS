@@ -24,7 +24,9 @@ import me.magnum.melonds.extensions.find60HzMode
 import me.magnum.melonds.extensions.getModesAtCurrentResolution
 import me.magnum.melonds.impl.debug.LogDestination
 import me.magnum.melonds.impl.debug.LogFolder
+import me.magnum.melonds.impl.perf.PerfCsv.appendFlag
 import me.magnum.melonds.impl.perf.PerfCsv.appendMillis
+import me.magnum.melonds.impl.perf.PerfCsv.appendSeconds
 import me.magnum.melonds.impl.perf.PerfCsv.formatRefreshRate
 import me.magnum.melonds.impl.perf.PerfCsv.toCsvField
 import java.io.BufferedWriter
@@ -330,16 +332,16 @@ class PerformanceLogger(
                         .appendMillis(sleepDuration).append(',')
                         .appendMillis(interval).append(',')
                         .append(lines).append(',')
-                        .append(if (isFastForward) '1' else '0').append(',')
-                        .append(if (isAfterPause) '1' else '0').append(',')
-                        .append(if (isPacingLocked) '1' else '0').append(',')
+                        .appendFlag(isFastForward).append(',')
+                        .appendFlag(isAfterPause).append(',')
+                        .appendFlag(isPacingLocked).append(',')
                     // Left blank on frames that ran before the audio diagnostics turned on
                     if (audioFill >= 0) {
                         lineBuilder.append(audioFill)
                     }
                     lineBuilder.append(',')
                         .append(audioSilence).append(',')
-                        .append(if (isAudioBufferFull) '1' else '0').append(',')
+                        .appendFlag(isAudioBufferFull).append(',')
                     if (audioFill >= 0) {
                         lineBuilder.append(audioSkewPpm)
                     }
@@ -385,12 +387,12 @@ class PerformanceLogger(
 
                     lineBuilder.appendMillis(timestamp - startNs).append(',')
                         .appendMillis(renderDuration).append(',')
-                        .append(if (isValid) '1' else '0').append(',')
-                        .append(if (isNewFrame) '1' else '0').append(',')
+                        .appendFlag(isValid).append(',')
+                        .appendFlag(isNewFrame).append(',')
                         .append(skippedFrames).append(',')
-                        .append(if (isPaused) '1' else '0').append(',')
-                        .append(if (isDsSleeping) '1' else '0').append(',')
-                        .append(if (isFastForward) '1' else '0').append(',')
+                        .appendFlag(isPaused).append(',')
+                        .appendFlag(isDsSleeping).append(',')
+                        .appendFlag(isFastForward).append(',')
                     // Only set on new frames whose previous frame's hold was measured
                     if (previousHold > 0) {
                         lineBuilder.append(previousHold)
@@ -412,8 +414,7 @@ class PerformanceLogger(
             lineBuilder.setLength(0)
             while (true) {
                 val event = pendingEvents.poll() ?: break
-                // Elapsed microseconds formatted as "milliseconds" gives seconds with 3 decimal places
-                lineBuilder.appendMillis(maxOf(0L, event.timestampNs - startNs) / 1000).append(',')
+                lineBuilder.appendSeconds(maxOf(0L, event.timestampNs - startNs)).append(',')
                     .append(event.event.toCsvField()).append(',')
                     .append(event.detail.toCsvField()).append('\n')
             }
@@ -426,8 +427,7 @@ class PerformanceLogger(
             val count = MelonEmulator.drainAudioStreamEvents(audioEventTimestamps, audioEventNames, audioEventDetails)
             lineBuilder.setLength(0)
             for (i in 0 until count) {
-                // Elapsed microseconds formatted as "milliseconds" gives seconds with 3 decimal places
-                lineBuilder.appendMillis(maxOf(0L, audioEventTimestamps[i] - startNs) / 1000).append(',')
+                lineBuilder.appendSeconds(maxOf(0L, audioEventTimestamps[i] - startNs)).append(',')
                     .append(audioEventNames[i].orEmpty().toCsvField()).append(',')
                     .append(audioEventDetails[i].orEmpty().toCsvField()).append('\n')
                 // With no stream open at the start, the first stream's facts give the buffer size the session started with
@@ -452,8 +452,7 @@ class PerformanceLogger(
             val thermalStatus = getThermalStatus()
 
             lineBuilder.setLength(0)
-            // Elapsed microseconds formatted as "milliseconds" gives seconds with 3 decimal places
-            lineBuilder.appendMillis((System.nanoTime() - startNs) / 1000).append(',')
+            lineBuilder.appendSeconds(System.nanoTime() - startNs).append(',')
                 .append(rss).append(',')
                 .append(nativeHeapAllocated).append(',')
                 .append(javaHeapUsed).append(',')
@@ -647,5 +646,16 @@ internal object PerfCsv {
         if (fraction < 10) append('0')
         append(fraction)
         return this
+    }
+
+    /**
+     * Appends a nanosecond value as seconds with 3 decimal places: the elapsed microseconds formatted as "milliseconds".
+     */
+    fun StringBuilder.appendSeconds(nanoseconds: Long): StringBuilder {
+        return appendMillis(nanoseconds / 1000)
+    }
+
+    fun StringBuilder.appendFlag(flag: Boolean): StringBuilder {
+        return append(if (flag) '1' else '0')
     }
 }

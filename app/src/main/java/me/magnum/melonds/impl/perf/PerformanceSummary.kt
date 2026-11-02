@@ -16,15 +16,54 @@ private const val AUDIO_BUFFER_CAPACITY_FRAMES = 2048
 private const val AUDIO_BUFFER_SAMPLE_RATE = 48000
 
 /**
+ * One "key: value" line of the summary. [description] is printed in the summary's key list, so the file explains its own keys.
+ */
+internal class SummaryEntry(val key: String, val value: Any?, val description: String?)
+
+internal class SummarySection(val title: String) {
+    val entries = ArrayList<SummaryEntry>()
+
+    fun entry(key: String, value: Any?, description: String? = null) {
+        entries.add(SummaryEntry(key, value, description))
+    }
+}
+
+/**
+ * The summary's lines: a "complete" flag, the described keys, then the sections.
+ */
+internal class SummaryTable(private val complete: SummaryEntry) {
+    val sections = ArrayList<SummarySection>()
+
+    fun section(title: String, fill: SummarySection.() -> Unit) {
+        sections.add(SummarySection(title).apply(fill))
+    }
+
+    fun render(): String {
+        val summary = StringBuilder()
+        fun line(entry: SummaryEntry) {
+            summary.append(entry.key).append(": ").append(entry.value ?: "n/a").append('\n')
+        }
+
+        line(complete)
+        summary.append("\n# Keys\n")
+        (listOf(complete) + sections.flatMap { it.entries }).forEach { entry ->
+            if (entry.description != null) {
+                summary.append("# ").append(entry.key).append(": ").append(entry.description).append('\n')
+            }
+        }
+        sections.forEach { section ->
+            summary.append("\n# ").append(section.title).append('\n')
+            section.entries.forEach { line(it) }
+        }
+        return summary.toString()
+    }
+}
+
+/**
  * Renders the summary text file of a performance log session from its statistics and the emulator's counters.
  */
 internal fun PerformanceLogger.Session.buildSummary(context: Context, isComplete: Boolean): String {
     val durationNs = System.nanoTime() - startNs
-    val summary = StringBuilder()
-
-    fun line(key: String, value: Any?) {
-        summary.append(key).append(": ").append(value ?: "n/a").append('\n')
-    }
 
     fun millis(ns: Long?): String {
         return if (ns == null) "n/a" else StringBuilder().appendMillis(ns).toString()
@@ -34,225 +73,284 @@ internal fun PerformanceLogger.Session.buildSummary(context: Context, isComplete
         return if (value == null || value.isNaN()) "n/a" else String.format(Locale.US, "%.${decimals}f", value)
     }
 
-    // false while the session is still running (or if the app was killed before the session stopped)
-    line("complete", isComplete)
+    val table = SummaryTable(
+        SummaryEntry("complete", isComplete, "false while the session is still running (or if the app was killed before the session stopped)"),
+    )
 
-    summary.append("\n# App\n")
-    val packageInfo = runCatching { PackageManagerCompat.getPackageInfo(context.packageManager, context.packageName, 0) }.getOrNull()
-    val isDebuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
-    line("app_version_name", packageInfo?.versionName)
-    line("app_version_code", packageInfo?.let { PackageInfoCompat.getLongVersionCode(it) })
-    line("app_package", context.packageName)
-    line("build_type", if (isDebuggable) "debug" else "release")
-
-    summary.append("\n# Device\n")
-    line("device_manufacturer", Build.MANUFACTURER)
-    line("device_model", Build.MODEL)
-    line("device_name", Build.DEVICE)
-    line("device_hardware", Build.HARDWARE)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        line("device_soc", "${Build.SOC_MANUFACTURER} ${Build.SOC_MODEL}")
+    table.section("App") {
+        val packageInfo = runCatching { PackageManagerCompat.getPackageInfo(context.packageManager, context.packageName, 0) }.getOrNull()
+        val isDebuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        entry("app_version_name", packageInfo?.versionName)
+        entry("app_version_code", packageInfo?.let { PackageInfoCompat.getLongVersionCode(it) })
+        entry("app_package", context.packageName)
+        entry("build_type", if (isDebuggable) "debug" else "release")
     }
-    line("android_version", Build.VERSION.RELEASE)
-    line("android_sdk", Build.VERSION.SDK_INT)
-    // The refresh rates below are the vsync period the render loop ran at (from Choreographer), over the display samples counted in the
-    // repeat stats outside fast-forward (which drops the 60Hz lock). The rate the display reported at session start stands in until the samples carry one. display_refresh_rate_hz is their
-    // time-weighted average, so it's the session's rate unless the rate changed mid-session (see display_refresh_rate_time_pct)
-    line("display_refresh_rate_hz", decimal(stats.averageRefreshRate() ?: displayRefreshRate?.toDouble()))
-    line("display_refresh_rate_start_hz", decimal(stats.firstCountedRefreshRate?.refreshRate ?: displayRefreshRate?.toDouble()))
-    // Of the last counted sample, so not the rate the display goes back to once the emulator is paused or fast-forwarded
-    line("display_refresh_rate_last_hz", decimal(stats.lastCountedRefreshRate?.refreshRate ?: lastDisplayState?.refreshRate?.toDouble()))
-    line("display_refresh_rate_changes", stats.refreshRateChanges)
-    // Counted samples, and share of their time, at each refresh rate
-    line("display_refresh_rate_samples", stats.formatRefreshRateSamples())
-    line("display_refresh_rate_time_pct", stats.formatRefreshRateTimeShares())
-    // Display.getRefreshRate() at session start and at the last periodic check
-    line("display_reported_refresh_rate_start_hz", decimal(displayRefreshRate?.toDouble()))
-    line("display_reported_refresh_rate_last_hz", decimal(lastDisplayState?.refreshRate?.toDouble()))
-    // Refresh rates the display supports at its current resolution
-    line("display_modes_hz", lastDisplayState?.refreshRatesAtCurrentResolution?.joinToString(",") { decimal(it.toDouble()) })
-    // The mode the 60Hz lock asks for (dropped while fast-forwarding). off: setting disabled. none: no 60Hz mode at the current resolution
-    line("display_lock_60hz_mode", lastDisplayState?.let { state ->
-        when {
-            !state.isLock60HzEnabled -> "off"
-            state.lock60HzMode == null -> "none"
-            else -> "${state.lock60HzMode.modeId} (${decimal(state.lock60HzMode.refreshRate.toDouble())} Hz)"
+
+    table.section("Device") {
+        entry("device_manufacturer", Build.MANUFACTURER)
+        entry("device_model", Build.MODEL)
+        entry("device_name", Build.DEVICE)
+        entry("device_hardware", Build.HARDWARE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            entry("device_soc", "${Build.SOC_MANUFACTURER} ${Build.SOC_MODEL}")
         }
-    })
-
-    summary.append("\n# Session\n")
-    line("rom", sessionName)
-    line("session_start", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(startDate))
-    line("session_duration_s", decimal(durationNs / 1e9))
-    line("log_location", destination?.description)
-
-    summary.append("\n# Settings (at session start)\n")
-    settingsSnapshot.forEach { (key, value) -> line(key, value) }
-
-    summary.append("\n# Emulation frames (stats exclude fast-forward and after-pause frames)\n")
-    val intervals = stats.frameIntervals
-    val workDurations = stats.frameWorkDurations
-    val hasFrames = intervals.count > 0
-    line("frames_total", stats.totalFrames)
-    line("frames_fast_forward", stats.fastForwardFrames)
-    line("frames_after_pause", stats.afterPauseFrames)
-    line("frames_dropped_from_log", MelonEmulator.getDroppedPerformanceFrameSampleCount())
-    line("frames_analyzed", intervals.count)
-    line("percentile_resolution_ms", millis(DurationHistogram.BUCKET_WIDTH_NS))
-    line("fps_avg", decimal(if (hasFrames && intervals.sum > 0) intervals.count * 1e9 / intervals.sum else null))
-    val slowestMean = if (hasFrames) intervals.meanOfSlowest(maxOf(1L, intervals.count / 100)) else null
-    line("fps_1pct_low", decimal(slowestMean?.takeIf { it > 0 }?.let { 1e9 / it }))
-    line("interval_median_ms", millis(if (hasFrames) intervals.percentile(0.5) else null))
-    line("interval_p95_ms", millis(if (hasFrames) intervals.percentile(0.95) else null))
-    line("interval_p99_ms", millis(if (hasFrames) intervals.percentile(0.99) else null))
-    line("interval_max_ms", millis(if (hasFrames) intervals.max else null))
-    line("interval_stddev_ms", decimal(if (hasFrames) intervals.standardDeviation() / 1e6 else null, 3))
-    line("missed_frames_threshold_ms", millis(SessionStatistics.MISSED_FRAME_THRESHOLD_NS))
-    line("missed_frames", stats.missedFrames)
-    line("missed_frames_pct", decimal(if (hasFrames) stats.missedFrames * 100.0 / intervals.count else null))
-    line("work_avg_ms", decimal(if (hasFrames) workDurations.mean() / 1e6 else null, 3))
-    line("work_p95_ms", millis(if (hasFrames) workDurations.percentile(0.95) else null))
-    line("work_max_ms", millis(if (hasFrames) workDurations.max else null))
-    // Share of the analyzed frames whose start was locked to the display's vsync grid, and the refreshes per frame (N) of the last one
-    line("pacing_locked_frames_pct", decimal(if (hasFrames) stats.pacingLockedFrames * 100.0 / intervals.count else null))
-    line("pacing_divisor_last", stats.lastPacingDivisor.takeIf { it > 0 })
-
-    summary.append("\n# Display (repeat stats exclude samples while paused or while the DS is asleep. Expected and unexpected repeats and hold stats also exclude fast-forward)\n")
-    // Each counted sample's expected repeats come from its own refresh rate, so a rate change mid-session doesn't show up as repeats
-    val countedFrames = stats.cadenceCountedFrames
-    val unexpectedRepeats = stats.unexpectedRepeats()
-    line("display_samples", stats.displaySamples)
-    line("display_samples_while_paused", stats.displayPausedSamples)
-    line("display_samples_while_ds_sleep", stats.displaySleepSamples)
-    line("display_samples_dropped_from_log", DisplayPerformanceCapture.getDroppedSampleCount())
-    line("display_new_frames", stats.displayNewFrames)
-    line("display_repeated_frames", stats.displayRepeatedFrames)
-    line("display_expected_repeat_ratio", decimal(stats.expectedRepeatRatio(), 3))
-    line("display_unexpected_repeats", unexpectedRepeats)
-    line("display_unexpected_repeats_pct", decimal(unexpectedRepeats?.takeIf { countedFrames > 0 }?.let { it * 100.0 / countedFrames }))
-    line("display_invalid_frames", stats.displayInvalidFrames)
-    line("display_longest_repeat_run", stats.displayLongestRepeatRun)
-    // The longest run explained by the fastest refresh rate the counted samples were at. Runs longer than their own rate explains are counted
-    // apart
-    line("display_longest_repeat_run_expected", stats.expectedLongestRepeatRun())
-    line("display_repeat_runs_over_expected", stats.displayRepeatRunsOverExpected)
-    line("display_skipped_emulator_frames", stats.displaySkippedFrames)
-    line("display_samples_while_fast_forward", stats.displayFastForwardSamples)
-    // Hold = number of refreshes a frame stayed on screen. Judder shows up as frames held more or fewer refreshes than expected, even when
-    // the average matches (for example 1 + 3 instead of 2 + 2 at 120Hz)
-    val hasHolds = stats.displayHoldFrames > 0
-    // Each hold is measured in the refresh period in effect when it ended, and holds that span a refresh rate change are skipped. If the rate
-    // changed, the expected hold is averaged over the measured holds and the on-cadence holds are given for each rate
-    val tracksCadence = stats.currentRefreshRate != null
-    line("display_expected_hold_refreshes", decimal(stats.expectedHoldRefreshes()))
-    line("display_on_cadence_holds", stats.formatOnCadenceHolds())
-    line("display_hold_frames", stats.displayHoldFrames.takeIf { tracksCadence })
-    line("display_hold_histogram", if (hasHolds) stats.formatHoldHistogram() else null)
-    line("display_off_cadence_frames", stats.displayOffCadenceFrames.takeIf { tracksCadence })
-    line("display_off_cadence_pct", decimal(if (tracksCadence && hasHolds) stats.displayOffCadenceFrames * 100.0 / stats.displayHoldFrames else null))
-    line("display_judder_window_min_frames", SessionStatistics.JUDDER_WINDOW_MIN_FRAMES)
-    line("display_judder_worst_10s_pct", decimal(stats.worstJudderWindowPct()))
-    line("render_avg_ms", decimal(stats.averageRenderDurationNs()?.div(1e6), 3))
-    line("render_max_ms", millis(stats.displayMaxRenderDuration.takeIf { stats.displaySamples > 0 }))
-
-    summary.append("\n# Audio (underrun and silence counts exclude fast-forward, muted or not, which is given apart as *_ff. Buffer stats exclude fast-forward and after-pause frames)\n")
-    // The latency the stream was asked for (emulation always asks for LOW, the audio latency preference isn't used) and what it got
-    val audioStreamInfo = parseAudioStreamInfo(MelonEmulator.getAudioStreamInfo() ?: lastAudioStreamInfo)
-    line("audio_latency_setting", audioStreamInfo["requested_latency"])
-    line("audio_stream_performance_mode", audioStreamInfo["performance"])
-    audioStreamInfo.forEach { (key, value) ->
-        if (key != "requested_latency" && key != "performance") {
-            line("audio_stream_$key", value)
-        }
+        entry("android_version", Build.VERSION.RELEASE)
+        entry("android_sdk", Build.VERSION.SDK_INT)
+        entry(
+            "display_refresh_rate_hz", decimal(stats.averageRefreshRate() ?: displayRefreshRate?.toDouble()),
+            "Time-weighted average of the vsync period the render loop ran at (from Choreographer), over the display samples counted in the " +
+                "repeat stats outside fast-forward (which drops the 60Hz lock). The rate the display reported at session start stands in until " +
+                "the samples carry one. The session's rate unless the rate changed mid-session (see display_refresh_rate_time_pct)",
+        )
+        entry(
+            "display_refresh_rate_start_hz", decimal(stats.firstCountedRefreshRate?.refreshRate ?: displayRefreshRate?.toDouble()),
+            "Rate of the first counted display sample, or the rate the display reported at session start",
+        )
+        entry(
+            "display_refresh_rate_last_hz", decimal(stats.lastCountedRefreshRate?.refreshRate ?: lastDisplayState?.refreshRate?.toDouble()),
+            "Rate of the last counted sample, so not the rate the display goes back to once the emulator is paused or fast-forwarded",
+        )
+        entry("display_refresh_rate_changes", stats.refreshRateChanges, "How many times the rate changed between counted samples")
+        entry("display_refresh_rate_samples", stats.formatRefreshRateSamples(), "Counted samples at each refresh rate")
+        entry("display_refresh_rate_time_pct", stats.formatRefreshRateTimeShares(), "Share of the counted samples' time at each refresh rate")
+        entry("display_reported_refresh_rate_start_hz", decimal(displayRefreshRate?.toDouble()), "Display.getRefreshRate() at session start")
+        entry("display_reported_refresh_rate_last_hz", decimal(lastDisplayState?.refreshRate?.toDouble()), "Display.getRefreshRate() at the last periodic check")
+        entry(
+            "display_modes_hz", lastDisplayState?.refreshRatesAtCurrentResolution?.joinToString(",") { decimal(it.toDouble()) },
+            "Refresh rates the display supports at its current resolution",
+        )
+        entry(
+            "display_lock_60hz_mode", lastDisplayState?.let { state ->
+                when {
+                    !state.isLock60HzEnabled -> "off"
+                    state.lock60HzMode == null -> "none"
+                    else -> "${state.lock60HzMode.modeId} (${decimal(state.lock60HzMode.refreshRate.toDouble())} Hz)"
+                }
+            },
+            "The mode the 60Hz lock asks for (dropped while fast-forwarding). off: setting disabled. none: no 60Hz mode at the current resolution",
+        )
     }
-    val audioTotals = LongArray(MelonEmulator.AUDIO_TOTAL_COUNT)
-    MelonEmulator.getAudioDiagnosticsTotals(audioTotals)
-    fun audioDelta(index: Int) = audioTotals[index] - audioTotalsAtStart[index]
-    val audioCallbacks = audioDelta(MelonEmulator.AUDIO_TOTAL_CALLBACKS)
-    val audioSilenceFrames = audioDelta(MelonEmulator.AUDIO_TOTAL_SILENCE_FRAMES)
-    val audioSampleRate = audioStreamInfo["rate"]?.toIntOrNull()?.takeIf { it > 0 } ?: AUDIO_BUFFER_SAMPLE_RATE
-    val audioXRuns = audioTotals[MelonEmulator.AUDIO_TOTAL_XRUNS]
-    val audioStreamOpens = audioDelta(MelonEmulator.AUDIO_TOTAL_STREAM_OPENS)
-    // The stream already open when the session started counts as used
-    line("audio_streams_used", audioStreamOpens + if (wasAudioStreamOpenAtStart) 1 else 0)
-    line("audio_stream_open_at_start", wasAudioStreamOpenAtStart)
-    line("audio_stream_opens_during_session", audioStreamOpens)
-    line("audio_stream_errors", audioDelta(MelonEmulator.AUDIO_TOTAL_STREAM_ERRORS))
-    line("audio_callbacks", audioCallbacks)
-    line("audio_frames_per_callback_avg", decimal(if (audioCallbacks > 0) audioDelta(MelonEmulator.AUDIO_TOTAL_CALLBACK_FRAMES).toDouble() / audioCallbacks else null, 1))
-    line("audio_frames_per_callback_max", audioTotals[MelonEmulator.AUDIO_TOTAL_MAX_CALLBACK_FRAMES].takeIf { audioCallbacks > 0 })
-    line("audio_callback_gap_max_ms", millis(audioTotals[MelonEmulator.AUDIO_TOTAL_MAX_CALLBACK_GAP_NS].takeIf { audioCallbacks > 0 }))
-    line("audio_xruns", if (audioTotals[MelonEmulator.AUDIO_TOTAL_STREAM_OPENS] == 0L) null else if (audioXRuns < 0) "unsupported" else audioXRuns - maxOf(0L, audioTotalsAtStart[MelonEmulator.AUDIO_TOTAL_XRUNS]))
-    // Callbacks that found fewer frames in the buffer than they needed, and the frames they filled with silence or a repeated sample
-    val audioFastForwardUnderruns = audioDelta(MelonEmulator.AUDIO_TOTAL_FAST_FORWARD_UNDERRUN_CALLBACKS)
-    val audioFastForwardSilenceFrames = audioDelta(MelonEmulator.AUDIO_TOTAL_FAST_FORWARD_SILENCE_FRAMES)
-    val audioUnderruns = audioDelta(MelonEmulator.AUDIO_TOTAL_UNDERRUN_CALLBACKS) - audioFastForwardUnderruns
-    val audioSilenceFramesOutsideFastForward = audioSilenceFrames - audioFastForwardSilenceFrames
-    line("audio_underrun_callbacks", audioUnderruns)
-    line("audio_silence_frames", audioSilenceFramesOutsideFastForward)
-    line("audio_silence_ms", decimal(audioSilenceFramesOutsideFastForward * 1000.0 / audioSampleRate, 1))
-    line("audio_emulator_frames_with_silence", stats.audioFramesWithSilenceOutsideFastForward)
-    line("audio_underrun_callbacks_ff", audioFastForwardUnderruns)
-    line("audio_silence_frames_ff", audioFastForwardSilenceFrames)
-    line("audio_silence_ff_ms", decimal(audioFastForwardSilenceFrames * 1000.0 / audioSampleRate, 1))
-    line("audio_emulator_frames_with_silence_ff", stats.audioFramesWithSilence - stats.audioFramesWithSilenceOutsideFastForward)
-    // Priming, over the whole emulation session (so including the startup prime from before the capture began): silence while the
-    // callback waited for the buffer to fill (after a start or resume, or after it ran dry), not part of the underruns, how often it
-    // ran dry, and the trims when priming ended (the emulator keeps filling the ring while a stream starts)
-    val audioPrimeWaitFrames = audioTotals[MelonEmulator.AUDIO_TOTAL_SESSION_PRIME_WAIT_FRAMES]
-    line("audio_prime_wait_frames", audioPrimeWaitFrames)
-    line("audio_prime_wait_ms", decimal(audioPrimeWaitFrames * 1000.0 / audioSampleRate, 1))
-    line("audio_reprimes", audioTotals[MelonEmulator.AUDIO_TOTAL_SESSION_REPRIMES])
-    line("audio_prime_trims", audioTotals[MelonEmulator.AUDIO_TOTAL_SESSION_PRIME_TRIMS])
-    line("audio_prime_trim_frames", audioTotals[MelonEmulator.AUDIO_TOTAL_SESSION_PRIME_TRIM_FRAMES])
-    line("audio_buffer_capacity_frames", AUDIO_BUFFER_CAPACITY_FRAMES)
-    // Taken after each frame's sleep, so these are the low points
-    val hasAudioFill = stats.audioFillSamples > 0
-    line("audio_buffer_fill_min_frames", stats.audioFillMin.takeIf { hasAudioFill })
-    line("audio_buffer_fill_min_ms", decimal(if (hasAudioFill) stats.audioFillMin * 1000.0 / AUDIO_BUFFER_SAMPLE_RATE else null, 1))
-    line("audio_buffer_fill_avg_frames", decimal(stats.averageAudioFill(), 0))
-    // Frames after which the buffer was full, so some of the emulator's samples were dropped
-    line("audio_buffer_full_frames", stats.audioBufferFullFrames)
-    // The drift control's skew, as parts per million off the base rate (positive: the ring was too full, so fewer frames were made)
-    line("audio_skew_min_ppm", stats.audioSkewMinPpm.takeIf { hasAudioFill })
-    line("audio_skew_avg_ppm", decimal(stats.averageAudioSkewPpm(), 0))
-    line("audio_skew_max_ppm", stats.audioSkewMaxPpm.takeIf { hasAudioFill })
-    // The speed paced fast-forward really reached (smoothed over ~0.35 s), over the fast-forward frames where it was known. Its audio
-    // plays at this speed when it falls short of the multiplier
-    val hasFastForwardSpeed = stats.audioFastForwardSpeedSamples > 0
-    line("audio_ff_speed_min", decimal(if (hasFastForwardSpeed) stats.audioFastForwardSpeedMinMilli / 1000.0 else null, 3))
-    line("audio_ff_speed_avg", decimal(stats.averageAudioFastForwardSpeed(), 3))
-    // The AAudio buffer (between the callback and the device): its size when the session started (or when the first stream opened during
-    // the session started, if none was open at the start), now, and how often it grew after an xrun
-    val audioBufferSizeStart = if (wasAudioStreamOpenAtStart) audioTotalsAtStart[MelonEmulator.AUDIO_TOTAL_BUFFER_SIZE] else firstAudioBufferSizeAtOpen
-    val audioBufferSizeFinal = audioTotals[MelonEmulator.AUDIO_TOTAL_BUFFER_SIZE]
-    line("audio_output_buffer_start_frames", audioBufferSizeStart.takeIf { it >= 0 })
-    line("audio_output_buffer_start_ms", decimal(if (audioBufferSizeStart >= 0) audioBufferSizeStart * 1000.0 / audioSampleRate else null, 1))
-    line("audio_output_buffer_final_frames", audioBufferSizeFinal.takeIf { it >= 0 })
-    line("audio_output_buffer_final_ms", decimal(if (audioBufferSizeFinal >= 0) audioBufferSizeFinal * 1000.0 / audioSampleRate else null, 1))
-    line("audio_output_buffer_grows", audioDelta(MelonEmulator.AUDIO_TOTAL_BUFFER_GROWS))
 
-    summary.append("\n# Memory\n")
-    line("memory_samples", stats.memorySamples)
-    line("rss_peak_kb", stats.peakRss.takeIf { stats.memorySamples > 0 })
-    line("rss_avg_kb", stats.averageRss()?.roundToLong())
-    line("native_heap_alloc_peak_kb", stats.peakNativeHeap.takeIf { stats.memorySamples > 0 })
-    line("pss_total_start_kb", startMemorySnapshot?.total)
-    line("pss_java_start_kb", startMemorySnapshot?.java)
-    line("pss_native_start_kb", startMemorySnapshot?.native)
-    line("pss_graphics_start_kb", startMemorySnapshot?.graphics)
-    line("pss_total_end_kb", endMemorySnapshot?.total)
-    line("pss_java_end_kb", endMemorySnapshot?.java)
-    line("pss_native_end_kb", endMemorySnapshot?.native)
-    line("pss_graphics_end_kb", endMemorySnapshot?.graphics)
-    // Over every PSS sample (start, every 30 s and end)
-    line("pss_samples", stats.pssSamples)
-    line("pss_graphics_min_kb", stats.minPssGraphics.takeIf { it >= 0 })
-    line("pss_graphics_peak_kb", stats.peakPssGraphics.takeIf { it >= 0 })
-    // Slowest Debug.getMemoryInfo call. Samples taken during capture can stall the emulator thread for up to about this long
-    line("pss_sample_max_ms", millis(stats.maxPssSampleDuration.takeIf { stats.pssSamples > 0 }))
-    line("thermal_status_final", stats.lastThermalStatus)
-    line("thermal_status_max", stats.maxThermalStatus)
+    table.section("Session") {
+        entry("rom", sessionName)
+        entry("session_start", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(startDate))
+        entry("session_duration_s", decimal(durationNs / 1e9))
+        entry("log_location", destination?.description)
+    }
 
-    return summary.toString()
+    table.section("Settings (at session start)") {
+        settingsSnapshot.forEach { (key, value) -> entry(key, value) }
+    }
+
+    table.section("Emulation frames (stats exclude fast-forward and after-pause frames)") {
+        val intervals = stats.frameIntervals
+        val workDurations = stats.frameWorkDurations
+        val hasFrames = intervals.count > 0
+        entry("frames_total", stats.totalFrames)
+        entry("frames_fast_forward", stats.fastForwardFrames)
+        entry("frames_after_pause", stats.afterPauseFrames)
+        entry("frames_dropped_from_log", MelonEmulator.getDroppedPerformanceFrameSampleCount())
+        entry("frames_analyzed", intervals.count)
+        entry(
+            "percentile_resolution_ms", millis(DurationHistogram.BUCKET_WIDTH_NS),
+            "Bucket width of the interval and work histograms, so the percentiles are only this precise",
+        )
+        entry("fps_avg", decimal(if (hasFrames && intervals.sum > 0) intervals.count * 1e9 / intervals.sum else null))
+        val slowestMean = if (hasFrames) intervals.meanOfSlowest(maxOf(1L, intervals.count / 100)) else null
+        entry("fps_1pct_low", decimal(slowestMean?.takeIf { it > 0 }?.let { 1e9 / it }), "FPS at the mean of the slowest 1% of the analyzed frame intervals")
+        entry("interval_median_ms", millis(if (hasFrames) intervals.percentile(0.5) else null))
+        entry("interval_p95_ms", millis(if (hasFrames) intervals.percentile(0.95) else null))
+        entry("interval_p99_ms", millis(if (hasFrames) intervals.percentile(0.99) else null))
+        entry("interval_max_ms", millis(if (hasFrames) intervals.max else null))
+        entry("interval_stddev_ms", decimal(if (hasFrames) intervals.standardDeviation() / 1e6 else null, 3))
+        entry("missed_frames_threshold_ms", millis(SessionStatistics.MISSED_FRAME_THRESHOLD_NS), "An analyzed frame whose interval is above this counts as missed")
+        entry("missed_frames", stats.missedFrames)
+        entry("missed_frames_pct", decimal(if (hasFrames) stats.missedFrames * 100.0 / intervals.count else null))
+        entry("work_avg_ms", decimal(if (hasFrames) workDurations.mean() / 1e6 else null, 3))
+        entry("work_p95_ms", millis(if (hasFrames) workDurations.percentile(0.95) else null))
+        entry("work_max_ms", millis(if (hasFrames) workDurations.max else null))
+        entry(
+            "pacing_locked_frames_pct", decimal(if (hasFrames) stats.pacingLockedFrames * 100.0 / intervals.count else null),
+            "Share of the analyzed frames whose start was locked to the display's vsync grid",
+        )
+        entry("pacing_divisor_last", stats.lastPacingDivisor.takeIf { it > 0 }, "Refreshes per frame (N) of the last locked frame")
+    }
+
+    table.section("Display (repeat stats exclude samples while paused or while the DS is asleep. Expected and unexpected repeats and hold stats also exclude fast-forward)") {
+        val countedFrames = stats.cadenceCountedFrames
+        val unexpectedRepeats = stats.unexpectedRepeats()
+        entry("display_samples", stats.displaySamples)
+        entry("display_samples_while_paused", stats.displayPausedSamples)
+        entry("display_samples_while_ds_sleep", stats.displaySleepSamples)
+        entry("display_samples_dropped_from_log", DisplayPerformanceCapture.getDroppedSampleCount())
+        entry("display_new_frames", stats.displayNewFrames)
+        entry("display_repeated_frames", stats.displayRepeatedFrames)
+        entry(
+            "display_expected_repeat_ratio", decimal(stats.expectedRepeatRatio(), 3),
+            "Share of the counted samples expected to be repeats at their own refresh rate, so a rate change mid-session doesn't show up as repeats",
+        )
+        entry("display_unexpected_repeats", unexpectedRepeats, "Repeated frames beyond the expected ratio")
+        entry("display_unexpected_repeats_pct", decimal(unexpectedRepeats?.takeIf { countedFrames > 0 }?.let { it * 100.0 / countedFrames }))
+        entry("display_invalid_frames", stats.displayInvalidFrames)
+        entry("display_longest_repeat_run", stats.displayLongestRepeatRun)
+        entry(
+            "display_longest_repeat_run_expected", stats.expectedLongestRepeatRun(),
+            "The longest run explained by the fastest refresh rate the counted samples were at",
+        )
+        entry("display_repeat_runs_over_expected", stats.displayRepeatRunsOverExpected, "Runs longer than their own rate explains, counted once per run")
+        entry("display_skipped_emulator_frames", stats.displaySkippedFrames)
+        entry("display_samples_while_fast_forward", stats.displayFastForwardSamples)
+        val hasHolds = stats.displayHoldFrames > 0
+        val tracksCadence = stats.currentRefreshRate != null
+        entry(
+            "display_expected_hold_refreshes", decimal(stats.expectedHoldRefreshes()),
+            "Hold = number of refreshes a frame stayed on screen, measured in the refresh period in effect when it ended (holds that span a " +
+                "refresh rate change are skipped). If the rate changed, the expected hold is averaged over the measured holds",
+        )
+        entry("display_on_cadence_holds", stats.formatOnCadenceHolds(), "The holds that count as on-cadence, for each rate if the rate changed")
+        entry("display_hold_frames", stats.displayHoldFrames.takeIf { tracksCadence }, "Frames whose hold was measured")
+        entry("display_hold_histogram", if (hasHolds) stats.formatHoldHistogram() else null, "Frames per hold length")
+        entry(
+            "display_off_cadence_frames", stats.displayOffCadenceFrames.takeIf { tracksCadence },
+            "Frames held more or fewer refreshes than expected. Judder shows up here even when the average matches (for example 1 + 3 instead of " +
+                "2 + 2 at 120Hz)",
+        )
+        entry("display_off_cadence_pct", decimal(if (tracksCadence && hasHolds) stats.displayOffCadenceFrames * 100.0 / stats.displayHoldFrames else null))
+        entry(
+            "display_judder_window_min_frames", SessionStatistics.JUDDER_WINDOW_MIN_FRAMES,
+            "Measured holds a 10 s window needs before it counts for display_judder_worst_10s_pct",
+        )
+        entry("display_judder_worst_10s_pct", decimal(stats.worstJudderWindowPct()), "Highest off-cadence percentage in any 10 s window")
+        entry("render_avg_ms", decimal(stats.averageRenderDurationNs()?.div(1e6), 3))
+        entry("render_max_ms", millis(stats.displayMaxRenderDuration.takeIf { stats.displaySamples > 0 }))
+    }
+
+    table.section("Audio (underrun and silence counts exclude fast-forward, muted or not, which is given apart as *_ff. Buffer stats exclude fast-forward and after-pause frames)") {
+        val audioStreamInfo = parseAudioStreamInfo(MelonEmulator.getAudioStreamInfo() ?: lastAudioStreamInfo)
+        entry(
+            "audio_latency_setting", audioStreamInfo["requested_latency"],
+            "The latency the stream was asked for (emulation always asks for LOW, the audio latency preference isn't used)",
+        )
+        entry("audio_stream_performance_mode", audioStreamInfo["performance"], "The performance mode the stream got")
+        audioStreamInfo.forEach { (key, value) ->
+            if (key != "requested_latency" && key != "performance") {
+                entry("audio_stream_$key", value)
+            }
+        }
+        val audioTotals = LongArray(MelonEmulator.AUDIO_TOTAL_COUNT)
+        MelonEmulator.getAudioDiagnosticsTotals(audioTotals)
+        fun audioDelta(index: Int) = audioTotals[index] - audioTotalsAtStart[index]
+        val audioCallbacks = audioDelta(MelonEmulator.AUDIO_TOTAL_CALLBACKS)
+        val audioSilenceFrames = audioDelta(MelonEmulator.AUDIO_TOTAL_SILENCE_FRAMES)
+        val audioSampleRate = audioStreamInfo["rate"]?.toIntOrNull()?.takeIf { it > 0 } ?: AUDIO_BUFFER_SAMPLE_RATE
+        val audioXRuns = audioTotals[MelonEmulator.AUDIO_TOTAL_XRUNS]
+        val audioStreamOpens = audioDelta(MelonEmulator.AUDIO_TOTAL_STREAM_OPENS)
+        entry(
+            "audio_streams_used", audioStreamOpens + (if (wasAudioStreamOpenAtStart) 1 else 0),
+            "Streams opened during the session, plus the one already open when it started",
+        )
+        entry("audio_stream_open_at_start", wasAudioStreamOpenAtStart)
+        entry("audio_stream_opens_during_session", audioStreamOpens)
+        entry("audio_stream_errors", audioDelta(MelonEmulator.AUDIO_TOTAL_STREAM_ERRORS))
+        entry("audio_callbacks", audioCallbacks)
+        entry("audio_frames_per_callback_avg", decimal(if (audioCallbacks > 0) audioDelta(MelonEmulator.AUDIO_TOTAL_CALLBACK_FRAMES).toDouble() / audioCallbacks else null, 1))
+        entry("audio_frames_per_callback_max", audioTotals[MelonEmulator.AUDIO_TOTAL_MAX_CALLBACK_FRAMES].takeIf { audioCallbacks > 0 })
+        entry("audio_callback_gap_max_ms", millis(audioTotals[MelonEmulator.AUDIO_TOTAL_MAX_CALLBACK_GAP_NS].takeIf { audioCallbacks > 0 }))
+        entry(
+            "audio_xruns", audioXRunsDuringSession(audioXRuns, audioTotalsAtStart[MelonEmulator.AUDIO_TOTAL_XRUNS], audioTotals[MelonEmulator.AUDIO_TOTAL_STREAM_OPENS] != 0L),
+            "Underruns the audio device reported during the session, or unsupported when it doesn't report them",
+        )
+        val audioFastForwardUnderruns = audioDelta(MelonEmulator.AUDIO_TOTAL_FAST_FORWARD_UNDERRUN_CALLBACKS)
+        val audioFastForwardSilenceFrames = audioDelta(MelonEmulator.AUDIO_TOTAL_FAST_FORWARD_SILENCE_FRAMES)
+        val audioUnderruns = audioDelta(MelonEmulator.AUDIO_TOTAL_UNDERRUN_CALLBACKS) - audioFastForwardUnderruns
+        val audioSilenceFramesOutsideFastForward = audioSilenceFrames - audioFastForwardSilenceFrames
+        entry("audio_underrun_callbacks", audioUnderruns, "Callbacks that found fewer frames in the buffer than they needed")
+        entry("audio_silence_frames", audioSilenceFramesOutsideFastForward, "Frames the underrun callbacks filled with silence or a repeated sample")
+        entry("audio_silence_ms", decimal(audioSilenceFramesOutsideFastForward * 1000.0 / audioSampleRate, 1))
+        entry("audio_emulator_frames_with_silence", stats.audioFramesWithSilenceOutsideFastForward)
+        entry("audio_underrun_callbacks_ff", audioFastForwardUnderruns)
+        entry("audio_silence_frames_ff", audioFastForwardSilenceFrames)
+        entry("audio_silence_ff_ms", decimal(audioFastForwardSilenceFrames * 1000.0 / audioSampleRate, 1))
+        entry("audio_emulator_frames_with_silence_ff", stats.audioFramesWithSilence - stats.audioFramesWithSilenceOutsideFastForward)
+        val audioPrimeWaitFrames = audioTotals[MelonEmulator.AUDIO_TOTAL_SESSION_PRIME_WAIT_FRAMES]
+        entry(
+            "audio_prime_wait_frames", audioPrimeWaitFrames,
+            "Silence while the callback waited for the buffer to fill (after a start or resume, or after it ran dry), not part of the underruns. " +
+                "The priming counts cover the whole emulation session, including the startup prime from before the capture began",
+        )
+        entry("audio_prime_wait_ms", decimal(audioPrimeWaitFrames * 1000.0 / audioSampleRate, 1))
+        entry("audio_reprimes", audioTotals[MelonEmulator.AUDIO_TOTAL_SESSION_REPRIMES], "How often the buffer ran dry and was primed again")
+        entry(
+            "audio_prime_trims", audioTotals[MelonEmulator.AUDIO_TOTAL_SESSION_PRIME_TRIMS],
+            "Trims when priming ended (the emulator keeps filling the ring while a stream starts)",
+        )
+        entry("audio_prime_trim_frames", audioTotals[MelonEmulator.AUDIO_TOTAL_SESSION_PRIME_TRIM_FRAMES])
+        entry("audio_buffer_capacity_frames", AUDIO_BUFFER_CAPACITY_FRAMES, "The SPU output ring between the emulator and the audio callback")
+        val hasAudioFill = stats.audioFillSamples > 0
+        entry("audio_buffer_fill_min_frames", stats.audioFillMin.takeIf { hasAudioFill }, "The fill is taken after each frame's sleep, so these are the low points")
+        entry("audio_buffer_fill_min_ms", decimal(if (hasAudioFill) stats.audioFillMin * 1000.0 / AUDIO_BUFFER_SAMPLE_RATE else null, 1))
+        entry("audio_buffer_fill_avg_frames", decimal(stats.averageAudioFill(), 0))
+        entry("audio_buffer_full_frames", stats.audioBufferFullFrames, "Frames after which the buffer was full, so some of the emulator's samples were dropped")
+        entry(
+            "audio_skew_min_ppm", stats.audioSkewMinPpm.takeIf { hasAudioFill },
+            "The drift control's skew, as parts per million off the base rate (positive: the ring was too full, so fewer frames were made)",
+        )
+        entry("audio_skew_avg_ppm", decimal(stats.averageAudioSkewPpm(), 0))
+        entry("audio_skew_max_ppm", stats.audioSkewMaxPpm.takeIf { hasAudioFill })
+        val hasFastForwardSpeed = stats.audioFastForwardSpeedSamples > 0
+        entry(
+            "audio_ff_speed_min", decimal(if (hasFastForwardSpeed) stats.audioFastForwardSpeedMinMilli / 1000.0 else null, 3),
+            "The speed paced fast-forward really reached (smoothed over ~0.35 s), over the fast-forward frames where it was known. Its audio " +
+                "plays at this speed when it falls short of the multiplier",
+        )
+        entry("audio_ff_speed_avg", decimal(stats.averageAudioFastForwardSpeed(), 3))
+        val audioBufferSizeStart = if (wasAudioStreamOpenAtStart) audioTotalsAtStart[MelonEmulator.AUDIO_TOTAL_BUFFER_SIZE] else firstAudioBufferSizeAtOpen
+        val audioBufferSizeFinal = audioTotals[MelonEmulator.AUDIO_TOTAL_BUFFER_SIZE]
+        entry(
+            "audio_output_buffer_start_frames", audioBufferSizeStart.takeIf { it >= 0 },
+            "The AAudio buffer (between the callback and the device): its size when the session started, or when the first stream opened " +
+                "during the session if none was open at the start",
+        )
+        entry("audio_output_buffer_start_ms", decimal(if (audioBufferSizeStart >= 0) audioBufferSizeStart * 1000.0 / audioSampleRate else null, 1))
+        entry("audio_output_buffer_final_frames", audioBufferSizeFinal.takeIf { it >= 0 }, "The AAudio buffer's size now")
+        entry("audio_output_buffer_final_ms", decimal(if (audioBufferSizeFinal >= 0) audioBufferSizeFinal * 1000.0 / audioSampleRate else null, 1))
+        entry("audio_output_buffer_grows", audioDelta(MelonEmulator.AUDIO_TOTAL_BUFFER_GROWS), "How often the AAudio buffer grew after an xrun")
+    }
+
+    table.section("Memory") {
+        entry("memory_samples", stats.memorySamples)
+        entry("rss_peak_kb", stats.peakRss.takeIf { stats.memorySamples > 0 })
+        entry("rss_avg_kb", stats.averageRss()?.roundToLong())
+        entry("native_heap_alloc_peak_kb", stats.peakNativeHeap.takeIf { stats.memorySamples > 0 })
+        entry("pss_total_start_kb", startMemorySnapshot?.total)
+        entry("pss_java_start_kb", startMemorySnapshot?.java)
+        entry("pss_native_start_kb", startMemorySnapshot?.native)
+        entry("pss_graphics_start_kb", startMemorySnapshot?.graphics)
+        entry("pss_total_end_kb", endMemorySnapshot?.total)
+        entry("pss_java_end_kb", endMemorySnapshot?.java)
+        entry("pss_native_end_kb", endMemorySnapshot?.native)
+        entry("pss_graphics_end_kb", endMemorySnapshot?.graphics)
+        entry("pss_samples", stats.pssSamples, "Every PSS sample: at the start, every 30 s and at the end")
+        entry("pss_graphics_min_kb", stats.minPssGraphics.takeIf { it >= 0 })
+        entry("pss_graphics_peak_kb", stats.peakPssGraphics.takeIf { it >= 0 })
+        entry(
+            "pss_sample_max_ms", millis(stats.maxPssSampleDuration.takeIf { stats.pssSamples > 0 }),
+            "Slowest Debug.getMemoryInfo call. Samples taken during capture can stall the emulator thread for up to about this long",
+        )
+        entry("thermal_status_final", stats.lastThermalStatus)
+        entry("thermal_status_max", stats.maxThermalStatus)
+    }
+
+    return table.render()
+}
+
+/**
+ * The xruns since the session started: null before any stream was opened, "unsupported" when the device doesn't report them.
+ */
+private fun audioXRunsDuringSession(xRuns: Long, xRunsAtStart: Long, hasOpenedStream: Boolean): Any? {
+    return when {
+        !hasOpenedStream -> null
+        xRuns < 0 -> "unsupported"
+        else -> xRuns - maxOf(0L, xRunsAtStart)
+    }
 }
