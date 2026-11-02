@@ -36,7 +36,7 @@ sealed class LuaScriptOption {
         }
 
         override fun toNativeValue(value: String): LuaScriptOptionValue {
-            return LuaScriptOptionValue(key, LuaScriptOptionValue.TYPE_BOOLEAN, integer = if (value == "true") 1 else 0)
+            return LuaScriptOptionValue(key, LuaScriptOptionType.BOOLEAN, integer = if (value == "true") 1 else 0)
         }
     }
 
@@ -94,9 +94,9 @@ sealed class LuaScriptOption {
             val number = value.toDouble()
             // Whole numbers are Lua integers, so scripts can use them as indices and in string.format("%d")
             return if (number == floor(number) && abs(number) < MAX_EXACT_INTEGER) {
-                LuaScriptOptionValue(key, LuaScriptOptionValue.TYPE_INTEGER, integer = number.toLong())
+                LuaScriptOptionValue(key, LuaScriptOptionType.INTEGER, integer = number.toLong())
             } else {
-                LuaScriptOptionValue(key, LuaScriptOptionValue.TYPE_NUMBER, number = number)
+                LuaScriptOptionValue(key, LuaScriptOptionType.NUMBER, number = number)
             }
         }
 
@@ -127,7 +127,7 @@ sealed class LuaScriptOption {
         }
 
         override fun toNativeValue(value: String): LuaScriptOptionValue {
-            return LuaScriptOptionValue(key, LuaScriptOptionValue.TYPE_STRING, text = value.encodeToByteArray())
+            return LuaScriptOptionValue(key, LuaScriptOptionType.STRING, text = value.encodeToByteArray())
         }
     }
 
@@ -143,7 +143,7 @@ sealed class LuaScriptOption {
 
         override fun toNativeValue(value: String): LuaScriptOptionValue {
             // The script only learns whether a layout was picked: the UUID means nothing to it
-            return LuaScriptOptionValue(key, LuaScriptOptionValue.TYPE_LAYOUT, integer = if (getLayoutId(value) != null) 1 else 0)
+            return LuaScriptOptionValue(key, LuaScriptOptionType.LAYOUT, integer = if (getLayoutId(value) != null) 1 else 0)
         }
 
         companion object {

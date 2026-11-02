@@ -1,7 +1,7 @@
 package me.magnum.melonds.impl
 
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
-import me.magnum.melonds.domain.model.emulator.LuaScriptOptionValue
+import me.magnum.melonds.domain.model.emulator.LuaScriptOptionType
 import me.magnum.melonds.domain.model.emulator.resolveValues
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -43,21 +43,21 @@ class LuaScriptOptionTest {
     @Test
     fun nativeValuesAreTyped() {
         val toggleValue = toggle.toNativeValue("true")
-        assertEquals(LuaScriptOptionValue.TYPE_BOOLEAN, toggleValue.type)
+        assertEquals(LuaScriptOptionType.BOOLEAN, toggleValue.optionType)
         assertEquals(1L, toggleValue.integer)
 
         val integerValue = integerNumber.toNativeValue("7")
-        assertEquals(LuaScriptOptionValue.TYPE_INTEGER, integerValue.type)
+        assertEquals(LuaScriptOptionType.INTEGER, integerValue.optionType)
         assertEquals(7L, integerValue.integer)
 
         // A whole number from a fractional slider is still an integer
-        assertEquals(LuaScriptOptionValue.TYPE_INTEGER, fractionNumber.toNativeValue("1").type)
+        assertEquals(LuaScriptOptionType.INTEGER, fractionNumber.toNativeValue("1").optionType)
         val fractionValue = fractionNumber.toNativeValue("0.3")
-        assertEquals(LuaScriptOptionValue.TYPE_NUMBER, fractionValue.type)
+        assertEquals(LuaScriptOptionType.NUMBER, fractionValue.optionType)
         assertEquals(0.3, fractionValue.number, 0.0)
 
         val choiceValue = choice.toNativeValue("hard")
-        assertEquals(LuaScriptOptionValue.TYPE_STRING, choiceValue.type)
+        assertEquals(LuaScriptOptionType.STRING, choiceValue.optionType)
         assertArrayEquals("hard".encodeToByteArray(), choiceValue.text)
     }
 
@@ -85,7 +85,7 @@ class LuaScriptOptionTest {
         val layout = LuaScriptOption.Layout("map", "Map")
 
         val picked = layout.toNativeValue("123e4567-e89b-12d3-a456-426614174000")
-        assertEquals(LuaScriptOptionValue.TYPE_LAYOUT, picked.type)
+        assertEquals(LuaScriptOptionType.LAYOUT, picked.optionType)
         assertEquals(1L, picked.integer)
         assertEquals(0L, layout.toNativeValue("").integer)
     }
