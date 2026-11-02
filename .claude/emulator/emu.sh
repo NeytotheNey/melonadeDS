@@ -3,15 +3,16 @@
 set -u
 export MSYS_NO_PATHCONV=1
 # Windows-style paths: path conversion is off (adb needs device paths left alone), so native tools need C:/ forms
-SDK=C:/Tools/android-sdk
+HERE="$(cygpath -m "$(cd "$(dirname "$0")" && pwd)")"
+REPO="$(cygpath -m "$(cd "$(dirname "$0")/../.." && pwd)")"
+SDK="$(cygpath -m "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-C:/Tools/android-sdk}}")"
+JDK="$(cygpath -u "${JAVA_HOME:-C:/Program Files/Java/jdk-25}")"
 ADB="$SDK/platform-tools/adb.exe"
 PORT=5580
 A="$ADB -s emulator-$PORT"
-REPO=C:/Dev/melonDS-android
 OUT=$REPO/logs/emulator
 APK=$REPO/app/build/intermediates/apk/gitHubProd/debug/app-gitHub-prod-debug.apk
 PKG=me.magnum.melonds.dev
-HERE="$(cygpath -m "$(cd "$(dirname "$0")" && pwd)")"
 PY="py -I -X utf8 $HERE/emu_ui.py"
 mkdir -p "$OUT/shots"
 
@@ -31,7 +32,7 @@ case "${1:-help}" in
   build)
     # Overwrites the shared debug APK with an x86_64 one; the phone needs an arm64 rebuild afterwards.
     # gradlew passes /c/... paths to java, so path conversion must be back on here.
-    cd "$REPO" && env -u MSYS_NO_PATHCONV JAVA_HOME="/c/Program Files/Java/jdk-25" bash ./gradlew assembleGitHubProdDebug \
+    cd "$REPO" && env -u MSYS_NO_PATHCONV JAVA_HOME="$JDK" bash ./gradlew assembleGitHubProdDebug \
       -Pandroid.injected.build.abi=x86_64 -Pandroid.injected.testOnly=false --console=plain > "$REPO/logs/build-x86_64.log" 2>&1
     rc=$?; tail -3 "$REPO/logs/build-x86_64.log"; exit $rc ;;
   install)
