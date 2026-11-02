@@ -9,7 +9,7 @@ data class UILayoutDto(
     val mainScreenLayout: ScreenLayoutDto,
     @SerializedName("secondaryScreenLayoutDto")
     val secondaryScreenLayout: ScreenLayoutDto,
-    // WidescreenAspect.key. Missing in variants saved before wide layouts, which Gson leaves null, so they load as normal variants
+    // WidescreenAspect.key, missing (so a normal variant) in variants saved before wide layouts
     @SerializedName("wideAspect")
     val wideAspect: String? = null,
 ) {

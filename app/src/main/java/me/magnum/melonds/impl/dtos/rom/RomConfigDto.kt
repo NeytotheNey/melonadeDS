@@ -7,6 +7,9 @@ import me.magnum.melonds.domain.model.rom.config.RuntimeConsoleType
 import me.magnum.melonds.domain.model.rom.config.RuntimeMicSource
 import java.util.UUID
 
+/**
+ * Nullable fields here and in [RomModsConfigDto] are missing in configs saved before their feature, which Gson leaves null.
+ */
 data class RomConfigDto(
     @SerializedName("runtimeConsoleType")
     val runtimeConsoleType: RuntimeConsoleType,
@@ -18,10 +21,8 @@ data class RomConfigDto(
     val gbaSlotConfig: RomGbaSlotConfigDto,
     @SerializedName("customName")
     val customName: String? = null,
-    // Configs saved before mods existed have no "mods" entry. Gson leaves it null, which means all mods are off
     @SerializedName("mods")
     val mods: RomModsConfigDto? = null,
-    // Configs saved before the swap was kept have no "screensSwapped" entry. Gson leaves it null, which means not swapped
     @SerializedName("screensSwapped")
     val screensSwapped: Boolean? = null,
 ) {

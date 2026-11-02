@@ -21,8 +21,7 @@ data class LayoutConfigurationDto(
     val opacity: Int,
     @SerializedName("layoutVariants")
     val layoutVariants: List<LayoutEntryDto>,
-    // Only read: the ratio (WidescreenAspect.key) of the layouts saved while it was one per layout. It's now one per variant
-    // (UILayoutDto.wideAspect), so it's copied to the saved variants on load and no longer saved
+    // Read-only: the single ratio (WidescreenAspect.key) older layouts saved, copied to their variants' UILayoutDto.wideAspect on load
     @SerializedName("wideAspect")
     val wideAspect: String? = null,
 ) {
@@ -55,7 +54,7 @@ data class LayoutConfigurationDto(
             opacity,
             layoutVariants.associate {
                 val layout = it.layout.toModel()
-                // Only variants with screens placed were widened. Background-only entries keep coming from the default layout
+                // Only variants with screens placed are widened, since background-only entries keep coming from the default layout
                 val hasComponents = layout.mainScreenLayout.components != null || layout.secondaryScreenLayout.components != null
                 it.variant.toModel() to if (layout.wideAspect == null && legacyWideAspect != null && hasComponents) layout.copy(wideAspect = legacyWideAspect) else layout
             },

@@ -13,7 +13,6 @@ data class RomModsConfigDto(
     val luaScriptFolder: String?,
     @SerializedName("luaScripts")
     val luaScripts: List<LuaScriptDto?>?,
-    // Missing in configs saved before wide layouts
     @SerializedName("wideLayoutId")
     val wideLayoutId: String? = null,
 ) {
@@ -23,7 +22,6 @@ data class RomModsConfigDto(
         val fileName: String?,
         @SerializedName("enabled")
         val enabled: Boolean?,
-        // Missing in configs saved before scripts had options
         @SerializedName("options")
         val options: Map<String, String?>?,
     )
@@ -32,8 +30,7 @@ data class RomModsConfigDto(
         return RomModsConfig(
             wideViewWidth = wideViewWidth,
             luaScriptFolder = luaScriptFolder?.toUri(),
-            // Gson bypasses Kotlin defaults and null checks, so a missing list, a null entry or a missing file name can come through as null.
-            // Entries without a file name are dropped instead of failing the whole config
+            // Gson can leave the list, an entry or its file name null, and entries without a file name are dropped
             luaScripts = luaScripts?.mapNotNull { script ->
                 script?.fileName?.let { fileName ->
                     val options = script.options.orEmpty().mapNotNull { (key, value) -> value?.let { key to it } }.toMap()
