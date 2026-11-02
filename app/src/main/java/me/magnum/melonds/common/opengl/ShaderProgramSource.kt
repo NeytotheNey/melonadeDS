@@ -12,14 +12,6 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
     }
 
     companion object {
-        // The frame texture holds both screens stacked vertically, top screen first (from v = 0), with 2 empty lines between them. FRAME_TEXTURE_HEIGHT
-        // is in DS pixels, and so is the topScreenWidth uniform, the frame's width: SCREEN_WIDTH, or more when widescreen widens the top
-        // screen's 3D view. The bottom screen is then SCREEN_WIDTH wide in the middle, with black bars beside it. When the OpenGL or Compute
-        // renderer is upscaled the texture is that many times bigger, so the filters that work on texels (HQ2x, HQ4x, Quilez, xBR, Scale2x,
-        // FXAA, Sharp, MMPX) read the real size from the texSize uniform. Only LCD and scanlines use the DS size, since they draw one
-        // line/subpixel group per DS pixel. The scalers can't stay on the DS grid: upscaled 3D isn't aligned to it (some games draw everything
-        // in 3D, sprites included), so DS-grid neighbours would make them copy pixels into the wrong places
-
         // Fragment shader precision: high where the GPU supports it, medium otherwise
         private const val PRECISION_HEADER = "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
                 "precision highp float;\n" +
@@ -101,6 +93,14 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    }\n" +
                 "    return texture2D(tex, vec2(clamp(p.x, columns.x, columns.y), p.y));\n" +
                 "}\n"
+
+        // The frame texture holds both screens stacked vertically, top screen first (from v = 0), with 2 empty lines between them. FRAME_TEXTURE_HEIGHT
+        // is in DS pixels, and so is the topScreenWidth uniform, the frame's width: SCREEN_WIDTH, or more when widescreen widens the top
+        // screen's 3D view. The bottom screen is then SCREEN_WIDTH wide in the middle, with black bars beside it. When the OpenGL or Compute
+        // renderer is upscaled the texture is that many times bigger, so the filters that work on texels (HQ2x, HQ4x, Quilez, xBR, Scale2x,
+        // FXAA, Sharp, MMPX) read the real size from the texSize uniform. Only LCD and scanlines use the DS size, since they draw one
+        // line/subpixel group per DS pixel. The scalers can't stay on the DS grid: upscaled 3D isn't aligned to it (some games draw everything
+        // in 3D, sprites included), so DS-grid neighbours would make them copy pixels into the wrong places
 
         // Helpers for filters that sample far enough to reach past the gap between the screens. sampleScreen() keeps samples inside the screen
         // that the fragment belongs to, so the other screen, the empty lines and the black bars never bleed in. Needs tex, texSize and
