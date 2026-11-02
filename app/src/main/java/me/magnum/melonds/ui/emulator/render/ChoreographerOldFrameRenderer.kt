@@ -1,11 +1,9 @@
 package me.magnum.melonds.ui.emulator.render
 
 import android.view.Choreographer
+import me.magnum.melonds.ui.emulator.render.ChoreographerFrameRenderer.Companion.asVsyncPeriodOrZero
 
 private const val DEFAULT_FRAME_PERIOD_NS = 16666666L // 16.6ms (60 FPS)
-// Measured periods outside of this range (over 250Hz, or under 20Hz) aren't reported as the vsync period
-private const val MIN_VSYNC_PERIOD_NS = 4_000_000L
-private const val MAX_VSYNC_PERIOD_NS = 50_000_000L
 
 class ChoreographerOldFrameRenderer(private val frameRenderCoordinator: FrameRenderCoordinator) : ChoreographerFrameRenderer, Choreographer.FrameCallback {
 
@@ -46,7 +44,7 @@ class ChoreographerOldFrameRenderer(private val frameRenderCoordinator: FrameRen
         val frameDeadline = framePeriodNs.takeIf { it > ChoreographerFrameRenderer.DEADLINE_FRAME_TIME_THRESHOLD }?.plus(frameTimeNanos)
         // Only reported once measured, so that the performance logger doesn't take the default for the display's refresh period. The median is
         // taken every 11 intervals, so a refresh rate change is only reported up to about 22 callbacks later
-        val vsyncPeriodNs = framePeriodNs.takeIf { isFramePeriodMeasured && it in MIN_VSYNC_PERIOD_NS..MAX_VSYNC_PERIOD_NS } ?: 0L
+        val vsyncPeriodNs = if (isFramePeriodMeasured) framePeriodNs.asVsyncPeriodOrZero() else 0L
         frameRenderCoordinator.renderFrame(frameDeadline, frameTimeNanos, vsyncPeriodNs)
         Choreographer.getInstance().postFrameCallback(this)
     }

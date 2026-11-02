@@ -3,10 +3,7 @@ package me.magnum.melonds.ui.emulator.render
 import android.os.Build
 import android.view.Choreographer
 import androidx.annotation.RequiresApi
-
-// Frame timeline spacings outside of this range (over 250Hz, or under 20Hz) aren't taken as a vsync period
-private const val MIN_VSYNC_PERIOD_NS = 4_000_000L
-private const val MAX_VSYNC_PERIOD_NS = 50_000_000L
+import me.magnum.melonds.ui.emulator.render.ChoreographerFrameRenderer.Companion.asVsyncPeriodOrZero
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 class ChoreographerVSyncFrameRenderer(
@@ -43,7 +40,6 @@ class ChoreographerVSyncFrameRenderer(
         if (timelines.size < 2) {
             return 0L
         }
-        val period = timelines[1].expectedPresentationTimeNanos - timelines[0].expectedPresentationTimeNanos
-        return period.takeIf { it in MIN_VSYNC_PERIOD_NS..MAX_VSYNC_PERIOD_NS } ?: 0L
+        return (timelines[1].expectedPresentationTimeNanos - timelines[0].expectedPresentationTimeNanos).asVsyncPeriodOrZero()
     }
 }
