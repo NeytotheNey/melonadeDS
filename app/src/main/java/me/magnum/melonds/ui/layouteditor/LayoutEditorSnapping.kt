@@ -150,9 +150,9 @@ object LayoutEditorSnapping {
     }
 
     /**
-     * The start position that centres an item in the editor. Same as the centre buttons.
+     * The start position that centres an item in the editor.
      */
-    private fun centeredStart(length: Int, limit: Int): Int {
+    fun centeredStart(length: Int, limit: Int): Int {
         return (limit - length) / 2
     }
 

@@ -823,14 +823,14 @@ class LayoutEditorView(context: Context, attrs: AttributeSet?) : LayoutView(cont
     fun centerSelectedViewHorizontally() {
         val view = selectedView ?: return
         val rect = view.getRect()
-        applyRect(view, rect.copy(x = (width - rect.width) / 2))
+        applyRect(view, rect.copy(x = LayoutEditorSnapping.centeredStart(rect.width, width)))
         updateSelectedViewAnchorAfterLayout()
     }
 
     fun centerSelectedViewVertically() {
         val view = selectedView ?: return
         val rect = view.getRect()
-        applyRect(view, rect.copy(y = (height - rect.height) / 2))
+        applyRect(view, rect.copy(y = LayoutEditorSnapping.centeredStart(rect.height, height)))
         updateSelectedViewAnchorAfterLayout()
     }
 
