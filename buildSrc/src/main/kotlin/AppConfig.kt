@@ -8,6 +8,6 @@ object AppConfig {
     const val versionCode = 42
     const val versionName = "1.0.0"
 
-    // The upstream melonDS-android release this fork is based on. Used for the network user agent (RetroAchievements)
+    // The upstream melonDS-android release this fork is based on, used for the network user agent (RetroAchievements)
     const val upstreamVersionName = "2.0.1"
 }
