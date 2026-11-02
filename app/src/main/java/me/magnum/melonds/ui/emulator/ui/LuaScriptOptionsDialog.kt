@@ -24,9 +24,7 @@ data class LuaScriptOptionsDialogState(
 )
 
 /**
- * The options of a running script, with the same controls as the Mods tab ([layouts] are the player's, for layout options, null while
- * they're read). Nothing changes until the player saves, which restarts the script
- * with the new values
+ * The options of a running script with the Mods tab's controls ([layouts] is null while read); saving restarts the script with the new values.
  */
 @Composable
 fun LuaScriptOptionsDialog(

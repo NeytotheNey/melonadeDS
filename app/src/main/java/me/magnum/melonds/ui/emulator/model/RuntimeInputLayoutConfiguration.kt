@@ -12,6 +12,6 @@ data class RuntimeInputLayoutConfiguration(
     val isHapticFeedbackEnabled: Boolean,
     val layoutOrientation: LayoutConfiguration.LayoutOrientation,
     val layout: UILayout,
-    // LayoutConfiguration.isWide. The frame is fitted in such a layout's top screen at its own aspect instead of being widened automatically
+    // LayoutConfiguration.isWide, whose top screen fits the frame at its own aspect instead of widening it automatically
     val isWideLayout: Boolean = false,
 )

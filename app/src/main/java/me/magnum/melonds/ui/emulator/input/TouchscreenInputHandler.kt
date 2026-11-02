@@ -9,8 +9,7 @@ import me.magnum.melonds.domain.model.Point
 import me.magnum.melonds.domain.model.Rect
 
 /**
- * @param getScreenArea Where the bottom screen's middle SCREEN_WIDTH columns are drawn in the view, in its own coordinates, or null for the whole
- * view. That's only part of it when the screen is drawn wide or fitted in the view (see getScreensDrawing), so taps line up with the picture
+ * @param getScreenArea Where the bottom screen's middle SCREEN_WIDTH columns are drawn in the view, or null for the whole view.
  */
 class TouchscreenInputHandler(
     inputListener: IInputListener,

@@ -70,7 +70,7 @@ fun GameMasteredPopupUi(
             .padding(16.dp)
             .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = gameMasteryColor)
             .widthIn(max = 400.dp),
-        // The gold isn't a theme colour, so the content colour has to be set too. Otherwise the text turns light in dark mode
+        // The gold isn't a theme color, so the content color is set too or the text turns light in dark mode
         colors = CardDefaults.cardColors(containerColor = gameMasteryColor, contentColor = Color.Black),
         shape = RoundedCornerShape(8.dp),
     ) {

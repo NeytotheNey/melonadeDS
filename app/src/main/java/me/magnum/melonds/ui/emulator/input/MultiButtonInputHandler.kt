@@ -10,12 +10,7 @@ import kotlin.math.pow
 import kotlin.math.sqrt
 
 /**
- * Handles a group of four buttons laid out like a D-pad. Each button has a large circular hit area and adjacent circles overlap around the diagonals, so a
- * touch there can press both buttons (D-pad diagonals, A+B and so on).
- *
- * [spacing] goes from 0 to 1 and narrows that dual-press band. When a touch is inside two circles, both buttons are only pressed if the difference between
- * its distances to the two centres is at most a threshold. Otherwise only the nearer button is pressed. At 0 the threshold covers the whole overlap, so
- * every touch inside two circles presses both. At 1 only a narrow strip along the diagonal does.
+ * Four buttons with overlapping circular hit areas; [spacing] (0..1) narrows the band in which a touch presses two of them.
  */
 abstract class MultiButtonInputHandler(
     inputListener: IInputListener,
@@ -124,8 +119,7 @@ abstract class MultiButtonInputHandler(
         buttonCircles.add(ButtonCircle(pointToLocal(-36f, 256f), radiusSquared, getLeftInput()))
 
         if (spacing > 0f) {
-            // Inside the overlap of two adjacent circles the difference between the distances to their centres is at most 2 * radius - (distance between
-            // the centres), reached where the overlap crosses the line between the centres. Opposite circles don't overlap, so this covers every case
+            // Max distance difference inside an overlap is 2 * radius - center distance; opposite circles never overlap
             val radius = sqrt(radiusSquared)
             val maxDistanceDifference = 2f * radius - buttonCircles[0].distanceTo(buttonCircles[1].center.x.toFloat(), buttonCircles[1].center.y.toFloat())
             dualPressThreshold = maxDistanceDifference * (1f - 0.8f * spacing)
@@ -133,7 +127,7 @@ abstract class MultiButtonInputHandler(
     }
 
     /**
-     * Whether the point is also inside another button's circle and is closer to that button's centre by more than [dualPressThreshold].
+     * Whether the point is also inside another button's circle and is closer to that button's center by more than [dualPressThreshold].
      */
     private fun isMuchCloserToOtherButton(circleIndex: Int, pointX: Float, pointY: Float): Boolean {
         if (dualPressThreshold == Float.MAX_VALUE) {

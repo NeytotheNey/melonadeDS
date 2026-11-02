@@ -8,13 +8,10 @@ import android.os.Handler
 import androidx.core.content.getSystemService
 
 /**
- * Holds audio focus while the emulator is in use. The native audio goes straight to an Oboe stream, which doesn't handle audio focus by itself, so
- * without this the app is never told that something else needs the audio (e.g. a phone call, a voice assistant or another media app) and the game
- * keeps playing over it.
+ * Holds audio focus for the Oboe stream, which doesn't handle focus itself, so a call or another media app pauses the game.
  *
- * @param handler The handler the focus changes are delivered on. Should be on the main thread, since [onAudioFocusLost] touches the UI
- * @param onAudioFocusLost Called when focus is lost, either permanently or transiently. Focus loss that allows ducking (e.g. navigation prompts) is
- * ignored, since the system already lowers the game's volume by itself. Getting focus back never calls anything, the game is only resumed by the user
+ * @param handler The handler focus changes are delivered on, which should be the main thread since [onAudioFocusLost] touches the UI.
+ * @param onAudioFocusLost Called when focus is lost permanently or transiently (not for ducking, nor when focus comes back).
  */
 class EmulatorAudioFocusManager(
     context: Context,
@@ -23,9 +20,7 @@ class EmulatorAudioFocusManager(
 ) {
 
     /**
-     * Whether focus was requested but isn't held right now, either because it was lost or because the request was delayed or failed. False before
-     * the first request, so that an activity that is recreated while a game runs doesn't count as having lost focus. Ducking doesn't count as
-     * losing focus, since the game keeps playing (quieter) in that case.
+     * Whether focus was requested but isn't held right now (lost, delayed or failed); false before the first request.
      */
     var isFocusLost = false
         private set
@@ -39,8 +34,7 @@ class EmulatorAudioFocusManager(
                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                 .build()
         )
-        // During a phone call the request is delayed instead of failing, and the system grants focus once the call ends. Without this, focus would
-        // never be requested again after a failed request, and the next call would go unnoticed
+        // During a phone call the request is delayed instead of failing, so focus still arrives once the call ends
         .setAcceptsDelayedFocusGain(true)
         .setOnAudioFocusChangeListener({ focusChange ->
             when (focusChange) {
@@ -55,8 +49,7 @@ class EmulatorAudioFocusManager(
         .build()
 
     /**
-     * Requests audio focus. Safe to call while focus is already held. During a phone call the request is delayed, and focus arrives through the
-     * listener after the call. The game still runs in the meantime, since it's the user who chose to resume it.
+     * Requests audio focus, which is safe while it's already held.
      */
     fun requestFocus() {
         val result = audioManager?.requestAudioFocus(focusRequest)
