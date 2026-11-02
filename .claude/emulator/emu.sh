@@ -1,5 +1,5 @@
 #!/bin/bash
-# Drives the melonade_fold Android emulator for testing melonadeDS. Run `emu.sh help` for commands.
+# Drives the melonade_fold Android emulator for testing melonadeDS; `emu.sh help` lists the commands
 set -u
 export MSYS_NO_PATHCONV=1
 # Windows-style paths: path conversion is off (adb needs device paths left alone), so native tools need C:/ forms
@@ -31,8 +31,7 @@ case "${1:-help}" in
   stop)
     "${A[@]}" emu kill ;;
   build)
-    # Overwrites the shared debug APK with an x86_64 one; the phone needs an arm64 rebuild afterwards.
-    # gradlew passes /c/... paths to java, so path conversion must be back on here.
+    # Overwrites the shared debug APK with an x86_64 one (the phone needs an arm64 rebuild after), path conversion back on for gradlew
     cd "$REPO" && env -u MSYS_NO_PATHCONV JAVA_HOME="$JDK" bash ./gradlew assembleGitHubProdDebug \
       -Pandroid.injected.build.abi=x86_64 -Pandroid.injected.testOnly=false --console=plain > "$REPO/logs/build-x86_64.log" 2>&1
     rc=$?; tail -3 "$REPO/logs/build-x86_64.log"; exit $rc ;;
@@ -41,16 +40,15 @@ case "${1:-help}" in
       || { echo "APK has no x86_64 core; run: emu.sh build"; exit 1; }
     "${A[@]}" install -r "$APK" | tail -1 ;;
   launch)
-    # Brings the app to the front; if a game is running it returns to the game, not the ROM list (use restart for that)
-    # Explicit component: debug builds have a second launcher icon (LeakCanary's "Leaks") that monkey can pick.
-    # 0x10200000 = NEW_TASK | RESET_TASK_IF_NEEDED, the flags a launcher tap uses.
+    # Brings the app to the front like a launcher tap (0x10200000 = NEW_TASK | RESET_TASK_IF_NEEDED), back into a running game if
+    # there is one (use restart for the ROM list), naming the component because debug builds also have LeakCanary's launcher icon
     "${A[@]}" shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10200000 \
       -n $PKG/me.magnum.melonds.ui.romlist.RomListActivity > /dev/null 2>&1; sleep 3
     "${A[@]}" shell dumpsys activity activities | grep -m1 topResumedActivity; exit 0 ;;
   restart)
     "${A[@]}" shell am force-stop $PKG; "$0" launch ;;
   press)
-    # press <button> [ms]: on-screen DS button in the DEFAULT layout (coordinates read off screenshots on 10-27)
+    # press <button> [ms]: on-screen DS button in the DEFAULT layout
     b=$(echo "${2:?button}" | tr 'A-Z' 'a-z')
     if folded; then
       case $b in a) xy="1016 2192";; b) xy="909 2296";; x) xy="909 2083";; y) xy="803 2192";;
