@@ -1,6 +1,6 @@
 # WideMelon on the software renderer (shelved)
 
-Looked at on 2026-10-30 and set aside. It's a much bigger job than Compute was, and it only matters if someone plays on Software, which is already the slow path on phones. The 3D passes would also cost about W/256 more: ~1.33× at 16:9, ~1.66× at 20:9. How WideMelon works on OpenGL and Compute is in `MODS.md` "## WideMelon".
+Looked at on 2026-10-30 and set aside. It's a much bigger job than Compute was, and it only matters if someone plays on Software, which is already the slow path on phones. The 3D passes would also cost about W/256 more: ~1.33× at 16:9, ~1.66× at 20:9. How WideMelon works on OpenGL and Compute is in [MODS.md, "WideMelon"](../../MODS.md#widemelon).
 
 Paths are under `melonDS-android-lib/src/` unless they start with `app/`. Line numbers are as of core commit `f3da2729`.
 
