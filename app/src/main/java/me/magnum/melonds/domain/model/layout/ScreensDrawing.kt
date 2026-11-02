@@ -3,6 +3,7 @@ package me.magnum.melonds.domain.model.layout
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
+import me.magnum.melonds.domain.model.consoleAspectRatio
 
 /**
  * How one DS screen is drawn from the frame.
@@ -55,7 +56,7 @@ fun getScreensDrawing(
         ScreenDrawing(drawRect, getNativeScreenRect(drawRect, frameWidth), 0f, 1f)
     }
     val narrowScreen = narrowScreenRect?.let {
-        val drawRect = if (isWideLayout && areScreensSwapped) getLetterboxedRect(it, SCREEN_WIDTH / SCREEN_HEIGHT.toFloat()) else it
+        val drawRect = if (isWideLayout && areScreensSwapped) getLetterboxedRect(it, consoleAspectRatio) else it
         val leftU = (frameWidth.coerceAtLeast(SCREEN_WIDTH) - SCREEN_WIDTH) / (2f * frameWidth.coerceAtLeast(SCREEN_WIDTH))
         ScreenDrawing(drawRect, drawRect, leftU, 1f - leftU)
     }
