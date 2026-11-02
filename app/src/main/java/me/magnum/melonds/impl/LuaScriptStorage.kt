@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
+import me.magnum.melonds.domain.model.emulator.LuaScriptHeader
 import me.magnum.melonds.domain.model.emulator.LuaScriptImage
 import me.magnum.melonds.domain.model.emulator.LuaScriptModule
 import java.io.ByteArrayOutputStream
@@ -229,7 +230,7 @@ class LuaScriptStorage(private val context: Context) {
     fun readHeader(scriptFile: ScriptFile): LuaScriptHeader? {
         return try {
             // One byte more than the header limit, so the parser knows the file goes on
-            context.contentResolver.openInputStream(scriptFile.uri)?.use { LuaScriptHeader.parse(readAtMost(it, LuaScriptHeader.READ_LIMIT + 1)) }
+            context.contentResolver.openInputStream(scriptFile.uri)?.use { LuaScriptHeaderParser.parse(readAtMost(it, LuaScriptHeaderParser.READ_LIMIT + 1)) }
         } catch (e: Exception) {
             null
         }

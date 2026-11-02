@@ -23,6 +23,7 @@ import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.UriPermissionManager
 import me.magnum.melonds.common.romprocessors.RomFileProcessorFactory
 import me.magnum.melonds.domain.model.VideoRenderer
+import me.magnum.melonds.domain.model.emulator.LuaScriptHeader
 import me.magnum.melonds.domain.model.emulator.toLuaLayoutChoices
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.rom.Rom
@@ -35,7 +36,6 @@ import me.magnum.melonds.domain.repositories.RomsRepository
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.impl.LuaScriptDataStore
 import me.magnum.melonds.impl.LuaScriptFolderSync
-import me.magnum.melonds.impl.LuaScriptHeader
 import me.magnum.melonds.impl.LuaScriptStorage
 import me.magnum.melonds.impl.RomIconProvider
 import me.magnum.melonds.parcelables.RomParcelable

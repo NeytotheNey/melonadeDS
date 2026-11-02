@@ -46,12 +46,12 @@ import me.magnum.melonds.R
 import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.contracts.DirectoryPickerContract
 import me.magnum.melonds.domain.model.emulator.LuaLayoutChoice
+import me.magnum.melonds.domain.model.emulator.LuaScriptHeader
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.layout.WidescreenAspect
 import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import me.magnum.melonds.domain.model.rom.config.RomModsConfig
-import me.magnum.melonds.impl.LuaScriptHeader
 import me.magnum.melonds.ui.common.MelonPreviewSet
 import me.magnum.melonds.ui.common.component.LuaScriptOptionControl
 import me.magnum.melonds.ui.common.component.text.CaptionText

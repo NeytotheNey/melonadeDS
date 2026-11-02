@@ -5,9 +5,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-class LuaScriptHeaderTest {
+class LuaScriptHeaderParserTest {
 
-    private fun parse(source: String) = LuaScriptHeader.parse(source.encodeToByteArray())
+    private fun parse(source: String) = LuaScriptHeaderParser.parse(source.encodeToByteArray())
 
     @Test
     fun specExamplesAreRead() {
@@ -153,7 +153,7 @@ class LuaScriptHeaderTest {
     @Test
     fun onlyTheFirstEightKilobytesAreRead() {
         // The option line that crosses the limit is cut, so it's dropped rather than read half
-        val padding = "-- " + "x".repeat(LuaScriptHeader.READ_LIMIT - 20) + "\n"
+        val padding = "-- " + "x".repeat(LuaScriptHeaderParser.READ_LIMIT - 20) + "\n"
         val header = parse(padding + "-- option: late type=choice values=aaaaaaaaaa,bbbbbbbbbb\n")
 
         assertEquals(emptyList<LuaScriptOption>(), header.options)

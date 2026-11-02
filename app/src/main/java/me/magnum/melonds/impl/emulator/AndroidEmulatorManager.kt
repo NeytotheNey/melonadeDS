@@ -23,6 +23,7 @@ import me.magnum.melonds.domain.model.EmulatorConfiguration
 import me.magnum.melonds.domain.model.MicSource
 import me.magnum.melonds.domain.model.emulator.EmulatorEvent
 import me.magnum.melonds.domain.model.emulator.FirmwareLaunchResult
+import me.magnum.melonds.domain.model.emulator.LuaScriptHeader
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
 import me.magnum.melonds.domain.model.emulator.LuaScriptOptionValue
 import me.magnum.melonds.domain.model.emulator.LuaScriptSetup
@@ -39,7 +40,7 @@ import me.magnum.melonds.domain.model.rom.config.RuntimeEnum
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.domain.services.EmulatorManager
 import me.magnum.melonds.impl.LuaScriptDataStore
-import me.magnum.melonds.impl.LuaScriptHeader
+import me.magnum.melonds.impl.LuaScriptHeaderParser
 import me.magnum.melonds.impl.LuaScriptStorage
 import me.magnum.melonds.impl.camera.DSiCameraSourceMultiplexer
 import me.magnum.melonds.impl.debug.DebugLog
@@ -424,7 +425,7 @@ class AndroidEmulatorManager(
 
         DebugLog.event { "Lua scripts: ${loadedScripts.size} of ${enabledScripts.size} enabled loaded" }
         // Declarations are read from the source being sent, so they match the script that runs
-        val headers = loadedScripts.map { LuaScriptHeader.parse(it.second) } + failedScripts.map { null }
+        val headers = loadedScripts.map { LuaScriptHeaderParser.parse(it.second) } + failedScripts.map { null }
         val optionValues = loadedScripts.mapIndexed { id, (fileName, _) ->
             val storedValues = enabledScripts.firstOrNull { it.fileName == fileName }?.options.orEmpty()
             headers[id]?.options.orEmpty().resolveValues(storedValues)

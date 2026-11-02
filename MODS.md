@@ -15,7 +15,7 @@ Two mods, both set per game in ROM details → Mods tab and stored in `RomConfig
 - `LuaScriptFolderSync` keeps `luaScripts` (file name, switch, options) in step with the folder: top-level `.lua` only, sorted by name. It runs when the Mods tab shows, when ROM details resumes, and at game start. A gone file's entry is dropped. If the folder can't be read (not a directory, provider throws, cursor still loading or errored, permission lost) the list is kept and the tab offers to pick the folder again.
 - Changing or removing the folder clears the list and releases the permission, unless another ROM or one of the app's own folders (ROMs, BIOS, saves, perf log) uses the same tree. Picking the same folder again keeps the switches.
 - At game start only switched-on scripts that exist are read (1 MB cap each) and sent to native with their options, storage blob, modules and images (`LuaScriptSetup` array over JNI). Native never opens script files. Edits take effect at the next game start.
-- Header (`impl/LuaScriptHeader.kt`, reads at most 8 KB of the leading comment block): `-- description: ...` is shown under the name (otherwise the block's first comment line). Options:
+- Header (`impl/LuaScriptHeaderParser.kt`, reads at most 8 KB of the leading comment block): `-- description: ...` is shown under the name (otherwise the block's first comment line). Options:
   ```
   -- option: speed type=number min=1 max=10 step=1 default=5 label="Aim speed"
   -- option: hud type=toggle default=true label="Show HUD"

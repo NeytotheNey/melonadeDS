@@ -1,7 +1,7 @@
 package me.magnum.melonds.ui.romdetails.model
 
 import me.magnum.melonds.domain.model.emulator.LuaLayoutChoice
-import me.magnum.melonds.impl.LuaScriptHeader
+import me.magnum.melonds.domain.model.emulator.LuaScriptHeader
 
 /**
  * What the Mods tab's scripts section needs besides the scripts in the ROM config.
