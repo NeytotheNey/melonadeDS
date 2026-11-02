@@ -1,9 +1,9 @@
 package me.magnum.melonds.common
 
 /**
- * Keys of the preferences melonadeDS added on top of upstream melonDS, for use from Kotlin. The preference screens in res/xml keep the keys as
- * literals, so each key here must match the android:key in the screen named next to it. The keys are saved on devices and in settings backups,
- * so they must never change.
+ * Keys of the preferences melonadeDS added on top of upstream melonDS: fork-added keys only, upstream's keys stay literals. Each key must
+ * match the android:key in the screen named next to it (PreferenceKeysTest checks), and the keys are saved on devices and in settings
+ * backups, so they never change.
  */
 object PreferenceKeys {
     // pref_video.xml
