@@ -77,8 +77,7 @@ class LayoutEditorManagerView(
         fun onSaveLayout()
         fun onSaveLayoutAndExit()
         fun onExit()
-        // One of the editor's own dialogs was opened or closed. The keyboard can resize the editor meanwhile, which mustn't show another layout.
-        // Once it's settled again, onEditorSettled() must be called
+        // One of the editor's own dialogs opened or closed, and onEditorSettled() must follow once the editor is back to size
         fun onEditorDialogShown()
         fun onEditorDialogHidden()
     }
@@ -105,8 +104,7 @@ class LayoutEditorManagerView(
     private var showBackgroundPropertiesDialog by mutableStateOf(initialEditorState?.isBackgroundPropertiesDialogShown ?: false)
     private var shownEditablePropertyDialog by mutableStateOf<LayoutComponentEditableProperty?>(null)
     private var editablePropertyTarget: EditablePropertyTarget? = null
-    // The editor's size when its dialogs were opened, which is the size of the layout shown until the host calls onEditorSettled(). The keyboard can
-    // shrink the editor meanwhile, and a value entered then is applied for this size instead, so an item near an edge isn't squeezed or moved
+    // The editor's size when its dialogs were opened, which values entered in them are applied against until onEditorSettled()
     private var editorSizeBeforeDialogs: Pair<Int, Int>? = null
     private val nameInputDialogState = TextInputDialogState()
 
@@ -226,8 +224,7 @@ class LayoutEditorManagerView(
             onWideAspectPicked = { wideAspect ->
                 // Widening works from the stored rects, and the editor on the other display may have changed meanwhile
                 listener?.onStoreLayoutChanges()
-                // If the layout shown changes, it's shown again, which deselects the top screen. Select it again then, so its controls stay open.
-                // The reselection is armed first, and disarmed if nothing is shown again, so it can't fire on some later unrelated change
+                // Reselect the top screen across the reshow the ratio change causes, disarmed if nothing is reshown so it can't fire later
                 binding.viewLayoutEditor.reselectAfterNextLayout(LayoutComponent.TOP_SCREEN)
                 if (!viewModel.setWideAspect(wideAspect)) {
                     binding.viewLayoutEditor.reselectAfterNextLayout(null)
@@ -236,7 +233,7 @@ class LayoutEditorManagerView(
         )
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
-            // The status bar is included so that the editor's own controls stay clear of it when it's shown. Only used for these controls, not the layouts
+            // Includes the status bar so the editor's own controls, not the layouts, stay clear of it
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.statusBars())
             if (insets.top != topControlInset) {
                 topControlInset = insets.top
@@ -286,7 +283,7 @@ class LayoutEditorManagerView(
 
     fun handleBackNavigation() {
         if (itemControls.isShown) {
-            // Same as the Done button. Deselecting also hides the item controls
+            // Same as the Done button, which also hides the item controls
             binding.viewLayoutEditor.deselectSelectedView()
         } else {
             openMenu()
@@ -294,8 +291,7 @@ class LayoutEditorManagerView(
     }
 
     /**
-     * Called by the host once the dialogs are closed and the editor is back to the size of the layout shown, or that layout has been replaced. See
-     * [LayoutEditorManagerListener.onEditorDialogHidden]
+     * Called by the host once the dialogs are closed and the editor is back to size.
      */
     fun onEditorSettled() {
         editorSizeBeforeDialogs = null
@@ -359,7 +355,7 @@ class LayoutEditorManagerView(
             openMenu()
         }
         button.setOnLongClickListener {
-            // Only start dragging from a touch long press. Long presses from a gamepad or accessibility services are left to the default handling
+            // Only start dragging from a touch long press, leaving gamepad and accessibility long presses to the default handling
             if (!isTouchActive) {
                 return@setOnLongClickListener false
             }
@@ -368,7 +364,7 @@ class LayoutEditorManagerView(
             button.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             true
         }
-        // Only handles dragging after a long press. Everything else goes through to the button so that clicks and long presses keep working
+        // Only handles dragging after a long press, so clicks and long presses still reach the button
         button.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -393,7 +389,7 @@ class LayoutEditorManagerView(
                         if (event.actionMasked == MotionEvent.ACTION_UP) {
                             saveFloatingMenuButtonPosition()
                         } else {
-                            // The gesture was taken away. Put the button back where it was
+                            // The gesture was taken away, so put the button back where it was
                             moveFloatingMenuButton(downX, downY)
                         }
                         itemControls.onMenuButtonMoved()
@@ -522,7 +518,7 @@ class LayoutEditorManagerView(
     }
 
     /**
-     * Shows the snap grid setting. Changes are saved right away, and the editors pick them up from the preferences.
+     * Shows the snap grid setting, saved straight to the preferences the editors read.
      */
     private fun openGridDialog() {
         val gridSettings = LayoutEditorGridSettings(context)
