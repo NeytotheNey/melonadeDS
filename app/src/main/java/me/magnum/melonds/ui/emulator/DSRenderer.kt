@@ -486,7 +486,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
                     GLES30.glDrawArrays(GLES30.GL_TRIANGLES, firstVertex, VERTICES_PER_SCREEN)
 
                     if (overlayScreens and screen != 0) {
-                        useOverlayShader(presentFrameWrapper.overlayTextureId)
+                        useScreenQuadShader(overlayShader, presentFrameWrapper.overlayTextureId)
                         GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
                         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, screenIndices + firstVertex, VERTICES_PER_SCREEN)
                         // Everything else (the other screen, and the next frame's background and shadows) is blended with straight alpha
@@ -505,10 +505,6 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         shader.setTextureSize(textureWidth, textureHeight)
         shader.setTopScreenWidth(topScreenWidth)
         shader.setBottomScreenWide(isBottomScreenWideInQuads)
-    }
-
-    private fun useOverlayShader(overlayTextureId: Int) {
-        useScreenQuadShader(overlayShader, overlayTextureId)
     }
 
     /**
