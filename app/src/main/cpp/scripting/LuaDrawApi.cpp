@@ -7,20 +7,18 @@ using namespace melonDS;
 namespace MelonDSAndroid
 {
 
-// melon.draw: each recorded call costs this much work, plus a step per pixel it draws (after clipping) and, for text, per byte. A callback's
-// budget covers about 100 draws of a whole screen
+// melon.draw: each recorded call costs this much work, plus a step per pixel it draws (after clipping) and, for text, per byte
 static const lua_Integer kDrawCallCost = 32;
 // An image pixel is read from the image, and often scaled by alpha and blended, so it costs more than a filled rectangle's
 static const lua_Integer kImageStepsPerPixel = 2;
 static const size_t kMaxDrawCommands = 4096;
 static const char* const kDrawLimitError = "drew too much in one frame (over 4096 draw calls)";
-// Text a script can draw in one frame. It's kept outside the Lua memory limit, so it has a cap of its own
+// Text a script can draw in one frame, capped on its own since it's kept outside the Lua memory limit
 static const size_t kMaxDrawTextBytes = 64 * 1024;
 static const char* const kDrawTextLimitError = "drew too much text in one frame (over 64 KB)";
-// Coordinates are capped this far out, in overlay pixels, so that clipping and pixel counts can't overflow. Only a line with an end further out
-// than that could change (its slope), and it would be over a billion screens away
+// Coordinates are capped this far out, in overlay pixels, so that clipping and pixel counts can't overflow
 static const double kMaxCoordinate = (double) (1ll << 40);
-// melon.draw.image: src rectangles are capped this far out (in image pixels) so that their maths can't overflow, which only changes
+// melon.draw.image: src rectangles are capped this far out (in image pixels) so that their math can't overflow, which only changes
 // rectangles that couldn't be seen anyway
 static const lua_Integer kMaxImageOffset = 1 << 30;
 
@@ -35,7 +33,7 @@ void LuaDrawApi::clearCommands(LuaScript& script)
     script.drawCommands.clear();
     script.drawText.clear();
 
-    // Lets this frame's images be collected again. Setting fields that are there to nil never allocates, so this can't raise an error
+    // Lets this frame's images be collected again, which can't raise an error since setting existing fields to nil never allocates
     if (script.L && script.drawnImageCount > 0)
     {
         lua_rawgeti(script.L, LUA_REGISTRYINDEX, script.drawnImagesRef);
@@ -83,7 +81,7 @@ void LuaDrawApi::rasterize(const LuaScript& script, LuaOverlay& overlay)
 }
 
 /**
- * A coordinate in DS pixels as overlay pixels, rounded to the nearest half DS pixel. [argument] is the one an error points at
+ * A coordinate in DS pixels as overlay pixels, rounded to the nearest half DS pixel, with errors pointing at [argument]
  */
 static int64_t toOverlayCoordinate(lua_State* L, lua_Number value, int argument)
 {
@@ -104,7 +102,7 @@ static LuaOverlay::Screen checkScreen(lua_State* L, int argument)
 }
 
 /**
- * 0xAARRGGBB, masked to 32 bits (so -1 is opaque white), premultiplied. There's no default alpha: 0xFF0000 is transparent
+ * 0xAARRGGBB, masked to 32 bits (so -1 is opaque white) and premultiplied, with no default alpha (0xFF0000 is transparent)
  */
 static u32 checkColor(lua_State* L, int argument)
 {
@@ -112,10 +110,8 @@ static u32 checkColor(lua_State* L, int argument)
 }
 
 /**
- * Records a draw command of [pixelCount] pixels for the running script and charges its work. (x0, y0, x1, y1) are what [type] keeps in the
- * command's geometry fields, and must fit in an int. Returns null when there's nothing to draw: outside on_frame() and on_frame_end(), or when
- * none of it can be seen ([pixelCount] is 0). Raises an error once the script has drawn too much this frame (both callbacks together): too many
- * calls, or more than kMaxDrawTextBytes of text once [textLength] more is added
+ * Records a draw command of [pixelCount] pixels for the running script and charges its work, or returns null outside on_frame() and
+ * on_frame_end() or when [pixelCount] is 0; (x0, y0, x1, y1) go in the command's geometry fields and must fit in an int
  */
 LuaDrawCommand* LuaDrawApi::addDrawCommand(lua_State* L, LuaDrawCommand::Type type, LuaOverlay::Screen screen, int64_t x0, int64_t y0, int64_t x1, int64_t y1, u32 color, int64_t pixelCount, size_t textLength)
 {
@@ -181,7 +177,7 @@ int LuaDrawApi::rect(lua_State* L)
     u32 color = checkColor(L, 6);
     bool isFilled = lua_toboolean(L, 7) != 0;
 
-    // The far edges are rounded on their own, so that rectangles side by side meet. A width or height of 0 or less draws nothing
+    // The far edges are rounded on their own, so that rectangles side by side meet
     LuaOverlay::Rect rect = {
         toOverlayCoordinate(L, x, 2),
         toOverlayCoordinate(L, y, 3),
@@ -235,8 +231,7 @@ int LuaDrawApi::text(lua_State* L)
 
     if (color != 0 || background != 0)
     {
-        // The box's area covers the glyphs as well as the background. Text whose box can be seen starts at an int: a frame's text is at most
-        // kMaxDrawTextBytes, and glyphs are at most 14 pixels wide at size 1
+        // The box's area covers the glyphs as well as the background, and a box that can be seen starts at an int (text is capped per frame)
         LuaOverlay::Rect box = { x, y, x + width, y + size.lineCount * LuaOverlay::kLineHeight * textSize };
         if (LuaDrawCommand* command = addDrawCommand(L, LuaDrawCommand::Type::Text, screen, x, y, textSize, 0, color, LuaOverlay::clippedArea(box), length))
         {
@@ -265,8 +260,8 @@ int LuaDrawApi::circle(lua_State* L)
     u32 color = checkColor(L, 5);
     bool isFilled = lua_toboolean(L, 6) != 0;
 
-    // A radius of 0 or less (after rounding to half a pixel) draws nothing. A circle whose square around it is off-screen can't be seen either,
-    // which also keeps the middle close enough to the screen for getCircleRowSpans()
+    // Nothing to draw for a radius of 0 or less, or a square around the circle that is off-screen, which also keeps the middle close enough to
+    // the screen for getCircleRowSpans()
     radius = std::min(radius, LuaOverlay::kMaxCircleRadius);
     if (color == 0 || radius <= 0 || LuaOverlay::clippedArea({ middleX - radius, middleY - radius, middleX + radius, middleY + radius }) == 0)
         return 0;
@@ -361,8 +356,7 @@ int LuaDrawApi::image(lua_State* L)
     if (pixelCount == 0 || !script.engine->isDrawingAllowed)
         return 0;
 
-    // Anchored before the command is added, so that no command can point at an image that could be collected. The table only holds them until
-    // the next frame, and at most one per command (plus the one whose command went over the limit)
+    // Anchored before the command is added, so that no command can point at an image that could be collected
     lua_rawgeti(L, LUA_REGISTRYINDEX, script.drawnImagesRef);
     lua_pushvalue(L, 4);
     lua_rawseti(L, -2, script.drawnImageCount + 1);
