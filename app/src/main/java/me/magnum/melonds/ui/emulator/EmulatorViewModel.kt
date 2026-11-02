@@ -479,24 +479,31 @@ class EmulatorViewModel @Inject constructor(
     }
 
     private fun stopEmulator() {
-        endLuaUiSession()
+        endSession()
         viewModelScope.launch {
             _achievementsEvent.emit(RAEventUi.Reset)
         }
-        performanceLogger.stopSession()
-        // Stop session jobs (RA heartbeat, play time) so they don't outlive the native instance
-        sessionCoroutineScope.cancel()
-        emulatorManager.stopEmulator()
         screenshotFrameBufferProvider.clearBuffer()
     }
 
     private fun stopEmulatorAndExit() {
-        endLuaUiSession()
-        performanceLogger.stopSession()
+        endSession()
+        _uiEvent.tryEmit(EmulatorUiEvent.CloseEmulator)
+    }
+
+    /**
+     * Ends the session's Lua UI events and performance log, then stops its jobs and the native instance
+     */
+    private fun endSession() {
+        endSessionTracking()
         // Stop session jobs (RA heartbeat, play time) so they don't outlive the native instance
         sessionCoroutineScope.cancel()
         emulatorManager.stopEmulator()
-        _uiEvent.tryEmit(EmulatorUiEvent.CloseEmulator)
+    }
+
+    private fun endSessionTracking() {
+        endLuaUiSession()
+        performanceLogger.stopSession()
     }
 
     private fun startTrackingPlayTime(rom: Rom) {
@@ -760,8 +767,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     private fun resetEmulatorState(newState: EmulatorState) {
-        endLuaUiSession()
-        performanceLogger.stopSession()
+        endSessionTracking()
         sessionCoroutineScope.notifyNewSessionStarted()
         emulatorSession.reset()
         raSessionJob = null
