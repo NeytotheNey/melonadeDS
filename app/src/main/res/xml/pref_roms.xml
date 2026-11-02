@@ -8,11 +8,7 @@
         <me.magnum.melonds.ui.settings.preferences.StoragePickerPreference
                 android:key="rom_search_dirs"
                 android:title="@string/rom_search_directory"
-                android:widgetLayout="@layout/preference_widget_chevron"
-                app:selection="multi"
-                app:type="directory"
-                app:permissions="read_write"
-                app:persistPermissions="true" />
+                app:selection="multi" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/settings_section_icons">

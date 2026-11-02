@@ -31,10 +31,11 @@ open class StoragePickerPreference(context: Context, attrs: AttributeSet?) : Pre
     private var mimeType: String?
 
     init {
+        widgetLayoutResource = R.layout.preference_widget_chevron
         multiSelection = false
-        selectionType = SelectionType.FILE
-        permissions = Permission.READ
-        persistPermissions = false
+        selectionType = SelectionType.DIRECTORY
+        permissions = Permission.READ_WRITE
+        persistPermissions = true
         mimeType = null
         initAttributes(attrs)
     }
@@ -56,7 +57,7 @@ open class StoragePickerPreference(context: Context, attrs: AttributeSet?) : Pre
 
         val attrArray = context.theme.obtainStyledAttributes(attrs, R.styleable.DirectoryPickerPreference, 0, 0)
         val count = attrArray.indexCount
-        for (i in 0..count) {
+        for (i in 0 until count) {
             val attr = attrArray.getIndex(i)
             when (attr) {
                 R.styleable.DirectoryPickerPreference_selection -> multiSelection = attrArray.getInt(R.styleable.DirectoryPickerPreference_selection, 0) == 1

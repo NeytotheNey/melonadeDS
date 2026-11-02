@@ -51,10 +51,6 @@
         <!-- Enabled while either log is on (set up in PerformancePreferencesFragment) -->
         <me.magnum.melonds.ui.settings.preferences.StoragePickerPreference
                 android:key="perf_log_dir"
-                android:title="@string/performance_log_directory"
-                android:widgetLayout="@layout/preference_widget_chevron"
-                app:type="directory"
-                app:permissions="read_write"
-                app:persistPermissions="true" />
+                android:title="@string/performance_log_directory" />
     </PreferenceCategory>
 </PreferenceScreen>

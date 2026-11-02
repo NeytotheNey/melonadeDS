@@ -38,10 +38,8 @@
                 android:key="dsi_camera_static_image"
                 android:title="@string/dsi_camera_image"
                 android:dependency="dsi_camera_source"
-                android:widgetLayout="@layout/preference_widget_chevron"
                 app:type="file"
                 app:permissions="read"
-                app:persistPermissions="true"
                 app:mimeType="image/jpeg|image/png" />
     </PreferenceCategory>
 </PreferenceScreen>
