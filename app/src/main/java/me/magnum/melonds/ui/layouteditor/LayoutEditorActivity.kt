@@ -159,14 +159,11 @@ class LayoutEditorActivity : AppCompatActivity() {
         }
     }
 
-    // The layout shown is picked for the editor's size, insets, folds, orientation and the connected displays. While one of the editors has a
-    // dialog open, those aren't updated: its keyboard makes Android show the navigation bar, which shrinks the editor, and the layout picked for
-    // that size would replace the one being edited (deselecting the item a value is being entered for). They're caught up once the dialogs are
-    // closed and the editor has settled
+    // Layout-variant inputs are held back while an editor dialog is open, so the keyboard can't swap the layout being edited
     private var shownEditorDialogs = 0
     private var isWaitingForEditorToSettle = false
     private val editorSettledRunnable = Runnable { onEditorSettled() }
-    // The insets, folds and displays as last received. The size and orientation are read when needed
+    // The insets, folds and displays as last received, while the size and orientation are read when needed
     private var latestInputs = LayoutVariantInputs()
     private var reportedInputs = LayoutVariantInputs()
 
@@ -306,9 +303,7 @@ class LayoutEditorActivity : AppCompatActivity() {
     }
 
     /**
-     * Gives the view model what the layout shown is picked for, after storing the changes made to the layout shown so far. Only done when one of
-     * them changed, since storing shows the layout again, which deselects the selected item. Held while an editor dialog is open, see
-     * [shownEditorDialogs]
+     * Pushes changed variant inputs to the view model after storing the shown layout, only when one changed since storing deselects the item.
      */
     private fun updateLayoutVariantInputs() {
         if (shownEditorDialogs > 0 || isWaitingForEditorToSettle) return
@@ -329,8 +324,7 @@ class LayoutEditorActivity : AppCompatActivity() {
     }
 
     /**
-     * Once the editor dialogs are closed, waits for the keyboard to go: the editor is back to the size of the layout shown, or the navigation bar
-     * that Android shows with the keyboard is gone (the editor always hides it). If the size changed for another reason, the new layout is shown then.
+     * After the dialogs close, waits until the keyboard is gone or the editor is back to size.
      */
     private fun checkEditorSettled() {
         if (!isWaitingForEditorToSettle || shownEditorDialogs > 0) return
@@ -430,7 +424,7 @@ class LayoutEditorActivity : AppCompatActivity() {
 }
 
 /**
- * What the layout editor's shown layout variant is picked for. Null means not known yet, or unchanged in [changedSince]'s result.
+ * What the layout editor's shown layout variant is picked for, with null for not known yet (or unchanged, in [changedSince]'s result).
  */
 private data class LayoutVariantInputs(
     val uiSize: Point? = null,

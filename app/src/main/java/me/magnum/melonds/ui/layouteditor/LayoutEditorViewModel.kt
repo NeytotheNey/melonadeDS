@@ -43,12 +43,11 @@ class LayoutEditorViewModel @Inject constructor(
 ) : ViewModel() {
 
     /**
-     * The configuration as it was when the editor was opened or when it was last saved. Used to revert changes and to detect unsaved changes.
+     * The configuration as opened or last saved, for revert and unsaved-change detection.
      */
     private var initialLayoutConfiguration: LayoutConfiguration? = null
     private var currentLayoutVariant: UILayoutVariant? = null
-    // The ratio of a new layout made as a wide one (LayoutEditorActivity.KEY_NEW_LAYOUT_WIDE_ASPECT). Until it's first saved, each variant
-    // it's shown in gets its top screen widened, so a variant that only settles after the first one (size, insets, rotation) gets it too
+    // Ratio of a new wide layout, applied to each variant it's shown in until the first save
     private var newLayoutWideAspect: WidescreenAspect? = null
 
     private val _currentLayoutConfiguration = MutableStateFlow<LayoutConfiguration?>(null)
@@ -222,8 +221,7 @@ class LayoutEditorViewModel @Inject constructor(
     }
 
     /**
-     * Whether the current configuration differs from the one that was opened or last saved. Layout changes made in the editor views must be stored in the
-     * current configuration before calling this.
+     * Whether the configuration differs from the opened or saved one; editor changes must be stored in it first.
      */
     fun hasUnsavedChanges(): Boolean {
         val currentConfiguration = _currentLayoutConfiguration.value ?: return false
@@ -291,9 +289,7 @@ class LayoutEditorViewModel @Inject constructor(
     }
 
     /**
-     * Sets the widescreen ratio of the variant shown, from the top screen's Wide menu. Picking a ratio (even the same one again) places its top
-     * screen for it, and Off makes it a normal variant with the rects as they are. Other variants keep theirs. Layout changes made in the editor
-     * views must be stored in the current configuration first. Returns whether the layout shown changes, in which case it's shown again
+     * Sets the shown variant's widescreen ratio (re-placing its top screen) and returns whether the shown layout changes; store editor changes first.
      */
     fun setWideAspect(wideAspect: WidescreenAspect?): Boolean {
         val currentConfiguration = _currentLayoutConfiguration.value ?: return false
@@ -306,8 +302,7 @@ class LayoutEditorViewModel @Inject constructor(
     }
 
     /**
-     * [layoutVariants] with the variant shown at [wideAspect], its top screen placed for it the same way it's widened in game (unless it's
-     * null). The variant shown is saved as it's shown, so that the change can be seen right away even if it was never edited
+     * [layoutVariants] with the shown variant saved at [wideAspect], its top screen widened the way it is in game.
      */
     private fun getVariantsWithShownAspect(layoutVariants: Map<UILayoutVariant, UILayout>, wideAspect: WidescreenAspect?): Map<UILayoutVariant, UILayout> {
         val currentVariant = currentLayoutVariant ?: return layoutVariants
