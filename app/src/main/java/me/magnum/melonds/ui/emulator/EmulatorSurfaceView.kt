@@ -50,8 +50,7 @@ class EmulatorSurfaceView(context: Context, attrs: AttributeSet? = null) : Surfa
     }
 
     /**
-     * While enabled (frame pacing on and not fast-forwarding), the surface asks for a refresh rate compatible with 60 FPS, so that every emulator
-     * frame can stay on screen for the same number of refreshes. Must be called from the main thread.
+     * While enabled, the surface asks for a 60 FPS-compatible refresh rate so each frame stays up for the same number of refreshes; main thread only.
      */
     fun setPacedFrameRateEnabled(enabled: Boolean) {
         if (enabled == isPacedFrameRateEnabled) {
@@ -97,7 +96,7 @@ class EmulatorSurfaceView(context: Context, attrs: AttributeSet? = null) : Surfa
                 surface.setFrameRate(frameRate, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
             }
         } catch (e: Exception) {
-            // Thrown if the surface was released in the meantime. The frame rate is applied again when the next surface is created
+            // Thrown if the surface was released meanwhile; the frame rate is applied again to the next surface
             Log.w(TAG, "Failed to set the surface frame rate", e)
         }
     }
@@ -123,13 +122,13 @@ class EmulatorSurfaceView(context: Context, attrs: AttributeSet? = null) : Surfa
     }
 
     /**
-     * Stops the surface and frees the renderer's GL objects, for when it won't draw again. Must be called on the render thread.
+     * Stops the surface and frees the renderer's GL objects for when it won't draw again; render thread only.
      */
     fun releaseRenderer(glContext: GlContext) {
         synchronized(surfaceLock) {
             surfaceRenderer?.stop(glContext)
             try {
-                // There may be no window surface left, so use the pbuffer. Without a current context the GL objects wouldn't be freed
+                // There may be no window surface left, so use the pbuffer, since GL objects are only freed with a current context
                 glContext.useWithoutSurface()
             } catch (e: GlContext.GlContextException) {
                 Log.w(TAG, "Failed to make the GL context current to release the renderer", e)

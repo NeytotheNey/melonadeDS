@@ -26,13 +26,12 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.roundToInt
 
-// Screen shadow: its radius is this share of the screen's shorter side, but never less than the minimum (in surface pixels). The strength is
-// the shadow's alpha at the screen's edge
+// Screen shadow: radius as a share of the screen's shorter side with a minimum in surface pixels, and alpha at the screen's edge
 private const val SHADOW_RADIUS_FACTOR = 0.06f
 private const val SHADOW_MIN_RADIUS = 8
 private const val SHADOW_STRENGTH = 0.6f
 
-// Screen and shadow vertices: position (2), UVs or distance outside the screen (2) and alpha (1). Background vertices have no alpha
+// Screen and shadow vertices: position (2), UVs or distance outside the screen (2) and alpha (1); background vertices have no alpha
 private const val FLOATS_PER_VERTEX = 5
 private const val BACKGROUND_FLOATS_PER_VERTEX = 4
 private const val VERTICES_PER_SCREEN = 6
@@ -48,27 +47,22 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var backgroundTexture = 0
 
     private var screenFilter: VideoFilterPipeline? = null
-    // Settings the screen filter was built with. It's only rebuilt when they change, or after the GL objects are recreated. Only accessed on the
-    // GL thread
+    // Settings the screen filter was built with, so it's only rebuilt when they change; GL thread only
     private var screenFilterFiltering: VideoFiltering? = null
     private var screenFilterDsScreenColors = false
     private var mustRebuildScreenFilter = true
     private lateinit var backgroundShader: Shader
     private lateinit var shadowShader: Shader
     private lateinit var overlayShader: Shader
-    // Whether the shaders above exist. Program names are shared with the emulator's context, so deleting them twice could free a program that
-    // reused the name
+    // Whether the shaders above exist; program names are shared with the emulator's context, so deleting one twice could free a reused name
     private var areShadersCreated = false
 
     private var screensVbo = 0
     private var screensVao = 0
     private var screenIndices = 0
-    // The DS screen of each quad in screensVbo, in draw order (OVERLAY_SCREEN_TOP or OVERLAY_SCREEN_BOTTOM), so that each one's Lua drawings
-    // can go right after it. The Lua drawings' own quads follow the screens' ones in the buffer, in the same order
+    // The DS screen (OVERLAY_SCREEN_TOP or OVERLAY_SCREEN_BOTTOM) of each quad in screensVbo in draw order, so its Lua drawings can go right after it
     private var screenQuadScreens = IntArray(0)
-    // PresentFrameWrapper.topScreenWidth of the frame that the quads were built for. They're built again when a frame of another width comes,
-    // so a SCREEN_WIDTH frame (widescreen off, another renderer, or a frame from before the width changed) always draws as without widescreen.
-    // Only changed on the GL thread. The touch screen input reads it to take touches where this draws the bottom screen
+    // Top-screen width of the frame the quads were built for; GL thread writes, touch input reads
     @Volatile
     var frameTopScreenWidth = SCREEN_WIDTH
         private set
@@ -92,11 +86,9 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var bottomOnTop: Boolean = false
     // Whether the layout is a wide one (LayoutConfiguration.isWide), whose top rects are placed by the player for each variant
     private var isWideLayout: Boolean = false
-    // Whether the screens are swapped, so that bottomScreenRect is the top screen's rect in the layout, and the bottom screen is the one drawn
-    // wide
+    // Whether the screens are swapped, so bottomScreenRect is the layout's top rect and the bottom screen is the one drawn wide
     private var areScreensSwapped: Boolean = false
-    // areScreensSwapped as it was when the quads were built, which the filters are given so that they keep the same screen's sides. Only
-    // accessed on the GL thread
+    // areScreensSwapped as it was when the quads were built, given to the filters so they keep the same screen's sides; GL thread only
     private var isBottomScreenWideInQuads = false
 
     private var width = 0f
@@ -160,7 +152,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         GLES30.glDisable(GLES30.GL_CULL_FACE)
 
-        // Called again when the render mode or the surface size changes, in the same GL context. Free what the previous call created
+        // Called again in the same GL context when the render mode or surface size changes, so free what the previous call created
         deleteGlObjects()
 
         // Setup textures
@@ -254,15 +246,12 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         //   3                         5
         // Texture is vertically flipped
 
-        // The texture has 2 empty lines between the screens (SCREEN_GAP), one on each side of the middle. Take that into account when computing
-        // UVs
+        // The texture has 2 empty lines between the screens (SCREEN_GAP), one on each side of the middle
         val lineRelativeSize = 1f / FRAME_TEXTURE_HEIGHT.toFloat()
         val topScreenBottomV = 0.5f - lineRelativeSize
         val bottomScreenTopV = 0.5f + lineRelativeSize
 
-        // The screen in the layout's top screen rect (the bottom one when swapped) takes its half's whole width, and is drawn wider than its rect
-        // in a frame wider than SCREEN_WIDTH (widescreen). The other one is the middle SCREEN_WIDTH of its half, without the black bars beside it.
-        // The Lua drawings are always SCREEN_WIDTH wide, and stay on each screen's middle SCREEN_WIDTH part, where the 2D is
+        // Lay out both screens for the current frame width, swap and wide-layout flags (see getScreensDrawing)
         val drawing = getScreensDrawing(topScreenRect, bottomScreenRect, frameTopScreenWidth, isWideLayout, areScreensSwapped, width)
         isBottomScreenWideInQuads = areScreensSwapped
         val topScreen = drawing.topScreen
@@ -344,10 +333,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         val radius = (minOf(rect.width, rect.height) * SHADOW_RADIUS_FACTOR).roundToInt().coerceAtLeast(SHADOW_MIN_RADIUS)
         val shadowAlpha = alpha * SHADOW_STRENGTH
 
-        // The shadow is a 3x3 grid of cells around the screen, without the middle one: the screen covers it, and leaving it out keeps a
-        // semi-transparent screen from being darkened by its own shadow. Each vertex gets how far it is outside the screen on each axis, in
-        // radii: 0 on the screen's edges and 1 on the shadow's. That distance is linear within every cell, so the interpolated value is exact
-        // and the shader only needs its length to get the distance to the screen's rectangle
+        // 3x3 grid of cells around the screen minus the center; each vertex carries its distance outside the screen in radii
         val xs = intArrayOf(rect.x - radius, rect.x, rect.x + rect.width, rect.x + rect.width + radius)
         val ys = intArrayOf(rect.y - radius, rect.y, rect.y + rect.height, rect.y + rect.height + radius)
         val distances = floatArrayOf(1f, 0f, 0f, 1f)
@@ -405,7 +391,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private fun updateShader() {
         val filtering = rendererConfiguration?.videoFiltering ?: VideoFiltering.NONE
         val dsScreenColors = rendererConfiguration?.dsScreenColors ?: false
-        // Fold and layout changes also end up here. Building the filter compiles its shaders, so it's only done when it changes
+        // Building the filter compiles its shaders, so it's only done when the filter changes
         if (!mustRebuildScreenFilter && filtering == screenFilterFiltering && dsScreenColors == screenFilterDsScreenColors) {
             return
         }
@@ -444,8 +430,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             }
         }
 
-        // Runs before anything is drawn to the surface. Returns the frame texture itself for filters without pre-passes. Also called for
-        // invalid frames, which clear its cache
+        // Pre-passes must run before anything is drawn to the surface; also called for invalid frames to clear the cache
         val screenTexture = screenFilter?.renderPrePasses(presentFrameWrapper, isBottomScreenWideInQuads)
 
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
