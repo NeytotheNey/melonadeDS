@@ -11,8 +11,7 @@ extern "C"
 {
 
 /**
- * The string in a string field, or "" if it's null. Also "" when the JVM is out of memory, with an OutOfMemoryError pending: callers check
- * ExceptionCheck() and give up
+ * The string in a string field, or "" if it's null or the JVM is out of memory, which callers catch with ExceptionCheck()
  */
 static std::string getString(JNIEnv* env, jobject object, jfieldID field)
 {
@@ -29,8 +28,7 @@ static std::string getString(JNIEnv* env, jobject object, jfieldID field)
 }
 
 /**
- * The bytes of a byte array field, or nothing if it's null. Sources come as bytes, since modified UTF-8 can't carry everything a Lua file may
- * contain
+ * The bytes of a byte array field, or nothing if it's null
  */
 static std::optional<std::string> getBytes(JNIEnv* env, jobject object, jfieldID field)
 {
@@ -243,9 +241,8 @@ Java_me_magnum_melonds_MelonEmulator_restartLuaScript(JNIEnv* env, jobject thiz,
 }
 
 /**
- * Takes the storage snapshots waiting in the outbox, as LuaScriptDataSnapshot objects. The outbox isn't part of the emulator instance, so this
- * also works after the emulator stopped. If the objects can't be made (out of memory), the snapshots go back in the outbox for the next drain
- * and the exception is left for the app
+ * Takes the storage snapshots waiting in the outbox as LuaScriptDataSnapshot objects, putting them back for the next drain (and leaving the
+ * exception for the app) if the objects can't be made
  */
 JNIEXPORT jobjectArray JNICALL
 Java_me_magnum_melonds_MelonEmulator_drainLuaData(JNIEnv* env, jobject thiz)
