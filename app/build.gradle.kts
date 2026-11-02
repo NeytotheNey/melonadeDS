@@ -47,7 +47,7 @@ android {
         }
     }
     androidResources {
-        // The app is English only. This also drops the translations that libraries bring in.
+        // English only, which also drops the translations that libraries bring in
         localeFilters += listOf("en")
     }
     buildFeatures {
@@ -148,7 +148,7 @@ aboutLibraries {
         requireLicense = true
     }
     license {
-        // Fail the build on a licence that config/licenses has no text for; the BSD map lists the libraries whose notices the shared entries hold
+        // Fail the build on a license that config/licenses has no text for; the BSD map lists the libraries whose notices the shared entries hold
         strictMode = com.mikepenz.aboutlibraries.plugin.StrictMode.FAIL
         allowedLicenses.addAll(
             "Apache-2.0", "0BSD", "CC0-1.0", "MIT", "Unlicense", "GPL-2.0-or-later", "GPL-3.0-only", "GPL-3.0-or-later", "LGPL-2.1-or-later",
