@@ -10,7 +10,7 @@ using namespace melonDS;
 namespace MelonDSAndroid
 {
 
-// VM instructions a script may run per call. The main chunk and on_load() get more room, since they may build tables
+// VM instructions a script may run per call, with more room for the main chunk and on_load(), which may build tables
 static const int kLoadInstructionLimit = 10'000'000;
 static const int kCallbackInstructionLimit = 1'000'000;
 // melon.storage: changed data is snapshotted at least this often, in frames (about 10 seconds)
@@ -54,7 +54,7 @@ void LuaEngine::start(NDS* newNds, std::shared_ptr<MelonEventMessenger> newEvent
         auto script = std::make_unique<LuaScript>();
         script->engine = this;
         script->id = (int) scripts.size();
-        // Lua cuts chunk names to 59 bytes, which could split a UTF-8 character in the error the player sees. Cut it here instead
+        // Lua cuts chunk names to 59 bytes, which could split a UTF-8 character in the error the player sees, so cut it here
         size_t chunkNameLength = std::min(source.name.size(), (size_t) LUA_IDSIZE - 1);
         while (chunkNameLength > 0 && chunkNameLength < source.name.size() && (source.name[chunkNameLength] & 0xC0) == 0x80)
             chunkNameLength--;
@@ -128,8 +128,7 @@ LuaInputOverride LuaEngine::runFrame(int frame, const LuaUserInput& userInput)
         script->release = 0;
     }
 
-    // A load from melon.state.load(), now that every script's on_frame() has run. The input changes were made for the state before it, so
-    // the frame runs with the player's own input
+    // A load from melon.state.load(), now that every script's on_frame() has run, after which the frame runs with the player's own input
     if (pendingStateLoadScript >= 0)
     {
         runPendingStateLoad();
@@ -181,8 +180,7 @@ void LuaEngine::freeStateSlots(LuaScript& script)
 
 void LuaEngine::endFrame()
 {
-    // Its own instruction budget. press()/release() calls here are kept for the next frame's input, since runFrame() only clears them once
-    // they've been applied
+    // press()/release() calls here are kept for the next frame's input, since runFrame() only clears them once they've been applied
     isDrawingAllowed = true;
     for (auto& script : scripts)
         callCallback(*script, "on_frame_end", nullptr, kCallbackInstructionLimit);
@@ -220,7 +218,7 @@ void LuaEngine::saveStorage(LuaScript& script)
         return;
 
     bool wasOutboxEmpty = LuaStorage::pushSnapshot({ script.source.dataGameKey, script.source.name, LuaStorage::encodeBlob(script.storage) });
-    // Only a wake-up: the app drains the outbox itself. While it isn't empty, the app has already been woken up
+    // Only a wake-up, needed only when the outbox was empty, since the app drains it itself
     if (wasOutboxEmpty && eventMessenger)
         eventMessenger->onLuaStorageSaved();
 
@@ -306,7 +304,7 @@ bool LuaEngine::loadScript(LuaScript& script)
 
 void LuaEngine::reloadScripts()
 {
-    // Scripts that were switched off before the reset stay off. An error in on_unload() doesn't stop the reload
+    // Scripts that were switched off before the reset stay off, and an error in on_unload() doesn't stop the reload
     std::vector<LuaScript*> runningScripts;
     isUnloading = true;
     for (auto& script : scripts)
@@ -340,8 +338,7 @@ void LuaEngine::applyPendingScriptSwitches()
     // In order, so a quick off-on-off ends up off
     for (ScriptSwitch& scriptSwitch : switches)
     {
-        // Ids are positions in [scripts]. Switching off one that is already off (after an error, say), or on one that runs, does nothing.
-        // A restart stops the script if it runs, then starts it
+        // Ids are positions in [scripts]; switching off one that is already off (after an error, say), or on one that runs, does nothing
         if (scriptSwitch.id < 0 || scriptSwitch.id >= (int) scripts.size())
             continue;
 
@@ -376,7 +373,7 @@ void LuaEngine::applyPendingScriptSwitches()
 
         if (mustStart)
         {
-            // Like the reset reload. A load or on_load() error switches it off again and tells the app
+            // Like the reset reload, so a load or on_load() error switches it off again and tells the app
             script.hasTouchPosition = false;
             if (loadScript(script))
                 callCallback(script, "on_load", gameCode.c_str(), kLoadInstructionLimit);
@@ -593,8 +590,7 @@ void LuaEngine::switchOff(LuaScript& script, const std::string& error)
 {
     LOG_WARN(TAG, "%s was switched off: %s", script.source.name.c_str(), error.c_str());
 
-    // The app only shows the first line, without the traceback. Errors in on_unload() are only logged, since the session is ending (or the
-    // script is about to be reloaded)
+    // The app only shows the first line, without the traceback, and isn't told about errors in on_unload()
     if (eventMessenger && !isUnloading)
         eventMessenger->onLuaScriptStopped(script.id, error.substr(0, error.find('\n')));
 
