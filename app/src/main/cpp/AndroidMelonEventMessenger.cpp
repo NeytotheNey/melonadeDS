@@ -102,8 +102,8 @@ void AndroidMelonEventMessenger::onLeaderboardAttemptCompleted(long leaderboardI
 
 void AndroidMelonEventMessenger::onLuaScriptStopped(int scriptId, const std::string& error)
 {
-    // The error is cut short to fit the event's data, which is enough for a toast (the full error goes to the log). It's cut before a UTF-8
-    // continuation byte, so that no character is split
+    // The error is cut short to fit the event's data, which is enough for a toast (the full error goes to the log), and before a UTF-8 continuation
+    // byte so no character is split
     struct {
         int32_t scriptId;
         int32_t errorSize;

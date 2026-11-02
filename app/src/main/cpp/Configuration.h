@@ -4,7 +4,7 @@
 #include <memory>
 #include "renderer/Renderer.h"
 
-// Frame rate the emulator runs at without fast-forward. Must match EMULATOR_TARGET_FPS in NDS.kt
+// Frame rate the emulator runs at without fast-forward; must match EMULATOR_TARGET_FPS in NDS.kt
 constexpr int EMULATOR_TARGET_FPS = 60;
 
 namespace MelonDSAndroid
@@ -96,13 +96,14 @@ typedef struct
     int rewindLengthSeconds;
     FirmwareConfiguration firmwareConfiguration;
     std::unique_ptr<RenderSettings> renderSettings;
-    // Draws the 2D layers on their own thread. Used by every renderer, so it's not in renderSettings
+    // Draws the 2D layers on their own thread, for every renderer, so it's not in renderSettings
     bool threaded2dRendering;
     // OpenGL and compute: VRAM display shows display capture redone at the internal resolution (GPU::HiresCapture)
     bool hiresCapture;
     // Puts the Lua scripts' drawings into savestate and rewind pictures
     bool luaDrawingsInScreenshots;
-    // WideMelon: width of the top screen's 3D view (even, 256..768). Anything else (0 when it's off) means 256. OpenGL and compute renderers only
+    // WideMelon: width of the top screen's 3D view (even, 256..768; anything else, 0 when it's off, means 256), on the OpenGL and compute renderers
+    // only
     int wideViewWidth;
     SdCardSettings dsiSdCardSettings;
     SdCardSettings dldiSdCardSettings;

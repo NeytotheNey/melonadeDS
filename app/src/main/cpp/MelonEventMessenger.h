@@ -23,8 +23,7 @@ public:
     virtual void onLeaderboardAttemptCanceled(long leaderboardId) = 0;
     virtual void onLeaderboardAttemptCompleted(long leaderboardId, int value, std::string formattedValue) = 0;
 
-    // Lua scripts. Called on the emulator thread
-    // [scriptId] is the script's position in the list the app sent
+    // Lua scripts, called on the emulator thread, where [scriptId] is the script's position in the list the app sent
     virtual void onLuaScriptStopped(int scriptId, const std::string& error) = 0;
     virtual void onLuaSwapScreens(int scriptId, bool swapped) = 0;
     virtual void onLuaShowControls(int scriptId, bool visible) = 0;
@@ -33,7 +32,7 @@ public:
     virtual void onLuaSetLayout(int scriptId, const std::string& optionKey) = 0;
     // A script loaded one of its savestates
     virtual void onLuaStateLoaded() = 0;
-    // Snapshots of the scripts' storage are waiting in LuaStorage's outbox. Only a wake-up, without data
+    // Snapshots of the scripts' storage are waiting in LuaStorage's outbox (a wake-up only, without data)
     virtual void onLuaStorageSaved() = 0;
 };
 

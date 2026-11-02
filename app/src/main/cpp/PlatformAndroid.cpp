@@ -65,7 +65,7 @@ namespace Platform
     void* ThreadEntry(void* data)
     {
         AndroidThread* thread = (AndroidThread*)data;
-        // Named from the thread itself, so the name is there before it runs any code. Linux names are at most 15 characters
+        // Named from the thread itself, so the name is there before it runs any code (Linux names are at most 15 characters)
         if (!thread->Name.empty())
             pthread_setname_np(pthread_self(), thread->Name.substr(0, 15).c_str());
         thread->Tid.store(gettid(), std::memory_order_release);
@@ -350,7 +350,7 @@ namespace Platform
         int result = pthread_create(&data->ID, nullptr, ThreadEntry, data);
         if (result != 0)
         {
-            // Null tells the caller there's no thread. Thread_Wait and Thread_Free accept it, so callers that don't check stay safe
+            // Null tells the caller there's no thread, and Thread_Wait and Thread_Free accept it, so callers that don't check stay safe
             Log(LogLevel::Error, "Failed to create thread %s (error %d)\n", data->Name.c_str(), result);
             delete data;
             return nullptr;

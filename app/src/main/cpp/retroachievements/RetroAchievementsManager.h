@@ -47,7 +47,7 @@ private:
     std::list<RALeaderboard> loadedLeaderboards;
     bool isRichPresenceEnabled;
 
-    // Failed peeks are logged once per session and counted. Guarded by runtimeLock
+    // Failed peeks, logged once per session and counted; guarded by runtimeLock
     unsigned unmappedPeekCount = 0;
     unsigned unsupportedPeekSizeCount = 0;
 

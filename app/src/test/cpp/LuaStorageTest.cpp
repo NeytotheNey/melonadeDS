@@ -1,6 +1,6 @@
 /*
- * Host test for scripting/LuaStorage (the melon.storage codec). Not part of the Gradle build: MODS.md ("Testing") has the build command.
- * Prints each failed check and exits with 1 if any failed.
+ * Host test for scripting/LuaStorage (the melon.storage codec) that prints each failed check and exits with 1 if any failed; it isn't part of
+ * the Gradle build, and MODS.md ("Testing") has the build command.
  */
 
 #include <cstdio>

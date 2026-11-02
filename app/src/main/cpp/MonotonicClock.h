@@ -5,7 +5,7 @@
 #include <ctime>
 
 /**
- * CLOCK_MONOTONIC now, in ns. The clock every frontend timestamp (frame pacing, vsyncs, diagnostics) is on.
+ * CLOCK_MONOTONIC now, in ns, the clock every frontend timestamp (frame pacing, vsyncs, diagnostics) is on.
  */
 inline int64_t monotonicNanos()
 {

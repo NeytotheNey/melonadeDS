@@ -12,8 +12,8 @@ public:
     explicit ThreadSafePerformanceHintSession(std::unique_ptr<PerformanceHintManager> manager);
     void createSession(pid_t threadId, int64_t targetDurationNs);
     /**
-     * Sets the threads that work for the session's thread (for example the core's 2D render thread), so they get the same boost. The
-     * session is created again with the new list, since changing the threads of a session needs API 34
+     * Sets the threads that work for the session's thread (the core's 2D render thread, say) so they get the same boost, by creating the session
+     * again, since changing a session's threads needs API 34
      */
     void setHelperThreads(const std::vector<pid_t>& helperThreadIds);
     void reportActualWorkDuration(int64_t actualDurationNs);

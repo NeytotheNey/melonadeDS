@@ -84,7 +84,7 @@ Java_me_magnum_melonds_MelonDSiNand_listTitles(JNIEnv* env, jobject thiz)
         u32 titleId = *it;
         jobject titleData = getTitleData(env, category, titleId);
         env->CallVoidMethod(jniTitleList, listAddMethod, index++, titleData);
-        // The list holds its own reference. Free the local one so they don't pile up with many titles
+        // The list holds its own reference, so free the local one before they pile up with many titles
         env->DeleteLocalRef(titleData);
     }
 
