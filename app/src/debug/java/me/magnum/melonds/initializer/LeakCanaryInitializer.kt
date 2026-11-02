@@ -11,14 +11,10 @@ import leakcanary.LeakCanary
 import me.magnum.melonds.ui.emulator.EmulatorActivity
 
 /**
- * Debug builds only, like LeakCanary itself. A heap dump freezes the app for a few seconds, so LeakCanary is set up to never dump the heap on
- * its own while a game is open:
- * - While an [EmulatorActivity] exists (in the foreground or not), heap dumps are disabled. Destroyed objects are still watched, but retained ones
- *   are only checked once the game is closed. That also skips the GC LeakCanary forces every 2 s while it waits on retained objects
- * - Otherwise, the heap isn't dumped automatically while the app is visible. The retained objects notification can be tapped to dump it, and it's
- *   dumped automatically once the app has been in the background for a few seconds
- *
- * "Dump Heap Now" in the Leaks app (Heap Dumps tab) always works, game or not.
+ * Debug-only LeakCanary setup that never dumps the heap on its own while a game is open, since a dump freezes the app for a few seconds:
+ * dumps are off while an [EmulatorActivity] exists (retained objects are checked once the game closes, which also skips LeakCanary's forced
+ * GC every 2 s), otherwise a visible app only dumps from the notification or after a few seconds in the background, and "Dump Heap Now" in
+ * the Leaks app always works.
  */
 class LeakCanaryInitializer : Initializer<Unit> {
 
@@ -31,7 +27,7 @@ class LeakCanaryInitializer : Initializer<Unit> {
     override fun dependencies(): List<Class<out Initializer<*>>> = emptyList()
 
     /**
-     * Disables heap dumps while an [EmulatorActivity] exists. Lifecycle callbacks run on the main thread.
+     * Disables heap dumps while an [EmulatorActivity] exists, counting them on the main thread where lifecycle callbacks run.
      */
     private class EmulatorHeapDumpBlocker : Application.ActivityLifecycleCallbacks {
 
