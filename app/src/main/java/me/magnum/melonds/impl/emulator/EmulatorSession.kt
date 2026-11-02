@@ -61,7 +61,7 @@ class EmulatorSession {
         return isRetroAchievementsHardcoreModeEnabled
     }
 
-    // RA hardcore bans save-state loads, cheats and scripting. Widescreen is still allowed
+    // RA hardcore bans save-state loads, cheats and scripting, but not widescreen
     private val isHardcoreActive: Boolean get() = isRetroAchievementsHardcoreModeEnabled && areRetroAchievementsEnabled
 
     fun areSaveStateLoadsAllowed(): Boolean = !isHardcoreActive

@@ -64,9 +64,8 @@ class AndroidEmulatorManager(
 
     private val achievementsSharedFlow = MutableSharedFlow<RAEvent>(replay = 0, extraBufferCapacity = Int.MAX_VALUE)
 
-    // The session's Lua scripts. Replaced at launch. The running set is shrunk by the message queue thread when an error switches a script
-    // off, and changed by the UI thread when the player switches one off or on, so changes go through luaScriptsLock and replace the whole
-    // state, which readers take without the lock
+    // The session's Lua scripts, changed by the message queue and UI threads under luaScriptsLock as whole-state replacements that readers
+    // take without the lock
     private val luaScriptsLock = Any()
     @Volatile
     private var luaScriptsState = LuaScriptsState.EMPTY
@@ -75,7 +74,7 @@ class AndroidEmulatorManager(
     @Volatile
     private var romWideViewWidth = 0
 
-    // Writes the scripts' storage snapshots. Snapshots are drained and written under luaDataLock, so an older one can't overwrite a newer one
+    // Writes the scripts' storage snapshots, drained and written under luaDataLock so an older one can't overwrite a newer one
     private val luaDataScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val luaDataLock = Any()
 
@@ -381,8 +380,7 @@ class AndroidEmulatorManager(
     override fun stopEmulator() {
         DebugLog.event { "Stop" }
         MelonEmulator.stopEmulation()
-        // The scripts' last storage snapshots were made as the emulator stopped. They're written before this returns (they're small), so the
-        // ROM details screen shown next sees the newest data, and a Clear there can't be undone by a late write
+        // Written before this returns, so the ROM details screen shown next sees the newest data and a Clear there can't be undone by a late write
         saveLuaData()
         clearLuaScripts()
         cameraManager.stopCurrentCameraSource()
@@ -407,8 +405,8 @@ class AndroidEmulatorManager(
     }
 
     /**
-     * Reads the enabled scripts from the game's linked folder (see [LuaScriptStorage]) and gives them to the emulator. A script that can't be
-     * read is listed as switched off with the reason as its error, the same as a script that fails to load
+     * Reads the enabled scripts from the game's linked folder (see [LuaScriptStorage]) and gives them to the emulator, reporting unreadable ones
+     * as stopped.
      */
     private fun setupLuaScripts(luaScripts: List<RomLuaScript>, luaScriptFolder: Uri?, areStateLoadsAllowed: Boolean, getDataGameKey: () -> String?) {
         val enabledScripts = luaScripts.filter { it.enabled }
@@ -443,12 +441,10 @@ class AndroidEmulatorManager(
         if (loadedScripts.isNotEmpty()) {
             // Anything left from the last session is written first, so the data read below is the newest
             saveLuaData()
-            // Null if the ROM's header couldn't be read. The scripts then start with no data and keep it for the session only (native doesn't
-            // save without a key), rather than loading and saving under a guessed key
+            // Null if the ROM's header couldn't be read, in which case the scripts' data lives for the session only rather than under a guessed key
             val dataGameKey = getDataGameKey()
             luaScriptDataStore.setSessionGameKey(dataGameKey)
-            // Modules and images come from the whole folder tree. Without them the scripts still run, and require() or image.load() say
-            // what's missing
+            // Modules and images come from the whole folder tree; without them require() or image.load() say what's missing
             val folderContent = luaScriptFolder?.let { luaScriptStorage.readFolderContent(it) }
             DebugLog.event {
                 val modules = folderContent?.modules.orEmpty()
@@ -482,8 +478,7 @@ class AndroidEmulatorManager(
     }
 
     /**
-     * Writes the storage snapshots native has waiting. Called on an IO thread when native says there are some, after the emulator stopped,
-     * and before a launch reads the saved data
+     * Writes the storage snapshots native has waiting, on an IO thread or before a launch reads the saved data.
      */
     private fun saveLuaData() {
         synchronized(luaDataLock) {

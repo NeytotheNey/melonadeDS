@@ -105,7 +105,7 @@ enum class EmulatorEventType(val event: Int) {
     EventLuaFastForward(303),
 
     /**
-     * Snapshots of the Lua scripts' storage are waiting to be saved (see MelonEmulator.drainLuaData). No data.
+     * Snapshots of the Lua scripts' storage are waiting to be saved (see MelonEmulator.drainLuaData), with no data.
      */
     EventLuaDataSaved(304),
 
@@ -118,7 +118,7 @@ enum class EmulatorEventType(val event: Int) {
     EventLuaSetLayout(305),
 
     /**
-     * A Lua script loaded one of its savestates. No data.
+     * A Lua script loaded one of its savestates, with no data.
      */
     EventLuaStateLoaded(306),
 }

@@ -20,11 +20,10 @@ interface EmulatorManager {
     val emulatorEvents: Flow<EmulatorEvent>
 
     /**
-     * @param luaScripts The enabled Lua scripts to run, read from [luaScriptFolder]. Empty when scripts aren't allowed
-     * @param luaScriptFolder The game's linked script folder. Null if none is linked
-     * @param areLuaStateLoadsAllowed Whether the scripts may load savestates (`melon.state.load()`). False in RetroAchievements hardcore
-     * @param wideViewWidth The width the game starts at (WidescreenLaunch.viewWidth), or 0 for the normal width. It then follows
-     * [setWideViewWidth], and configuration updates keep it
+     * @param luaScripts The enabled Lua scripts to run, empty when scripts aren't allowed
+     * @param luaScriptFolder The game's linked script folder, or null if none is linked
+     * @param areLuaStateLoadsAllowed Whether the scripts may load savestates (false in RetroAchievements hardcore)
+     * @param wideViewWidth The width the game starts at (WidescreenLaunch.viewWidth), or 0 for the normal width
      */
     suspend fun loadRom(
         rom: Rom,
@@ -36,13 +35,12 @@ interface EmulatorManager {
     ): RomLaunchResult
 
     /**
-     * Whether any Lua script sent at launch is still running (none has been switched off after an error). Safe to call from any thread
+     * Whether any Lua script sent at launch is still running; safe to call from any thread.
      */
     fun areLuaScriptsRunning(): Boolean
 
     /**
-     * The Lua scripts of this session (their position is their ID): the ones sent at launch in that order, then the ones that couldn't be
-     * read, which are off with the reason as their error. Empty if none was switched on
+     * The Lua scripts of this session by ID: the ones sent at launch, then the ones that couldn't be read.
      */
     fun getLuaScripts(): List<LuaScriptStatus>
 
@@ -52,20 +50,17 @@ interface EmulatorManager {
     fun getLuaScript(scriptId: Int): LuaScriptStatus?
 
     /**
-     * Switches a running Lua script off for this session. The ROM config isn't changed
+     * Switches a running Lua script off for this session without changing the ROM config.
      */
     fun disableLuaScript(scriptId: Int)
 
     /**
-     * Switches a stopped Lua script back on for this session, and clears its last error. The ROM config isn't changed. Returns false if there
-     * is no such script, it couldn't be read at launch, or it already runs
+     * Switches a stopped Lua script back on for this session; returns false if it doesn't exist, couldn't be read or already runs.
      */
     fun enableLuaScript(scriptId: Int): Boolean
 
     /**
-     * Restarts a Lua script with new option values (by key, as text), or starts it if it was off. Values are checked against the script's
-     * declarations, and bad ones fall back to the default. The ROM config isn't changed here. Returns false if there is no such script or it
-     * couldn't be read at launch
+     * Restarts (or starts) a script with new option values; returns false if it doesn't exist or couldn't be read.
      */
     fun restartLuaScript(scriptId: Int, optionValues: Map<String, String>): Boolean
 
