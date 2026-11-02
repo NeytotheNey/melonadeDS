@@ -10,7 +10,7 @@ namespace MelonDSAndroid::LuaStorage
 namespace
 {
 
-// Value tags. Table keys are only Integer or String
+// Value tags, with table keys only Integer or String
 enum Tag : uint8_t
 {
     False = 0,
@@ -56,8 +56,7 @@ uint64_t readU64(const unsigned char* p)
 }
 
 /**
- * Only uses Lua functions that can't raise errors, so that no C++ object is skipped by a longjmp. Pushes keys and values while it walks
- * tables; the caller resets the stack afterwards
+ * Only uses Lua functions that can't raise errors, so that no C++ object is skipped by a longjmp
  */
 struct Encoder
 {
@@ -244,8 +243,8 @@ struct Validator
 };
 
 /**
- * Pushes values that were checked (or made by Encoder), so it doesn't check lengths again. lua_createtable(), lua_pushlstring() and
- * luaL_checkstack() can raise memory errors, which is fine: nothing here needs cleaning up
+ * Pushes values that were checked (or made by Encoder) without checking lengths again, and may raise memory errors since nothing here needs
+ * cleaning up
  */
 struct Decoder
 {
@@ -448,7 +447,7 @@ bool pushSnapshot(Snapshot snapshot)
     {
         if (it->gameKey == snapshot.gameKey && it->scriptName == snapshot.scriptName)
         {
-            // The older one is out of date. Dropping it keeps the outbox to one snapshot per script
+            // The older one is out of date, and dropping it keeps the outbox to one snapshot per script
             outbox.erase(it);
             break;
         }
