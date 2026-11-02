@@ -57,9 +57,8 @@ class MelonDSApplication : Application(), Configuration.Provider {
 
     override fun attachBaseContext(base: Context) {
         super.attachBaseContext(base)
-        // A settings restore is applied here because this runs before anything else in the app: before the content providers (the
-        // androidx.startup initializers already resolve Hilt singletons), before Hilt injects this class in onCreate(), and before the
-        // migrations. Hilt isn't available yet, so it's created by hand
+        // A settings restore is applied here because this runs before the content providers (whose androidx.startup initializers already
+        // resolve Hilt singletons), Hilt injection and the migrations, so it's created by hand
         PendingSettingsRestore(this, PreferenceManager.getDefaultSharedPreferences(this)).applyIfPending()
     }
 
@@ -117,8 +116,8 @@ class MelonDSApplication : Application(), Configuration.Provider {
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
         })
 
-        // Dynamic colours are applied when an activity is created, so recreate the existing activities when the setting changes. Like with
-        // night mode changes, activities that handle UI mode changes themselves (the emulator and the layout editor) are not recreated
+        // Dynamic colors are applied when an activity is created, so recreate the existing ones on a change, except those that handle UI mode
+        // changes themselves (the emulator and the layout editor)
         GlobalScope.launch(Dispatchers.Main) {
             settingsRepository.observeDynamicColorsEnabled().distinctUntilChanged().drop(1).collect {
                 activeActivities.filterNot { it.handlesUiModeChanges() }.forEach { it.recreate() }

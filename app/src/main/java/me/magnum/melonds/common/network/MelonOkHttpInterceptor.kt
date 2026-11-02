@@ -13,8 +13,7 @@ class MelonOkHttpInterceptor(private val context: Context) : Interceptor {
 
     private val userAgentVersion by lazy {
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-        // Report the upstream melonDS-android version instead of our own. Only the leading version number is swapped, so the flavor
-        // suffixes (GH, PS, NIGHTLY) stay the same
+        // Report the upstream melonDS-android version instead of our own, swapping only the leading number so the flavor suffixes stay
         val appVersion = packageInfo.versionName!!.replaceFirst(Regex("^\\S+"), BuildConfig.UPSTREAM_VERSION_NAME)
         val userAgentSuffix = appVersion.lowercase().replace(' ', '-').replace("(", "").replace(")", "")
         "$MELON_USER_AGENT_PREFIX/$userAgentSuffix"

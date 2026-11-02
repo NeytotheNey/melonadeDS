@@ -9,8 +9,7 @@ private const val TARGET_REFRESH_RATE = EMULATOR_TARGET_FPS.toFloat()
 private const val TARGET_REFRESH_RATE_TOLERANCE = TARGET_REFRESH_RATE * 0.005f
 
 /**
- * Returns the display's modes with the same resolution as the current mode. These are the refresh rates the display can switch to without changing
- * resolution.
+ * Returns the display's modes at the current resolution, i.e. the refresh rates it can switch to without changing resolution.
  */
 fun Display.getModesAtCurrentResolution(): List<Display.Mode> {
     val currentMode = mode

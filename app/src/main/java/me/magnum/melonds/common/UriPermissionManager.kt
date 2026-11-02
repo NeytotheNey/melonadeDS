@@ -11,7 +11,7 @@ class UriPermissionManager(private val context: Context) {
     }
 
     /**
-     * Gives back a persisted directory permission. Does nothing if the app doesn't hold it
+     * Gives back a persisted directory permission, if the app holds it
      */
     fun releaseDirectoryPermissions(directoryUri: Uri, permission: Permission) {
         val flags = permission.toFlags()

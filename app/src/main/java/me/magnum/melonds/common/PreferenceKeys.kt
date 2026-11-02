@@ -1,9 +1,8 @@
 package me.magnum.melonds.common
 
 /**
- * Keys of the preferences melonadeDS added on top of upstream melonDS: fork-added keys only, upstream's keys stay literals. Each key must
- * match the android:key in the screen named next to it (PreferenceKeysTest checks), and the keys are saved on devices and in settings
- * backups, so they never change.
+ * Keys of the preferences melonadeDS added on top of upstream melonDS (whose keys stay literals); each must match the android:key in the
+ * screen named next to it (PreferenceKeysTest checks) and never changes, since keys are saved on devices and in settings backups.
  */
 object PreferenceKeys {
     // pref_video.xml
@@ -34,15 +33,15 @@ object PreferenceKeys {
     // pref_appearance.xml
     const val DYNAMIC_COLORS = "dynamic_colors"
 
-    // Section headers. They only exist in the preference screens and hold no value
+    // Section headers, which only exist in the preference screens and hold no value
     const val CATEGORY_DISPLAY_3D_RENDERING = "category_display_3d_rendering" // pref_video.xml
     const val CATEGORY_CONTROLS_VIBRATION = "category_controls_vibration" // pref_input.xml
     const val CATEGORY_PERFORMANCE_DEVICE = "category_performance_device" // pref_performance.xml
 
-    // Timestamp (ms) of the newest process exit already looked at by ExitReasonReporter. It has no preference screen
+    // Timestamp (ms) of the newest process exit already looked at by ExitReasonReporter, with no preference screen
     const val DEBUG_LAST_REPORTED_EXIT_MS = "debug_last_reported_exit_ms"
 
-    // Layout editor state. These have no preference screen
+    // Layout editor state, with no preference screen
     const val LAYOUT_EDITOR_SNAP_TO_GRID = "layout_editor_snap_to_grid"
     const val LAYOUT_EDITOR_GRID_SIZE = "layout_editor_grid_size"
     const val LAYOUT_EDITOR_ITEM_PANEL_EXPANDED = "layout_editor_item_panel_expanded"
