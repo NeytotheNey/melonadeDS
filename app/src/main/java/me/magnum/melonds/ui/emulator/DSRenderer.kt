@@ -501,6 +501,20 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     }
 
     private fun useScreenShader(shader: Shader, textureId: Int, textureWidth: Int, textureHeight: Int, topScreenWidth: Int) {
+        useScreenQuadShader(shader, textureId)
+        shader.setTextureSize(textureWidth, textureHeight)
+        shader.setTopScreenWidth(topScreenWidth)
+        shader.setBottomScreenWide(isBottomScreenWideInQuads)
+    }
+
+    private fun useOverlayShader(overlayTextureId: Int) {
+        useScreenQuadShader(overlayShader, overlayTextureId)
+    }
+
+    /**
+     * Uses [shader] to draw the screen quads with [textureId] bound to its tex uniform, filtered the way the shader asks.
+     */
+    private fun useScreenQuadShader(shader: Shader, textureId: Int) {
         shader.use()
 
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
@@ -510,21 +524,6 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
         setScreenVertexAttributes(shader)
         GLES30.glUniform1i(shader.uniformTex, 0)
-        shader.setTextureSize(textureWidth, textureHeight)
-        shader.setTopScreenWidth(topScreenWidth)
-        shader.setBottomScreenWide(isBottomScreenWideInQuads)
-    }
-
-    private fun useOverlayShader(overlayTextureId: Int) {
-        overlayShader.use()
-
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, overlayTextureId)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, overlayShader.textureFiltering)
-        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, overlayShader.textureFiltering)
-
-        setScreenVertexAttributes(overlayShader)
-        GLES30.glUniform1i(overlayShader.uniformTex, 0)
     }
 
     private fun setScreenVertexAttributes(shader: Shader) {
@@ -571,10 +570,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, shadowsVbo)
 
         shadowShader.use()
-
-        GLES30.glVertexAttribPointer(shadowShader.attribPos, 2, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 0)
-        GLES30.glVertexAttribPointer(shadowShader.attribUv, 2, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 2 * Float.SIZE_BYTES)
-        GLES30.glVertexAttribPointer(shadowShader.attribAlpha, 1, GLES30.GL_FLOAT, false, FLOATS_PER_VERTEX * Float.SIZE_BYTES, 4 * Float.SIZE_BYTES)
+        setScreenVertexAttributes(shadowShader)
 
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, shadowIndices)
     }
