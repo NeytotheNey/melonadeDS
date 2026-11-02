@@ -112,7 +112,7 @@ fun RomHeaderUi(
                     selected = pagerState.currentPage == RomDetailsTab.MODS.tabIndex,
                     onClick = { onTabClicked(RomDetailsTab.MODS) },
                     text = {
-                        Text(text = stringResource(id = R.string.rom_details_mods_tab).uppercase())
+                        Text(text = stringResource(id = R.string.label_rom_config_mods).uppercase())
                     }
                 )
                 Tab(
