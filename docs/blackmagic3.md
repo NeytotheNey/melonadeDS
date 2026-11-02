@@ -12,7 +12,7 @@ Upstream melonDS merged "blackmagic3" (PR #2553) on 2026-01-31: mainly a new Ope
 
 ## What landed
 
-1. Green LSB (palette bit 15 as the 6th green bit, direct-colour bitmaps masked with `0x7FFF`), OBJ Y mosaic clamp and counter gating, 8-bit DISPSTAT/VCOUNT/DISPCAPCNT/FIFO/MASTER_BRIGHT writes, POWCNT1 bit 0 and engine-off output, forced-blank fill of the 3D compositing slices in accelerated mode.
+1. Green LSB (palette bit 15 as the 6th green bit, direct-color bitmaps masked with `0x7FFF`), OBJ Y mosaic clamp and counter gating, 8-bit DISPSTAT/VCOUNT/DISPCAPCNT/FIFO/MASTER_BRIGHT writes, POWCNT1 bit 0 and engine-off output, forced-blank fill of the 3D compositing slices in accelerated mode.
 2. The GL renderer skips identical frames and uploads only dirty texture VRAM rows (`TexMemDirtyAll`, `TargetsChanged`); two render programs (Z/W, `#define WBuffer`) with `uniform int uRenderMode` and a per-program `uDepthBias` instead of eight; the software 3D renderer forces a frame after `Reset`.
 3. 3D clear bitmap (DISP3DCNT bit 14): GL samples slots 2/3 straight from `TexMem`, compute uploads two 256x256 R32UI textures and fetches them in DepthBlend. Both fold in the WideMelon X origin `(TargetWidth-256)/2` and wrap at 256. A one-shot `Log(Debug)` fires the first time a game sets bit 14.
 4. DISPCNT enable latency (2 lines, OBJ 1) and forced blank; affine BG refs latched per mosaic row; sprites drawn in OAM order with the hardware replace rule and the four X-mosaic latch rules. `Unit::PreDrawScanline` runs at every HBlank 0..262.
