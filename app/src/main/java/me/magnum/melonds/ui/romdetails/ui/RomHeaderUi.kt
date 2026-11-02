@@ -98,7 +98,7 @@ fun RomHeaderUi(
             PrimaryTabRow(
                 modifier = Modifier.fillMaxWidth(),
                 selectedTabIndex = pagerState.currentPage,
-                // Keeps the tab labels onSurface. The default content colour of the row is primary
+                // Keeps the tab labels onSurface instead of the row's default primary
                 contentColor = MaterialTheme.colorScheme.onSurface,
             ) {
                 Tab(

@@ -38,12 +38,10 @@ class RomDetailsUiMapper(
     }
 
     private suspend fun getFolderPath(folderUri: Uri): String {
-        // The UI state is mapped again on every change, but working out the path uses reflection and maybe a provider query, so it's done
-        // once per folder, off the main thread
+        // Cached per folder and worked out off the main thread, since resolving the path uses reflection and maybe a provider query
         folderPathCache[folderUri]?.let { return it }
         val folderPath = withContext(Dispatchers.IO) {
-            // Mostly worked out from the URI itself, so it can usually be shown even when the folder can't be found. "/" means the volume
-            // wasn't found, which tells nothing, so the path inside the volume is shown instead
+            // Prefer the resolved path, but a bare "/" means the volume is unknown, so the path inside the volume is shown instead
             FileUtils.getAbsolutePathFromSAFUri(context, folderUri)?.takeIf { it != File.separator }
                 ?: getTreeDocumentPath(folderUri)
                 ?: folderUri.lastPathSegment
@@ -54,7 +52,7 @@ class RomDetailsUiMapper(
     }
 
     /**
-     * The path part of a tree URI's document ID, like `LuaScripts/White2` for `primary:LuaScripts/White2`. Null if there's none
+     * The path part of a tree URI's document ID, like `LuaScripts/White2` for `primary:LuaScripts/White2`, or null if there's none
      */
     private fun getTreeDocumentPath(treeUri: Uri): String? {
         return runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()

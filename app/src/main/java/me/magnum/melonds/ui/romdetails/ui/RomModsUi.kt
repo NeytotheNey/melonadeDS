@@ -185,7 +185,7 @@ private fun WideLayoutItem(
         // Until the layouts are read it isn't known which one is picked
         enabled = wideLayouts != null,
         onLaunchAction = {
-            // The stored pick, so that backing out keeps it. The picker falls back to automatic if that layout isn't wide (anymore)
+            // The stored pick, so that backing out keeps it
             val intent = Intent(context, LayoutSelectorActivity::class.java).apply {
                 putExtra(LayoutSelectorActivity.KEY_SELECTED_LAYOUT_ID, romConfig.mods.wideLayoutId?.toString())
                 putExtra(LayoutSelectorActivity.KEY_WIDE_LAYOUTS_ONLY, true)
