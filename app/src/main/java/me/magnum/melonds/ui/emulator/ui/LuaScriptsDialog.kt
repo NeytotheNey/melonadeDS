@@ -24,9 +24,7 @@ import me.magnum.melonds.ui.common.component.dialog.DialogButton
 import me.magnum.melonds.ui.common.component.text.CaptionText
 
 /**
- * Lists the session's [scripts], ticked while they run, each script's id being its position. Unticking one switches it off and ticking it
- * switches it back on, for this session only. A running script with options has an "Options…" button, which calls [onOpenOptions] for
- * [LuaScriptOptionsDialog] to be shown in place of this dialog
+ * Lists the session's [scripts], ticked while they run, each script's id being its position.
  */
 @Composable
 fun LuaScriptsDialog(
