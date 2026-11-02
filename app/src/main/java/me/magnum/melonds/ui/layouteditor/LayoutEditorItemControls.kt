@@ -244,29 +244,37 @@ class LayoutEditorItemControls(
         binding.buttonPanelCollapse.setOnClickListener { setExpanded(false) }
         binding.buttonPanelDone.setOnClickListener { editor.deselectSelectedView() }
 
-        binding.layoutSizeLabels.setOnClickListener { onEditPropertyValue(LayoutComponentEditableProperty.SIZE) }
-        binding.layoutWidthLabels.setOnClickListener { onEditPropertyValue(LayoutComponentEditableProperty.WIDTH) }
-        binding.layoutHeightLabels.setOnClickListener { onEditPropertyValue(LayoutComponentEditableProperty.HEIGHT) }
+        binding.layoutSizeRow.textLabel.setText(R.string.label_size)
+        binding.layoutWidthRow.textLabel.setText(R.string.label_width)
+        binding.layoutHeightRow.textLabel.setText(R.string.label_height)
+        binding.layoutOpacityRow.textLabel.setText(R.string.layout_editor_opacity)
+        binding.layoutSpacingRow.textLabel.setText(R.string.layout_editor_spacing)
+        binding.layoutOpacityRow.seekBar.max = 100
+        binding.layoutSpacingRow.seekBar.max = 100
+
+        binding.layoutSizeRow.layoutLabels.setOnClickListener { onEditPropertyValue(LayoutComponentEditableProperty.SIZE) }
+        binding.layoutWidthRow.layoutLabels.setOnClickListener { onEditPropertyValue(LayoutComponentEditableProperty.WIDTH) }
+        binding.layoutHeightRow.layoutLabels.setOnClickListener { onEditPropertyValue(LayoutComponentEditableProperty.HEIGHT) }
 
         // The Size slider and the Width slider of Free screens both set the width
-        listOf(binding.seekBarSize, binding.seekBarWidth).forEach { seekBar ->
+        listOf(binding.layoutSizeRow.seekBar, binding.layoutWidthRow.seekBar).forEach { seekBar ->
             seekBar.setOnUserProgressChanged { progress ->
                 val view = selectedView ?: return@setOnUserProgressChanged
                 val (widthRange, _) = editor.getSelectedViewSizeRanges()
                 editor.resizeSelectedView((widthRange.first + progress).toFloat(), view.getHeight().toFloat())
             }
         }
-        binding.seekBarHeight.setOnUserProgressChanged { progress ->
+        binding.layoutHeightRow.seekBar.setOnUserProgressChanged { progress ->
             val view = selectedView ?: return@setOnUserProgressChanged
             val (_, heightRange) = editor.getSelectedViewSizeRanges()
             editor.resizeSelectedView(view.getWidth().toFloat(), (heightRange.first + progress).toFloat())
         }
-        binding.seekBarOpacity.setOnUserProgressChanged { progress ->
-            binding.textOpacity.text = context.getString(R.string.layout_editor_opacity_value, progress)
+        binding.layoutOpacityRow.seekBar.setOnUserProgressChanged { progress ->
+            binding.layoutOpacityRow.textValue.text = context.getString(R.string.layout_editor_opacity_value, progress)
             editor.setSelectedViewAlpha(progress / 100f)
         }
-        binding.seekBarSpacing.setOnUserProgressChanged { progress ->
-            binding.textSpacing.text = context.getString(R.string.layout_editor_spacing_value, progress)
+        binding.layoutSpacingRow.seekBar.setOnUserProgressChanged { progress ->
+            binding.layoutSpacingRow.textValue.text = context.getString(R.string.layout_editor_spacing_value, progress)
             editor.setSelectedViewSpacing(progress / 100f)
         }
 
@@ -325,18 +333,18 @@ class LayoutEditorItemControls(
         fillingControls = true
         binding.textItemName.setText(getLayoutComponentName(view.component))
 
-        binding.layoutSizeRow.isVisible = !isFree
-        binding.layoutWidthRow.isVisible = isFree
-        binding.layoutHeightRow.isVisible = isFree
+        binding.layoutSizeRow.root.isVisible = !isFree
+        binding.layoutWidthRow.root.isVisible = isFree
+        binding.layoutHeightRow.root.isVisible = isFree
         val (widthRange, heightRange) = editor.getSelectedViewSizeRanges()
         if (isFree) {
-            binding.seekBarWidth.fill(view.getWidth(), widthRange)
-            binding.textWidth.text = view.getWidth().toString()
-            binding.seekBarHeight.fill(view.getHeight(), heightRange)
-            binding.textHeight.text = view.getHeight().toString()
+            binding.layoutWidthRow.seekBar.fill(view.getWidth(), widthRange)
+            binding.layoutWidthRow.textValue.text = view.getWidth().toString()
+            binding.layoutHeightRow.seekBar.fill(view.getHeight(), heightRange)
+            binding.layoutHeightRow.textValue.text = view.getHeight().toString()
         } else {
-            binding.seekBarSize.fill(view.getWidth(), widthRange)
-            binding.textSize.text = view.getWidth().toString()
+            binding.layoutSizeRow.seekBar.fill(view.getWidth(), widthRange)
+            binding.layoutSizeRow.textValue.text = view.getWidth().toString()
         }
 
         binding.toggleGroupAspectRatio.isVisible = isScreen
@@ -361,14 +369,14 @@ class LayoutEditorItemControls(
 
         // Only screens use their own opacity in game. Controls use the layout's opacity instead
         val opacity = (view.baseAlpha * 100).roundToInt()
-        binding.layoutOpacityRow.isVisible = isScreen
-        binding.seekBarOpacity.progress = opacity
-        binding.textOpacity.text = context.getString(R.string.layout_editor_opacity_value, opacity)
+        binding.layoutOpacityRow.root.isVisible = isScreen
+        binding.layoutOpacityRow.seekBar.progress = opacity
+        binding.layoutOpacityRow.textValue.text = context.getString(R.string.layout_editor_opacity_value, opacity)
 
         val spacing = (view.spacing * 100).roundToInt()
-        binding.layoutSpacingRow.isVisible = view.component == LayoutComponent.DPAD || view.component == LayoutComponent.BUTTONS
-        binding.seekBarSpacing.progress = spacing
-        binding.textSpacing.text = context.getString(R.string.layout_editor_spacing_value, spacing)
+        binding.layoutSpacingRow.root.isVisible = view.component == LayoutComponent.DPAD || view.component == LayoutComponent.BUTTONS
+        binding.layoutSpacingRow.seekBar.progress = spacing
+        binding.layoutSpacingRow.textValue.text = context.getString(R.string.layout_editor_spacing_value, spacing)
 
         binding.switchAboveScreen.isVisible = isScreen
         binding.switchAboveScreen.isChecked = view.onTop

@@ -75,74 +75,17 @@
                         android:src="@drawable/ic_check" />
                 </LinearLayout>
 
-                <LinearLayout
+                <include
                     android:id="@+id/layout_size_row"
-                    style="@style/LayoutEditorPanelRow">
+                    layout="@layout/view_layout_editor_slider_row" />
 
-                    <LinearLayout
-                        android:id="@+id/layout_size_labels"
-                        style="@style/LayoutEditorPanelValueLabels">
-
-                        <TextView
-                            style="@style/LayoutEditorPanelText"
-                            android:text="@string/label_size" />
-
-                        <TextView
-                            android:id="@+id/text_size"
-                            style="@style/LayoutEditorPanelText"
-                            tools:text="1080" />
-                    </LinearLayout>
-
-                    <SeekBar
-                        android:id="@+id/seek_bar_size"
-                        style="@style/LayoutEditorPanelSeekBar" />
-                </LinearLayout>
-
-                <LinearLayout
+                <include
                     android:id="@+id/layout_width_row"
-                    style="@style/LayoutEditorPanelRow">
+                    layout="@layout/view_layout_editor_slider_row" />
 
-                    <LinearLayout
-                        android:id="@+id/layout_width_labels"
-                        style="@style/LayoutEditorPanelValueLabels">
-
-                        <TextView
-                            style="@style/LayoutEditorPanelText"
-                            android:text="@string/label_width" />
-
-                        <TextView
-                            android:id="@+id/text_width"
-                            style="@style/LayoutEditorPanelText"
-                            tools:text="1080" />
-                    </LinearLayout>
-
-                    <SeekBar
-                        android:id="@+id/seek_bar_width"
-                        style="@style/LayoutEditorPanelSeekBar" />
-                </LinearLayout>
-
-                <LinearLayout
+                <include
                     android:id="@+id/layout_height_row"
-                    style="@style/LayoutEditorPanelRow">
-
-                    <LinearLayout
-                        android:id="@+id/layout_height_labels"
-                        style="@style/LayoutEditorPanelValueLabels">
-
-                        <TextView
-                            style="@style/LayoutEditorPanelText"
-                            android:text="@string/label_height" />
-
-                        <TextView
-                            android:id="@+id/text_height"
-                            style="@style/LayoutEditorPanelText"
-                            tools:text="810" />
-                    </LinearLayout>
-
-                    <SeekBar
-                        android:id="@+id/seek_bar_height"
-                        style="@style/LayoutEditorPanelSeekBar" />
-                </LinearLayout>
+                    layout="@layout/view_layout_editor_slider_row" />
 
                 <com.google.android.material.button.MaterialButtonToggleGroup
                     android:id="@+id/toggle_group_aspect_ratio"
@@ -223,49 +166,13 @@
                         android:text="@string/layout_editor_scale_fit" />
                 </LinearLayout>
 
-                <LinearLayout
+                <include
                     android:id="@+id/layout_opacity_row"
-                    style="@style/LayoutEditorPanelRow">
+                    layout="@layout/view_layout_editor_slider_row" />
 
-                    <LinearLayout style="@style/LayoutEditorPanelValueLabels">
-
-                        <TextView
-                            style="@style/LayoutEditorPanelText"
-                            android:text="@string/layout_editor_opacity" />
-
-                        <TextView
-                            android:id="@+id/text_opacity"
-                            style="@style/LayoutEditorPanelText"
-                            tools:text="100%" />
-                    </LinearLayout>
-
-                    <SeekBar
-                        android:id="@+id/seek_bar_opacity"
-                        style="@style/LayoutEditorPanelSeekBar"
-                        android:max="100" />
-                </LinearLayout>
-
-                <LinearLayout
+                <include
                     android:id="@+id/layout_spacing_row"
-                    style="@style/LayoutEditorPanelRow">
-
-                    <LinearLayout style="@style/LayoutEditorPanelValueLabels">
-
-                        <TextView
-                            style="@style/LayoutEditorPanelText"
-                            android:text="@string/layout_editor_spacing" />
-
-                        <TextView
-                            android:id="@+id/text_spacing"
-                            style="@style/LayoutEditorPanelText"
-                            tools:text="0%" />
-                    </LinearLayout>
-
-                    <SeekBar
-                        android:id="@+id/seek_bar_spacing"
-                        style="@style/LayoutEditorPanelSeekBar"
-                        android:max="100" />
-                </LinearLayout>
+                    layout="@layout/view_layout_editor_slider_row" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/switch_above_screen"

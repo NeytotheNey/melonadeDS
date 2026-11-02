@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Slider row of the layout editor's item panel. The label is set in code -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    style="@style/LayoutEditorPanelRow">
+
+    <LinearLayout
+        android:id="@+id/layout_labels"
+        style="@style/LayoutEditorPanelValueLabels">
+
+        <TextView
+            android:id="@+id/text_label"
+            style="@style/LayoutEditorPanelText" />
+
+        <TextView
+            android:id="@+id/text_value"
+            style="@style/LayoutEditorPanelText" />
+    </LinearLayout>
+
+    <SeekBar
+        android:id="@+id/seek_bar"
+        style="@style/LayoutEditorPanelSeekBar" />
+</LinearLayout>
