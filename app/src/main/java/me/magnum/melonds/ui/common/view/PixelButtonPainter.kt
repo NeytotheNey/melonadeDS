@@ -15,7 +15,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * Draws the parts of a [RaisedButtonView] as pixel art, for [ControllerAppearance.Shading.PIXEL]. Each part's shape is snapped to a grid of whole physical
+ * Draws the parts of a [RaisedButtonView] as pixel art, for [ControllerAppearance.Pixel]. Each part's shape is snapped to a grid of whole physical
  * pixels centred on that part, so symmetric shapes stay symmetric, and shaded with a few flat colours. Everything drawn on the face (labels, arrows and
  * icons) goes on a finer detail grid that lines up with it: [PixelArt.detailPerCell] detail cells to a side per cell. The result is cached as three small
  * bitmaps per part (its lip, its face and its pressed face), which are drawn scaled up with no filtering so the pixels stay sharp.

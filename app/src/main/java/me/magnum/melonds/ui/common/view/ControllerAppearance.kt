@@ -30,7 +30,7 @@ class PixelColors(
 )
 
 /**
- * How [ControllerAppearance.Shading.PIXEL] buttons are drawn. 8-bit buttons have big pixels and three shades. 16-bit buttons have pixels half the size
+ * How [ControllerAppearance.Pixel] buttons are drawn. 8-bit buttons have big pixels and three shades. 16-bit buttons have pixels half the size
  * and add a lip side, a dithered shadow and a glint. Both draw labels, arrows and icons on a detail grid of 16-bit sized pixels, so an 8-bit pixel is
  * [detailPerCell] detail pixels to a side. [lip] and [travel] are in the style's own pixels and the same on every button. Small views use smaller pixels,
  * so that they're always at least [minCells] of the style's pixels across.
@@ -56,24 +56,32 @@ class PixelArt(
 }
 
 /**
- * How the on-screen buttons look. [pixelArt] is only set, and only used, for [Shading.PIXEL].
+ * How the on-screen buttons look: vector shapes in one of the [Shading]s, or pixel art.
  */
-class ControllerAppearance(
-    val shading: Shading,
-    private val colors: ControllerButtonColors,
-    private val inputColors: Map<Input, ControllerButtonColors> = emptyMap(),
-    val pixelArt: PixelArt? = null,
-) {
+sealed class ControllerAppearance {
     enum class Shading {
         RAISED,
         OUTLINE,
         SOFT_TINT,
-        PIXEL,
     }
 
-    fun colorsFor(input: Input?): ControllerButtonColors {
-        return input?.let { inputColors[it] } ?: colors
+    /**
+     * Buttons drawn as vector shapes in [shading], in [colors] except for the inputs in [inputColors].
+     */
+    class Vector(
+        val shading: Shading,
+        private val colors: ControllerButtonColors,
+        private val inputColors: Map<Input, ControllerButtonColors> = emptyMap(),
+    ) : ControllerAppearance() {
+        fun colorsFor(input: Input?): ControllerButtonColors {
+            return input?.let { inputColors[it] } ?: colors
+        }
     }
+
+    /**
+     * Buttons drawn as pixel art by [PixelButtonPainter].
+     */
+    class Pixel(val art: PixelArt) : ControllerAppearance()
 
     companion object {
         private const val WHITE = 0xFFFFFFFF.toInt()
@@ -82,7 +90,7 @@ class ControllerAppearance(
         private val CLASSIC = raised(0xFF8B8E97, 0xFF6E717A, 0xFF2C2E34, WHITE)
         private val DS_LITE = raised(0xFFE4E5EA, 0xFFC2C4CB, 0xFF8A8D96, 0xFF4A4D55.toInt())
         private val CHARCOAL = raised(0xFF3D4048, 0xFF2D3037, 0xFF111216, 0xFFC9CBD1.toInt())
-        private val SUPER_COLOURS = ControllerAppearance(
+        private val SUPER_COLOURS = Vector(
             Shading.RAISED,
             colors(0xFF4A4D55, 0xFF383B42, 0xFF1A1B1F, WHITE),
             mapOf(
@@ -93,8 +101,8 @@ class ControllerAppearance(
             ),
         )
         private val INDIGO = raised(0xFF5B57B5, 0xFF47439C, 0xFF221F52, WHITE)
-        private val OUTLINE = ControllerAppearance(Shading.OUTLINE, colors(0x0DFFFFFF, 0x66FFFFFF, 0x99FFFFFF, WHITE))
-        private val SOFT_TINT = ControllerAppearance(Shading.SOFT_TINT, colors(0x38FFFFFF, 0x1FFFFFFF, 0x73000000, WHITE))
+        private val OUTLINE = Vector(Shading.OUTLINE, colors(0x0DFFFFFF, 0x66FFFFFF, 0x99FFFFFF, WHITE))
+        private val SOFT_TINT = Vector(Shading.SOFT_TINT, colors(0x38FFFFFF, 0x1FFFFFFF, 0x73000000, WHITE))
 
         // 16-bit Classic: outline, lip, shadow, base, highlight, glint, ink and ink shadow
         private val PIXEL_16 = pixel(
@@ -132,19 +140,15 @@ class ControllerAppearance(
         }
 
         private fun raised(face: Long, pressedFace: Long, lip: Long, label: Int): ControllerAppearance {
-            return ControllerAppearance(Shading.RAISED, colors(face, pressedFace, lip, label))
+            return Vector(Shading.RAISED, colors(face, pressedFace, lip, label))
         }
 
         private fun colors(face: Long, pressedFace: Long, edge: Long, label: Int): ControllerButtonColors {
             return ControllerButtonColors(face.toInt(), pressedFace.toInt(), edge.toInt(), label)
         }
 
-        /**
-         * A pixel style. Its plain [ControllerButtonColors] aren't used to draw it, they're only there so that every appearance has them.
-         */
         private fun pixel(sixteenBit: Boolean, colors: PixelColors, dpadColors: PixelColors, a: PixelColors, b: PixelColors, x: PixelColors, y: PixelColors): ControllerAppearance {
-            val art = PixelArt(sixteenBit, colors, dpadColors, mapOf(Input.A to a, Input.B to b, Input.X to x, Input.Y to y))
-            return ControllerAppearance(Shading.PIXEL, ControllerButtonColors(colors.base, colors.shadow, colors.lip, colors.ink), pixelArt = art)
+            return Pixel(PixelArt(sixteenBit, colors, dpadColors, mapOf(Input.A to a, Input.B to b, Input.X to x, Input.Y to y)))
         }
 
         private fun pixel16(outline: Long, lip: Long, shadow: Long, base: Long, highlight: Long, glint: Long, ink: Long, inkShadow: Long): PixelColors {

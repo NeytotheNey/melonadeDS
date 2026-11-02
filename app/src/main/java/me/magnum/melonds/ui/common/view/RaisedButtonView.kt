@@ -26,7 +26,7 @@ class RaisedButtonView(
     private val lip: Float,
     private val travel: Float,
     parts: List<Part>,
-    private val appearance: ControllerAppearance,
+    appearance: ControllerAppearance,
 ) : View(context), PressedInputsView {
 
     class Part(
@@ -73,7 +73,10 @@ class RaisedButtonView(
     private var offsetX = 0f
     private var offsetY = 0f
     private var isToggledOn = true
-    private val pixelPainter = appearance.pixelArt?.let { PixelButtonPainter(it, resources.displayMetrics.density) }
+    private val vectorAppearance = appearance as? ControllerAppearance.Vector
+    // Null for pixel art
+    private val shading = vectorAppearance?.shading
+    private val pixelPainter = (appearance as? ControllerAppearance.Pixel)?.let { PixelButtonPainter(it.art, resources.displayMetrics.density) }
 
     init {
         setParts(parts)
@@ -86,7 +89,7 @@ class RaisedButtonView(
     fun setParts(newParts: List<Part>, newDesignSize: Float = designSize) {
         parts = newParts
         designSize = newDesignSize
-        colors = Array(parts.size) { appearance.colorsFor(parts[it].input) }
+        colors = vectorAppearance?.let { vector -> Array(parts.size) { vector.colorsFor(parts[it].input) } } ?: emptyArray()
         pressedParts = BooleanArray(parts.size)
         faces = Array(parts.size) { Path() }
         lips = Array(parts.size) { Path() }
@@ -111,7 +114,7 @@ class RaisedButtonView(
         scale = min(w, h) / designSize
         offsetX = (w - designSize * scale) / 2f
         offsetY = (h - designSize * scale) / 2f
-        if (appearance.shading == Shading.OUTLINE || appearance.shading == Shading.SOFT_TINT) {
+        if (shading == Shading.OUTLINE || shading == Shading.SOFT_TINT) {
             // Flat buttons have no lip, so they move into the middle of the space it would take up
             offsetY += lip * scale / 2f
         }
@@ -142,11 +145,11 @@ class RaisedButtonView(
 
         // Rings are clipped to the shape, so only the inner half of the stroke is visible. Their width follows the lip, which is proportional to the button size
         val density = resources.displayMetrics.density
-        ringPaint.strokeWidth = when (appearance.shading) {
+        ringPaint.strokeWidth = when (shading) {
             Shading.RAISED -> 0f
             Shading.OUTLINE -> (lip * scale * 0.8f).coerceAtLeast(3f * density)
             Shading.SOFT_TINT -> (lip * scale).coerceAtLeast(3f * density)
-            Shading.PIXEL -> 0f
+            null -> 0f
         }
         pixelPainter?.update(parts, faces, glyphs, transform, isToggledOn)
     }
@@ -220,7 +223,7 @@ class RaisedButtonView(
             for (i in parts.indices) {
                 pixelPainter.drawLip(canvas, i)
             }
-        } else if (appearance.shading == Shading.RAISED) {
+        } else if (shading == Shading.RAISED) {
             for (i in parts.indices) {
                 fillPaint.color = colors[i].edge
                 canvas.drawPath(lips[i], fillPaint)
@@ -250,19 +253,19 @@ class RaisedButtonView(
         val face = faces[index]
         val save = canvas.save()
         if (pressed) {
-            when (appearance.shading) {
+            when (shading) {
                 Shading.RAISED -> canvas.translate(0f, travel * scale)
                 Shading.OUTLINE -> canvas.scale(OUTLINE_PRESSED_SCALE, OUTLINE_PRESSED_SCALE, centersX[index], centersY[index])
                 Shading.SOFT_TINT -> canvas.scale(SOFT_TINT_PRESSED_SCALE, SOFT_TINT_PRESSED_SCALE, centersX[index], centersY[index])
                 // Drawn by the pixel painter above
-                Shading.PIXEL -> Unit
+                null -> Unit
             }
         }
 
         fillPaint.color = if (pressed) partColors.pressedFace else partColors.face
         canvas.drawPath(face, fillPaint)
         ringPaint.color = partColors.edge
-        if (appearance.shading == Shading.OUTLINE || (appearance.shading == Shading.SOFT_TINT && pressed)) {
+        if (shading == Shading.OUTLINE || (shading == Shading.SOFT_TINT && pressed)) {
             val clipSave = canvas.save()
             canvas.clipPath(face)
             canvas.drawPath(face, ringPaint)
