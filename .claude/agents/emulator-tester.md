@@ -20,6 +20,9 @@ Run `bash .claude/emulator/emu.sh help` from the repo root for the command list;
 
 - `start` boots the AVD headless in about 20–60 s and does nothing if it's already running.
 - `build` only when the caller says the code changed or asks for it. **It overwrites the shared debug APK**, so mention in your report that the phone needs an arm64 rebuild.
+- `install` refuses an APK with no x86_64 core; run `build` first.
+- `launch` brings the app to the front, so if a game is running it returns to the game. `restart` force-stops it first and always lands on the ROM list. Both print the top activity.
+- `fold` / `unfold` switch to the cover screen / inner screen and then print `state`: the fold state (`OPENED`/`CLOSED`), the active panel size and the top activity.
 - `press <button> [ms]` for DS buttons: keyboard keys like `KEYCODE_ENTER` don't reach the game. It presses the **default layout** position on whichever panel is active; if a custom layout is active, find the button in a screenshot instead.
 - `ui [filter]` is a cheap **text read of the screen** (labelled and clickable nodes with tap centres); use it first. It can't see inside the game screen (GL). Use `scroll` with it to read lists longer than one screen. Prefix the text with `=` for an exact label match, in `ui` and `tap-text`: `tap-text "=Settings"` won't hit "Rom settings".
 - Raw input (`tap`, `hold`, `swipe`) is in real panel pixels: the cover screen is 1080×2364, the inner one 2076×2152.
