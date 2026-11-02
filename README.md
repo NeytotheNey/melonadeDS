@@ -58,9 +58,9 @@ To build the project you will need a JDK (21 or newer), the Android SDK, NDK and
 3.  Build a debug APK for one ABI (`arm64-v8a` for phones, `x86_64` for the emulator) with:
     1.  Unix: `./gradlew :app:assembleGitHubProdDebug -Pandroid.injected.build.abi=arm64-v8a`
     2.  Windows: `gradlew.bat :app:assembleGitHubProdDebug -Pandroid.injected.build.abi=arm64-v8a`
-4.  The generated APK can be found at `app/build/intermediates/apk/gitHubProd/debug/`. To install it with `adb install`, also pass `-Pandroid.injected.testOnly=false`.
+4.  The generated APK can be found at `app/build/intermediates/apk/gitHubProd/debug/`. If you install it with `adb install`, add `-Pandroid.injected.testOnly=false` to the Gradle command in step 3, otherwise the install is refused.
 
-The flavors are `gitHub` or `playStore` (the `gitHub` one also builds for 32 bit ARM) crossed with `prod` or `nightly`. Debug builds install beside the release app as `me.magnum.melonds.dev`. Their native code is optimized (RelWithDebInfo) so they can be used for performance tests; add `-PnativeBuildType=Debug` for an unoptimized native build.
+The flavors are `gitHub` or `playStore` (the `gitHub` one also builds for 32 bit ARM) crossed with `prod` or `nightly`. Debug builds install beside the release app as `me.magnum.melonds.dev` (`me.magnum.melonds.nightly.dev` for nightly). Their native code is optimized (RelWithDebInfo) so they can be used for performance tests; add `-PnativeBuildType=Debug` for an unoptimized native build.
 
 If you want to create a release build, you will need to modify your `local.properties` file to include the following fields:
 *  `MELONDS_KEYSTORE=<path_to_your_keystore>`

@@ -5,10 +5,10 @@ Two mods, both set per game in ROM details → Mods tab and stored in `RomConfig
 ## Decisions to keep
 
 - **Our own Lua API, no compatibility.** MelonMix (KHMelonMix's per-game C++ plugins) and DraStic script compatibility are dropped. DraStic's own Lua API readme (section 8) is a design reference only; DraStic is closed source, so there's no repo to point at. Old DraStic scripts get ported by hand.
-- **RetroAchievements hardcore:** Lua is fully off, read-only scripts included (RA bans scripting outright). It's gated next to cheats (`impl/emulator/EmulatorSession.kt`), the Mods tab disables the switches and says why, and `melon.state.load` checks hardcore again anyway. WideMelon stays allowed: RA exempts widescreen hacks. Its one game-visible effect is that BoxTest is squeezed too.
+- **RetroAchievements hardcore:** Lua is fully off, read-only scripts included (RA bans scripting outright). It's gated next to cheats (`impl/emulator/EmulatorSession.kt`), the Mods tab disables the switches and says why, and `melon.state.load` checks hardcore again anyway. WideMelon stays allowed: RA exempts widescreen hacks. Its game-visible effects are that BoxTest is squeezed too and polygon RAM fills up sooner (see "Known limits" under WideMelon).
 - **One linked SAF folder per game**, picked in the Mods tab (`OpenDocumentTree`, persisted read permission), not copied. Top-level `.lua` files are the scripts; subfolders hold modules and images. New scripts start switched off. The app never writes to or deletes from the folder.
 - Lua 5.4.9 from lua.org under `cpp/lua/`, unchanged except `cpp/lua/patched/lstrlib.c` (a work budget in pattern matching and plain find). `cpp/lua/LICENSE` says how to redo the patch on an upgrade.
-- WideMelon is from pruefsumme's `melonDS-android-lib` `widemelon` branch, GPL-3.0-or-later, reworked (per-line wings rule, one width source, off-centre viewports). Classic OpenGL renderer only.
+- WideMelon is from pruefsumme's `melonDS-android-lib` `widemelon` branch, GPL-3.0-or-later, reworked (per-line wings rule, one width source, off-centre viewports). It works on the OpenGL and Compute renderers; Software stays at 256 (see [docs/shelved/widemelon-software.md](docs/shelved/widemelon-software.md)).
 
 ## Script folder and the Mods tab
 
