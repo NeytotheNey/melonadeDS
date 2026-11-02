@@ -36,6 +36,7 @@ import me.magnum.melonds.impl.layout.UILayoutProvider
 import me.magnum.melonds.impl.layout.devicemapper.AynThorLayoutDisplayMapper
 import me.magnum.melonds.impl.layout.devicemapper.DefaultLayoutDisplayMapper
 import me.magnum.melonds.impl.debug.DebugLogRecorder
+import me.magnum.melonds.impl.debug.LogFolder
 import me.magnum.melonds.impl.perf.PerformanceLogger
 import me.magnum.melonds.impl.romprocessors.Api24RomFileProcessorFactory
 import me.magnum.melonds.ui.romdetails.RomDetailsUiMapper
@@ -60,14 +61,20 @@ object MelonModule {
 
     @Provides
     @Singleton
-    fun providePerformanceLogger(@ApplicationContext context: Context, settingsRepository: SettingsRepository): PerformanceLogger {
-        return PerformanceLogger(context, settingsRepository)
+    fun provideLogFolder(@ApplicationContext context: Context, settingsRepository: SettingsRepository): LogFolder {
+        return LogFolder(context, settingsRepository)
     }
 
     @Provides
     @Singleton
-    fun provideDebugLogRecorder(@ApplicationContext context: Context, settingsRepository: SettingsRepository, sharedPreferences: SharedPreferences): DebugLogRecorder {
-        return DebugLogRecorder(context, settingsRepository, sharedPreferences)
+    fun providePerformanceLogger(@ApplicationContext context: Context, settingsRepository: SettingsRepository, logFolder: LogFolder): PerformanceLogger {
+        return PerformanceLogger(context, settingsRepository, logFolder)
+    }
+
+    @Provides
+    @Singleton
+    fun provideDebugLogRecorder(@ApplicationContext context: Context, settingsRepository: SettingsRepository, sharedPreferences: SharedPreferences, logFolder: LogFolder): DebugLogRecorder {
+        return DebugLogRecorder(context, settingsRepository, sharedPreferences, logFolder)
     }
 
     @Provides

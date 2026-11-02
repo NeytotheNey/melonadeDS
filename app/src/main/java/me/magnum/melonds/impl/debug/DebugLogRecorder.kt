@@ -34,6 +34,7 @@ class DebugLogRecorder(
     private val context: Context,
     private val settingsRepository: SettingsRepository,
     private val preferences: SharedPreferences,
+    private val logFolder: LogFolder,
 ) {
 
     private companion object {
@@ -43,7 +44,6 @@ class DebugLogRecorder(
         const val LOGCAT_BUFFERS = "main,system,crash"
     }
 
-    private val logFolder = LogFolder(context, settingsRepository)
     private val exitReasonReporter = ExitReasonReporter(context, preferences, logFolder)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var session: Session? = null

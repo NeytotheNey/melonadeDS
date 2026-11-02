@@ -3,7 +3,6 @@ package me.magnum.melonds.impl.perf
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.hardware.display.DisplayManager
-import android.net.Uri
 import android.os.Build
 import android.os.Debug
 import android.os.PowerManager
@@ -14,7 +13,6 @@ import android.view.Display
 import androidx.annotation.VisibleForTesting
 import androidx.core.content.getSystemService
 import androidx.core.content.pm.PackageInfoCompat
-import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,12 +26,12 @@ import me.magnum.melonds.domain.model.EMULATOR_TARGET_FPS
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.extensions.find60HzMode
 import me.magnum.melonds.extensions.getModesAtCurrentResolution
+import me.magnum.melonds.impl.debug.LogDestination
+import me.magnum.melonds.impl.debug.LogFolder
 import me.magnum.melonds.utils.PackageManagerCompat
 import java.io.BufferedWriter
 import java.io.File
 import java.io.IOException
-import java.io.OutputStream
-import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -53,11 +51,11 @@ import kotlin.math.sqrt
 class PerformanceLogger(
     private val context: Context,
     private val settingsRepository: SettingsRepository,
+    private val logFolder: LogFolder,
 ) {
 
     companion object {
         private const val TAG = "PerformanceLogger"
-        private const val LOG_DIRECTORY_NAME = "perf_logs"
         private const val DRAIN_INTERVAL_MS = 1000L
         private const val PSS_SAMPLE_INTERVAL_NS = 30_000_000_000L
         // The summary is rewritten every few drains so that a session that is killed without being stopped still has one
@@ -82,14 +80,6 @@ class PerformanceLogger(
         // The SPU output ring between the emulator and the audio callback (AudioDiagnostics.h)
         private const val AUDIO_BUFFER_CAPACITY_FRAMES = 2048
         private const val AUDIO_BUFFER_SAMPLE_RATE = 48000
-        private const val LOG_FILE_MIME_TYPE = "application/octet-stream"
-
-        /**
-         * Directory used when the user hasn't picked a log folder.
-         */
-        fun getDefaultLogDirectory(context: Context): File {
-            return context.getExternalFilesDir(LOG_DIRECTORY_NAME) ?: File(context.filesDir, LOG_DIRECTORY_NAME)
-        }
     }
 
     private val loggerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -248,7 +238,7 @@ class PerformanceLogger(
                 stats.setInitialRefreshRate(displayRefreshRate)
                 sampleDisplayState()
 
-                val logDestination = resolveDestination()
+                val logDestination = logFolder.resolve()
                 destination = logDestination
                 framesWriter = logDestination.openWriter("${filePrefix}_frames.csv").apply {
                     write("frame,t_ms,work_ms,sleep_ms,interval_ms,lines,fast_forward,after_pause,paced,audio_fill,audio_silence,audio_full,audio_skew_ppm,audio_ff_speed\n")
@@ -562,29 +552,6 @@ class PerformanceLogger(
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to write performance log summary", e)
             }
-        }
-
-        private fun resolveDestination(): LogDestination {
-            val selectedDirectory = settingsRepository.getPerformanceLogDirectory()
-            if (selectedDirectory != null) {
-                val directoryDocument = try {
-                    DocumentFile.fromTreeUri(context, selectedDirectory)?.takeIf { it.isDirectory && it.canWrite() }
-                } catch (e: Exception) {
-                    null
-                }
-
-                if (directoryDocument != null) {
-                    return DocumentTreeDestination(directoryDocument)
-                } else {
-                    Log.w(TAG, "Cannot write to $selectedDirectory. Using the default log directory instead")
-                }
-            }
-
-            val defaultDirectory = getDefaultLogDirectory(context)
-            if (!defaultDirectory.isDirectory && !defaultDirectory.mkdirs()) {
-                throw IOException("Could not create ${defaultDirectory.absolutePath}")
-            }
-            return FileDestination(defaultDirectory)
         }
 
         private fun buildFilePrefix(): String {
@@ -902,66 +869,6 @@ class PerformanceLogger(
         val isLock60HzEnabled: Boolean,
         val lock60HzMode: Display.Mode?,
     )
-
-    private interface LogDestination {
-        val description: String
-        fun openStream(fileName: String): OutputStream
-
-        /**
-         * Writes [content] to [fileName], replacing the previous contents if the file was already written by this destination.
-         */
-        fun writeReplacing(fileName: String, content: String)
-
-        fun openWriter(fileName: String): BufferedWriter {
-            return BufferedWriter(OutputStreamWriter(openStream(fileName), Charsets.UTF_8), 64 * 1024)
-        }
-    }
-
-    private inner class DocumentTreeDestination(private val directory: DocumentFile) : LogDestination {
-        override val description: String = directory.uri.toString()
-        private val createdDocuments = mutableMapOf<String, Uri>()
-
-        override fun openStream(fileName: String): OutputStream {
-            val documentUri = createDocument(fileName)
-            return context.contentResolver.openOutputStream(documentUri, "w") ?: throw IOException("Could not open $fileName")
-        }
-
-        override fun writeReplacing(fileName: String, content: String) {
-            val existingDocument = createdDocuments[fileName]
-            if (existingDocument != null) {
-                // "wt" truncates the file. Some providers don't support it, in which case the document is recreated
-                val outputStream = runCatching { context.contentResolver.openOutputStream(existingDocument, "wt") }.getOrNull()
-                if (outputStream != null) {
-                    outputStream.use { it.write(content.toByteArray(Charsets.UTF_8)) }
-                    return
-                }
-
-                DocumentFile.fromSingleUri(context, existingDocument)?.delete()
-                createdDocuments.remove(fileName)
-            }
-
-            openStream(fileName).use { it.write(content.toByteArray(Charsets.UTF_8)) }
-        }
-
-        private fun createDocument(fileName: String): Uri {
-            // A generic MIME type prevents providers from changing the extension of the file
-            val document = directory.createFile(LOG_FILE_MIME_TYPE, fileName) ?: throw IOException("Could not create $fileName")
-            createdDocuments[fileName] = document.uri
-            return document.uri
-        }
-    }
-
-    private class FileDestination(private val directory: File) : LogDestination {
-        override val description: String = directory.absolutePath
-
-        override fun openStream(fileName: String): OutputStream {
-            return File(directory, fileName).outputStream()
-        }
-
-        override fun writeReplacing(fileName: String, content: String) {
-            File(directory, fileName).writeText(content, Charsets.UTF_8)
-        }
-    }
 
     @VisibleForTesting
     internal class SessionStatistics {

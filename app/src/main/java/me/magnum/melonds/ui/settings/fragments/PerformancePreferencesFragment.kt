@@ -10,7 +10,7 @@ import me.magnum.melonds.common.DirectoryAccessValidator
 import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.common.UriPermissionManager
 import me.magnum.melonds.extensions.isSustainedPerformanceModeAvailable
-import me.magnum.melonds.impl.perf.PerformanceLogger
+import me.magnum.melonds.impl.debug.LogFolder
 import me.magnum.melonds.ui.settings.PreferenceFragmentHelper
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
 import me.magnum.melonds.ui.settings.preferences.StoragePickerPreference
@@ -66,7 +66,7 @@ class PerformancePreferencesFragment : BasePreferenceFragment(), PreferenceFragm
 
         // A picked folder can't be cleared, so the default location only needs to be shown while no folder has been picked
         if (logDirectoryPreference.getPersistedStringSet(null).isNullOrEmpty()) {
-            val defaultDirectory = PerformanceLogger.getDefaultLogDirectory(requireContext())
+            val defaultDirectory = LogFolder.getDefaultLogDirectory(requireContext())
             logDirectoryPreference.summary = getString(R.string.performance_log_directory_default, defaultDirectory.absolutePath)
         }
     }

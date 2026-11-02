@@ -146,7 +146,7 @@ class ExitReasonReporter(
             }
         }
         if (trace != null && tombstoneFile != null) {
-            logFolder.createFile(tombstoneFile, "application/octet-stream").use { trace.copyTo(it) }
+            logFolder.createFile(tombstoneFile, LogFolder.GENERIC_MIME_TYPE).use { trace.copyTo(it) }
         }
         Log.i(TAG, "Wrote $filePrefix.txt for the ${getReasonName(exit.reason)} exit")
     }
