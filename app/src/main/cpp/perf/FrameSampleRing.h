@@ -6,8 +6,8 @@
 #include <cstdint>
 
 /**
- * Lock-free ring buffer of fixed-size integer samples, meant for one producer thread and one consumer thread. All storage is allocated up-front so
- * that pushing a sample never allocates, blocks or performs I/O. If the consumer doesn't keep up, new samples are dropped and counted instead.
+ * Lock-free single-producer, single-consumer ring of fixed-size int64 samples, allocated up front so a push never allocates, blocks or does I/O, that
+ * drops (and counts) samples when full.
  */
 template<std::size_t Capacity, std::size_t Fields>
 class FrameSampleRing
@@ -18,7 +18,7 @@ public:
     static constexpr std::size_t FIELDS = Fields;
 
     /**
-     * Producer side. Returns false if the sample was dropped because the buffer is full.
+     * Producer side: returns false if the sample was dropped because the buffer is full.
      */
     inline bool push(const int64_t (&sample)[Fields])
     {
@@ -39,9 +39,8 @@ public:
     }
 
     /**
-     * Consumer side. Copies up to [maxSamples] samples by calling [copyRegion] with contiguous regions of the internal storage (at most twice, when
-     * the readable region wraps around). [copyRegion] receives the source pointer, the destination offset (in samples) and the number of samples.
-     * Returns the number of samples consumed.
+     * Consumer side: hands up to [maxSamples] samples to [copyRegion] (source pointer, destination offset in samples, count) in at most two
+     * contiguous regions and returns how many it consumed.
      */
     template<typename CopyFunction>
     std::size_t drain(std::size_t maxSamples, CopyFunction copyRegion)
@@ -67,7 +66,7 @@ public:
     }
 
     /**
-     * Consumer side. Discards all pending samples and resets the dropped sample counter.
+     * Consumer side: discards all pending samples and resets the dropped sample counter.
      */
     void discardAll()
     {
