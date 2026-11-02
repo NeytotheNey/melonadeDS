@@ -49,8 +49,7 @@ class PerformancePreferencesFragment : BasePreferenceFragment(), PreferenceFragm
         val debugLogPreference = findPreference<SwitchPreference>(PreferenceKeys.ENABLE_DEBUG_LOG)!!
         helper.setupStoragePickerPreference(logDirectoryPreference)
 
-        // Both logs write to the same folder, so it can be picked while either of them is on. The change listener runs before the new value is
-        // saved, which is why the new value is passed in
+        // Both logs share the folder, so it's enabled while either is on; the listener runs before the value is saved, hence the argument
         fun updateLogDirectoryEnabled(isPerformanceLoggingOn: Boolean, isDebugLogOn: Boolean) {
             logDirectoryPreference.isEnabled = isPerformanceLoggingOn || isDebugLogOn
         }

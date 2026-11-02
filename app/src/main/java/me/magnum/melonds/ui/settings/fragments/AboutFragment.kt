@@ -59,8 +59,8 @@ private const val SOURCE_CODE_URL = "https://github.com/NeytotheNey/melonadeDS"
 private const val UPSTREAM_SOURCE_CODE_URL = "https://github.com/rafaelvcaetano/melonDS-android"
 
 /**
- * Settings → About: version, credits, the app's licence, links to the source code and the open source licences. The GPL-3 and the
- * licences of the bundled code need these to be shown in the app.
+ * Settings → About: version, credits, the license notices and source links that the GPL-3 and the bundled code's licenses require the app to
+ * show.
  */
 class AboutFragment : Fragment(), PreferenceFragmentTitleProvider {
 
@@ -127,7 +127,7 @@ private fun AboutScreen(
         }
         item {
             AboutGroup(title = stringResource(R.string.about_licenses)) {
-                // The GPL-3's "Appropriate Legal Notices": copyright, no warranty, and where to read the licence (the next row)
+                // The GPL-3's "Appropriate Legal Notices": copyright, no warranty, and where to read the license (the next row)
                 AboutCard(position = CardPosition.FIRST) {
                     Text(
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
@@ -200,8 +200,8 @@ private fun AppHeader() {
 }
 
 /**
- * The launcher icon. The mipmap is an adaptive icon, which Compose can't load, so this draws its layers: the foreground is 108 dp with
- * the visible part in the middle 72 dp, so it's drawn 1.5 times bigger than the circle that clips it, like a launcher does.
+ * The launcher icon drawn from its adaptive layers (Compose can't load the mipmap), with the 108 dp foreground scaled 1.5 times inside the
+ * clipping circle like a launcher does.
  */
 @Composable
 private fun AppIcon() {
@@ -222,8 +222,7 @@ private fun AppIcon() {
 }
 
 /**
- * Where a card sits in its group. Like the settings rows (see PreferenceCardDecoration), the outer corners of a group are large and the
- * corners between cards are small.
+ * Where a card sits in its group, which decides which corners are large (see PreferenceCardDecoration).
  */
 private enum class CardPosition {
     FIRST,
@@ -264,8 +263,7 @@ private fun AboutCard(position: CardPosition, onClick: (() -> Unit)? = null, con
 }
 
 /**
- * A row laid out like the settings rows (preference_card.xml): an icon, a title and a summary. Rows that open a web page get an
- * "open in new" icon at the end.
+ * Icon, title and summary laid out like the settings rows (preference_card.xml), with an "open in new" icon for web links.
  */
 @Composable
 private fun AboutRow(

@@ -12,8 +12,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Padding for the content of the Compose settings pages: the bottom and side insets plus the given margins. SettingsActivity places the pages
- * below its toolbar, so the top inset is left out.
+ * Padding for the content of the Compose settings pages: the bottom and side insets plus the given margins (SettingsActivity's toolbar takes
+ * the top inset).
  */
 @Composable
 fun settingsContentPadding(left: Dp = 0.dp, top: Dp = 0.dp, right: Dp = 0.dp, bottom: Dp = 0.dp): PaddingValues {

@@ -11,12 +11,8 @@ import com.google.android.material.slider.Slider
 import me.magnum.melonds.R
 
 /**
- * A [SeekBarPreference] drawn with an M3 [Slider]. It keeps the attributes, value handling and persistence of
- * [SeekBarPreference], so fragments can keep treating it as one. The current summary is shown next to the title. When
- * there is no summary, the current value is shown instead.
- *
- * Every change (touch on the slider, D-pad on the row, or setting [value] in code) goes through [setValue], which
- * notifies the preference and binds the row again, so the slider and the value text always show the stored value.
+ * [SeekBarPreference] drawn with an M3 [Slider], keeping its attributes and persistence; every change goes through
+ * [setValue] so the slider and the value text always show the stored value.
  */
 class SliderPreference(context: Context, attrs: AttributeSet?) : SeekBarPreference(context, attrs) {
 
@@ -32,10 +28,9 @@ class SliderPreference(context: Context, attrs: AttributeSet?) : SeekBarPreferen
         val slider = holder.findViewById(R.id.slider) as Slider
         val summaryView = holder.findViewById(android.R.id.summary) as TextView?
 
-        // SeekBarPreference sends D-pad keys on the row to its own (hidden) SeekBar and saves the value without
-        // notifying, which would leave the slider out of date. Handle the keys here instead
+        // SeekBarPreference saves D-pad changes on its hidden SeekBar without notifying, so the keys are handled here
         holder.itemView.setOnKeyListener { view, keyCode, event -> onRowKey(view, keyCode, event) }
-        // The row is the only focus stop, like the platform SeekBarPreference. Left/right on the row moves the slider
+        // The row is the only focus stop, like the platform SeekBarPreference, and left/right on it moves the slider
         slider.isFocusable = false
 
         // Clear listeners first since the view can be bound again while the user is dragging the slider

@@ -28,7 +28,7 @@ import me.magnum.melonds.ui.settings.settingsContentPadding
 import me.magnum.melonds.ui.theme.MelonTheme
 
 /**
- * Shows the full text of one licence from the generated open source licences list (res/raw/aboutlibraries.json).
+ * Shows the full text of one license from the generated open source licenses list (res/raw/aboutlibraries.json).
  */
 class LicenseTextFragment : Fragment(), PreferenceFragmentTitleProvider {
 
@@ -37,7 +37,7 @@ class LicenseTextFragment : Fragment(), PreferenceFragmentTitleProvider {
         private const val KEY_TITLE = "title"
 
         /**
-         * @param licenseHash The hash of the licence, as set in config/licenses
+         * @param licenseHash The hash of the license, as set in config/licenses
          */
         fun newInstance(licenseHash: String, @StringRes title: Int) = LicenseTextFragment().apply {
             arguments = Bundle().apply {
@@ -67,7 +67,7 @@ private fun LicenseTextScreen(licenseHash: String?) {
     // Null while the list is loading
     val libraries by produceLibraries(R.raw.aboutlibraries)
     val notFoundMessage = stringResource(R.string.about_license_not_found)
-    // One item per paragraph, so that only the visible part of a long licence is laid out
+    // One item per paragraph, so that only the visible part of a long license is laid out
     val paragraphs = remember(libraries, licenseHash, notFoundMessage) {
         val loadedLibraries = libraries ?: return@remember emptyList()
         val content = loadedLibraries.licenses.firstOrNull { it.hash == licenseHash }?.licenseContent

@@ -5,8 +5,7 @@ import android.util.AttributeSet
 import androidx.preference.ListPreference
 
 /**
- * A [ListPreference] whose value is picked on the page set with app:fragment instead of in the list dialog. It's still a [ListPreference], so the
- * row can show the name of the saved value as its summary.
+ * A [ListPreference] whose value is picked on its app:fragment page instead of a dialog, so the row still shows the value's name as summary.
  */
 class PageListPreference(context: Context, attrs: AttributeSet?) : ListPreference(context, attrs) {
 

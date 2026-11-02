@@ -172,7 +172,7 @@ private fun ControllerStyleItem(
 }
 
 /**
- * A small controller made of the real button views. When [touchVibrator] is set the buttons can be pressed, otherwise touches fall through to the card.
+ * A small controller made of the real button views, pressable only when [touchVibrator] is set (otherwise touches fall through to the card).
  */
 @Composable
 private fun ControllerPreview(

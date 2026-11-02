@@ -25,8 +25,8 @@ class CheatsImportProgressDialog : DialogFragment() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Started once here instead of in onStart(), which would add another collector on every restart. Only collects while started,
-        // which is after onCreateDialog() has created the binding
+        // Launched once here (onStart() would add a collector per restart), and it only collects while started, after onCreateDialog()
+        // created the binding
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.observeCheatsImportProgress().collect {

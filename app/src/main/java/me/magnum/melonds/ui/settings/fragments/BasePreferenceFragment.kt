@@ -44,16 +44,14 @@ abstract class BasePreferenceFragment : PreferenceFragmentCompat() {
     }
 
     /**
-     * Shows [group] only while at least one of its rows is visible, so that a section header is never left without
-     * rows. Call it again whenever the visibility of one of its rows changes.
+     * Hides [group] while none of its rows is visible; call it again whenever a row's visibility changes.
      */
     protected fun updateGroupVisibility(group: PreferenceGroup) {
         group.isVisible = (0 until group.preferenceCount).any { group.getPreference(it).isVisible }
     }
 
     /**
-     * Shows the value of [preference], formatted by [format], as its summary. The summary follows the saved value, so it doesn't have to be
-     * updated when the value changes.
+     * Shows the saved value of [preference], formatted by [format], as its summary, kept current by the summary provider.
      */
     protected fun setSliderSummary(preference: SeekBarPreference, format: (Int) -> String) {
         preference.summaryProvider = Preference.SummaryProvider<SeekBarPreference> { format(it.value) }

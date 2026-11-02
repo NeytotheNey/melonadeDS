@@ -112,7 +112,7 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
     }
 
     /**
-     * Opens [fragment] as a new settings page on top of the current one. Back returns to the current page.
+     * Opens [fragment] as a new settings page on top of the current one, which Back returns to.
      */
     fun showPage(fragment: Fragment) {
         supportFragmentManager.commit {

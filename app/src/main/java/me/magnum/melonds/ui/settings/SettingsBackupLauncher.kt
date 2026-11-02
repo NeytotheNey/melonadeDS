@@ -18,9 +18,8 @@ import me.magnum.melonds.R
 import me.magnum.melonds.impl.SettingsBackupManager
 
 /**
- * Backs up and restores the settings from a settings page: asks for the folder, runs [SettingsBackupManager] off the main thread and shows the
- * result. It registers the folder pickers, so it has to be created while [fragment] is being created, for example as one of its properties.
- * [settingsBackupManager] is only called once a folder has been picked, so it can return a property that is injected later.
+ * Folder pickers plus the off-main-thread backup and restore and their result dialogs; create it while [fragment] is being created (it registers
+ * activity results), while [settingsBackupManager] is only called after a folder is picked so it can return a later-injected property.
  */
 class SettingsBackupLauncher(
     private val fragment: Fragment,
@@ -79,7 +78,7 @@ class SettingsBackupLauncher(
                 runCatchingNonCancellation { settingsBackupManager().restore(uri) }
             }
             result.onSuccess {
-                // The restore is only staged. It's applied when the app starts again, before anything loads the settings
+                // The restore is only staged, to be applied when the app starts again
                 restartApp(appContext)
             }.onFailure {
                 if (it is SettingsBackupManager.BackupFromNewerVersionException) {
@@ -101,8 +100,7 @@ class SettingsBackupLauncher(
     }
 
     /**
-     * Like [runCatching], but lets [CancellationException] through so the coroutine can still be cancelled. Catches every other [Throwable], so
-     * an error like a StackOverflowError from a deeply nested file shows the error message instead of ending the app.
+     * [runCatching] that rethrows [CancellationException] and still catches Errors such as a StackOverflowError from a deeply nested file.
      */
     private inline fun runCatchingNonCancellation(block: () -> Unit): Result<Unit> {
         return try {

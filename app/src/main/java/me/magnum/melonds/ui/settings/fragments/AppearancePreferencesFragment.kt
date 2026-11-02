@@ -25,7 +25,7 @@ class AppearancePreferencesFragment : BasePreferenceFragment(), PreferenceFragme
         setPreferencesFromResource(R.xml.pref_appearance, rootKey)
 
         val dynamicColorsPreference = findPreference<SwitchPreference>(PreferenceKeys.DYNAMIC_COLORS)!!
-        // Dynamic colours are not supported by every Android 12 device, so this can't be decided from the API level alone
+        // Dynamic colors are not supported by every Android 12 device, so this can't be decided from the API level alone
         dynamicColorsPreference.isVisible = DynamicColors.isDynamicColorAvailable()
 
         findPreference<Preference>("backup_settings")?.setOnPreferenceClickListener {

@@ -13,14 +13,8 @@ import androidx.recyclerview.widget.RecyclerView
 import me.magnum.melonds.R
 
 /**
- * Draws the settings rows as grouped cards, like the Android 16 settings. Every run of rows between two
- * [PreferenceCategory] headers is one group: rows are separated by a small gap, the first and last rows of a group get
- * large outer corners and the rows in between get small corners. A group with a single row gets large corners all
- * around.
- *
- * The groups are worked out from the adapter positions every time the list is laid out or drawn, so rows that are
- * hidden or shown later keep the right shape. The card itself is the `preference_card_background` drawable set by the
- * row layouts; this decoration only changes its corners.
+ * Draws the rows between two [PreferenceCategory] headers as one card group (gaps between rows, large outer and small
+ * inner corners), recomputed on every layout and draw so hidden rows don't break the shape.
  */
 class PreferenceCardDecoration(private val preferenceScreenProvider: () -> PreferenceScreen?) : RecyclerView.ItemDecoration() {
 

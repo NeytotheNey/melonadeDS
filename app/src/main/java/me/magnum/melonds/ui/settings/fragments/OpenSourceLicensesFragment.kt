@@ -27,8 +27,7 @@ import me.magnum.melonds.ui.settings.settingsContentPadding
 import me.magnum.melonds.ui.theme.MelonTheme
 
 /**
- * The third-party code in the app and its licences. The list is generated at build time by the AboutLibraries plugin from the Gradle
- * dependencies, plus the native code and shaders described in app/config/libraries. Tapping an entry shows its licence text in a sheet.
+ * Third-party code and licenses, generated at build time by AboutLibraries from the Gradle dependencies plus app/config/libraries.
  */
 class OpenSourceLicensesFragment : Fragment(), PreferenceFragmentTitleProvider {
 
@@ -69,8 +68,7 @@ private fun OpenSourceLicensesScreen() {
             libraries = libraries,
             modifier = Modifier.fillMaxSize(),
             contentPadding = settingsContentPadding(bottom = 16.dp),
-            // The sheet shows the licence as plain text. The dialog parses it as HTML, which drops anything in angle brackets, like the
-            // addresses in the GPL
+            // Sheet, not dialog: the dialog renders HTML and drops the GPL's angle-bracket addresses
             detailMode = LibraryDetailMode.Sheet,
         )
     }

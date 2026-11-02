@@ -105,7 +105,7 @@ class RetroAchievementsPreferencesFragment : BasePreferenceFragment(), Preferenc
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.loggingIn.collect { loggingIn ->
                     loginProgressDialog = if (loggingIn) {
-                        // The state is collected again after every restart. Keep the dialog that's already showing instead of opening a second one
+                        // The state is collected again after every restart, so keep the dialog that's already showing
                         loginProgressDialog ?: LoadingDialog(requireContext()).apply {
                             show()
                         }
