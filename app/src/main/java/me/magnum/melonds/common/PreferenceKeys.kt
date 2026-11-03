@@ -10,6 +10,7 @@ object PreferenceKeys {
     const val VIDEO_HIRES_CAPTURE = "video_hires_capture"
     const val VIDEO_COLOR_DITHERING = "video_color_dithering"
     const val VIDEO_DS_SCREEN_COLORS = "video_ds_screen_colors"
+    const val VIDEO_DEBAND = "video_deband"
     const val VIDEO_SCREEN_SHADOW = "video_screen_shadow"
     const val VIDEO_LUA_DRAWINGS_IN_STATE_PICTURES = "video_lua_drawings_in_state_pictures"
     const val SHOW_STATUS_BAR = "show_status_bar"

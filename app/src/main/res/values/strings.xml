@@ -277,6 +277,8 @@
     <string name="lua_drawings_in_state_pictures_summary">Include what Lua scripts draw on the screens in save state and rewind pictures</string>
     <string name="internal_resolution">Internal resolution</string>
     <string name="hires_capture">Upscaled display capture</string>
+    <string name="deband">Deband</string>
+    <string name="deband_summary">Blends the hard steps in gradients, including textures and 2D backgrounds, before the filter. Costs some GPU time at high internal resolutions</string>
     <string name="color_dithering">Smooth gradients</string>
     <string name="color_dithering_summary">Dithers 3D lighting and color gradients instead of showing hard bands. Not how the DS draws them</string>
     <string name="hires_capture_summary">Redraws screens that games copy and show again (like the Pokémon Black 2 and White 2 title) at the internal resolution, so they stay sharp</string>

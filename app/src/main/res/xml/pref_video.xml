@@ -64,6 +64,12 @@
                 android:defaultValue="none"/>
 
         <SwitchPreference
+                android:key="video_deband"
+                android:title="@string/deband"
+                android:summary="@string/deband_summary"
+                android:defaultValue="false" />
+
+        <SwitchPreference
                 android:key="video_ds_screen_colors"
                 android:title="@string/ds_screen_colors"
                 android:defaultValue="false" />

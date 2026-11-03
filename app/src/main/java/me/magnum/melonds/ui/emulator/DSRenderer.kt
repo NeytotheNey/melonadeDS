@@ -50,6 +50,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     // Settings the screen filter was built with, so it's only rebuilt when they change; GL thread only
     private var screenFilterFiltering: VideoFiltering? = null
     private var screenFilterDsScreenColors = false
+    private var screenFilterDeband = false
     private var mustRebuildScreenFilter = true
     private lateinit var backgroundShader: Shader
     private lateinit var shadowShader: Shader
@@ -391,17 +392,19 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private fun updateShader() {
         val filtering = rendererConfiguration?.videoFiltering ?: VideoFiltering.NONE
         val dsScreenColors = rendererConfiguration?.dsScreenColors ?: false
+        val deband = rendererConfiguration?.deband ?: false
         // Building the filter compiles its shaders, so it's only done when the filter changes
-        if (!mustRebuildScreenFilter && filtering == screenFilterFiltering && dsScreenColors == screenFilterDsScreenColors) {
+        if (!mustRebuildScreenFilter && filtering == screenFilterFiltering && dsScreenColors == screenFilterDsScreenColors && deband == screenFilterDeband) {
             return
         }
 
         // Delete previous shader
         screenFilter?.delete()
 
-        screenFilter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(filtering), dsScreenColors)
+        screenFilter = VideoFilterPipeline(VideoFilterShaderProvider.getFilter(filtering, deband), dsScreenColors)
         screenFilterFiltering = filtering
         screenFilterDsScreenColors = dsScreenColors
+        screenFilterDeband = deband
         mustRebuildScreenFilter = false
     }
 

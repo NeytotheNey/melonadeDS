@@ -4,6 +4,7 @@ import me.magnum.melonds.domain.model.VideoFiltering
 
 data class RuntimeRendererConfiguration(
     val videoFiltering: VideoFiltering,
+    val deband: Boolean,
     val dsScreenColors: Boolean,
     val screenShadow: Boolean,
     val resolutionScaling: Int,

@@ -99,14 +99,15 @@ class SharedPreferencesSettingsRepository(
         setDefaultThemeIfRequired()
         setDefaultMacAddressIfRequired()
 
-        // combine() takes at most 5 typed flows, so the 3 look settings (filter, colors and shadow), the 2 threading ones and the 2 upscaling
-        // extras (hi-res capture and dithering) are grouped first
+        // combine() takes at most 5 typed flows, so the 4 look settings (filter, deband, colors and shadow), the 2 threading ones and the 2
+        // upscaling extras (hi-res capture and dithering) are grouped first
         val lookSettingsFlow = combine(
             getVideoFiltering(),
+            isDebandEnabled(),
             isDsScreenColorsEnabled(),
             isScreenShadowEnabled(),
-        ) { filtering, dsScreenColors, screenShadow ->
-            Triple(filtering, dsScreenColors, screenShadow)
+        ) { filtering, deband, dsScreenColors, screenShadow ->
+            LookSettings(filtering, deband, dsScreenColors, screenShadow)
         }
         val threadingSettingsFlow = combine(
             isThreadedRenderingEnabled(),
@@ -126,10 +127,10 @@ class SharedPreferencesSettingsRepository(
             threadingSettingsFlow,
             gpuExtrasFlow,
             getVideoInternalResolutionScaling(),
-        ) { renderer, (filtering, dsScreenColors, screenShadow), (threadedRenderingEnabled, threaded2dRenderingEnabled), (hiresCaptureEnabled, colorDitheringEnabled), resolutionScaling ->
+        ) { renderer, look, (threadedRenderingEnabled, threaded2dRenderingEnabled), (hiresCaptureEnabled, colorDitheringEnabled), resolutionScaling ->
             RendererConfiguration(
-                renderer, filtering, dsScreenColors, screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled, hiresCaptureEnabled, colorDitheringEnabled,
-                resolutionScaling,
+                renderer, look.filtering, look.deband, look.dsScreenColors, look.screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled,
+                hiresCaptureEnabled, colorDitheringEnabled, resolutionScaling,
             )
         }.conflate().shareIn(preferencesCoroutineScope, SharingStarted.Lazily, replay = 1)
     }
@@ -372,6 +373,12 @@ class SharedPreferencesSettingsRepository(
     override fun isDsScreenColorsEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_DS_SCREEN_COLORS) {
             preferences.getBoolean(PreferenceKeys.VIDEO_DS_SCREEN_COLORS, false)
+        }
+    }
+
+    override fun isDebandEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_DEBAND) {
+            preferences.getBoolean(PreferenceKeys.VIDEO_DEBAND, false)
         }
     }
 
@@ -724,3 +731,11 @@ class SharedPreferencesSettingsRepository(
         return renderConfigurationFlow
     }
 }
+
+// The look settings of a RendererConfiguration, grouped for combine()
+private data class LookSettings(
+    val filtering: VideoFiltering,
+    val deband: Boolean,
+    val dsScreenColors: Boolean,
+    val screenShadow: Boolean,
+)

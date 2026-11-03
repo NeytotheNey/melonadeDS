@@ -915,6 +915,7 @@ class EmulatorViewModel @Inject constructor(
             settingsRepository.observeRenderConfiguration().collectLatest {
                 _runtimeRendererConfiguration.value = RuntimeRendererConfiguration(
                     it.videoFiltering,
+                    it.deband,
                     it.dsScreenColors,
                     it.screenShadow,
                     it.resolutionScaling,

@@ -3,6 +3,8 @@ package me.magnum.melonds.domain.model
 data class RendererConfiguration(
     val renderer: VideoRenderer,
     val videoFiltering: VideoFiltering,
+    // Deband pre-pass in front of the filter (any renderer)
+    val deband: Boolean,
     val dsScreenColors: Boolean,
     val screenShadow: Boolean,
     val threadedRendering: Boolean,

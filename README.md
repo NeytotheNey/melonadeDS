@@ -13,6 +13,7 @@ A fork of the [melonDS Android port](https://github.com/rafaelvcaetano/melonDS-a
 *  Lua scripts per game that can read and change input and memory and draw on the screens (see [MODS.md](MODS.md))
 *  Upscaled display capture, so screens that games capture and show again stay sharp at higher internal resolutions
 *  Smooth gradients (compute renderer): dithers 3D lighting and color gradients instead of showing hard bands
+*  Deband: blends the hard steps in gradients, textures and 2D backgrounds included, before any screen filter
 *  Frame pacing to the display's vsync, with an optional 60 Hz lock
 *  Settings backup and restore
 *  Diagnostics logging: a performance log and a debug log

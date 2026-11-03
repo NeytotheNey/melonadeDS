@@ -698,6 +698,69 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "}"
         )
 
+        // Deband, after mpv's deband (itself based on flash3kyuu), with a per-sample threshold so that detail isn't blurred
+        // Pre-pass; runs once per frame texel before the selected filter. Three rings of 4 samples, each twice as far as the last (a random
+        // angle and distance per texel); the farthest ring whose samples are all within DEBAND_THRESHOLD of the texel replaces it with their
+        // average, so the 1 or 2 level steps of DS gradients blend and anything with more contrast is left alone. Radii are in DS pixels, so
+        // it reaches as far at every internal resolution. A little grain hides the 8 bit steps of the result
+        val DebandPrePassShader = ShaderProgramSource(
+            TextureFiltering.LINEAR,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    SCREEN_UNIFORMS +
+                    "varying vec2 uv;\n" +
+                    screenBandFunctions("texture2D") +
+                    "" +
+                    "// A bit over two 6 bit levels (one 5 bit level), per channel\n" +
+                    "const float DEBAND_THRESHOLD = 2.5 / 63.0;\n" +
+                    "const float DEBAND_RANGE = 3.0;\n" +
+                    "const float DEBAND_GRAIN = 1.0 / 255.0;\n" +
+                    "" +
+                    "// Hash without sine by Dave Hoskins (MIT), since sin() of big values is imprecise on mobile GPUs\n" +
+                    "float hash12(vec2 p) {\n" +
+                    "    vec3 p3 = fract(vec3(p.xyx) * 0.1031);\n" +
+                    "    p3 += dot(p3, p3.yzx + 33.33);\n" +
+                    "    return fract((p3.x + p3.y) * p3.z);\n" +
+                    "}\n" +
+                    "" +
+                    "// Replaces result with the average of 4 samples around uv, offset rotated 90 degrees each, if all of them are close to center\n" +
+                    "vec3 debandRing(vec3 center, vec3 result, vec2 offset, vec4 band) {\n" +
+                    "    vec3 s1 = sampleScreen(uv + offset, band);\n" +
+                    "    vec3 s2 = sampleScreen(uv - offset, band);\n" +
+                    "    // Rotated in texels, since the frame texture isn't square\n" +
+                    "    vec2 texels = offset * texSize;\n" +
+                    "    vec2 perpendicular = vec2(-texels.y, texels.x) / texSize;\n" +
+                    "    vec3 s3 = sampleScreen(uv + perpendicular, band);\n" +
+                    "    vec3 s4 = sampleScreen(uv - perpendicular, band);\n" +
+                    "    vec3 d = max(max(abs(s1 - center), abs(s2 - center)), max(abs(s3 - center), abs(s4 - center)));\n" +
+                    "    if (max(d.r, max(d.g, d.b)) < DEBAND_THRESHOLD) {\n" +
+                    "        return (s1 + s2 + s3 + s4) * 0.25;\n" +
+                    "    }\n" +
+                    "    return result;\n" +
+                    "}\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    vec4 band = screenBand(uv);\n" +
+                    "    vec3 center = sampleScreen(uv, band);\n" +
+                    "    // Texels per DS pixel; the frame texture is FRAME_TEXTURE_HEIGHT DS pixels high at any internal resolution\n" +
+                    "    float scale = texSize.y / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+                    "    float angle = 6.2831853 * hash12(gl_FragCoord.xy);\n" +
+                    "    float radius = DEBAND_RANGE * scale * (0.5 + 0.5 * hash12(gl_FragCoord.yx + 17.0));\n" +
+                    "    vec2 offset = vec2(cos(angle), sin(angle)) * radius / texSize;\n" +
+                    "    vec3 result = center;\n" +
+                    "    // Nearest ring first: a farther ring that also passes overrides it, since it blends more\n" +
+                    "    result = debandRing(center, result, offset, band);\n" +
+                    "    result = debandRing(center, result, offset * 2.0, band);\n" +
+                    "    result = debandRing(center, result, offset * 4.0, band);\n" +
+                    "    // Grain only where the texel was changed, so flat areas and untouched detail stay clean\n" +
+                    "    if (result != center) {\n" +
+                    "        result += (hash12(gl_FragCoord.xy + 101.0) - 0.5) * DEBAND_GRAIN;\n" +
+                    "    }\n" +
+                    "    // Swap back to the frame texture's channel order, since sampleScreen() reads the BGR texels as RGB\n" +
+                    "    gl_FragColor = vec4(clamp(result, 0.0, 1.0).bgr, 1.0);\n" +
+                    "}"
+        )
+
         // sharp-shimmerless
         // Author: zadpos (Woohyun Kang)
         // License: Public domain

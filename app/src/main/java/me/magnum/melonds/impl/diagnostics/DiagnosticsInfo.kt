@@ -27,6 +27,7 @@ internal object DiagnosticsInfo {
             "video_renderer" to renderer.renderer.name,
             "internal_resolution_scaling" to renderer.resolutionScaling.toString(),
             "video_filtering" to renderer.videoFiltering.name,
+            "deband" to renderer.deband.toString(),
             "ds_screen_colors" to renderer.dsScreenColors.toString(),
             "screen_shadow" to renderer.screenShadow.toString(),
             "threaded_rendering" to renderer.threadedRendering.toString(),

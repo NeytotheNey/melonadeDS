@@ -25,5 +25,17 @@ object VideoFilterShaderProvider {
         ),
     )
 
-    fun getFilter(filtering: VideoFiltering): VideoFilter = FILTER_MAP[filtering] ?: NO_FILTER
+    private val DEBAND_PRE_PASS = FilterPrePass(ShaderProgramSource.DebandPrePassShader)
+
+    /**
+     * The filter for [filtering], with the deband pre-pass in front of its own when [deband] is set, so that it works with every filter and
+     * the filter's pre-passes (like MMPX's pixel-art detection) see the smoothed frame.
+     */
+    fun getFilter(filtering: VideoFiltering, deband: Boolean = false): VideoFilter {
+        val filter = FILTER_MAP[filtering] ?: NO_FILTER
+        if (!deband) {
+            return filter
+        }
+        return VideoFilter(filter.screenShader, listOf(DEBAND_PRE_PASS) + filter.prePasses)
+    }
 }
