@@ -1,6 +1,6 @@
 # Plan: a SWI test ROM for FreeBIOS
 
-Status: DS mode built and run (2026-11-02); results in the core's `freebios/UPGRADE_PLAN.md` ("SWI test ROM"). DSi mode and the phone SoftReset log are still open.
+Status: DS and DSi mode built and run (2026-11-02); results in the core's `freebios/UPGRADE_PLAN.md` ("SWI test ROM" and "SWI test ROM, DSi mode"). The phone SoftReset log is still open.
 
 ## Why
 
