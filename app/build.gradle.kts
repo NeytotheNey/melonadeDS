@@ -43,8 +43,8 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags("-std=c++20 -Wno-write-strings")
-                // Opt-in native build flags to measure (docs/plan-optimization.md): -PnativeO3=true, -PnativeLto=true, -PnativeArmv82=true
-                fun nativeFlag(property: String) = if (providers.gradleProperty(property).getOrElse("false").toBoolean()) "ON" else "OFF"
+                // Native build flags, on by default since the 11-03 Fold profile (docs/plan-optimization.md). Turn one off with -PnativeO3=false, -PnativeLto=false or -PnativeArmv82=false
+                fun nativeFlag(property: String) = if (providers.gradleProperty(property).getOrElse("true").toBoolean()) "ON" else "OFF"
                 arguments(
                     "-DMELONADE_O3=${nativeFlag("nativeO3")}",
                     "-DMELONADE_LTO=${nativeFlag("nativeLto")}",
