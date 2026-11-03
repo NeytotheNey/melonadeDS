@@ -313,12 +313,12 @@ internal fun PerformanceLogger.Session.buildSummary(context: Context, isComplete
         entry("pss_java_end_kb", endMemorySnapshot?.java)
         entry("pss_native_end_kb", endMemorySnapshot?.native)
         entry("pss_graphics_end_kb", endMemorySnapshot?.graphics)
-        entry("pss_samples", stats.pssSamples, "Every PSS sample: at the start, every 30 s and at the end")
-        entry("pss_graphics_min_kb", stats.minPssGraphics.takeIf { it >= 0 })
-        entry("pss_graphics_peak_kb", stats.peakPssGraphics.takeIf { it >= 0 })
+        entry("pss_samples", stats.pssSamples, "PSS is only sampled at the start and the end, since a sample can stall the emulator thread")
+        entry("pss_graphics_min_kb", stats.minPssGraphics.takeIf { it >= 0 }, "Of the start and end samples")
+        entry("pss_graphics_peak_kb", stats.peakPssGraphics.takeIf { it >= 0 }, "Of the start and end samples")
         entry(
             "pss_sample_max_ms", millis(stats.maxPssSampleDuration.takeIf { stats.pssSamples > 0 }),
-            "Slowest Debug.getMemoryInfo call. Samples taken during capture can stall the emulator thread for up to about this long",
+            "Slowest Debug.getMemoryInfo call. Both run while capture is off, so they don't show up in the logged frames",
         )
         entry("thermal_status_final", stats.lastThermalStatus)
         entry("thermal_status_max", stats.maxThermalStatus)

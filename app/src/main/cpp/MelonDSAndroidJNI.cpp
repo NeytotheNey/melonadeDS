@@ -122,6 +122,9 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_me_magnum_melonds_MelonEmulator_setupEmulator(JNIEnv* env, jobject thiz, jobject emulatorConfiguration, jobject cameraManager, jobject screenshotBuffer)
 {
+    // Before anything logs from the emulator, render or audio threads
+    DebugLog::startLogQueue();
+
     MelonDSAndroid::EmulatorConfiguration finalEmulatorConfiguration = MelonDSAndroidConfiguration::buildEmulatorConfiguration(env, emulatorConfiguration);
     fastForwardSpeedMultiplier = finalEmulatorConfiguration.fastForwardSpeedMultiplier;
     isFramePacingEnabled = finalEmulatorConfiguration.framePacingVsync;
@@ -682,6 +685,9 @@ Java_me_magnum_melonds_MelonEmulator_stopEmulation(JNIEnv* env, jobject thiz)
     globalCameraManager = nullptr;
 
     delete androidCameraHandler;
+
+    // The session's last lines go out before the activity finishes
+    LogQueue::flush();
 }
 
 JNIEXPORT void JNICALL
@@ -1116,7 +1122,7 @@ void* emulate(void*)
             if (++captureStatsFrames == 300)
             {
                 if (captureStatsSum.maps > 0)
-                    LOG_INFO(LOG_TAG_DEBUG, "CAPWAIT frames=%d maps=%lld wait_ms_f=%.3f spin_ms_f=%.3f span_ms_map=%.3f",
+                    LOG_INFO_QUEUED(LOG_TAG_DEBUG, "CAPWAIT frames=%d maps=%lld wait_ms_f=%.3f spin_ms_f=%.3f span_ms_map=%.3f",
                                         captureStatsFrames, (long long) captureStatsSum.maps, captureStatsSum.waitNs / 1e6 / captureStatsFrames,
                                         captureStatsSum.spinNs / 1e6 / captureStatsFrames, captureStatsSum.spanNs / 1e6 / captureStatsSum.maps);
                 captureStatsSum = {};

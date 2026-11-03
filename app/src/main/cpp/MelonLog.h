@@ -3,7 +3,8 @@
 
 #include <android/log.h>
 
-// The logcat tags, one per area, with the core's messages under LOG_TAG, or LOG_TAG_CORE while the debug log collapses and rate limits them
+// The logcat tags, one per area, with the core's messages under LOG_TAG, or LOG_TAG_CORE while the debug log also collapses repeated ones
+// (both rate limited). Anything that logs every frame or every second goes through debug/LogQueue.h instead of these macros.
 #define LOG_TAG "melonade"
 #define LOG_TAG_CORE "melonade-core"
 #define LOG_TAG_CPU "melonade-cpu"

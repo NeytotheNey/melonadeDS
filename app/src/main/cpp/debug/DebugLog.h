@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdarg>
 #include <cstdint>
+#include "LogQueue.h"
 #include "MelonLog.h"
 #include "Platform.h"
 
@@ -25,20 +26,31 @@ inline bool isEnabled()
 void setEnabled(bool isEnabled);
 
 /**
- * LOG_INFO([tag], ...) while the debug log is on, and nothing otherwise
+ * Starts the log queue's writer thread (LogQueue::start) with the debug log's drop reports; safe to call more than once.
+ */
+void startLogQueue();
+
+/**
+ * LOG_INFO_QUEUED([tag], ...) while the debug log is on, and nothing otherwise
  */
 #define LOG_DEBUGLOG(tag, ...) \
     do \
     { \
         if (::DebugLog::isEnabled()) [[unlikely]] \
-            LOG_INFO(tag, __VA_ARGS__); \
+            LOG_INFO_QUEUED(tag, __VA_ARGS__); \
     } while (0)
 
 /**
- * Writes a message from the core (melonDS::Platform::Log) to logcat under the melonade-core tag, collapsing identical lines in a row and capping new
- * lines per second, so a core that spams the log can't flood logcat or slow the emulator down.
+ * Queues a message from the core (melonDS::Platform::Log) for logcat, after a per call site and an overall per-second budget (warnings and errors
+ * only have the first) that is checked before the line is formatted, so a core that spams the log can't flood logcat or slow the emulator down. While the debug log is on it goes under the
+ * melonade-core tag with identical lines in a row collapsed, otherwise under melonade.
  */
 void logCoreMessage(melonDS::Platform::LogLevel level, const char* format, va_list args);
+
+/**
+ * Takes one line from Lua log()'s per-second budget, counting the line as dropped if there's none left.
+ */
+bool takeLuaLogBudget();
 
 /**
  * Emulator thread, after every frame while the debug log is on: logs a CPU heartbeat, the GPU state and the audio stats once a second, and reports

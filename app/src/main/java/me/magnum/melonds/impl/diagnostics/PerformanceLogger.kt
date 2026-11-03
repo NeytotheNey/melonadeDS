@@ -49,7 +49,6 @@ class PerformanceLogger(
     companion object {
         private const val TAG = "PerformanceLogger"
         private const val DRAIN_INTERVAL_MS = 1000L
-        private const val PSS_SAMPLE_INTERVAL_NS = 30_000_000_000L
         // The summary is rewritten every few drains so that a session that is killed without being stopped still has one
         private const val SUMMARY_INTERVAL_DRAINS = 5
         private const val PREVIOUS_SESSION_TIMEOUT_MS = 5000L
@@ -198,7 +197,7 @@ class PerformanceLogger(
 
         suspend fun run() {
             // A full PSS read walks /proc/self/smaps under the mmap lock and can stall the emulator thread (its JIT maps memory), so it only
-            // runs before/after capture and every 30 s, with its duration logged
+            // runs before capture starts and after it stops, with its duration logged
             startMemorySnapshot = takePssSnapshot()
 
             // Start capturing straight away so that start-up frames are kept
@@ -223,7 +222,7 @@ class PerformanceLogger(
                     write("t_ms,render_ms,valid,new_frame,skipped_frames,paused,ds_sleep,fast_forward,prev_hold_refreshes,refresh_period_ms\n")
                 }
                 memoryWriter = logDestination.openWriter("${filePrefix}_memory.csv").apply {
-                    // The PSS columns are only set on the rows where a PSS sample was taken
+                    // The PSS columns are only set on the first and last rows, where the session's two PSS samples were taken
                     write("t_s,rss_kb,native_heap_alloc_kb,java_heap_used_kb,thermal_status,")
                     write("pss_total_kb,pss_graphics_kb,pss_native_kb,pss_java_kb,pss_private_other_kb,pss_sample_ms\n")
                 }
@@ -234,7 +233,6 @@ class PerformanceLogger(
 
                 var drainCount = 0
                 var stopRequested = false
-                var nextPssSampleNs = startNs + PSS_SAMPLE_INTERVAL_NS
                 while (!stopRequested) {
                     stopRequested = withTimeoutOrNull(DRAIN_INTERVAL_MS) { stopSignal.await() } != null
                     if (stopRequested) {
@@ -248,17 +246,8 @@ class PerformanceLogger(
                     drainEvents()
                     drainAudioEvents()
                     MelonEmulator.getAudioStreamInfo()?.let { lastAudioStreamInfo = it }
-                    val now = System.nanoTime()
-                    val pssSnapshot = when {
-                        // Capture has already stopped, so this one can't stall a logged frame
-                        stopRequested -> takePssSnapshot().also { endMemorySnapshot = it }
-                        now >= nextPssSampleNs -> {
-                            nextPssSampleNs = now + PSS_SAMPLE_INTERVAL_NS
-                            takePssSnapshot()
-                        }
-                        else -> null
-                    }
-                    sampleMemory(pssSnapshot)
+                    // Capture has already stopped for the last one, so it can't stall a logged frame
+                    sampleMemory(if (stopRequested) takePssSnapshot().also { endMemorySnapshot = it } else null)
                     flushWriters()
 
                     drainCount++

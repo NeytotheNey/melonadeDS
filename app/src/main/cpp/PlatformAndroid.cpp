@@ -80,6 +80,8 @@ namespace Platform
 
     void SignalStop(StopReason reason, void* userdata)
     {
+        // The lines that led up to the stop (a bad exception region, say) go out before the app reacts to it
+        LogQueue::flush();
         MelonDSAndroid::eventMessenger->onEmulatorStop(reason);
     }
 
@@ -306,38 +308,28 @@ namespace Platform
         return len;
     }
 
+    // "%s" or "%s\n", checked on the format string itself since the core's literals and ours may not be merged
+    static bool isPlainStringFormat(const char* fmt)
+    {
+        return fmt[0] == '%' && fmt[1] == 's' && (fmt[2] == '\0' || (fmt[2] == '\n' && fmt[3] == '\0'));
+    }
+
     void Log(LogLevel level, const char* fmt, ...)
     {
         if (fmt == nullptr)
             return;
 
+        // Debug lines (the core's unknown IO reads and writes, which chatty games hit thousands of times a second) only matter in the debug log,
+        // so without it they cost nothing more than this check. The game's own debug prints (NO$GBA string out, NDS::NocashPrint) are kept:
+        // they're the only Debug lines formatted as just "%s" or "%s\n" (the CP15 protection unit setup too, which is a few lines at boot).
+        if (level == LogLevel::Debug && !DebugLog::isEnabled() && !isPlainStringFormat(fmt))
+            return;
+
+        // Budgeted, then queued for the log writer thread; while the debug log is on, core messages get their own tag and repeated lines are
+        // collapsed
         va_list args;
         va_start(args, fmt);
-
-        // While the debug log is on, core messages get their own tag and repeated lines are collapsed
-        if (DebugLog::isEnabled()) [[unlikely]]
-        {
-            DebugLog::logCoreMessage(level, fmt, args);
-            va_end(args);
-            return;
-        }
-
-        switch (level)
-        {
-            case LogLevel::Debug:
-                __android_log_vprint(ANDROID_LOG_DEBUG, LOG_TAG, fmt, args);
-                break;
-            case LogLevel::Info:
-                __android_log_vprint(ANDROID_LOG_INFO, LOG_TAG, fmt, args);
-                break;
-            case LogLevel::Warn:
-                __android_log_vprint(ANDROID_LOG_WARN, LOG_TAG, fmt, args);
-                break;
-            case LogLevel::Error:
-                __android_log_vprint(ANDROID_LOG_ERROR, LOG_TAG, fmt, args);
-                break;
-        }
-
+        DebugLog::logCoreMessage(level, fmt, args);
         va_end(args);
     }
 

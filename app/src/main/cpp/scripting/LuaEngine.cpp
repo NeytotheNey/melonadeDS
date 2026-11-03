@@ -645,8 +645,8 @@ int LuaEngine::luaFrame(lua_State* L)
 
 int LuaEngine::luaLog(lua_State* L)
 {
-    // Only goes anywhere while the debug log is on
-    if (!DebugLog::isEnabled())
+    // Only goes anywhere while the debug log is on, and within its budget, which is checked before the line is built
+    if (!DebugLog::isEnabled() || !DebugLog::takeLuaLogBudget())
         return 0;
 
     int argumentCount = lua_gettop(L);
@@ -661,7 +661,7 @@ int LuaEngine::luaLog(lua_State* L)
     }
     luaL_pushresult(&buffer);
 
-    LOG_INFO(TAG, "%s: %s", getScript(L).source.name.c_str(), lua_tostring(L, -1));
+    LOG_INFO_QUEUED(TAG, "%s: %s", getScript(L).source.name.c_str(), lua_tostring(L, -1));
     return 0;
 }
 

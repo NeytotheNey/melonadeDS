@@ -516,7 +516,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 #ifdef MELONADE_DEBUG_TOOLS
         // Mostly the core's savestate copy (~20 MB in DSi mode)
         double captureMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - captureStart).count();
-        LOG_INFO(LOG_TAG_DEBUG, "REWIND frame=%d capture_ms=%.3f size=%u", frame, captureMs, nextRewindState->bufferContentSize);
+        LOG_INFO_QUEUED(LOG_TAG_DEBUG, "REWIND frame=%d capture_ms=%.3f size=%u", frame, captureMs, nextRewindState->bufferContentSize);
 #endif
     }
 

@@ -3,7 +3,8 @@
 #include "AudioDiagnostics.h"
 #include <cstdio>
 #include <cstring>
-#include <mutex>
+#include "LogQueue.h"
+#include "LogRing.h"
 #include "MelonLog.h"
 #include "MonotonicClock.h"
 #include "NDS.h"
@@ -19,23 +20,32 @@ std::atomic_bool enabled = false;
 static std::atomic_bool frameStateResetPending = false;
 
 static const int64_t ONE_SECOND_NS = 1000000000LL;
-// New (not repeated) core lines allowed per second, with anything above that dropped and counted
+// Core lines allowed per second from one call site (one format string) and in all, checked before the line is formatted, with anything above
+// that dropped and counted; the debug log's dedupe only sees the lines within budget. Warnings and errors only have the per call site budget, so
+// that unknown IO spam can't starve a line like "Stopping emulated console".
+static const uint32_t MAX_CORE_LINES_PER_SITE_PER_SECOND = 50;
 static const uint32_t MAX_CORE_LINES_PER_SECOND = 200;
+// Lua log() lines allowed per second, in all
+static const uint32_t MAX_LUA_LINES_PER_SECOND = 120;
 // Immediate reports allowed per second on top of the heartbeat, with separate budgets for exceptions and GPU changes so a game that changes its
 // display setup every frame can't hide an exception
 static const uint32_t MAX_EXCEPTION_REPORTS_PER_SECOND = 10;
 static const uint32_t MAX_GPU_CHANGE_REPORTS_PER_SECOND = 5;
 static const std::size_t MAX_LINE_LENGTH = 1024;
+// How much of an over-budget call site's format string the drop report shows
+static const std::size_t MAX_REPORTED_FORMAT_LENGTH = 80;
 
-// Core message dedupe, under a mutex (only taken while the debug log is on) since the core logs from several threads
-static std::mutex coreLogMutex;
-static char lastCoreMessage[MAX_LINE_LENGTH] = {};
-static int lastCorePriority = -1;
-static uint32_t coreRepeatCount = 0;
-static int64_t lastCoreRepeatReportNs = 0;
-static int64_t coreWindowStartNs = 0;
-static uint32_t coreWindowLines = 0;
-static uint32_t coreDroppedLines = 0;
+// Core line budgets, lock-free since the core logs from several threads
+static LogSiteBudgets<256> coreSiteBudgets;
+static std::atomic<uint64_t> coreBudgetWindow = 0;
+static std::atomic<uint32_t> coreOverBudget = 0;
+static std::atomic<uint64_t> luaBudgetWindow = 0;
+static std::atomic<uint32_t> luaOverBudget = 0;
+
+// Core message dedupe while the debug log is on: a hash of the last line in the high bits and its priority in the low 4, and how many times it
+// came again since it was written. Two threads logging at once can pin a repeat on the wrong line, which is fine for a debug log.
+static std::atomic<uint64_t> lastCoreLineKey = 0;
+static std::atomic<uint32_t> coreRepeatCount = 0;
 
 static int toAndroidPriority(Platform::LogLevel level)
 {
@@ -49,48 +59,130 @@ static int toAndroidPriority(Platform::LogLevel level)
     return ANDROID_LOG_INFO;
 }
 
-// Must be called with coreLogMutex held
-static void reportCoreRepeats()
+// FNV-1a, shifted up to leave room for the priority
+static uint64_t makeCoreLineKey(const char* text, int priority)
 {
-    if (coreRepeatCount == 0)
-        return;
-
-    __android_log_print(lastCorePriority, LOG_TAG_CORE, "(previous line repeated %u more times)", coreRepeatCount);
-    coreRepeatCount = 0;
+    uint64_t hash = 0xCBF29CE484222325ULL;
+    for (const char* c = text; *c != '\0'; c++)
+        hash = (hash ^ (uint8_t) *c) * 0x100000001B3ULL;
+    return (hash << 4) | (uint64_t) (priority & 0xF);
 }
 
-// Starts a new rate limit window if a second has passed and reports what the last one dropped; must be called with coreLogMutex held
-static void advanceCoreWindow(int64_t nowNs)
+// The priority stored in a core line key, or INFO for no line (liblog drops a line with priority 0)
+static int getCoreLineKeyPriority(uint64_t key)
 {
-    if (nowNs - coreWindowStartNs < ONE_SECOND_NS)
-        return;
+    int priority = (int) (key & 0xF);
+    return priority >= ANDROID_LOG_VERBOSE ? priority : ANDROID_LOG_INFO;
+}
 
-    if (coreDroppedLines > 0)
-        LOG_WARN(LOG_TAG_CORE, "(%u core lines dropped, over %u lines per second)", coreDroppedLines, MAX_CORE_LINES_PER_SECOND);
+// Counts a dropped or repeated line, waking the log writer if it's the first since its last report (it sleeps while there's nothing to report)
+static void addPendingCount(std::atomic<uint32_t>& count, std::memory_order order = std::memory_order_relaxed)
+{
+    if (count.fetch_add(1, order) == 0)
+        LogQueue::nudge();
+}
 
-    coreWindowStartNs = nowNs;
-    coreWindowLines = 0;
-    coreDroppedLines = 0;
+// Writer thread: queues the last core line's repeat count, so a line that keeps repeating still shows up once a second. The acquire pairs with the
+// release in logCoreMessage, so the count's line was queued before and comes out first.
+static void reportCoreRepeats()
+{
+    uint32_t repeats = coreRepeatCount.exchange(0, std::memory_order_acquire);
+    if (repeats > 0)
+    {
+        int priority = getCoreLineKeyPriority(lastCoreLineKey.load(std::memory_order_relaxed));
+        LogQueue::print(priority, LOG_TAG_CORE, "(previous line repeated %u more times)", repeats);
+    }
+}
+
+static bool hasPendingLogCounts()
+{
+    return coreRepeatCount.load(std::memory_order_relaxed) != 0 || coreOverBudget.load(std::memory_order_relaxed) != 0
+            || luaOverBudget.load(std::memory_order_relaxed) != 0;
+}
+
+// Writer thread, about once a second and on LogQueue::flush(): queues reports of what the budgets dropped
+static void reportLogSecond()
+{
+    reportCoreRepeats();
+
+    uint32_t coreDropped = coreOverBudget.exchange(0, std::memory_order_relaxed);
+    if (coreDropped > 0)
+    {
+        uint32_t siteDropped;
+        const auto* site = coreSiteBudgets.takeWorstSite(siteDropped);
+        const char* format = site != nullptr && site != coreSiteBudgets.getOverflowSite() ? site->format.load(std::memory_order_relaxed) : nullptr;
+        char shownFormat[MAX_REPORTED_FORMAT_LENGTH + 1] = "several call sites";
+        if (format != nullptr)
+        {
+            snprintf(shownFormat, sizeof(shownFormat), "%s", format);
+            // Drops the core's trailing newline and keeps the report on one line
+            std::size_t end = strlen(shownFormat);
+            while (end > 0 && (shownFormat[end - 1] == '\n' || shownFormat[end - 1] == '\r'))
+                shownFormat[--end] = '\0';
+            for (char* c = shownFormat; *c != '\0'; c++)
+            {
+                if (*c == '\n' || *c == '\r')
+                    *c = ' ';
+            }
+        }
+        LogQueue::print(ANDROID_LOG_WARN, isEnabled() ? LOG_TAG_CORE : LOG_TAG,
+                "(%u core lines dropped, over %u per second from one call site or %u in all for debug and info lines; most from \"%s\": %u)", coreDropped,
+                MAX_CORE_LINES_PER_SITE_PER_SECOND, MAX_CORE_LINES_PER_SECOND, shownFormat, siteDropped);
+    }
+
+    uint32_t luaDropped = luaOverBudget.exchange(0, std::memory_order_relaxed);
+    if (luaDropped > 0)
+        LogQueue::print(ANDROID_LOG_WARN, LOG_TAG_LUA, "(%u Lua log lines dropped, over %u per second)", luaDropped, MAX_LUA_LINES_PER_SECOND);
+}
+
+void startLogQueue()
+{
+    LogQueue::start(reportLogSecond, hasPendingLogCounts);
 }
 
 void setEnabled(bool isEnabled)
 {
+    startLogQueue();
     AudioDiagnostics::setDebugLogEnabled(isEnabled);
 
-    std::lock_guard<std::mutex> lock(coreLogMutex);
-    if (!isEnabled)
-        reportCoreRepeats();
-
-    lastCoreMessage[0] = '\0';
-    lastCorePriority = -1;
-    coreRepeatCount = 0;
     if (isEnabled)
+    {
+        lastCoreLineKey.store(0, std::memory_order_relaxed);
+        coreRepeatCount.store(0, std::memory_order_relaxed);
         frameStateResetPending.store(true, std::memory_order_relaxed);
-    enabled.store(isEnabled, std::memory_order_relaxed);
+        LogQueue::setStampingEnabled(true);
+        enabled.store(true, std::memory_order_relaxed);
+        return;
+    }
+
+    enabled.store(false, std::memory_order_relaxed);
+    // Gets the last lines and the pending counts out while the recorder still runs, with the last line's key still there for its repeat count
+    LogQueue::flush();
+    LogQueue::setStampingEnabled(false);
+    lastCoreLineKey.store(0, std::memory_order_relaxed);
 }
 
 void logCoreMessage(Platform::LogLevel level, const char* format, va_list args)
 {
+    // The budgets come first, so a line over budget costs a few atomics: no formatting, no clock read beyond the coarse one, no lock
+    uint32_t second = coarseMonotonicSecond();
+    auto& site = coreSiteBudgets.find(format);
+    bool isWarningOrError = level == Platform::LogLevel::Warn || level == Platform::LogLevel::Error;
+    if (!takeLogBudget(site.window, second, MAX_CORE_LINES_PER_SITE_PER_SECOND)
+            || (!isWarningOrError && !takeLogBudget(coreBudgetWindow, second, MAX_CORE_LINES_PER_SECOND)))
+    {
+        site.overBudget.fetch_add(1, std::memory_order_relaxed);
+        addPendingCount(coreOverBudget);
+        return;
+    }
+
+    int priority = toAndroidPriority(level);
+    if (!isEnabled())
+    {
+        LogQueue::vprint(priority, LOG_TAG, format, args);
+        return;
+    }
+
     char message[MAX_LINE_LENGTH];
     int length = vsnprintf(message, sizeof(message), format, args);
     if (length < 0)
@@ -101,47 +193,26 @@ void logCoreMessage(Platform::LogLevel level, const char* format, va_list args)
     while (end > 0 && (message[end - 1] == '\n' || message[end - 1] == '\r'))
         message[--end] = '\0';
 
-    int priority = toAndroidPriority(level);
-    int64_t nowNs = monotonicNanos();
-
-    std::lock_guard<std::mutex> lock(coreLogMutex);
-    if (priority == lastCorePriority && strcmp(message, lastCoreMessage) == 0)
+    uint64_t key = makeCoreLineKey(message, priority);
+    uint64_t previousKey = lastCoreLineKey.exchange(key, std::memory_order_relaxed);
+    if (previousKey == key)
     {
-        coreRepeatCount++;
-        // A line that keeps repeating still shows up once per second, with its count
-        if (nowNs - lastCoreRepeatReportNs >= ONE_SECOND_NS)
-        {
-            reportCoreRepeats();
-            lastCoreRepeatReportNs = nowNs;
-        }
+        addPendingCount(coreRepeatCount, std::memory_order_release);
         return;
     }
 
-    reportCoreRepeats();
-    advanceCoreWindow(nowNs);
-    if (coreWindowLines >= MAX_CORE_LINES_PER_SECOND)
-    {
-        coreDroppedLines++;
-        return;
-    }
-
-    coreWindowLines++;
-    __android_log_write(priority, LOG_TAG_CORE, message);
-    memcpy(lastCoreMessage, message, end + 1);
-    lastCorePriority = priority;
-    lastCoreRepeatReportNs = nowNs;
+    uint32_t repeats = coreRepeatCount.exchange(0, std::memory_order_relaxed);
+    if (repeats > 0)
+        LogQueue::print(getCoreLineKeyPriority(previousKey), LOG_TAG_CORE, "(previous line repeated %u more times)", repeats);
+    LogQueue::write(priority, LOG_TAG_CORE, message);
 }
 
-// Reports pending repeat and drop counts, so they show up even if the core goes quiet
-static void flushCoreLogSummary(int64_t nowNs)
+bool takeLuaLogBudget()
 {
-    std::lock_guard<std::mutex> lock(coreLogMutex);
-    if (coreRepeatCount > 0)
-    {
-        reportCoreRepeats();
-        lastCoreRepeatReportNs = nowNs;
-    }
-    advanceCoreWindow(nowNs);
+    if (takeLogBudget(luaBudgetWindow, coarseMonotonicSecond(), MAX_LUA_LINES_PER_SECOND))
+        return true;
+    addPendingCount(luaOverBudget);
+    return false;
 }
 
 // Everything below is only used from the emulator thread
@@ -178,7 +249,7 @@ public:
         if (nowNs - windowStartNs >= ONE_SECOND_NS)
         {
             if (dropped > 0)
-                LOG_WARN(LOG_TAG_CPU, "(%u %s reports dropped)", dropped, label);
+                LOG_WARN_QUEUED(LOG_TAG_CPU, "(%u %s reports dropped)", dropped, label);
 
             windowStartNs = nowNs;
             count = 0;
@@ -257,7 +328,7 @@ static void checkCpuExceptionState(const ARM& cpu, CpuWatch& watch, u32 frame, i
         {
             // In ABT/UND mode, R13/R14 are that mode's banked registers and the third banked slot holds its SPSR
             u32 spsr = mode == 0x17 ? cpu.R_ABT[2] : (mode == 0x1B ? cpu.R_UND[2] : 0);
-            LOG_WARN(LOG_TAG_CPU, "ARM%d %s: frame=%u mode=%s vector=%s r15=%08X r14=%08X r13=%08X cpsr=%08X spsr=%08X exception_base=%08X",
+            LOG_WARN_QUEUED(LOG_TAG_CPU, "ARM%d %s: frame=%u mode=%s vector=%s r15=%08X r14=%08X r13=%08X cpsr=%08X spsr=%08X exception_base=%08X",
                     cpu.Num ? 7 : 9, isNewState ? "entered exception state" : "still in exception state", frame, getModeName(cpu.CPSR), vector ? vector : "none",
                     cpu.R[15], cpu.R[14], cpu.R[13], cpu.CPSR, spsr, cpu.ExceptionBase);
             watch.lastReportNs = nowNs;
@@ -265,7 +336,7 @@ static void checkCpuExceptionState(const ARM& cpu, CpuWatch& watch, u32 frame, i
     }
     else if (watch.wasFlagged)
     {
-        LOG_INFO(LOG_TAG_CPU, "ARM%d left exception state: frame=%u mode=%s r15=%08X", cpu.Num ? 7 : 9, frame, getModeName(cpu.CPSR), cpu.R[15]);
+        LOG_INFO_QUEUED(LOG_TAG_CPU, "ARM%d left exception state: frame=%u mode=%s r15=%08X", cpu.Num ? 7 : 9, frame, getModeName(cpu.CPSR), cpu.R[15]);
     }
 
     watch.wasFlagged = isFlagged;
@@ -308,7 +379,7 @@ static void checkCpuLowAddress(const ARM& cpu, CpuWatch& watch, u32 frame, int64
         bool shouldReport = isNew ? exceptionReportLimiter.take(nowNs) : nowNs - watch.lastLowAddressReportNs >= ONE_SECOND_NS;
         if (shouldReport)
         {
-            LOG_WARN(LOG_TAG_CPU, "ARM%d %s: frame=%u next_pc=%08X r15=%08X r14=%08X r13=%08X cpsr=%08X mode=%s%s exception_base=%08X",
+            LOG_WARN_QUEUED(LOG_TAG_CPU, "ARM%d %s: frame=%u next_pc=%08X r15=%08X r14=%08X r13=%08X cpsr=%08X mode=%s%s exception_base=%08X",
                     cpu.Num ? 7 : 9, isNew ? "jumped to low memory" : "still in low memory", frame, nextAddress, cpu.R[15], cpu.R[14], cpu.R[13], cpu.CPSR,
                     getModeName(cpu.CPSR), (cpu.CPSR & 0x20) ? " thumb" : "", cpu.ExceptionBase);
             watch.lastLowAddressReportNs = nowNs;
@@ -343,7 +414,7 @@ static void logGpuState(NDS& nds, const GpuSnapshot& snapshot, const char* label
     const auto& b = nds.GPU.GPU2D_B;
     const u8* v = snapshot.vramCnt;
     // POWCNT1 bit 15 set means engine A is on the top screen
-    LOG_INFO(LOG_TAG_CPU,
+    LOG_INFO_QUEUED(LOG_TAG_CPU,
             "%s frame=%u powcnt1=%04X dispcnt_a=%08X dispcnt_b=%08X bgcnt_a=%04X,%04X,%04X,%04X bgcnt_b=%04X,%04X,%04X,%04X vramcnt=%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X",
             label, frame, snapshot.powerControl, snapshot.dispCntA, snapshot.dispCntB, a.BGCnt[0], a.BGCnt[1], a.BGCnt[2], a.BGCnt[3],
             b.BGCnt[0], b.BGCnt[1], b.BGCnt[2], b.BGCnt[3], v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]);
@@ -375,7 +446,7 @@ void onFrame(NDS& nds, bool isFastForward, float fps, int64_t lastFrameWorkNs)
     nextHeartbeatNs = nowNs + ONE_SECOND_NS;
     const ARM& arm9 = nds.ARM9;
     const ARM& arm7 = nds.ARM7;
-    LOG_INFO(LOG_TAG_CPU,
+    LOG_INFO_QUEUED(LOG_TAG_CPU,
             "heartbeat frame=%u fps=%.1f work_ms=%.2f jit=%d ff=%d | arm9 r15=%08X cpsr=%08X %s%s halted=%u | arm7 r15=%08X cpsr=%08X %s%s halted=%u | "
             "ime9=%u ie9=%08X if9=%08X ime7=%u ie7=%08X if7=%08X cpustop=%08X",
             frame, fps, lastFrameWorkNs / 1000000.0, nds.IsJITEnabled() ? 1 : 0, isFastForward ? 1 : 0,
@@ -384,7 +455,6 @@ void onFrame(NDS& nds, bool isFastForward, float fps, int64_t lastFrameWorkNs)
             nds.IME[0], nds.IE[0], nds.IF[0], nds.IME[1], nds.IE[1], nds.IF[1], nds.CPUStop);
     logGpuState(nds, gpuSnapshot, "gpu", frame);
     AudioDiagnostics::logSecond(frame);
-    flushCoreLogSummary(nowNs);
 }
 
 // Replaces anything outside printable ASCII with '?', so that a header field is safe to log
@@ -401,7 +471,7 @@ void logGameStart(NDS& nds, const char* reason, bool hasRomCrc32, uint32_t romCr
 {
     resetFrameState();
 
-    LOG_INFO(LOG_TAG_CPU, "core %s: console=%s jit=%d arm9_bios=%s arm7_bios=%s arm9_exception_base=%08X",
+    LOG_INFO_QUEUED(LOG_TAG_CPU, "core %s: console=%s jit=%d arm9_bios=%s arm7_bios=%s arm9_exception_base=%08X",
             reason, nds.ConsoleType == 1 ? "DSi" : "DS", nds.IsJITEnabled() ? 1 : 0,
             nds.IsLoadedARM9BIOSKnownNative() ? "native" : "not native (FreeBIOS or unknown)",
             nds.IsLoadedARM7BIOSKnownNative() ? "native" : "not native (FreeBIOS or unknown)", nds.ARM9.ExceptionBase);
@@ -409,7 +479,7 @@ void logGameStart(NDS& nds, const char* reason, bool hasRomCrc32, uint32_t romCr
     const NDSCart::CartCommon* cart = nds.GetNDSCart();
     if (cart == nullptr)
     {
-        LOG_INFO(LOG_TAG_CPU, "core %s: no cart inserted", reason);
+        LOG_INFO_QUEUED(LOG_TAG_CPU, "core %s: no cart inserted", reason);
         return;
     }
 
@@ -425,7 +495,7 @@ void logGameStart(NDS& nds, const char* reason, bool hasRomCrc32, uint32_t romCr
     if (hasRomCrc32)
         snprintf(crcText, sizeof(crcText), "%08X", romCrc32);
 
-    LOG_INFO(LOG_TAG_CPU, "core %s: cart title=\"%s\" game_code=%s rom_version=%u header_crc16=%04X rom_size=%u rom_file_crc32=%s dsi_ware=%d",
+    LOG_INFO_QUEUED(LOG_TAG_CPU, "core %s: cart title=\"%s\" game_code=%s rom_version=%u header_crc16=%04X rom_size=%u rom_file_crc32=%s dsi_ware=%d",
             reason, title, gameCode, header.ROMVersion, header.HeaderCRC16, cart->GetROMLength(), crcText, header.IsDSiWare() ? 1 : 0);
 }
 

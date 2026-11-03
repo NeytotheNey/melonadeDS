@@ -8,6 +8,7 @@
 #include <cstring>
 #include <mutex>
 #include "MelonDSAudio.h"
+#include "LogQueue.h"
 #include "MelonLog.h"
 #include "MonotonicClock.h"
 
@@ -199,7 +200,7 @@ static void takeBufferSizeChanges()
         snprintf(detail, sizeof(detail), "old=%d new=%d new_ms=%.1f xruns=%d", change.oldSize, change.newSize, framesToMillis(change.newSize),
                 change.xruns);
         if (isDebugLogOn)
-            LOG_INFO(LOG_TAG_AUDIO, "audio buffer grew after an xrun %.0f ms ago: %d -> %d frames (%.1f -> %.1f ms), xruns=%d",
+            LOG_INFO_QUEUED(LOG_TAG_AUDIO, "audio buffer grew after an xrun %.0f ms ago: %d -> %d frames (%.1f -> %.1f ms), xruns=%d",
                     (nowNs - change.timestampNs) / 1000000.0, change.oldSize, change.newSize, framesToMillis(change.oldSize),
                     framesToMillis(change.newSize), change.xruns);
         recordEvent("audio_buffer_size", detail, change.timestampNs);
@@ -271,7 +272,7 @@ void onStreamOpened(oboe::AudioStream& stream, MelonDSAndroid::AudioLatency requ
 
     if (isDebugLogOn)
     {
-        LOG_INFO(LOG_TAG_AUDIO, "audio stream opened (%s): %s", reason, streamInfo);
+        LOG_INFO_QUEUED(LOG_TAG_AUDIO, "audio stream opened (%s): %s", reason, streamInfo);
         lastLoggedStreamKey = streamOpens;
     }
     recordEvent("audio_stream_open", reason);
@@ -284,7 +285,7 @@ void onStreamOpenFailed(oboe::Result result, MelonDSAndroid::AudioLatency reques
     char detail[96];
     snprintf(detail, sizeof(detail), "%s: %s requested_latency=%s", reason, oboe::convertToText(result), getLatencyName(requestedLatency));
     if (isDebugLogOn)
-        LOG_WARN(LOG_TAG_AUDIO, "audio stream open failed (%s)", detail);
+        LOG_WARN_QUEUED(LOG_TAG_AUDIO, "audio stream open failed (%s)", detail);
     recordEvent("audio_stream_open_failed", detail);
 }
 
@@ -328,7 +329,7 @@ void onStreamError(oboe::Result result)
     std::lock_guard<std::mutex> lock(stateMutex);
     streamErrors++;
     if (isDebugLogOn)
-        LOG_WARN(LOG_TAG_AUDIO, "audio stream error: %s (stream closed by Oboe)", oboe::convertToText(result));
+        LOG_WARN_QUEUED(LOG_TAG_AUDIO, "audio stream error: %s (stream closed by Oboe)", oboe::convertToText(result));
     recordEvent("audio_stream_error", oboe::convertToText(result));
 }
 
@@ -521,7 +522,7 @@ void logSecond(uint32_t frame)
     char achievedSpeedText[16];
     formatOptional(achievedSpeedText, sizeof(achievedSpeedText), achievedSpeed > 0, "%.3f", achievedSpeed);
 
-    LOG_INFO(LOG_TAG_AUDIO,
+    LOG_INFO_QUEUED(LOG_TAG_AUDIO,
             "audio frame=%u stream=%s callbacks=%lld frames=%lld cb_frames_avg=%.1f cb_frames_max=%lld cb_gap_max_ms=%.2f underruns=%lld silence_frames=%lld "
             "prime_wait_frames=%lld reprimes=%lld prime_trims=%lld prime_trim_frames=%lld xruns=%s fill_min=%d fill_avg=%d fill_max=%d fill_ms=%.1f/%.1f/%.1f buffer_full_frames=%d skew_ppm=%d "
             "fill_filtered=%s ff_speed=%s buffer_size=%d buffer_ms=%.1f buffer_max=%d | total underruns=%lld silence_frames=%lld prime_wait_frames=%lld reprimes=%lld "
@@ -560,9 +561,9 @@ void resetForDebugLog()
     if (isLogged)
         return;
     if (isOpen)
-        LOG_INFO(LOG_TAG_AUDIO, "audio stream (current): %s", info);
+        LOG_INFO_QUEUED(LOG_TAG_AUDIO, "audio stream (current): %s", info);
     else
-        LOG_INFO(LOG_TAG_AUDIO, "audio stream (current): none open");
+        LOG_INFO_QUEUED(LOG_TAG_AUDIO, "audio stream (current): none open");
 }
 
 void getTotals(int64_t* totals)
