@@ -99,7 +99,8 @@ class SharedPreferencesSettingsRepository(
         setDefaultThemeIfRequired()
         setDefaultMacAddressIfRequired()
 
-        // combine() takes at most 5 typed flows, so the 3 look settings (filter, colors and shadow) and the 2 threading ones are grouped first
+        // combine() takes at most 5 typed flows, so the 3 look settings (filter, colors and shadow), the 2 threading ones and the 2 upscaling
+        // extras (hi-res capture and dithering) are grouped first
         val lookSettingsFlow = combine(
             getVideoFiltering(),
             isDsScreenColorsEnabled(),
@@ -113,14 +114,23 @@ class SharedPreferencesSettingsRepository(
         ) { threadedRenderingEnabled, threaded2dRenderingEnabled ->
             Pair(threadedRenderingEnabled, threaded2dRenderingEnabled)
         }
+        val gpuExtrasFlow = combine(
+            isHiresCaptureEnabled(),
+            isColorDitheringEnabled(),
+        ) { hiresCaptureEnabled, colorDitheringEnabled ->
+            Pair(hiresCaptureEnabled, colorDitheringEnabled)
+        }
         renderConfigurationFlow = combine(
             getVideoRenderer(),
             lookSettingsFlow,
             threadingSettingsFlow,
-            isHiresCaptureEnabled(),
+            gpuExtrasFlow,
             getVideoInternalResolutionScaling(),
-        ) { renderer, (filtering, dsScreenColors, screenShadow), (threadedRenderingEnabled, threaded2dRenderingEnabled), hiresCaptureEnabled, resolutionScaling ->
-            RendererConfiguration(renderer, filtering, dsScreenColors, screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled, hiresCaptureEnabled, resolutionScaling)
+        ) { renderer, (filtering, dsScreenColors, screenShadow), (threadedRenderingEnabled, threaded2dRenderingEnabled), (hiresCaptureEnabled, colorDitheringEnabled), resolutionScaling ->
+            RendererConfiguration(
+                renderer, filtering, dsScreenColors, screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled, hiresCaptureEnabled, colorDitheringEnabled,
+                resolutionScaling,
+            )
         }.conflate().shareIn(preferencesCoroutineScope, SharingStarted.Lazily, replay = 1)
     }
 
@@ -386,6 +396,12 @@ class SharedPreferencesSettingsRepository(
     override fun isHiresCaptureEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_HIRES_CAPTURE) {
             preferences.getBoolean(PreferenceKeys.VIDEO_HIRES_CAPTURE, true)
+        }
+    }
+
+    override fun isColorDitheringEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_COLOR_DITHERING) {
+            preferences.getBoolean(PreferenceKeys.VIDEO_COLOR_DITHERING, false)
         }
     }
 

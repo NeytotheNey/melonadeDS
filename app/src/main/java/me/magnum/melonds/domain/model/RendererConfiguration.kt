@@ -10,6 +10,8 @@ data class RendererConfiguration(
     val threaded2dRendering: Boolean,
     // Redo display capture at internal resolution (OpenGL/compute, read natively)
     val hiresCapture: Boolean,
+    // Dither polygon color gradients instead of banding them (compute only, read natively)
+    val colorDithering: Boolean,
     private val internalResolutionScaling: Int,
 ) {
 

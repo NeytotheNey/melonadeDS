@@ -946,6 +946,7 @@ void MelonInstance::updateRenderer()
             // Like OpenGL, every time and first, so that a new renderer's shaders are only compiled once
             computeRenderer.SetViewWidth(wideViewWidth);
             computeRenderer.SetRenderSettings(computeRenderSettings.scale,computeRenderSettings.highResCoordinates);
+            computeRenderer.SetColorDither(computeRenderSettings.colorDithering);
             break;
         }
         default: __builtin_unreachable();

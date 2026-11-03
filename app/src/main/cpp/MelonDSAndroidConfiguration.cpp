@@ -162,6 +162,7 @@ std::unique_ptr<MelonDSAndroid::RenderSettings> MelonDSAndroidConfiguration::bui
     jmethodID getResolutionScalingMethod = env->GetMethodID(renderSettingsClass, "getResolutionScaling", "()I");
     jboolean threadedRendering = env->GetBooleanField(renderSettings, env->GetFieldID(renderSettingsClass, "threadedRendering", "Z"));
     jint internalResolutionScaling = env->CallIntMethod(renderSettings, getResolutionScalingMethod);
+    jboolean colorDithering = env->GetBooleanField(renderSettings, env->GetFieldID(renderSettingsClass, "colorDithering", "Z"));
 
     std::unique_ptr<MelonDSAndroid::RenderSettings> settings;
     if (renderer == MelonDSAndroid::Renderer::OpenGl)
@@ -179,6 +180,7 @@ std::unique_ptr<MelonDSAndroid::RenderSettings> MelonDSAndroidConfiguration::bui
             MelonDSAndroid::ComputeRenderSettings {
                 .scale = internalResolutionScaling,
                 .highResCoordinates = true,
+                .colorDithering = (bool) colorDithering,
             }
         );
     }

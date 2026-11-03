@@ -29,6 +29,8 @@ struct ComputeRenderSettings : public RenderSettings
 {
     int scale;
     bool highResCoordinates;
+    // Dithers polygon color gradients to 6 bits instead of dropping the low bits (ComputeRenderer::SetColorDither)
+    bool colorDithering;
 };
 
 // Must match AudioLatency.latencyValue in AudioLatency.kt

@@ -28,6 +28,13 @@
                 android:title="@string/hires_capture"
                 android:summary="@string/hires_capture_summary"
                 android:defaultValue="true" />
+
+        <!-- Compute only, so it's hidden for the others (set up in VideoPreferencesFragment) -->
+        <SwitchPreference
+                android:key="video_color_dithering"
+                android:title="@string/color_dithering"
+                android:summary="@string/color_dithering_summary"
+                android:defaultValue="false" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/settings_section_threading">

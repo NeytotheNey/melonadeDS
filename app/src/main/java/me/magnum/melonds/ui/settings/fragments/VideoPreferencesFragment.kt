@@ -25,6 +25,8 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
     // Only the OpenGL and compute renderers have an internal resolution, and upscaled display capture
     private lateinit var internalResolutionPreference: Preference
     private lateinit var hiresCapturePreference: Preference
+    // Only the compute renderer dithers color gradients
+    private lateinit var colorDitheringPreference: Preference
     private lateinit var renderingCategory: PreferenceCategory
     // Threaded 3D rendering is only used by the software renderer
     private lateinit var threadedRenderingPreference: SwitchPreference
@@ -35,6 +37,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
 
         internalResolutionPreference = findPreference("video_internal_resolution")!!
         hiresCapturePreference = findPreference(PreferenceKeys.VIDEO_HIRES_CAPTURE)!!
+        colorDitheringPreference = findPreference(PreferenceKeys.VIDEO_COLOR_DITHERING)!!
         threadedRenderingPreference = findPreference("enable_threaded_rendering")!!
 
         val rendererPreference = findPreference<ListPreference>("video_renderer")!!
@@ -74,6 +77,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         val isSoftwareRenderer = newRenderer == VideoRenderer.SOFTWARE
         internalResolutionPreference.isVisible = !isSoftwareRenderer
         hiresCapturePreference.isVisible = !isSoftwareRenderer
+        colorDitheringPreference.isVisible = newRenderer == VideoRenderer.COMPUTE
         threadedRenderingPreference.isEnabled = isSoftwareRenderer
         threadedRenderingPreference.setSummary(
             if (isSoftwareRenderer) R.string.threaded_rendering_summary else R.string.threaded_rendering_software_only

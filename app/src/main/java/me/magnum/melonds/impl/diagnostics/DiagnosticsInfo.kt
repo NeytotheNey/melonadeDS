@@ -32,6 +32,7 @@ internal object DiagnosticsInfo {
             "threaded_rendering" to renderer.threadedRendering.toString(),
             "threaded_2d_rendering" to renderer.threaded2dRendering.toString(),
             "hires_capture" to renderer.hiresCapture.toString(),
+            "color_dithering" to renderer.colorDithering.toString(),
             "jit_enabled" to settingsRepository.isJitEnabled().toString(),
             "sustained_performance_mode" to settingsRepository.isSustainedPerformanceModeEnabled().toString(),
             "frame_pacing_vsync" to settingsRepository.isFramePacingVsyncEnabled().toString(),
