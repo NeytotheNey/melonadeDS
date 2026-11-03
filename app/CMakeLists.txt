@@ -10,6 +10,22 @@ if(MELONADE_DEBUG_TOOLS)
     add_compile_definitions(MELONADE_DEBUG_TOOLS)
 endif()
 
+# Opt-in flags from build.gradle.kts (docs/plan-optimization.md), set before the subdirectories so the core and the libraries get them too
+option(MELONADE_O3 "Compile native code at -O3" OFF)
+option(MELONADE_LTO "Link native code with ThinLTO" OFF)
+option(MELONADE_ARMV82 "Target armv8.2-a on arm64" OFF)
+if(MELONADE_O3)
+    # Compile options come after the build type's flags, so this replaces its -O2
+    add_compile_options(-O3)
+endif()
+if(MELONADE_LTO)
+    add_compile_options(-flto=thin)
+    add_link_options(-flto=thin)
+endif()
+if(MELONADE_ARMV82 AND ANDROID_ABI STREQUAL "arm64-v8a")
+    add_compile_options(-march=armv8.2-a)
+endif()
+
 set(BUILD_QT_SDL OFF)
 set(ENABLE_GDBSTUB OFF)
 
