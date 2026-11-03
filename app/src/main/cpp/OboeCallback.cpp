@@ -190,7 +190,7 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
     {
         driftInstance = nullptr;
         primeInstance = nullptr;
-        memset(audioData, 0, numFrames * sizeof(u16) * 2);
+        applyFades((s16*) audioData, 0, numFrames);
         return oboe::DataCallbackResult::Continue;
     }
 
@@ -236,7 +236,7 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
             updateOutputSkew(*currentInstance, numFrames, stream->getSampleRate(), false, isDiagnosticsEnabled);
             // Counted even with the diagnostics off (it's rare), so the summary can show the startup prime from before a capture began
             AudioDiagnostics::onPrimeWait(numFrames);
-            memset(audioData, 0, numFrames * sizeof(s16) * 2);
+            applyFades((s16*) audioData, 0, numFrames);
             return oboe::DataCallbackResult::Continue;
         }
         isPrimed = true;
@@ -277,26 +277,21 @@ OboeCallback::onAudioReady(oboe::AudioStream *stream, void *audioData, int32_t n
 
     // When muted (fast-forward with the mute setting on), the SPU output read above is discarded here, so it can't play as a stale burst once
     // fast-forward ends
+    s16* samples = (s16*) audioData;
     if (num_in < 1 || isMuted)
     {
-        memset(audioData, 0, len * sizeof(s16) * 2);
+        applyFades(samples, 0, len);
         return oboe::DataCallbackResult::Continue;
     }
 
     if (_volume < 256)
     {
-        s16* samples = (s16*) audioData;
         for (int i = 0; i < num_in * 2; i++)
             samples[i] = ((s32) samples[i] * _volume) >> 8;
     }
 
-    if (num_in < len_in)
-    {
-        int last = num_in - 1;
-
-        for (int i = num_in; i < len_in; i++)
-            ((u32*)audioData)[i] = ((u32*)audioData)[last];
-    }
+    // Fade in after silence and fade out into a short read's gap, so neither is a step in the waveform
+    applyFades(samples, num_in, numFrames);
 
     if (_recordingStream) [[unlikely]]
         _recordingStream->write((char*) audioData, numFrames * sizeof(s16) * 2);
@@ -310,6 +305,32 @@ void OboeCallback::onErrorAfterClose(oboe::AudioStream* stream, oboe::Result res
     if (result == oboe::Result::ErrorDisconnected && onErrorCallback != nullptr) {
         onErrorCallback(stream);
     }
+}
+
+void OboeCallback::applyFades(s16* samples, int numRead, int numFrames)
+{
+    if (numRead > 0)
+    {
+        lastReadFrame[0] = samples[(numRead - 1) * 2];
+        lastReadFrame[1] = samples[(numRead - 1) * 2 + 1];
+    }
+
+    for (int i = 0; i < numRead && fadeGain < FADE_FRAMES; i++)
+    {
+        fadeGain++;
+        samples[i * 2] = (s16) (samples[i * 2] * fadeGain / FADE_FRAMES);
+        samples[i * 2 + 1] = (s16) (samples[i * 2 + 1] * fadeGain / FADE_FRAMES);
+    }
+
+    int i = numRead;
+    for (; i < numFrames && fadeGain > 0; i++)
+    {
+        fadeGain--;
+        samples[i * 2] = (s16) (lastReadFrame[0] * fadeGain / FADE_FRAMES);
+        samples[i * 2 + 1] = (s16) (lastReadFrame[1] * fadeGain / FADE_FRAMES);
+    }
+    if (i < numFrames)
+        memset(samples + i * 2, 0, (numFrames - i) * sizeof(s16) * 2);
 }
 
 int OboeCallback::getNumSamplesOut(int len)

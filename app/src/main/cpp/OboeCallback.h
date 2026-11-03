@@ -80,6 +80,9 @@ private:
     // What the drift control state belongs to; it restarts when any of them changes
     const MelonDSAndroid::MelonInstance* driftInstance = nullptr;
     uint32_t driftRateGeneration = 0;
+    // The last frame read from the ring, which a gap fades out from, and the output gain from 0 (silent) to FADE_FRAMES (full), one step per frame
+    int16_t lastReadFrame[2] = {0, 0};
+    int fadeGain = 0;
     bool isDriftSteering = false;
     // Priming: while unprimed, the callback plays silence without reading the ring until the fill reaches the prime target (the reprime one after the
     // ring ran dry)
@@ -114,6 +117,9 @@ public:
     // The SPU ring holds one frame less than its 2048
     static constexpr int RING_USABLE_FRAMES = AudioDiagnostics::SPU_OUTPUT_BUFFER_FRAMES - 1;
 
+    // Gaps in the output fade out from the last frame and back in over this many frames (1.5 ms at 48 kHz)
+    static constexpr int FADE_FRAMES = 72;
+
     static bool isPrimingModeBurst(int32_t burstFrames) { return burstFrames > 0 && burstFrames <= MAX_PRIMING_BURST_FRAMES; }
 
     std::weak_ptr<MelonDSAndroid::MelonInstance> activeInstance;
@@ -133,6 +139,8 @@ public:
 
 private:
     int getNumSamplesOut(int len);
+    // Fades the [numRead] frames read in after silence, and fills the rest up to [numFrames] with a fade from the last frame read to silence
+    void applyFades(int16_t* samples, int numRead, int numFrames);
     // [canSteer] is false while the callback is priming: the skew then stays at its base and the drift control restarts once it's primed
     void updateOutputSkew(MelonDSAndroid::MelonInstance& instance, int32_t numFrames, int32_t sampleRate, bool canSteer, bool isDiagnosticsEnabled);
 };
