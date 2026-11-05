@@ -12,6 +12,8 @@ local MESSAGE_FRAMES = 60
 local WRONG_GAME_FRAMES = 180
 local MAX_TASK_STEPS = 8
 local POPUP_FADE_FRAMES = 20
+local MAP_COLUMNS = 32
+local MAP_ENTRY_BYTES = 2
 
 -- Addresses and offsets per game code. Function values include the Thumb bit.
 local GAMES = {
@@ -42,6 +44,9 @@ local GAMES = {
         script_magic = 0x3643F,
         script_box = 0x08,
 
+        -- Overlay func, at a fixed address: the Poké Mart task, above the script while its lists run
+        func_mart = 0x0224CEAD,
+
         -- Tasks that run the transitions into and out of a battle
         func_battle = {
             [0x02050A75] = true,
@@ -59,6 +64,9 @@ local GAMES = {
         bg_map = 0x8C,
         map_tile = 0x518,
         tile_mask = 0x3FF,
+
+        -- BG map rows that a window in the top area always crosses. Stops short of Yes/No at row 12.
+        window_rows = { 1, 4, 7, 10 },
 
         -- Town name popup. State: 0 hidden, 1 sliding in, 3 showing, 2 sliding out
         fs_sub = 0x04,
@@ -121,6 +129,26 @@ local function ptr(addr)
     return nil
 end
 
+local function is_popup_showing()
+    return info.popup >= 1 and info.popup <= 3
+end
+
+-- Choice lists can sit anywhere across the top of BG3 and the band test's one tile can't see them.
+-- Windows are big, so every other column of a few rows is enough to find one without reading the
+-- whole map. An open window clears both bands because the Mart item list covers the bottom too,
+-- on BG1/BG2 where this can't see it: BG3 only has its Money box.
+local function has_top_window(map)
+    for _, row in ipairs(game.window_rows) do
+        local row_start = map + row * MAP_COLUMNS * MAP_ENTRY_BYTES
+        for column = 0, MAP_COLUMNS - 1, 2 do
+            if read16(row_start + column * MAP_ENTRY_BYTES) & game.tile_mask ~= 0 then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 local function read_state()
     info.parent, info.child, info.overlay = nil, nil, nil
     info.top, info.tile, info.menu = nil, nil, nil
@@ -154,6 +182,7 @@ local function read_state()
     local task = ptr(fs + game.fs_task)
     local menu_task = nil
     local is_battle = false
+    local is_mart = false
     while task and info.tasks < MAX_TASK_STEPS do
         local func = read32(task + game.task_func)
         info.tasks = info.tasks + 1
@@ -165,6 +194,8 @@ local function read_state()
         elseif func == game.func_menu then
             -- Not always on top: the save prompt runs a script above it
             menu_task = menu_task or task
+        elseif func == game.func_mart then
+            is_mart = true
         elseif func == game.func_script then
             info.script = true
             local env = ptr(task + game.task_env)
@@ -177,9 +208,10 @@ local function read_state()
 
     -- These pointers are freed unless the field is ready
     local is_ready = read32(fs + game.fs_ready) == 1
+    local map = nil
     if is_ready then
         local bg = ptr(fs + game.fs_bg_config)
-        local map = bg and ptr(bg + game.bg_map)
+        map = bg and ptr(bg + game.bg_map)
         if map then
             info.tile = read16(map + game.map_tile)
             info.text = info.tile & game.tile_mask ~= 0
@@ -207,6 +239,11 @@ local function read_state()
         return "loading"
     end
     if info.script then
+        -- The town name popup uses these rows too, and it wins: it stays "script".
+        -- The mart task counts on its own because BG3 is empty for about 40 frames between its lists.
+        if not is_popup_showing() and (is_mart or (map and has_top_window(map))) then
+            return "window"
+        end
         return "script"
     end
     return info.top and "locked" or "free"
@@ -217,10 +254,11 @@ local function update_targets(state)
         return
     end
     if state == "free" or state == "locked" or state == "script" then
-        is_clearing_for_popup = info.popup >= 1 and info.popup <= 3
+        is_clearing_for_popup = is_popup_showing()
         target_top = is_clearing_for_popup and 0 or strength
         target_bottom = (info.text or info.box) and 0 or strength
     else
+        -- Includes "window": both bands clear at the normal fade
         is_clearing_for_popup = false
         target_top = 0
         target_bottom = 0
