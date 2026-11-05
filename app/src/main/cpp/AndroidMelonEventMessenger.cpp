@@ -170,6 +170,22 @@ void AndroidMelonEventMessenger::onLuaSetLayout(int scriptId, const std::string&
     MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_SET_LAYOUT, 2 * sizeof(int32_t) + keySize, &data);
 }
 
+void AndroidMelonEventMessenger::onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation, float contrast)
+{
+    struct {
+        int32_t scriptId;
+        float top;
+        float bottom;
+        float center;
+        float width;
+        float radius;
+        float saturation;
+        float contrast;
+    } data = { (int32_t) scriptId, top, bottom, center, width, radius, saturation, contrast };
+
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_TILT_SHIFT, sizeof(data), &data);
+}
+
 void AndroidMelonEventMessenger::onLuaStateLoaded()
 {
     MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_STATE_LOADED);

@@ -1,6 +1,7 @@
 package me.magnum.melonds.common.opengl
 
 import android.opengl.GLES30
+import me.magnum.melonds.domain.model.render.TiltShift
 
 private const val INVALID_ATTRIBUTE = -1
 private const val INVALID_UNIFORM = -1
@@ -21,6 +22,10 @@ class Shader(
     private val uniformTopScreenWidth: Int
     // Only declared by the filters that keep their samples off the parts beside a screen's middle (see ShaderProgramSource.screenColumns)
     private val uniformBottomScreenWide: Int
+    // Only declared by the tilt-shift pre-passes (see ShaderProgramSource.tiltShiftPrePassShader)
+    private val uniformTiltShift: Int
+    // Only declared by the last of those pre-passes, which applies the color boost
+    private val uniformTiltShiftBoost: Int
 
     init {
         GLES30.glUseProgram(programId)
@@ -31,6 +36,8 @@ class Shader(
         uniformTexSize = GLES30.glGetUniformLocation(programId, "texSize")
         uniformTopScreenWidth = GLES30.glGetUniformLocation(programId, "topScreenWidth")
         uniformBottomScreenWide = GLES30.glGetUniformLocation(programId, "bottomScreenWide")
+        uniformTiltShift = GLES30.glGetUniformLocation(programId, "tiltShift")
+        uniformTiltShiftBoost = GLES30.glGetUniformLocation(programId, "tiltShiftBoost")
         GLES30.glUseProgram(0)
     }
 
@@ -67,6 +74,18 @@ class Shader(
     fun setBottomScreenWide(isBottomScreenWide: Boolean) {
         if (uniformBottomScreenWide != INVALID_UNIFORM) {
             GLES30.glUniform1f(uniformBottomScreenWide, if (isBottomScreenWide) 1f else 0f)
+        }
+    }
+
+    /**
+     * Sets the sharp band's edges, the blur's radius on each side of it and the color boost; call after [use].
+     */
+    fun setTiltShift(tiltShift: TiltShift) {
+        if (uniformTiltShift != INVALID_UNIFORM) {
+            GLES30.glUniform4f(uniformTiltShift, tiltShift.bandTop, tiltShift.bandBottom, tiltShift.topRadius, tiltShift.bottomRadius)
+        }
+        if (uniformTiltShiftBoost != INVALID_UNIFORM) {
+            GLES30.glUniform2f(uniformTiltShiftBoost, tiltShift.appliedSaturation, tiltShift.appliedContrast)
         }
     }
 

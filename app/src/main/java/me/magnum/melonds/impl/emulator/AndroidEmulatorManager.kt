@@ -31,6 +31,7 @@ import me.magnum.melonds.domain.model.emulator.LuaScriptStatus
 import me.magnum.melonds.domain.model.emulator.RomLaunchResult
 import me.magnum.melonds.domain.model.emulator.resolveValues
 import me.magnum.melonds.domain.model.retroachievements.GameAchievementData
+import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.domain.model.retroachievements.RAEvent
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.model.rom.config.RomGbaSlotConfig
@@ -141,6 +142,19 @@ class AndroidEmulatorManager(
                 _emulatorEvents.tryEmit(EmulatorEvent.LuaSetLayout(scriptId, key.ifEmpty { null }))
             }
             EmulatorEventType.EventLuaStateLoaded -> _emulatorEvents.tryEmit(EmulatorEvent.LuaStateLoaded)
+            EmulatorEventType.EventLuaTiltShift -> {
+                val scriptId = data.getInt()
+                val tiltShift = TiltShift(
+                    top = data.getFloat(),
+                    bottom = data.getFloat(),
+                    center = data.getFloat(),
+                    width = data.getFloat(),
+                    radius = data.getFloat(),
+                    saturation = data.getFloat(),
+                    contrast = data.getFloat(),
+                )
+                _emulatorEvents.tryEmit(EmulatorEvent.LuaTiltShift(scriptId, tiltShift))
+            }
         }
     }
 

@@ -262,6 +262,7 @@ private:
     // melon.screen.swap(), melon.screen.show_controls() and melon.emu.fast_forward(): a boolean request to the app, in [request]
     template <std::optional<bool> LuaScript::* request> static int luaSetBoolRequest(lua_State* L);
     static int luaScreenSetLayout(lua_State* L);
+    static int luaScreenTiltShift(lua_State* L);
 
     std::vector<LuaScriptSource> pendingScripts;
     // Outlives every script's state, which may point into its images

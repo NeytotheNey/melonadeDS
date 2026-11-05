@@ -21,6 +21,7 @@ import me.magnum.melonds.domain.model.layout.getScreensDrawing
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_BOTTOM
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_TOP
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
+import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.impl.diagnostics.SvgTimingLog
 import me.magnum.melonds.ui.emulator.model.RuntimeRendererConfiguration
 import me.magnum.melonds.ui.emulator.render.EmulatorRenderer
@@ -57,6 +58,9 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var screenFilterDsScreenColors = false
     private var screenFilterDeband = false
     private var mustRebuildScreenFilter = true
+    // The blur scripts want, or null for none; here rather than in the screen filter, which is rebuilt when the player's filter changes
+    @Volatile
+    var tiltShift: TiltShift? = null
     private lateinit var backgroundShader: Shader
     private lateinit var shadowShader: Shader
     private lateinit var overlayShader: Shader
@@ -460,7 +464,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         }
 
         // Pre-passes must run before anything is drawn to the surface; also called for invalid frames to clear the cache
-        val screenTexture = screenFilter?.renderPrePasses(presentFrameWrapper, isBottomScreenWideInQuads)
+        val screenTexture = screenFilter?.renderPrePasses(presentFrameWrapper, isBottomScreenWideInQuads, tiltShift)
 
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         if (!presentFrameWrapper.isValidFrame) {

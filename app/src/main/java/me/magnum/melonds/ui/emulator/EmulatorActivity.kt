@@ -607,6 +607,14 @@ class EmulatorActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.luaTiltShift.collect {
+                    mainScreenRenderer.tiltShift = it
+                    presentation?.updateTiltShift(it)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.currentFps.collectLatest {
                     if (it == null) {
                         binding.textFps.text = null
@@ -867,6 +875,7 @@ class EmulatorActivity : AppCompatActivity() {
                 }
 
                 updateRendererConfiguration(viewModel.runtimeRendererConfiguration.value)
+                updateTiltShift(viewModel.luaTiltShift.value)
                 updateBackground(viewModel.secondaryScreenBackground.value)
                 if (binding.viewLayoutControls.areScreensSwapped()) {
                     swapScreens()

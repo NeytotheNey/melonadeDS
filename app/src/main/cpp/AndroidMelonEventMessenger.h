@@ -25,6 +25,7 @@ public:
     void onLuaFastForward(int scriptId, bool enabled) override;
     void onLuaStorageSaved() override;
     void onLuaSetLayout(int scriptId, const std::string& optionKey) override;
+    void onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation, float contrast) override;
     void onLuaStateLoaded() override;
 
 private:
@@ -49,6 +50,7 @@ private:
     static constexpr int EVENT_LUA_STORAGE_SAVED = 304;
     static constexpr int EVENT_LUA_SET_LAYOUT = 305;
     static constexpr int EVENT_LUA_STATE_LOADED = 306;
+    static constexpr int EVENT_LUA_TILT_SHIFT = 307;
 };
 
 #endif // ANDROIDMELONEVENTMESSENGER_H
