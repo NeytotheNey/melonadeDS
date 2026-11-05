@@ -8,6 +8,9 @@ import android.util.Log
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import java.io.File
+import java.util.UUID
+import kotlin.math.pow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
@@ -38,8 +41,8 @@ import me.magnum.melonds.domain.model.FpsCounterPosition
 import me.magnum.melonds.domain.model.MacAddress
 import me.magnum.melonds.domain.model.MicSource
 import me.magnum.melonds.domain.model.RendererConfiguration
-import me.magnum.melonds.domain.model.rewind.RewindWindowPosition
 import me.magnum.melonds.domain.model.RomIconFiltering
+import me.magnum.melonds.domain.model.RomListViewMode
 import me.magnum.melonds.domain.model.SaveStateLocation
 import me.magnum.melonds.domain.model.SizeUnit
 import me.magnum.melonds.domain.model.SortingMode
@@ -50,6 +53,7 @@ import me.magnum.melonds.domain.model.camera.DSiCameraSourceType
 import me.magnum.melonds.domain.model.input.ControllerStyle
 import me.magnum.melonds.domain.model.input.SoftInputBehaviour
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
+import me.magnum.melonds.domain.model.rewind.RewindWindowPosition
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.impl.SettingsBackupFormat.CONTROLLER_FILE
@@ -57,10 +61,8 @@ import me.magnum.melonds.impl.dtos.input.ControllerConfigurationDto
 import me.magnum.melonds.impl.input.ControllerConfigurationFactory
 import me.magnum.melonds.ui.Theme
 import me.magnum.melonds.utils.enumValueOfIgnoreCase
+import me.magnum.melonds.utils.enumValueOfIgnoreCaseOrNull
 import me.magnum.melonds.utils.supportsJit
-import java.io.File
-import java.util.UUID
-import kotlin.math.pow
 
 class SharedPreferencesSettingsRepository(
     private val context: Context,
@@ -476,6 +478,11 @@ class SharedPreferencesSettingsRepository(
         return SortingMode.valueOf(sortingMode.uppercase())
     }
 
+    override fun getRomListViewMode(): RomListViewMode {
+        val viewModePreference = preferences.getString(PreferenceKeys.ROM_LIST_VIEW_MODE, "list")!!
+        return enumValueOfIgnoreCaseOrNull<RomListViewMode>(viewModePreference) ?: RomListViewMode.LIST
+    }
+
     override fun getRomSortingOrder(): SortingOrder {
         val sortingOrder = preferences.getString("rom_sorting_order", null)
         return if (sortingOrder == null)
@@ -682,6 +689,12 @@ class SharedPreferencesSettingsRepository(
         }
     }
 
+    override fun setRomListViewMode(viewMode: RomListViewMode) {
+        preferences.edit {
+            putString(PreferenceKeys.ROM_LIST_VIEW_MODE, viewMode.toString().lowercase())
+        }
+    }
+
     override fun setSelectedLayoutId(layoutId: UUID) {
         preferences.edit {
             putString("input_layout_id", layoutId.toString())
@@ -709,6 +722,12 @@ class SharedPreferencesSettingsRepository(
     override fun observeRomIconFiltering(): Flow<RomIconFiltering> {
         return getOrCreatePreferenceSharedFlow("rom_icon_filtering") {
             getRomIconFiltering()
+        }
+    }
+
+    override fun observeRomListViewMode(): Flow<RomListViewMode> {
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.ROM_LIST_VIEW_MODE) {
+            getRomListViewMode()
         }
     }
 

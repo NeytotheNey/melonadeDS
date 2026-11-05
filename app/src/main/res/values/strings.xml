@@ -46,6 +46,13 @@
     <string name="error_load_gba_rom">Could not load GBA ROM</string>
     <string name="action_search_roms">Search ROMs</string>
     <string name="action_sort_roms">Sort ROMs</string>
+    <string name="action_change_rom_list_view">Change view</string>
+    <string name="rom_list_view_list">List</string>
+    <string name="rom_list_view_grid">Grid</string>
+    <string name="rom_list_view_mosaic">Mosaic</string>
+    <string name="rom_tile_continue">Continue</string>
+    <string name="rom_tile_has_achievements">Has RetroAchievements</string>
+    <string name="rom_tile_settings">ROM settings</string>
     <string name="action_boot_firmware">Boot firmware</string>
     <string name="action_refresh_rom_list">Refresh ROM list</string>
     <string name="hint_search_roms">Search ROMs…</string>

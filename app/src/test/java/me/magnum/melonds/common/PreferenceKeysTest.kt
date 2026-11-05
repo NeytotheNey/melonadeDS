@@ -19,6 +19,7 @@ class PreferenceKeysTest {
 
     // Read and written from code only
     private val keysWithoutAScreen = setOf(
+        PreferenceKeys.ROM_LIST_VIEW_MODE,
         PreferenceKeys.DEBUG_LAST_REPORTED_EXIT_MS,
         PreferenceKeys.LAYOUT_EDITOR_SNAP_TO_GRID,
         PreferenceKeys.LAYOUT_EDITOR_GRID_SIZE,

@@ -40,6 +40,9 @@ object PreferenceKeys {
     const val CATEGORY_CONTROLS_VIBRATION = "category_controls_vibration" // pref_input.xml
     const val CATEGORY_PERFORMANCE_DEVICE = "category_performance_device" // pref_performance.xml
 
+    // ROM list layout (list, grid or mosaic), set from the launcher's view menu, with no preference screen
+    const val ROM_LIST_VIEW_MODE = "rom_list_view_mode"
+
     // Timestamp (ms) of the newest process exit already looked at by ExitReasonReporter, with no preference screen
     const val DEBUG_LAST_REPORTED_EXIT_MS = "debug_last_reported_exit_ms"
 

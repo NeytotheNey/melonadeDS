@@ -20,8 +20,8 @@
 ## App features
 
 - **Cheat search.** Search memory for values, narrow the results, and turn them into cheats.
-- **Game library revamp.** Add grid and mosaic views.
-- **RetroAchievements metadata.** Check whether we can pull game metadata from RetroAchievements.
+- **Game library revamp.** Grid and mosaic views are mocked up behind the view menu; see [plan-launcher.md](plan-launcher.md) for what is left.
+- **RetroAchievements metadata.** Answered in [plan-launcher.md](plan-launcher.md): the connect API gives title and icon, box art and credits need the user's Web API key, cached once per game.
 
 ## Questions to look into
 
