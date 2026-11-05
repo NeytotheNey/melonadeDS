@@ -49,7 +49,7 @@ Two mods, both set per game in ROM details → Mods tab and stored in `RomConfig
 
 - `melon.game.code()`, `melon.game.title()`, `melon.frame()`, `melon.log(...)` (logcat tag `melonade-lua`, only while the debug log is on; script errors are always logged).
 - Input: `melon.input.held()`, `press(mask)`, `release(mask)` (last one frame), `touch()` → `x, y, down`, `set_touch(x, y)` (held until `clear_touch()`), `clear_touch()`, `stick("left"|"right")` → `x, y`. Final mask each frame is `(user & ~release) | press`; the UI's own `pressKey`/`releaseKey` are untouched.
-- `melon.KEY.*`: pressed = bit set. A=0, B=1, SELECT=2, START=3, RIGHT=4, LEFT=5, UP=6, DOWN=7, R=8, L=9, X=10, Y=11, TOUCH=12. The engine flips it to the core's active-low mask.
+- `melon.KEY.*` are ready-made masks, not bit numbers (`melon.KEY.R` is 256, so use it as is, not `1 << melon.KEY.R`). Pressed = bit set. Bits: A=0, B=1, SELECT=2, START=3, RIGHT=4, LEFT=5, UP=6, DOWN=7, R=8, L=9, X=10, Y=11, TOUCH=12. The engine flips it to the core's active-low mask.
 - Memory: `melon.mem.read8/16/32(addr)`, `read_s8/s16/s32`, `write8/16/32(addr, v)`, and `melon.mem.arm7.*` with the same names. Goes through the NDS bus (JIT-safe, like AR cheats). ARM9 checks ITCM/DTCM first (ITCM writes invalidate the JIT). Reads in 0x04xxxxxx raise an error on both CPUs (I/O reads have side effects).
 - `melon.screen.swap(bool)`, `show_controls(bool)`, `set_layout(key)`: `key` names a `type=layout` option; Kotlin resolves its UUID. `set_layout(nil)` goes back to the player's layout. A key that isn't a layout option is an error; "Don't change" or a deleted layout does nothing. Scripts see layout options in `melon.options` as a boolean (picked or not).
 - `melon.emu.fast_forward(bool)`.
