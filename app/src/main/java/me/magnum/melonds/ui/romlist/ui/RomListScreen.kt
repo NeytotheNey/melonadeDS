@@ -3,6 +3,7 @@ package me.magnum.melonds.ui.romlist.ui
 import android.net.Uri
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -17,8 +18,12 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -47,6 +52,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -56,8 +62,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.ConsoleType
+import me.magnum.melonds.domain.model.RomListViewMode
 import me.magnum.melonds.domain.model.SortingMode
 import me.magnum.melonds.domain.model.rom.Rom
+import me.magnum.melonds.domain.model.rom.RomLibraryMetadata
 import me.magnum.melonds.ui.common.component.romlist.ConfigurableRomItem
 import me.magnum.melonds.ui.romlist.RomIcon
 
@@ -68,6 +76,8 @@ fun RomListScreen(
     hasSearchDirectories: Boolean,
     onSearchQueryChange: (String?) -> Unit,
     onSortChange: (SortingMode) -> Unit,
+    viewMode: RomListViewMode,
+    onViewModeChange: (RomListViewMode) -> Unit,
     onFirmwareBoot: (ConsoleType) -> Unit,
     onRomSelected: (Rom) -> Unit,
     onRomConfigClick: (Rom) -> Unit,
@@ -76,6 +86,7 @@ fun RomListScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToDsiWareManager: () -> Unit,
     retrieveRomIcon: suspend (Rom) -> RomIcon,
+    retrieveRomMetadata: suspend (Rom) -> RomLibraryMetadata,
 ) {
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -119,6 +130,8 @@ fun RomListScreen(
                     onOverflowMenuChange = { showOverflowMenu = it },
                     onSearchClick = { isSearchActive = true },
                     onSortChange = onSortChange,
+                    viewMode = viewMode,
+                    onViewModeChange = onViewModeChange,
                     onFirmwareBoot = onFirmwareBoot,
                     onNavigateToDsiWareManager = onNavigateToDsiWareManager,
                     onRefresh = onRefresh,
@@ -130,19 +143,43 @@ fun RomListScreen(
         contentWindowInsets = WindowInsets.safeDrawing,
     ) { padding ->
         if (hasSearchDirectories) {
-            RomList(
-                modifier = Modifier.fillMaxSize(),
-                roms = roms,
-                isRefreshing = isRefreshing,
-                onRefresh = onRefresh,
-                contentPadding = padding,
-            ) { modifier, rom ->
-                ConfigurableRomItem(
-                    modifier = modifier.fillMaxWidth(),
-                    rom = rom,
-                    onClick = { onRomSelected(rom) },
-                    onConfigClick = { onRomConfigClick(rom) },
-                    retrieveTitleIcon = { retrieveRomIcon(rom) },
+            when (viewMode) {
+                RomListViewMode.LIST -> RomList(
+                    modifier = Modifier.fillMaxSize(),
+                    roms = roms,
+                    isRefreshing = isRefreshing,
+                    onRefresh = onRefresh,
+                    contentPadding = padding,
+                ) { modifier, rom ->
+                    ConfigurableRomItem(
+                        modifier = modifier.fillMaxWidth(),
+                        rom = rom,
+                        onClick = { onRomSelected(rom) },
+                        onConfigClick = { onRomConfigClick(rom) },
+                        retrieveTitleIcon = { retrieveRomIcon(rom) },
+                    )
+                }
+                RomListViewMode.GRID -> RomGrid(
+                    modifier = Modifier.fillMaxSize(),
+                    roms = roms,
+                    isRefreshing = isRefreshing,
+                    onRefresh = onRefresh,
+                    contentPadding = padding,
+                    onRomClick = onRomSelected,
+                    onRomConfigClick = onRomConfigClick,
+                    retrieveRomIcon = retrieveRomIcon,
+                    retrieveRomMetadata = retrieveRomMetadata,
+                )
+                RomListViewMode.MOSAIC -> RomMosaic(
+                    modifier = Modifier.fillMaxSize(),
+                    roms = roms,
+                    isRefreshing = isRefreshing,
+                    onRefresh = onRefresh,
+                    contentPadding = padding,
+                    onRomClick = onRomSelected,
+                    onRomConfigClick = onRomConfigClick,
+                    retrieveRomIcon = retrieveRomIcon,
+                    retrieveRomMetadata = retrieveRomMetadata,
                 )
             }
         } else {
@@ -161,15 +198,18 @@ private fun RomListTopBar(
     onOverflowMenuChange: (Boolean) -> Unit,
     onSearchClick: () -> Unit,
     onSortChange: (SortingMode) -> Unit,
+    viewMode: RomListViewMode,
+    onViewModeChange: (RomListViewMode) -> Unit,
     onFirmwareBoot: (ConsoleType) -> Unit,
     onNavigateToDsiWareManager: () -> Unit,
     onRefresh: () -> Unit,
     onNavigateToSettings: () -> Unit,
 ) {
     var showSortMenu by remember { mutableStateOf(false) }
+    var showViewModeMenu by remember { mutableStateOf(false) }
     var showFirmwareMenu by remember { mutableStateOf(false) }
 
-    val actionFocusRequesters = remember { List(5) { FocusRequester() } }
+    val actionFocusRequesters = remember { List(6) { FocusRequester() } }
     var lastFocusedActionIndex by rememberSaveable { mutableIntStateOf(-1) }
     // Lets the action at [index] take the focus, and remembers it as the last focused one so the row can give the focus back to it
     fun Modifier.actionFocus(index: Int) = focusRequester(actionFocusRequesters[index]).onFocusChanged {
@@ -247,10 +287,54 @@ private fun RomListTopBar(
                     }
                 }
 
-                // Firmware boot menu
+                // View mode menu
                 Box {
                     IconButton(
                         modifier = Modifier.actionFocus(2),
+                        onClick = { showViewModeMenu = true },
+                    ) {
+                        Icon(
+                            imageVector = viewMode.icon(),
+                            contentDescription = stringResource(R.string.action_change_rom_list_view),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showViewModeMenu,
+                        onDismissRequest = { showViewModeMenu = false },
+                    ) {
+                        RomListViewMode.entries.forEach { mode ->
+                            val selectedIcon: (@Composable () -> Unit)? = if (mode == viewMode) {
+                                {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                    )
+                                }
+                            } else {
+                                null
+                            }
+                            DropdownMenuItem(
+                                text = { Text(stringResource(mode.label())) },
+                                onClick = {
+                                    showViewModeMenu = false
+                                    onViewModeChange(mode)
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = mode.icon(),
+                                        contentDescription = null,
+                                    )
+                                },
+                                trailingIcon = selectedIcon,
+                            )
+                        }
+                    }
+                }
+
+                // Firmware boot menu
+                Box {
+                    IconButton(
+                        modifier = Modifier.actionFocus(3),
                         onClick = { showFirmwareMenu = true },
                     ) {
                         Icon(
@@ -280,7 +364,7 @@ private fun RomListTopBar(
                 }
 
                 IconButton(
-                    modifier = Modifier.actionFocus(3),
+                    modifier = Modifier.actionFocus(4),
                     onClick = onNavigateToSettings,
                 ) {
                     Icon(
@@ -292,7 +376,7 @@ private fun RomListTopBar(
                 // Overflow menu
                 Box {
                     IconButton(
-                        modifier = Modifier.actionFocus(4),
+                        modifier = Modifier.actionFocus(5),
                         onClick = { onOverflowMenuChange(true) },
                     ) {
                         Icon(
@@ -323,6 +407,19 @@ private fun RomListTopBar(
             }
         },
     )
+}
+
+private fun RomListViewMode.icon(): ImageVector = when (this) {
+    RomListViewMode.LIST -> Icons.AutoMirrored.Filled.ViewList
+    RomListViewMode.GRID -> Icons.Default.GridView
+    RomListViewMode.MOSAIC -> Icons.Default.Dashboard
+}
+
+@StringRes
+private fun RomListViewMode.label(): Int = when (this) {
+    RomListViewMode.LIST -> R.string.rom_list_view_list
+    RomListViewMode.GRID -> R.string.rom_list_view_grid
+    RomListViewMode.MOSAIC -> R.string.rom_list_view_mosaic
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

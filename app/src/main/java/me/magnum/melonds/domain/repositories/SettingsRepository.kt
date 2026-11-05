@@ -1,6 +1,7 @@
 package me.magnum.melonds.domain.repositories
 
 import android.net.Uri
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import me.magnum.melonds.domain.model.*
@@ -10,7 +11,6 @@ import me.magnum.melonds.domain.model.input.SoftInputBehaviour
 import me.magnum.melonds.domain.model.rewind.RewindWindowPosition
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.ui.Theme
-import java.util.UUID
 
 interface SettingsRepository {
     suspend fun getEmulatorConfiguration(): EmulatorConfiguration
@@ -63,6 +63,7 @@ interface SettingsRepository {
 
     fun getRomSortingMode(): SortingMode
     fun getRomSortingOrder(): SortingOrder
+    fun getRomListViewMode(): RomListViewMode
     fun saveNextToRomFile(): Boolean
     fun getSaveFileDirectory(): Uri?
     fun getSaveFileDirectory(rom: Rom): Uri
@@ -90,6 +91,7 @@ interface SettingsRepository {
     fun observeDynamicColorsEnabled(): Flow<Boolean>
     fun observeDebugLogEnabled(): Flow<Boolean>
     fun observeRomIconFiltering(): Flow<RomIconFiltering>
+    fun observeRomListViewMode(): Flow<RomListViewMode>
     fun observeRomSearchDirectories(): Flow<Array<Uri>>
     fun observeSelectedLayoutId(): Flow<UUID>
     fun observeDSiCameraSource(): Flow<DSiCameraSourceType>
@@ -101,6 +103,7 @@ interface SettingsRepository {
     fun setControllerConfiguration(controllerConfiguration: ControllerConfiguration)
     fun setRomSortingMode(sortingMode: SortingMode)
     fun setRomSortingOrder(sortingOrder: SortingOrder)
+    fun setRomListViewMode(viewMode: RomListViewMode)
     fun setSelectedLayoutId(layoutId: UUID)
 
     fun observeRenderConfiguration(): Flow<RendererConfiguration>

@@ -4,30 +4,36 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.text.Normalizer
+import java.util.Calendar
+import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.magnum.melonds.common.DirectoryAccessValidator
 import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.UriPermissionManager
+import me.magnum.melonds.domain.model.RomListViewMode
 import me.magnum.melonds.domain.model.SortingMode
 import me.magnum.melonds.domain.model.SortingOrder
 import me.magnum.melonds.domain.model.rom.Rom
+import me.magnum.melonds.domain.model.rom.RomLibraryMetadata
+import me.magnum.melonds.domain.repositories.RetroAchievementsRepository
 import me.magnum.melonds.domain.repositories.RomsRepository
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.impl.RomIconProvider
 import me.magnum.melonds.utils.EventSharedFlow
 import me.magnum.melonds.utils.SubjectSharedFlow
-import java.text.Normalizer
-import java.util.Calendar
-import javax.inject.Inject
 
 @HiltViewModel
 class RomListViewModel @Inject constructor(
@@ -36,6 +42,7 @@ class RomListViewModel @Inject constructor(
     private val romIconProvider: RomIconProvider,
     private val uriPermissionManager: UriPermissionManager,
     private val directoryAccessValidator: DirectoryAccessValidator,
+    private val retroAchievementsRepository: RetroAchievementsRepository,
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -52,6 +59,9 @@ class RomListViewModel @Inject constructor(
     val roms = _roms.asStateFlow()
 
     val onRomIconFilteringChanged = settingsRepository.observeRomIconFiltering()
+
+    val viewMode: StateFlow<RomListViewMode> = settingsRepository.observeRomListViewMode()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, settingsRepository.getRomListViewMode())
 
     val romScanningStatus = romsRepository.getRomScanningStatus()
 
@@ -135,6 +145,29 @@ class RomListViewModel @Inject constructor(
         } else {
             _invalidDirectoryAccessEvent.tryEmit(Unit)
         }
+    }
+
+    fun setRomListViewMode(viewMode: RomListViewMode) {
+        settingsRepository.setRomListViewMode(viewMode)
+    }
+
+    /**
+     * What the grid and mosaic cards can show about [rom]. Today this is the banner's publisher line plus, when the user is signed in to
+     * RetroAchievements and the game is already in the local cache, the RetroAchievements icon. Box art and the rest of the fields wait on
+     * the Web API cache described in docs/plan-launcher.md. Nothing here touches the network except the once-a-day hash library refresh
+     * the repository already does.
+     */
+    suspend fun getRomMetadata(rom: Rom): RomLibraryMetadata {
+        val fromBanner = RomLibraryMetadata.fromBanner(rom)
+        if (rom.retroAchievementsHash.isBlank() || !retroAchievementsRepository.isUserAuthenticated()) {
+            return fromBanner
+        }
+
+        val summary = runCatching { retroAchievementsRepository.getGameSummary(rom.retroAchievementsHash) }.getOrNull() ?: return fromBanner
+        return fromBanner.copy(
+            gameIconUrl = summary.icon,
+            hasAchievements = true,
+        )
     }
 
     suspend fun getRomIcon(rom: Rom): RomIcon {

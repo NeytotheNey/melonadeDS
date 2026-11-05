@@ -78,6 +78,7 @@ class RomListActivity : AppCompatActivity() {
             val roms by viewModel.roms.collectAsStateWithLifecycle()
             val romScanningStatus by viewModel.romScanningStatus.collectAsStateWithLifecycle(initialValue = RomScanningStatus.NOT_SCANNING)
             val hasSearchDirectories by viewModel.hasSearchDirectories.collectAsStateWithLifecycle(initialValue = true)
+            val viewMode by viewModel.viewMode.collectAsStateWithLifecycle()
 
             var currentUpdate by remember { mutableStateOf<AppUpdate?>(null) }
             var downloadProgress by remember { mutableStateOf<DownloadProgress?>(null) }
@@ -121,6 +122,8 @@ class RomListActivity : AppCompatActivity() {
                     hasSearchDirectories = hasSearchDirectories,
                     onSearchQueryChange = viewModel::setRomSearchQuery,
                     onSortChange = viewModel::setRomSorting,
+                    viewMode = viewMode,
+                    onViewModeChange = viewModel::setRomListViewMode,
                     onFirmwareBoot = { consoleType ->
                         emulatorLauncherValidatorDelegate.validateFirmware(consoleType)
                     },
@@ -146,6 +149,9 @@ class RomListActivity : AppCompatActivity() {
                     },
                     retrieveRomIcon = { rom ->
                         viewModel.getRomIcon(rom)
+                    },
+                    retrieveRomMetadata = { rom ->
+                        viewModel.getRomMetadata(rom)
                     },
                 )
 
