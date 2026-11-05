@@ -30,6 +30,7 @@ static const BoolSwitch BOOL_SWITCHES[] = {
     { "equaldepth", &GPU::EqualDepthMargin },
     { "computedirect", &GPU::ComputeDirectDispatch },
     { "blitflush", &GPU::BlitFlushCapture },
+    { "lateblit", &GPU::LateBlit },
 };
 
 bool read(const char* name, char* value)
