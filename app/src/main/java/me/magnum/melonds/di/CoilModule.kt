@@ -2,6 +2,7 @@ package me.magnum.melonds.di
 
 import android.content.Context
 import coil.ImageLoader
+import coil.decode.SvgDecoder
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -40,6 +41,8 @@ object CoilModule {
                 add(CoilURLMapper())
                 add(coilBackgroundThumbnailFetcherFactory)
                 add(coilRomIconFetcherFactory)
+                // SVG backgrounds in the background preview
+                add(SvgDecoder.Factory())
             }
             .crossfade(true)
             .build()

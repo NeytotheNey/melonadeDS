@@ -1,0 +1,176 @@
+<title>melonadeDS Shells</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a "test bench" — pick a display shape, see one shell on every panel, then all shells on the chosen panel. */
+:root{
+  --bg:#e7e9ee; --surface:#f6f7f9; --fg:#17181c; --muted:#5d606b; --line:#c9ccd5; --accent:#c4161f; --well:#1b1c21;
+  --display:"Chakra Petch","Segoe UI",system-ui,sans-serif;
+  --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#121317; --surface:#1b1d23; --fg:#ecedf1; --muted:#9a9eab; --line:#2d3039; --accent:#ff4d57; --well:#07080a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121317; --surface:#1b1d23; --fg:#ecedf1; --muted:#9a9eab; --line:#2d3039; --accent:#ff4d57; --well:#07080a; color-scheme:dark}
+
+body{background:var(--bg);color:var(--fg);font:400 15px/1.55 var(--body)}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 56px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:32px}
+header{display:flex;flex-direction:column;gap:8px;max-width:68ch}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font:700 clamp(30px,5vw,46px)/1.05 var(--display);letter-spacing:-.01em;margin:0;text-wrap:balance}
+h1 b{color:var(--accent);font-weight:700}
+h2{font:600 20px/1.2 var(--display);margin:0;text-wrap:balance}
+p{margin:0}
+.lede{color:var(--muted)}
+
+.bench{display:flex;flex-direction:column;gap:14px}
+.panels{display:flex;flex-wrap:wrap;gap:8px}
+.panels button{font:500 13px/1.2 var(--body);color:var(--fg);background:var(--surface);border:1px solid var(--line);
+  border-radius:999px;padding:8px 14px;cursor:pointer;display:flex;gap:8px;align-items:baseline}
+.panels button span{font:400 11px/1 var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.panels button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.panels button[aria-pressed="true"] span{color:var(--bg);opacity:.75}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.focus{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px}
+.focus-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 16px;align-items:baseline}
+.focus-head .meta{font:400 12px/1.4 var(--mono);color:var(--muted)}
+.strip{display:flex;gap:14px;align-items:flex-end;overflow-x:auto;padding-bottom:4px}
+.strip figure{margin:0;display:flex;flex-direction:column;gap:6px;flex:0 0 auto}
+.strip figcaption{font:400 11px/1.3 var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+
+.shot{position:relative;overflow:hidden;background:var(--well);border-radius:10px;max-width:100%}
+.shot img{position:absolute;left:0;top:0;max-width:none;transform-origin:0 0;display:block}
+.shot.sel{outline:2px solid var(--accent);outline-offset:3px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:22px 18px;align-items:end}
+.card{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:8px;min-width:0}
+.card:focus-visible .shot{outline:2px solid var(--accent);outline-offset:3px}
+.card .name{font:600 16px/1.2 var(--display)}
+.card .finish{font-size:13px;color:var(--muted)}
+.card .file{font:400 11px/1 var(--mono);color:var(--muted)}
+
+.how{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;border-top:1px solid var(--line);padding-top:22px}
+.how div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.how h3{font:600 14px/1.2 var(--display);margin:0;letter-spacing:.02em}
+.how p{font-size:14px;color:var(--muted)}
+code{font:400 13px var(--mono);color:var(--fg)}
+@media (prefers-reduced-motion:no-preference){.shot img{transition:opacity .2s}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">melonadeDS · SVG backgrounds</div>
+    <h1>Handheld shells that fit <b>any panel</b></h1>
+    <p class="lede">Fourteen matte plastic and metal finishes for the area behind the emulated screens. Each file has no fixed size, so the app draws it at the panel's real pixels: the groove stays the same width and the speaker holes stay round whether the Fold is open, closed or on its side.</p>
+  </header>
+
+  <section class="bench" aria-labelledby="bench-h">
+    <h2 id="bench-h">Pick a panel</h2>
+    <div class="panels" id="panels" role="group" aria-label="Display shape"></div>
+    <div class="focus">
+      <div class="focus-head">
+        <h2 id="focus-name">Crimson</h2>
+        <span class="meta" id="focus-meta"></span>
+      </div>
+      <div class="strip" id="strip"></div>
+    </div>
+  </section>
+
+  <section class="bench" aria-labelledby="all-h">
+    <h2 id="all-h">All shells on <span id="panel-name">Fold, unfolded</span></h2>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <section class="how" aria-label="How to use">
+    <div><h3>Built into the app</h3><p>All fourteen ship with builds from the <code>svg-backgrounds</code> branch, so there's nothing to import.</p></div>
+    <div><h3>Pick one</h3><p>Settings → Controls → Layouts, open a layout, then ⋮ → Background. Each screen shape in a layout has its own background, so set it on each one.</p></div>
+    <div><h3>Use Stretch</h3><p>In the layout editor, set the background mode to Stretch so the shell fills the whole panel.</p></div>
+  </section>
+</div>
+
+<script>
+const SHELLS=[
+  ["crimson","Crimson","Matte red, diagonal speaker slots"],
+  ["onyx","Onyx","Matte black"],
+  ["pearl","Pearl","Matte white, round speaker holes"],
+  ["pearl-tech","Pearl Tech","Matte white with Gunpla panel lines, bolts and lime accents"],  ["atomic-purple","Atomic Purple","Frosted purple over the circuit board"],
+  ["cobalt","Cobalt","Matte metallic blue"],
+  ["glacier","Glacier","Frosted clear over the circuit board"],
+  ["kiwi","Kiwi","Matte lime green"],
+  ["dandelion","Dandelion","Matte yellow, diagonal speaker slots"],
+  ["gunmetal","Gunmetal","Brushed metal"],
+  ["coral","Coral","Matte coral pink"],
+  ["smoke","Smoke","Frosted black over the circuit board"],
+  ["carbon","Carbon","Twill-weave carbon fiber"],
+  ["hex","Hex","Slate honeycomb with scattered steel cells"],
+];
+const PANELS=[
+  ["fold","Fold, unfolded",2208,1840],
+  ["cover","Fold, cover",904,2316],
+  ["cover-land","Cover, landscape",2316,904],
+  ["op","7 Pro",1440,3120],
+  ["op-land","7 Pro, landscape",3120,1440],
+];
+let panel=PANELS[0], shell=SHELLS[0];
+try{const p=localStorage.getItem("shell-panel");const f=PANELS.find(x=>x[0]===p);if(f)panel=f}catch(e){}
+
+// Draw the SVG at the panel's real pixel size, then scale it down, so pixel-sized details look as they will on the device.
+function shot(name,[,,w,h],boxW,boxH){
+  const k=Math.min(boxW/w, boxH?boxH/h:Infinity);
+  const d=document.createElement("div");d.className="shot";
+  d.style.width=Math.round(w*k)+"px";d.style.height=Math.round(h*k)+"px";
+  const i=new Image(w,h);i.alt="";i.src="shells/"+name+".svg";i.style.transform="scale("+k+")";
+  d.appendChild(i);return d;
+}
+
+const panelsEl=document.getElementById("panels");
+for(const p of PANELS){
+  const b=document.createElement("button");b.type="button";b.id="panel-"+p[0];
+  b.innerHTML=p[1]+" <span>"+p[2]+"×"+p[3]+"</span>";
+  b.onclick=()=>{panel=p;try{localStorage.setItem("shell-panel",p[0])}catch(e){}render()};
+  panelsEl.appendChild(b);
+}
+
+function renderStrip(){
+  const strip=document.getElementById("strip");strip.innerHTML="";
+  const H=Math.min(260,Math.max(150,window.innerWidth*0.22));
+  for(const p of PANELS){
+    const f=document.createElement("figure");
+    const s=shot(shell[0],p,Infinity,H);if(p===panel)s.classList.add("sel");
+    const c=document.createElement("figcaption");c.textContent=p[1]+" · "+p[2]+"×"+p[3];
+    f.append(s,c);strip.appendChild(f);
+  }
+  document.getElementById("focus-name").textContent=shell[1];
+  document.getElementById("focus-meta").textContent=shell[2]+" · "+shell[0]+".svg";
+}
+
+function renderGrid(){
+  const grid=document.getElementById("grid");grid.innerHTML="";
+  const probe=document.createElement("div");grid.appendChild(probe);
+  const colW=probe.getBoundingClientRect().width||200;grid.innerHTML="";
+  const maxH=panel[3]>panel[2]?320:999;
+  for(const s of SHELLS){
+    const b=document.createElement("button");b.className="card";b.type="button";b.id="card-"+s[0];
+    b.setAttribute("aria-label",s[1]+", show on every panel");
+    b.appendChild(shot(s[0],panel,colW,maxH));
+    const n=document.createElement("div");n.className="name";n.textContent=s[1];
+    const f=document.createElement("div");f.className="finish";f.textContent=s[2];
+    b.append(n,f);
+    b.onclick=()=>{shell=s;renderStrip();document.querySelector(".focus").scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"nearest"})};
+    grid.appendChild(b);
+  }
+}
+
+function render(){
+  for(const p of PANELS)document.getElementById("panel-"+p[0]).setAttribute("aria-pressed",p===panel);
+  document.getElementById("panel-name").textContent=panel[1];
+  renderStrip();renderGrid();
+}
+render();
+let t;addEventListener("resize",()=>{clearTimeout(t);t=setTimeout(render,150)});
+</script>

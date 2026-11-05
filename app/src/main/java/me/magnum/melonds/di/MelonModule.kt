@@ -116,8 +116,12 @@ object MelonModule {
 
     @Provides
     @Singleton
-    fun provideBackgroundsRepository(@ApplicationContext context: Context, gson: Gson): BackgroundRepository {
-        return InternalBackgroundsRepository(context, gson)
+    fun provideBackgroundsRepository(
+        @ApplicationContext context: Context,
+        gson: Gson,
+        backgroundThumbnailProvider: BackgroundThumbnailProvider,
+    ): BackgroundRepository {
+        return InternalBackgroundsRepository(context, gson, backgroundThumbnailProvider)
     }
 
     @Provides

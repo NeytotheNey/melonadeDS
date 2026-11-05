@@ -1,7 +1,9 @@
 package me.magnum.melonds.ui.emulator
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.opengl.GLES30
 import android.opengl.GLUtils
 import me.magnum.melonds.common.opengl.Shader
@@ -19,9 +21,12 @@ import me.magnum.melonds.domain.model.layout.getScreensDrawing
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_BOTTOM
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_TOP
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
+import me.magnum.melonds.impl.diagnostics.SvgTimingLog
 import me.magnum.melonds.ui.emulator.model.RuntimeRendererConfiguration
 import me.magnum.melonds.ui.emulator.render.EmulatorRenderer
+import me.magnum.melonds.utils.BackgroundDecoder
 import me.magnum.melonds.utils.BitmapUtils
+import me.magnum.melonds.utils.SvgBackground
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.roundToInt
@@ -98,6 +103,16 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var backgroundWidth = 0
     private var backgroundHeight = 0
 
+    // The parsed SVG of the current background and the URI it came from, kept to rasterize it again when the surface size changes. Null for a
+    // raster background. Guarded by backgroundLock
+    private var svgBackground: SvgBackground? = null
+    private var svgBackgroundUri: Uri? = null
+    // Surface size the SVG background was last rasterized for; guarded by backgroundLock
+    private var svgRasterizedWidth = 0
+    private var svgRasterizedHeight = 0
+    // GL_MAX_TEXTURE_SIZE, read on the GL thread the first time an SVG is rasterized
+    private var maxTextureSize = 0
+
     override fun updateRendererConfiguration(newRendererConfiguration: RuntimeRendererConfiguration?) {
         synchronized(configurationLock) {
             rendererConfiguration = newRendererConfiguration
@@ -133,6 +148,11 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
     fun setBackground(background: RuntimeBackground) {
         synchronized(backgroundLock) {
+            // The SVG parse is only kept across resizes and context changes of the same background
+            val previousBackground = this.background?.background
+            if (previousBackground?.id != background.background?.id || previousBackground?.uri != background.background?.uri) {
+                clearSvgBackground()
+            }
             this.background = background
             mustLoadBackground = true
             isBackgroundPositionDirty = true
@@ -417,6 +437,12 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
         synchronized(backgroundLock) {
             isBackgroundPositionDirty = true
+            // An SVG background is rasterized at the surface's size, so it's rasterized again for the new one from the kept parse. Raster
+            // backgrounds are only placed again
+            val currentUri = background?.background?.uri
+            if (svgBackground != null && currentUri != null && currentUri == svgBackgroundUri && (width != svgRasterizedWidth || height != svgRasterizedHeight)) {
+                mustLoadBackground = true
+            }
         }
     }
 
@@ -441,6 +467,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             return
         }
 
+        loadBackgroundIfNeeded()
         synchronized(backgroundLock) {
             renderBackground()
         }
@@ -517,11 +544,6 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     }
 
     private fun renderBackground() {
-        if (mustLoadBackground) {
-            loadBackground()
-            mustLoadBackground = false
-        }
-
         if (!isBackgroundLoaded) {
             return
         }
@@ -559,34 +581,140 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, shadowIndices)
     }
 
-    private fun loadBackground() {
-        val background = background ?: return
+    /**
+     * Loads the background into its texture if it has to be. GL thread only. Reading and decoding the file is done outside backgroundLock,
+     * which setBackground() waits on from the main thread, and the result is dropped if the background was set again meanwhile.
+     */
+    private fun loadBackgroundIfNeeded() {
+        val request = synchronized(backgroundLock) {
+            if (!mustLoadBackground) {
+                return
+            }
+            mustLoadBackground = false
 
-        background.background?.uri?.let {
-            val backgroundSampleSize = BitmapUtils.calculateMinimumSampleSize(context, it, width.roundToInt(), height.roundToInt())
+            val currentBackground = background ?: return
+            val uri = currentBackground.background?.uri
+            if (uri == null) {
+                clearSvgBackground()
+                return
+            }
+            val cachedSvg = svgBackground?.takeIf { svgBackgroundUri == uri }
+            if (cachedSvg != null) {
+                BackgroundLoadRequest(currentBackground, uri, cachedSvg, svgRasterizedWidth, svgRasterizedHeight)
+            } else {
+                BackgroundLoadRequest(currentBackground, uri, null, 0, 0)
+            }
+        }
 
-            val bitmapResult = runCatching {
-                context.contentResolver.openInputStream(it)?.let { stream ->
-                    val options = BitmapFactory.Options().apply {
-                        inSampleSize = backgroundSampleSize
-                    }
+        val surfaceWidth = width.roundToInt()
+        val surfaceHeight = height.roundToInt()
+        val isSvgStartNanos = System.nanoTime()
+        val isSvg = request.cachedSvg != null || BackgroundDecoder.isSvg(context, request.uri)
+        val isSvgEndNanos = System.nanoTime()
+        val svg = if (isSvg) request.cachedSvg ?: BackgroundDecoder.parseSvg(context, request.uri) else null
+        val parseEndNanos = System.nanoTime()
+        val bitmap = when {
+            svg != null -> svg.rasterize(surfaceWidth, surfaceHeight, request.background.mode, getMaxTextureSize())
+            // An SVG that can't be parsed is left out, same as a raster background that fails to decode
+            isSvg -> null
+            else -> decodeRasterBackground(request.uri)
+        }
+        val rasterEndNanos = System.nanoTime()
+        var uploadNanos = 0L
 
-                    BitmapFactory.decodeStream(stream, null, options)
-                }
+        synchronized(backgroundLock) {
+            // setBackground() was called while this was loading, so the next frame loads the new one
+            if (mustLoadBackground || background !== request.background) {
+                bitmap?.recycle()
+                return
             }
 
-            val bitmap = bitmapResult.getOrNull() ?: return
+            if (svg != null) {
+                svgBackground = svg
+                svgBackgroundUri = request.uri
+                svgRasterizedWidth = surfaceWidth
+                svgRasterizedHeight = surfaceHeight
+            } else {
+                clearSvgBackground()
+            }
 
-            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, backgroundTexture)
-            GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
-            bitmap.recycle()
-
-            backgroundWidth = bitmap.width
-            backgroundHeight = bitmap.height
-
-            isBackgroundLoaded = true
-            isBackgroundPositionDirty = true
+            bitmap?.let {
+                val uploadStartNanos = System.nanoTime()
+                uploadBackgroundBitmap(it)
+                uploadNanos = System.nanoTime() - uploadStartNanos
+            }
         }
+
+        if (svg != null && bitmap != null) {
+            SvgTimingLog.log(
+                source = SvgTimingLog.SOURCE_RENDERER,
+                backgroundName = request.background.background?.name,
+                lastWidth = request.rasterizedWidth,
+                lastHeight = request.rasterizedHeight,
+                width = surfaceWidth,
+                height = surfaceHeight,
+                isSvgNanos = isSvgEndNanos - isSvgStartNanos,
+                parseNanos = if (request.cachedSvg == null) parseEndNanos - isSvgEndNanos else null,
+                rasterNanos = rasterEndNanos - parseEndNanos,
+                uploadNanos = uploadNanos,
+            )
+        }
+    }
+
+    // The background to load, read under backgroundLock, with its kept SVG parse and the size that was last rasterized from it if there's one
+    private class BackgroundLoadRequest(
+        val background: RuntimeBackground,
+        val uri: Uri,
+        val cachedSvg: SvgBackground?,
+        val rasterizedWidth: Int,
+        val rasterizedHeight: Int,
+    )
+
+    // Guarded by backgroundLock
+    private fun clearSvgBackground() {
+        svgBackground = null
+        svgBackgroundUri = null
+        svgRasterizedWidth = 0
+        svgRasterizedHeight = 0
+    }
+
+    private fun getMaxTextureSize(): Int {
+        if (maxTextureSize <= 0) {
+            val maxSize = IntArray(1)
+            GLES30.glGetIntegerv(GLES30.GL_MAX_TEXTURE_SIZE, maxSize, 0)
+            maxTextureSize = maxSize[0]
+        }
+        return maxTextureSize
+    }
+
+    private fun decodeRasterBackground(uri: Uri): Bitmap? {
+        val backgroundSampleSize = BitmapUtils.calculateMinimumSampleSize(context, uri, width.roundToInt(), height.roundToInt())
+
+        val bitmapResult = runCatching {
+            context.contentResolver.openInputStream(uri)?.let { stream ->
+                val options = BitmapFactory.Options().apply {
+                    inSampleSize = backgroundSampleSize
+                }
+
+                BitmapFactory.decodeStream(stream, null, options)
+            }
+        }
+
+        return bitmapResult.getOrNull()
+    }
+
+    /**
+     * Replaces the background texture's image with [bitmap], which is recycled. Called under backgroundLock.
+     */
+    private fun uploadBackgroundBitmap(bitmap: Bitmap) {
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, backgroundTexture)
+        GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
+        backgroundWidth = bitmap.width
+        backgroundHeight = bitmap.height
+        bitmap.recycle()
+
+        isBackgroundLoaded = true
+        isBackgroundPositionDirty = true
     }
 
     private fun updateBackgroundPosition() {

@@ -35,18 +35,22 @@ import androidx.preference.PreferenceManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.squareup.picasso.Callback
 import com.squareup.picasso.Picasso
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.magnum.melonds.R
 import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.databinding.DialogLayoutEditorGridBinding
 import me.magnum.melonds.databinding.ViewLayoutEditorManagerBinding
 import me.magnum.melonds.domain.model.RuntimeBackground
+import me.magnum.melonds.domain.model.layout.BackgroundMode
 import me.magnum.melonds.domain.model.layout.LayoutComponent
 import me.magnum.melonds.extensions.setBackgroundMode
+import me.magnum.melonds.impl.diagnostics.SvgTimingLog
 import me.magnum.melonds.ui.common.component.dialog.TextInputDialog
 import me.magnum.melonds.ui.common.component.dialog.TextInputDialogState
 import me.magnum.melonds.ui.layouteditor.LayoutEditorActivity.MenuOption
@@ -57,6 +61,8 @@ import me.magnum.melonds.ui.layouteditor.ui.LayoutBackgroundDialog
 import me.magnum.melonds.ui.layouteditor.ui.LayoutComponentPropertyValueDialog
 import me.magnum.melonds.ui.layouteditor.ui.LayoutPropertiesDialog
 import me.magnum.melonds.ui.theme.MelonTheme
+import me.magnum.melonds.utils.BackgroundDecoder
+import me.magnum.melonds.utils.SvgBackground
 import me.magnum.melonds.utils.getLayoutComponentName
 import java.util.UUID
 import kotlin.math.max
@@ -85,6 +91,44 @@ class LayoutEditorManagerView(
     // The item the value dialog was opened for, and the ratio its size was locked to then
     private class EditablePropertyTarget(val component: LayoutComponent, val screenAspectRatio: Float?)
 
+    // An SVG background being shown, kept parsed so it can be rasterized again at each new size of the background view
+    private class ShownSvgBackground(
+        val svg: SvgBackground,
+        val mode: BackgroundMode,
+        private val name: String?,
+        private var isSvgNanos: Long,
+        private var parseNanos: Long?,
+    ) {
+        private var lastRenderedWidth = 0
+        private var lastRenderedHeight = 0
+
+        /**
+         * Logs the timing of a finished render, where the first one also reports what it took to read the file. Renders of an old size can
+         * overlap newer ones.
+         */
+        @Synchronized
+        fun logRender(width: Int, height: Int, rasterNanos: Long) {
+            SvgTimingLog.log(
+                source = SvgTimingLog.SOURCE_EDITOR,
+                backgroundName = name,
+                lastWidth = lastRenderedWidth,
+                lastHeight = lastRenderedHeight,
+                width = width,
+                height = height,
+                isSvgNanos = isSvgNanos,
+                parseNanos = parseNanos,
+                rasterNanos = rasterNanos,
+            )
+            isSvgNanos = 0L
+            parseNanos = null
+            lastRenderedWidth = width
+            lastRenderedHeight = height
+        }
+    }
+
+    // What was found out from a background's file, and how long each part took
+    private class BackgroundFileLoad(val isSvg: Boolean, val svg: SvgBackground?, val isSvgNanos: Long, val parseNanos: Long)
+
     private val binding: ViewLayoutEditorManagerBinding
     private val viewModel: LayoutEditorViewModel by lazy {
         val owner = findViewTreeViewModelStoreOwner() ?: error("No view-model store owner found")
@@ -99,6 +143,15 @@ class LayoutEditorManagerView(
     // Runs after every layout pass, so the item controls follow the selected item however it was moved or resized
     private val globalLayoutListener = ViewTreeObserver.OnGlobalLayoutListener { itemControls.onLayout() }
     private var wideAspectJob: Job? = null
+    // Finds out whether the background is an SVG and parses it
+    private var backgroundLoadJob: Job? = null
+    // The background whose load hasn't finished, which is started again on attach since detaching cancels it. Rendering an SVG isn't part of this
+    private var unfinishedBackground: RuntimeBackground? = null
+    private var svgRenderJob: Job? = null
+    // Null while a raster background, or none, is shown
+    private var shownSvgBackground: ShownSvgBackground? = null
+    // Size of the background view the SVG background was last rasterized for
+    private var svgRenderedSize: Pair<Int, Int>? = null
 
     private var showLayoutPropertiesDialog by mutableStateOf(initialEditorState?.isPropertiesDialogShown ?: false)
     private var showBackgroundPropertiesDialog by mutableStateOf(initialEditorState?.isBackgroundPropertiesDialogShown ?: false)
@@ -252,6 +305,11 @@ class LayoutEditorManagerView(
         binding.viewLayoutEditor.setOnViewDeselectedListener {
             itemControls.hide()
         }
+        binding.imageBackground.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                renderSvgBackground()
+            }
+        }
     }
 
     override fun onAttachedToWindow() {
@@ -264,12 +322,25 @@ class LayoutEditorManagerView(
                 itemControls.refresh()
             }
         }
+        val backgroundToReload = unfinishedBackground
+        if (backgroundToReload != null) {
+            updateBackground(backgroundToReload)
+        } else {
+            // Detaching cancels a render that may not have finished; does nothing until the view has a size
+            renderSvgBackground()
+        }
     }
 
     override fun onDetachedFromWindow() {
         viewTreeObserver.removeOnGlobalLayoutListener(globalLayoutListener)
         wideAspectJob?.cancel()
         wideAspectJob = null
+        backgroundLoadJob?.cancel()
+        backgroundLoadJob = null
+        svgRenderJob?.cancel()
+        svgRenderJob = null
+        // Not rendered for any size anymore, so a shown SVG background is rendered again if the view is laid out again
+        svgRenderedSize = null
         super.onDetachedFromWindow()
     }
 
@@ -305,16 +376,124 @@ class LayoutEditorManagerView(
     }
 
     fun updateBackground(background: RuntimeBackground) {
+        // Drops whatever is still loading or rendering for the previous background, so it can't replace this one
+        backgroundLoadJob?.cancel()
+        backgroundLoadJob = null
+        svgRenderJob?.cancel()
+        svgRenderJob = null
+        shownSvgBackground = null
+        svgRenderedSize = null
+
+        val uri = background.background?.uri
+        if (uri == null) {
+            unfinishedBackground = null
+            loadRasterBackground(background)
+            return
+        }
+
+        unfinishedBackground = background
+        val scope = findViewTreeLifecycleOwner()?.lifecycleScope
+        if (scope == null) {
+            // Without a window it may just not have found its owner yet, so attaching loads it
+            if (isAttachedToWindow) {
+                loadRasterBackground(background)
+            }
+            return
+        }
+
+        // Finding out whether it's an SVG reads the file, so do it off the main thread and keep an older raster load from landing meanwhile
+        picasso.cancelRequest(binding.imageBackground)
+        backgroundLoadJob = scope.launch {
+            val load = withContext(Dispatchers.IO) {
+                val isSvgStartNanos = System.nanoTime()
+                val isSvg = BackgroundDecoder.isSvg(context, uri)
+                val isSvgEndNanos = System.nanoTime()
+                val svg = if (isSvg) BackgroundDecoder.parseSvg(context, uri) else null
+                BackgroundFileLoad(isSvg, svg, isSvgEndNanos - isSvgStartNanos, System.nanoTime() - isSvgEndNanos)
+            }
+            val svg = load.svg
+
+            when {
+                !load.isSvg -> loadRasterBackground(background)
+                svg == null -> {
+                    unfinishedBackground = null
+                    binding.imageBackground.setImageDrawable(null)
+                    Toast.makeText(context, R.string.layout_background_load_failed, Toast.LENGTH_LONG).show()
+                }
+                else -> {
+                    unfinishedBackground = null
+                    shownSvgBackground = ShownSvgBackground(svg, background.mode, background.background.name, load.isSvgNanos, load.parseNanos)
+                    renderSvgBackground()
+                }
+            }
+        }
+    }
+
+    /**
+     * Rasterizes the SVG background at the background view's current size, unless it already was. Called again whenever the view's size
+     * changes, so it stays sharp through rotations and folds.
+     */
+    private fun renderSvgBackground() {
+        val shownBackground = shownSvgBackground ?: return
+        val imageView = binding.imageBackground
+        val width = imageView.width - imageView.paddingLeft - imageView.paddingRight
+        val height = imageView.height - imageView.paddingTop - imageView.paddingBottom
+        // Not laid out yet; the layout change listener calls this again once it is
+        if (width <= 0 || height <= 0) {
+            return
+        }
+
+        val size = width to height
+        if (svgRenderedSize == size) {
+            return
+        }
+        val scope = findViewTreeLifecycleOwner()?.lifecycleScope ?: return
+
+        svgRenderedSize = size
+        svgRenderJob?.cancel()
+        svgRenderJob = scope.launch {
+            val bitmap = withContext(Dispatchers.Default) {
+                val rasterStartNanos = System.nanoTime()
+                shownBackground.svg.rasterize(width, height, shownBackground.mode)?.also {
+                    shownBackground.logRender(width, height, System.nanoTime() - rasterStartNanos)
+                }
+            }
+
+            // A newer background or size took over while this one was rendering
+            if (shownSvgBackground !== shownBackground || svgRenderedSize != size) {
+                bitmap?.recycle()
+                return@launch
+            }
+
+            if (bitmap == null) {
+                Toast.makeText(context, R.string.layout_background_load_failed, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
+            imageView.setImageBitmap(bitmap)
+            imageView.setBackgroundMode(shownBackground.mode)
+        }
+    }
+
+    private fun loadRasterBackground(background: RuntimeBackground) {
         picasso.load(background.background?.uri).into(binding.imageBackground, object : Callback {
             override fun onSuccess() {
+                onRasterLoadFinished(background)
                 binding.imageBackground.setBackgroundMode(background.mode)
             }
 
             override fun onError(e: Exception?) {
+                onRasterLoadFinished(background)
                 e?.printStackTrace()
                 Toast.makeText(context, R.string.layout_background_load_failed, Toast.LENGTH_LONG).show()
             }
         })
+    }
+
+    private fun onRasterLoadFinished(background: RuntimeBackground) {
+        if (unfinishedBackground === background) {
+            unfinishedBackground = null
+        }
     }
 
     private fun openButtonsMenu() {

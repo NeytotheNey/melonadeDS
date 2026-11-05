@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.UriPermissionManager
 import me.magnum.melonds.domain.model.Background
+import me.magnum.melonds.domain.model.BuiltInBackgrounds
 import me.magnum.melonds.domain.repositories.BackgroundRepository
 import java.util.UUID
 import javax.inject.Inject
@@ -46,6 +47,11 @@ class BackgroundsViewModel @Inject constructor(
     }
 
     fun addBackground(background: Background) {
+        // Its URI is an app file, which has no permission to persist
+        if (BuiltInBackgrounds.isBuiltIn(background.id)) {
+            return
+        }
+
         uriPermissionManager.persistFilePermissions(background.uri, Permission.READ)
         viewModelScope.launch {
             backgroundsRepository.addBackground(background)
@@ -53,6 +59,10 @@ class BackgroundsViewModel @Inject constructor(
     }
 
     fun deleteBackground(background: Background) {
+        if (BuiltInBackgrounds.isBuiltIn(background.id)) {
+            return
+        }
+
         viewModelScope.launch {
             backgroundsRepository.deleteBackground(background)
             if (background.id == _currentSelectedBackground.value) {

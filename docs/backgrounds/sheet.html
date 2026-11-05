@@ -1,0 +1,28 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Shell sheet</title>
+<style>
+body{margin:0;padding:24px;background:#1b1b1d;color:#e8e8ea;font:600 15px system-ui}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:28px 22px}
+.cell{display:flex;flex-direction:column;gap:8px}
+.pair{display:flex;gap:8px;align-items:flex-end}
+.frame{position:relative;overflow:hidden;border-radius:8px;background:#000}
+.frame img{position:absolute;left:0;top:0;transform-origin:0 0}
+small{font-weight:400;color:#9a9aa0}
+</style></head><body><div class="grid" id="g"></div>
+<script>
+const items=[["crimson","Crimson","glossy red"],["onyx","Onyx","matte black, red pinstripe"],["pearl","Pearl","glossy white"],
+["atomic-purple","Atomic Purple","translucent"],["cobalt","Cobalt","metallic flake"],["glacier","Glacier","translucent clear"],
+["kiwi","Kiwi","glossy green"],["dandelion","Dandelion","glossy yellow"],["gunmetal","Gunmetal","brushed metal"],
+["coral","Coral","soft-touch"],["smoke","Smoke","translucent black"]];
+const S=0.1, sizes=[[2208,1840],[904,2316]];
+const g=document.getElementById("g");
+for(const [n,t,d] of items){
+  const c=document.createElement("div");c.className="cell";
+  c.innerHTML=`<div>${t} <small>${d}</small></div>`;
+  const p=document.createElement("div");p.className="pair";
+  for(const [w,h] of sizes){
+    p.innerHTML+=`<div class="frame" style="width:${w*S}px;height:${h*S}px"><img src="/app/src/main/assets/backgrounds/${n}.svg" width="${w}" height="${h}" style="transform:scale(${S})"></div>`;
+  }
+  c.appendChild(p);g.appendChild(c);
+}
+</script></body></html>

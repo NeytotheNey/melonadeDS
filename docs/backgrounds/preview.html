@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Shell preview</title>
+<style>
+body{margin:0;padding:16px;background:#222;color:#ddd;font:14px system-ui}
+.row{display:flex;gap:16px;align-items:flex-end;margin:0 0 28px}
+.name{width:150px}
+.frame{position:relative;overflow:hidden;border-radius:6px;background:#000}
+.frame img{position:absolute;left:0;top:0;transform-origin:0 0}
+</style></head><body>
+<div id="out"></div>
+<script>
+const q=new URLSearchParams(location.search);
+let names=["crimson","onyx","pearl","pearl-tech","atomic-purple","cobalt","glacier","kiwi","dandelion","gunmetal","coral","smoke","carbon","hex"];
+if(q.get("only"))names=q.get("only").split(",");
+// Real panel pixels, drawn at full size then scaled, so pixel-sized details look like they will on the phone.
+const sizes=[[2208,1840,"unfolded"],[904,2316,"cover"],[2316,904,"cover landscape"],[1440,3120,"7 Pro"]];
+const S=parseFloat(q.get("s")||"0.12");
+const out=document.getElementById("out");
+for(const n of names){
+  const row=document.createElement("div");row.className="row";
+  row.innerHTML=`<div class="name">${n}</div>`;
+  for(const [w,h] of sizes){
+    const f=document.createElement("div");f.className="frame";
+    f.style.width=w*S+"px";f.style.height=h*S+"px";
+    f.innerHTML=`<img src="/app/src/main/assets/backgrounds/${n}.svg" width="${w}" height="${h}" style="transform:scale(${S})">`;
+    row.appendChild(f);
+  }
+  out.appendChild(row);
+}
+</script></body></html>

@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.Background
+import me.magnum.melonds.domain.model.BuiltInBackgrounds
 import me.magnum.melonds.ui.common.MelonPreviewSet
 import me.magnum.melonds.ui.theme.MelonTheme
 
@@ -63,6 +64,7 @@ fun BackgroundItem(
         backgroundImage = rememberAsyncImagePainter(background),
         isSelected = isSelected,
         showOptions = true,
+        showDeleteOption = !BuiltInBackgrounds.isBuiltIn(background.id),
         sharedTransitionScope = sharedTransitionScope,
         animatedContentScope = animatedContentScope,
         onClick = onClick,
@@ -83,6 +85,7 @@ fun NoneBackgroundItem(
         backgroundImage = painterResource(R.drawable.ic_block),
         isSelected = isSelected,
         showOptions = false,
+        showDeleteOption = false,
         sharedTransitionScope = null,
         animatedContentScope = null,
         onClick = onClick,
@@ -99,6 +102,7 @@ private fun BackgroundItemBase(
     backgroundImage: Painter,
     isSelected: Boolean,
     showOptions: Boolean,
+    showDeleteOption: Boolean,
     sharedTransitionScope: SharedTransitionScope?,
     animatedContentScope: AnimatedContentScope?,
     onClick: () -> Unit,
@@ -178,13 +182,15 @@ private fun BackgroundItemBase(
                                     onPreviewClick()
                                 },
                             )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.delete)) },
-                                onClick = {
-                                    isOptionsPopupVisible = false
-                                    onDeleteClick()
-                                },
-                            )
+                            if (showDeleteOption) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.delete)) },
+                                    onClick = {
+                                        isOptionsPopupVisible = false
+                                        onDeleteClick()
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -204,6 +210,7 @@ private fun BackgroundItemPreview() {
             backgroundImage = rememberAsyncImagePainter(Uri.EMPTY),
             isSelected = false,
             showOptions = true,
+            showDeleteOption = true,
             sharedTransitionScope = null,
             animatedContentScope = null,
             onClick = { },
@@ -224,6 +231,7 @@ private fun BackgroundItemSelectedPreview() {
             backgroundImage = rememberAsyncImagePainter(Uri.EMPTY),
             isSelected = true,
             showOptions = true,
+            showDeleteOption = true,
             sharedTransitionScope = null,
             animatedContentScope = null,
             onClick = { },

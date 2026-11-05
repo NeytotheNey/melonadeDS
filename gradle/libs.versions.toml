@@ -1,6 +1,7 @@
 [versions]
 aboutLibraries = "15.2.0"
 activity = "1.13.0"
+androidSvg = "1.4"
 appCompat = "1.8.0"
 androidxTest = "1.7.0"
 androidxTestJunit = "1.3.0"
@@ -83,6 +84,9 @@ compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview"
 # Third-party
 aboutlibraries-compose-m3 = { module = "com.mikepenz:aboutlibraries-compose-m3", version.ref = "aboutLibraries" }
 coil = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
+coil-svg = { module = "io.coil-kt:coil-svg", version.ref = "coil" }
+# The SVG library coil-svg uses, which only puts it on the runtime classpath; same version as coil-svg's
+androidsvg = { module = "com.caverock:androidsvg-aar", version.ref = "androidSvg" }
 compose-markdown = { module = "com.github.jeziellago:compose-markdown", version.ref = "composeMarkdown" }
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 hilt = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }

@@ -9,6 +9,7 @@ internal object LogTags {
     const val AUDIO = "melonade-audio"
     const val LUA = "melonade-lua"
     const val CORE = "melonade-core"
+    const val SVG = "melonade-svg"
 
     val described = listOf(
         DEBUG to "markers, game configuration, fold and display changes",
@@ -16,5 +17,6 @@ internal object LogTags {
         AUDIO to "audio stream, dropouts, buffer fill",
         LUA to "scripts",
         CORE to "emulator core messages",
+        SVG to "SVG background load timings",
     )
 }

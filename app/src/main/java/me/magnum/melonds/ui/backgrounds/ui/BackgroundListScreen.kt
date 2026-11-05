@@ -64,6 +64,7 @@ import me.magnum.melonds.extensions.nameWithoutExtension
 import me.magnum.melonds.ui.backgrounds.BackgroundsViewModel
 import me.magnum.melonds.ui.common.component.dialog.TextInputDialog
 import me.magnum.melonds.ui.common.component.dialog.rememberTextInputDialogState
+import me.magnum.melonds.utils.BackgroundDecoder
 import me.magnum.melonds.utils.BitmapRegionDecoderCompat
 import java.util.UUID
 
@@ -126,7 +127,7 @@ fun BackgroundListScreen(
             FloatingActionButton(
                 modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal)),
                 onClick = {
-                    addBackgroundLauncher.launch(Pair(null, arrayOf("image/png", "image/jpeg")))
+                    addBackgroundLauncher.launch(Pair(null, arrayOf("image/png", "image/jpeg", BackgroundDecoder.SVG_MIME_TYPE)))
                 },
             ) {
                 Icon(
@@ -239,6 +240,10 @@ private fun BackgroundList(
 }
 
 private fun isBackgroundValid(context: Context, backgroundUri: Uri): Boolean {
+    if (BackgroundDecoder.isSvg(context, backgroundUri)) {
+        return BackgroundDecoder.parseSvg(context, backgroundUri) != null
+    }
+
     return runCatching {
         context.contentResolver.openInputStream(backgroundUri)?.use {
             BitmapRegionDecoderCompat.newInstance(it)?.recycle()

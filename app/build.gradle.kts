@@ -211,7 +211,9 @@ dependencies {
     debugImplementation(libs.leakcanary)
 
     implementation(libs.aboutlibraries.compose.m3)
+    implementation(libs.androidsvg)
     implementation(libs.coil)
+    implementation(libs.coil.svg)
     implementation(libs.gson)
     implementation(libs.hilt)
     implementation(libs.kotlin.serialization)
