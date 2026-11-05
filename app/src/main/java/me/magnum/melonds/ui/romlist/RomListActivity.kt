@@ -57,6 +57,7 @@ class RomListActivity : AppCompatActivity() {
 
         val emulatorLauncherValidatorDelegate = EmulatorLaunchValidatorDelegate(this, object : EmulatorLaunchValidatorDelegate.Callback {
             override fun onRomValidated(rom: Rom) {
+                viewModel.setRomLastPlayedNow(rom)
                 val intent = EmulatorActivity.getRomEmulatorActivityIntent(this@RomListActivity, rom)
                 startActivity(intent)
             }
@@ -79,6 +80,8 @@ class RomListActivity : AppCompatActivity() {
             val romScanningStatus by viewModel.romScanningStatus.collectAsStateWithLifecycle(initialValue = RomScanningStatus.NOT_SCANNING)
             val hasSearchDirectories by viewModel.hasSearchDirectories.collectAsStateWithLifecycle(initialValue = true)
             val viewMode by viewModel.viewMode.collectAsStateWithLifecycle()
+            val sortingMode by viewModel.sortingMode.collectAsStateWithLifecycle()
+            val sortingOrder by viewModel.sortingOrder.collectAsStateWithLifecycle()
 
             var currentUpdate by remember { mutableStateOf<AppUpdate?>(null) }
             var downloadProgress by remember { mutableStateOf<DownloadProgress?>(null) }
@@ -121,6 +124,8 @@ class RomListActivity : AppCompatActivity() {
                     isRefreshing = romScanningStatus == RomScanningStatus.SCANNING,
                     hasSearchDirectories = hasSearchDirectories,
                     onSearchQueryChange = viewModel::setRomSearchQuery,
+                    sortingMode = sortingMode,
+                    sortingOrder = sortingOrder,
                     onSortChange = viewModel::setRomSorting,
                     viewMode = viewMode,
                     onViewModeChange = viewModel::setRomListViewMode,
@@ -128,7 +133,6 @@ class RomListActivity : AppCompatActivity() {
                         emulatorLauncherValidatorDelegate.validateFirmware(consoleType)
                     },
                     onRomSelected = { rom ->
-                        viewModel.setRomLastPlayedNow(rom)
                         emulatorLauncherValidatorDelegate.validateRom(rom)
                     },
                     onRomConfigClick = { rom ->
@@ -150,9 +154,8 @@ class RomListActivity : AppCompatActivity() {
                     retrieveRomIcon = { rom ->
                         viewModel.getRomIcon(rom)
                     },
-                    retrieveRomMetadata = { rom ->
-                        viewModel.getRomMetadata(rom)
-                    },
+                    romMetadata = viewModel.romMetadata,
+                    hasRetroAchievementsWebApiKey = viewModel::hasRetroAchievementsWebApiKey,
                 )
 
                 currentUpdate?.let { update ->

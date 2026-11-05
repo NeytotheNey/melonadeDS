@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <PreferenceCategory android:title="@string/settings_section_account">
 
@@ -46,5 +47,28 @@
             android:summary="@string/show_leaderboard_indicators_summary"
             android:dependency="ra_login"
             android:defaultValue="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/settings_section_game_library">
+
+        <Preference
+            android:key="ra_web_api_key"
+            android:title="@string/ra_web_api_key"
+            android:persistent="false" />
+
+        <Preference
+            android:key="ra_web_api_key_remove"
+            android:title="@string/ra_web_api_key_remove"
+            app:isPreferenceVisible="false" />
+
+        <Preference
+            android:key="ra_refresh_metadata"
+            android:title="@string/ra_refresh_metadata"
+            android:summary="@string/ra_refresh_metadata_summary" />
+
+        <Preference
+            android:key="ra_clear_art"
+            android:title="@string/ra_clear_art"
+            android:summary="@string/ra_clear_art_summary" />
     </PreferenceCategory>
 </PreferenceScreen>

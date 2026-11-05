@@ -22,7 +22,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import kotlinx.coroutines.launch
 import me.magnum.melonds.domain.model.rom.Rom
+import me.magnum.melonds.domain.model.rom.RomLibraryMetadata
 import me.magnum.melonds.domain.model.rom.config.RomConfig
+import me.magnum.melonds.ui.common.CarriedOverKeyFilter
 import me.magnum.melonds.ui.common.MelonPreviewSet
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiModel
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiState
@@ -37,6 +39,7 @@ import java.util.Date
 @Composable
 fun RomDetailsScreen(
     rom: Rom,
+    romMetadata: RomLibraryMetadata?,
     romConfigUiState: RomConfigUiState,
     retroAchievementsUiState: RomRetroAchievementsUiState,
     onNavigateBack: () -> Unit,
@@ -71,8 +74,16 @@ fun RomDetailsScreen(
         }
     }
 
+    // This screen opens by holding the confirm button on a library tile, and Play takes the focus
+    val carriedOverKeyFilter = remember { CarriedOverKeyFilter() }
+
     Scaffold(
         modifier = Modifier.onPreviewKeyEvent {
+            val nativeEvent = it.nativeKeyEvent
+            if (carriedOverKeyFilter.shouldIgnore(nativeEvent.keyCode, nativeEvent.action == KeyEvent.ACTION_DOWN, nativeEvent.repeatCount)) {
+                return@onPreviewKeyEvent true
+            }
+
             if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                 when (it.key) {
                     Key.ButtonL1 -> {
@@ -96,6 +107,7 @@ fun RomDetailsScreen(
             RomHeaderUi(
                 modifier = Modifier.fillMaxWidth(),
                 rom = rom,
+                metadata = romMetadata,
                 pagerState = pagerState,
                 initialFocusRequester = focusRequester,
                 onLaunchRom = { onLaunchRom(rom) },
@@ -170,6 +182,7 @@ private fun PreviewRomScreen() {
                 ),
                 RomModsUiModel(),
             ),
+            romMetadata = null,
             retroAchievementsUiState = RomRetroAchievementsUiState.LoggedOut(null),
             onNavigateBack = { },
             onLaunchRom = { },

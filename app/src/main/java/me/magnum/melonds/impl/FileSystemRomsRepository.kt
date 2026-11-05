@@ -2,6 +2,7 @@ package me.magnum.melonds.impl
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import com.google.gson.Gson
@@ -27,6 +28,7 @@ import me.magnum.melonds.domain.repositories.RomsRepository
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.impl.SettingsBackupFormat.ROM_DATA_FILE
 import me.magnum.melonds.impl.dtos.rom.RomDto
+import me.magnum.melonds.impl.retroachievements.RomMetadataSyncScheduler
 import me.magnum.melonds.utils.FileUtils
 import me.magnum.melonds.utils.SubjectSharedFlow
 import java.io.File
@@ -41,7 +43,8 @@ class FileSystemRomsRepository(
     private val context: Context,
     private val gson: Gson,
     private val settingsRepository: SettingsRepository,
-    private val romFileProcessorFactory: RomFileProcessorFactory
+    private val romFileProcessorFactory: RomFileProcessorFactory,
+    private val romMetadataSyncScheduler: RomMetadataSyncScheduler,
 ) : RomsRepository {
 
     companion object {
@@ -179,12 +182,44 @@ class FileSystemRomsRepository(
         coroutineScope.launch(fileAccessDispatcher) {
             scanningStatus.value = RomScanningStatus.SCANNING
 
+            removeMissingRoms()
             scanForNewRoms().collect {
                 addRom(it)
             }
 
             scanningStatus.value = RomScanningStatus.NOT_SCANNING
+            romMetadataSyncScheduler.onRomScanFinished()
         }
+    }
+
+    /**
+     * The scan only finds what's there, so without this a deleted ROM would stay listed until the next launch, when [loadCachedRoms] does this same check.
+     */
+    private fun removeMissingRoms() {
+        val missingRoms = findRemovableMissingRoms(ArrayList(roms))
+        if (missingRoms.isNotEmpty()) {
+            missingRoms.forEach { removeRom(it, notifyChanged = false) }
+            onRomsChanged()
+        }
+    }
+
+    private fun findRemovableMissingRoms(candidates: List<Rom>): List<Rom> {
+        return selectRemovableMissingRoms(
+            roms = candidates,
+            searchDirectories = settingsRepository.getRomSearchDirectories().toList(),
+            isUnderDirectory = { rom, directory -> treeKey(rom.uri)?.let { it == treeKey(directory) } == true },
+            fileExists = { DocumentFile.fromSingleUri(context, it.uri)?.exists() != false },
+            isDirectoryAccessible = { directory ->
+                DocumentFile.fromTreeUri(context, directory)?.let { it.exists() && it.canRead() } == true
+            },
+        )
+    }
+
+    /**
+     * What a search directory and the ROMs found through it have in common, however deep they are: the tree they were opened from. Null for anything else.
+     */
+    private fun treeKey(uri: Uri): String? {
+        return if (DocumentsContract.isTreeUri(uri)) "${uri.authority}/${DocumentsContract.getTreeDocumentId(uri)}" else null
     }
 
     override fun invalidateRoms() {
@@ -240,17 +275,17 @@ class FileSystemRomsRepository(
     private suspend fun loadCachedRoms() {
         scanningStatus.value = RomScanningStatus.SCANNING
 
-        val cachedRoms = getCachedRoms().filter {
-            DocumentFile.fromSingleUri(context, it.uri)?.exists() == true
-        }
+        val cachedRoms = getCachedRoms()
+        val missingRoms = findRemovableMissingRoms(cachedRoms).mapTo(HashSet()) { it.uri }
 
-        roms.addAll(cachedRoms)
+        roms.addAll(cachedRoms.filterNot { it.uri in missingRoms })
         onRomsChanged()
         scanForNewRoms().collect {
             addRom(it)
         }
 
         scanningStatus.value = RomScanningStatus.NOT_SCANNING
+        romMetadataSyncScheduler.onRomScanFinished()
     }
 
     private fun scanForNewRoms(): Flow<Rom> = flow {

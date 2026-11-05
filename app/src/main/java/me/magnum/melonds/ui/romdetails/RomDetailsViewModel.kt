@@ -10,12 +10,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -27,11 +30,13 @@ import me.magnum.melonds.domain.model.emulator.LuaScriptHeader
 import me.magnum.melonds.domain.model.emulator.toLuaLayoutChoices
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.rom.Rom
+import me.magnum.melonds.domain.model.rom.RomLibraryMetadata
 import me.magnum.melonds.domain.model.rom.config.RomConfig
 import me.magnum.melonds.domain.model.rom.config.RomGbaSlotConfig
 import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import me.magnum.melonds.domain.repositories.LayoutsRepository
 import me.magnum.melonds.domain.repositories.RetroAchievementsRepository
+import me.magnum.melonds.domain.repositories.RomMetadataRepository
 import me.magnum.melonds.domain.repositories.RomsRepository
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.impl.LuaScriptDataStore
@@ -59,11 +64,15 @@ class RomDetailsViewModel @Inject constructor(
     private val luaScriptDataStore: LuaScriptDataStore,
     private val romFileProcessorFactory: RomFileProcessorFactory,
     private val layoutsRepository: LayoutsRepository,
+    romMetadataRepository: RomMetadataRepository,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private val _rom = MutableStateFlow(savedStateHandle.get<RomParcelable>(RomDetailsActivity.KEY_ROM)!!.rom)
     val rom = _rom.asStateFlow()
+
+    val romMetadata: StateFlow<RomLibraryMetadata?> = combine(_rom, romMetadataRepository.romMetadata) { rom, snapshot -> snapshot.metadataFor(rom) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), null)
 
     private val _romConfig = MutableStateFlow(_rom.value.config)
 

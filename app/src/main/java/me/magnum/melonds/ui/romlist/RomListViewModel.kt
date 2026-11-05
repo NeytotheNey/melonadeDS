@@ -27,13 +27,13 @@ import me.magnum.melonds.domain.model.RomListViewMode
 import me.magnum.melonds.domain.model.SortingMode
 import me.magnum.melonds.domain.model.SortingOrder
 import me.magnum.melonds.domain.model.rom.Rom
-import me.magnum.melonds.domain.model.rom.RomLibraryMetadata
-import me.magnum.melonds.domain.repositories.RetroAchievementsRepository
+import me.magnum.melonds.domain.repositories.RomMetadataRepository
 import me.magnum.melonds.domain.repositories.RomsRepository
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.impl.RomIconProvider
 import me.magnum.melonds.utils.EventSharedFlow
 import me.magnum.melonds.utils.SubjectSharedFlow
+import me.magnum.rcheevosapi.RAWebApiKeyStore
 
 @HiltViewModel
 class RomListViewModel @Inject constructor(
@@ -42,12 +42,15 @@ class RomListViewModel @Inject constructor(
     private val romIconProvider: RomIconProvider,
     private val uriPermissionManager: UriPermissionManager,
     private val directoryAccessValidator: DirectoryAccessValidator,
-    private val retroAchievementsRepository: RetroAchievementsRepository,
+    private val raWebApiKeyStore: RAWebApiKeyStore,
+    romMetadataRepository: RomMetadataRepository,
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
     private val _sortingMode = MutableStateFlow(settingsRepository.getRomSortingMode())
     private val _sortingOrder = MutableStateFlow(settingsRepository.getRomSortingOrder())
+    val sortingMode = _sortingMode.asStateFlow()
+    val sortingOrder = _sortingOrder.asStateFlow()
 
     private val _hasSearchDirectories = SubjectSharedFlow<Boolean>()
     val hasSearchDirectories: Flow<Boolean> = _hasSearchDirectories
@@ -64,6 +67,8 @@ class RomListViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, settingsRepository.getRomListViewMode())
 
     val romScanningStatus = romsRepository.getRomScanningStatus()
+
+    val romMetadata = romMetadataRepository.romMetadata
 
     init {
         viewModelScope.launch {
@@ -106,6 +111,10 @@ class RomListViewModel @Inject constructor(
         }.launchIn(viewModelScope)
     }
 
+    fun hasRetroAchievementsWebApiKey(): Boolean {
+        return raWebApiKeyStore.getApiKey() != null
+    }
+
     fun refreshRoms() {
         romsRepository.rescanRoms()
     }
@@ -125,7 +134,7 @@ class RomListViewModel @Inject constructor(
             else
                 SortingOrder.ASCENDING
 
-            settingsRepository.setRomSortingOrder(_sortingOrder.value)
+            settingsRepository.setRomSortingOrder(newSortingOrder)
             _sortingOrder.value = newSortingOrder
         } else {
             settingsRepository.setRomSortingMode(sortingMode)
@@ -151,27 +160,12 @@ class RomListViewModel @Inject constructor(
         settingsRepository.setRomListViewMode(viewMode)
     }
 
-    /**
-     * What the grid and mosaic cards can show about [rom]. Today this is the banner's publisher line plus, when the user is signed in to
-     * RetroAchievements and the game is already in the local cache, the RetroAchievements icon. Box art and the rest of the fields wait on
-     * the Web API cache described in docs/plan-launcher.md. Nothing here touches the network except the once-a-day hash library refresh
-     * the repository already does.
-     */
-    suspend fun getRomMetadata(rom: Rom): RomLibraryMetadata {
-        val fromBanner = RomLibraryMetadata.fromBanner(rom)
-        if (rom.retroAchievementsHash.isBlank() || !retroAchievementsRepository.isUserAuthenticated()) {
-            return fromBanner
-        }
-
-        val summary = runCatching { retroAchievementsRepository.getGameSummary(rom.retroAchievementsHash) }.getOrNull() ?: return fromBanner
-        return fromBanner.copy(
-            gameIconUrl = summary.icon,
-            hasAchievements = true,
-        )
-    }
-
     suspend fun getRomIcon(rom: Rom): RomIcon {
-        val romIconBitmap = romIconProvider.getRomIcon(rom)
+        val romIconBitmap = romIconProvider.getRomIcon(rom)?.takeUnless { bitmap ->
+            val pixels = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            pixels.isEmpty() || isBlankIcon(pixels)
+        }
         val iconFiltering = settingsRepository.getRomIconFiltering()
         return RomIcon(romIconBitmap, iconFiltering)
     }

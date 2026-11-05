@@ -10,10 +10,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -23,13 +24,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.set
 import androidx.core.net.toUri
-import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.RomIconFiltering
 import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.model.rom.config.RomConfig
@@ -48,6 +47,9 @@ fun RomList(
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp),
+    emptyMessage: String? = null,
+    onShowAll: (() -> Unit)? = null,
+    listState: LazyListState = rememberLazyListState(),
     romItem: @Composable (Modifier, Rom) -> Unit,
 ) {
     val pullRefreshState = rememberPullToRefreshState()
@@ -72,11 +74,11 @@ fun RomList(
                 Box(Modifier.fillMaxSize())
             }
             roms.isEmpty() && !isRefreshing -> {
-                EmptyContent(Modifier.fillMaxSize().padding(contentPadding).consumeWindowInsets(contentPadding))
+                LibraryEmptyMessage(Modifier.fillMaxSize().padding(contentPadding).consumeWindowInsets(contentPadding), emptyMessage, onShowAll)
             }
             else -> {
                 val density = LocalDensity.current
-                val bringIntoViewSpec = remember(density) {
+                val bringIntoViewSpec = remember(density, contentPadding) {
                     with(density) {
                         PaddedListBringIntoViewSpec(
                             leadingPadding = contentPadding.calculateTopPadding().toPx(),
@@ -88,6 +90,7 @@ fun RomList(
                 CompositionLocalProvider(LocalBringIntoViewSpec provides bringIntoViewSpec) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
+                        state = listState,
                         contentPadding = contentPadding,
                     ) {
                         items(
@@ -100,19 +103,6 @@ fun RomList(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun EmptyContent(modifier: Modifier) {
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = stringResource(R.string.no_roms_found),
-            style = MaterialTheme.typography.bodyLarge,
-        )
     }
 }
 

@@ -13,6 +13,7 @@ import me.magnum.melonds.database.daos.CheatDao
 import me.magnum.melonds.database.daos.CheatDatabaseDao
 import me.magnum.melonds.database.daos.CheatFolderDao
 import me.magnum.melonds.database.daos.GameDao
+import me.magnum.melonds.database.daos.RAGameMetadataDao
 import me.magnum.melonds.database.daos.RetroAchievementsDao
 import me.magnum.melonds.database.entities.CheatDatabaseEntity
 import me.magnum.melonds.database.entities.CheatEntity
@@ -22,13 +23,14 @@ import me.magnum.melonds.database.entities.retroachievements.RAAchievementEntity
 import me.magnum.melonds.database.entities.retroachievements.RAAchievementSetEntity
 import me.magnum.melonds.database.entities.retroachievements.RAGameEntity
 import me.magnum.melonds.database.entities.retroachievements.RAGameHashEntity
+import me.magnum.melonds.database.entities.retroachievements.RAGameMetadataEntity
 import me.magnum.melonds.database.entities.retroachievements.RAGameSetMetadata
 import me.magnum.melonds.database.entities.retroachievements.RALeaderboardEntity
 import me.magnum.melonds.database.entities.retroachievements.RAPendingAchievementSubmissionEntity
 import me.magnum.melonds.database.entities.retroachievements.RAUserAchievementEntity
 
 @Database(
-    version = 8,
+    version = 9,
     exportSchema = true,
     entities = [
         CheatDatabaseEntity::class,
@@ -40,6 +42,7 @@ import me.magnum.melonds.database.entities.retroachievements.RAUserAchievementEn
         RAAchievementEntity::class,
         RAUserAchievementEntity::class,
         RALeaderboardEntity::class,
+        RAGameMetadataEntity::class,
         RAGameSetMetadata::class,
         RAGameHashEntity::class,
         RAPendingAchievementSubmissionEntity::class,
@@ -57,6 +60,7 @@ abstract class MelonDatabase : RoomDatabase() {
     abstract fun cheatFolderDao(): CheatFolderDao
     abstract fun cheatDao(): CheatDao
     abstract fun achievementsDao(): RetroAchievementsDao
+    abstract fun gameMetadataDao(): RAGameMetadataDao
 
     class Migration2to3Spec : AutoMigrationSpec {
         override fun onPostMigrate(db: SupportSQLiteDatabase) {

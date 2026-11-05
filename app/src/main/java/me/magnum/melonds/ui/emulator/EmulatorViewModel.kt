@@ -78,6 +78,7 @@ import me.magnum.melonds.impl.LuaScriptStorage
 import me.magnum.melonds.impl.diagnostics.PerformanceLogger
 import me.magnum.melonds.impl.emulator.EmulatorSession
 import me.magnum.melonds.impl.layout.UILayoutProvider
+import me.magnum.melonds.impl.retroachievements.RomMetadataSyncScheduler
 import me.magnum.melonds.ui.emulator.component.RetroAchievementsSubmissionHandler
 import me.magnum.melonds.ui.emulator.firmware.FirmwarePauseMenuOption
 import me.magnum.melonds.ui.emulator.model.EmulatorScreenSettings
@@ -125,6 +126,7 @@ class EmulatorViewModel @Inject constructor(
     private val retroAchievementsSubmissionHandler: RetroAchievementsSubmissionHandler,
     private val performanceLogger: PerformanceLogger,
     private val luaScriptStorage: LuaScriptStorage,
+    private val romMetadataSyncScheduler: RomMetadataSyncScheduler,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -198,6 +200,9 @@ class EmulatorViewModel @Inject constructor(
     private var luaExistingLayoutIds: Set<UUID>? = null
 
     init {
+        // Here and in onCleared() rather than in the activity, since this outlives a recreated activity and every way into a game goes through here
+        romMetadataSyncScheduler.onGameStarted()
+
         viewModelScope.launch {
             _layout.filterNotNull().collect {
                 uiLayoutProvider.setCurrentLayoutConfiguration(it)
@@ -1398,6 +1403,7 @@ class EmulatorViewModel @Inject constructor(
         performanceLogger.stopSession()
         sessionCoroutineScope.cancel()
         emulatorManager.cleanEmulator()
+        romMetadataSyncScheduler.onGameEnded()
     }
 
     private class EmulatorSessionCoroutineScope : CoroutineScope {

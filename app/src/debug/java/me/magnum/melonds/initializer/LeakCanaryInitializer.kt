@@ -9,6 +9,8 @@ import android.os.Looper
 import androidx.startup.Initializer
 import leakcanary.LeakCanary
 import me.magnum.melonds.ui.emulator.EmulatorActivity
+import shark.IgnoredReferenceMatcher
+import shark.ReferencePattern
 
 /**
  * Debug-only LeakCanary setup that never dumps the heap on its own while a game is open, since a dump freezes the app for a few seconds:
@@ -19,8 +21,14 @@ import me.magnum.melonds.ui.emulator.EmulatorActivity
 class LeakCanaryInitializer : Initializer<Unit> {
 
     override fun create(context: Context) {
-        // A threshold that is never reached: dumps while the app is visible only happen when the notification is tapped
-        LeakCanary.config = LeakCanary.config.copy(retainedVisibleThreshold = Int.MAX_VALUE)
+        LeakCanary.config = LeakCanary.config.copy(
+            // A threshold that is never reached: dumps while the app is visible only happen when the notification is tapped
+            retainedVisibleThreshold = Int.MAX_VALUE,
+            // Android framework static that holds one activity and predates our code
+            referenceMatchers = LeakCanary.config.referenceMatchers + IgnoredReferenceMatcher(
+                ReferencePattern.StaticFieldPattern("android.text.method.TextKeyListener", "sInstance"),
+            ),
+        )
         (context.applicationContext as Application).registerActivityLifecycleCallbacks(EmulatorHeapDumpBlocker())
     }
 

@@ -8,21 +8,28 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
 import me.magnum.melonds.domain.model.rom.Rom
-import me.magnum.melonds.domain.model.rom.RomLibraryMetadata
+import me.magnum.melonds.domain.model.rom.RomMetadataSnapshot
 import me.magnum.melonds.ui.common.MelonPreviewSet
+import me.magnum.melonds.ui.common.component.romlist.LocalLibraryFocus
 import me.magnum.melonds.ui.common.component.romlist.RomGridTile
 import me.magnum.melonds.ui.romlist.RomIcon
 import me.magnum.melonds.ui.romlist.ui.preview.PreviewRomLibrary
 import me.magnum.melonds.ui.theme.MelonTheme
 
-/** Narrow enough for three columns on a phone in portrait, and more as the window widens. */
-private val GridMinTileWidth = 110.dp
-private val GridGutter = 12.dp
+/** Narrow enough for three columns on a phone, the Fold's cover screen included, and more as the window widens. */
+private val GridMinTileWidth = 96.dp
+private val GridColumnGap = 12.dp
+private val GridRowGap = 14.dp
 
 /**
  * The library as box-art cards. Columns adapt to the width, so a tablet or an unfolded phone gets more of them.
@@ -34,10 +41,12 @@ fun RomGrid(
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp),
+    emptyMessage: String? = null,
+    onShowAll: (() -> Unit)? = null,
     onRomClick: (Rom) -> Unit,
     onRomConfigClick: (Rom) -> Unit,
     retrieveRomIcon: suspend (Rom) -> RomIcon,
-    retrieveRomMetadata: suspend (Rom) -> RomLibraryMetadata,
+    romMetadata: StateFlow<RomMetadataSnapshot>,
 ) {
     RomLibraryContainer(
         modifier = modifier,
@@ -45,19 +54,35 @@ fun RomGrid(
         isRefreshing = isRefreshing,
         onRefresh = onRefresh,
         contentPadding = contentPadding,
+        emptyMessage = emptyMessage,
+        onShowAll = onShowAll,
     ) { loadedRoms ->
         val layoutDirection = LocalLayoutDirection.current
+        // Stops with the activity, so this costs nothing during a game
+        val metadataSnapshot by romMetadata.collectAsStateWithLifecycle()
+        val gridState = rememberLazyGridState()
+
+        // The tile that's to take the focus back has to be there first
+        val pendingFocusRomUri = LocalLibraryFocus.current?.pendingRomUri
+        LaunchedEffect(pendingFocusRomUri, loadedRoms) {
+            val index = loadedRoms.indexOfFirst { it.uri == pendingFocusRomUri }
+            if (index >= 0 && gridState.layoutInfo.visibleItemsInfo.none { it.index == index }) {
+                gridState.scrollToItem(index)
+            }
+        }
+
         LazyVerticalGrid(
             modifier = Modifier.fillMaxSize(),
+            state = gridState,
             columns = GridCells.Adaptive(GridMinTileWidth),
             contentPadding = PaddingValues(
-                start = contentPadding.calculateStartPadding(layoutDirection) + GridGutter,
-                top = contentPadding.calculateTopPadding() + GridGutter,
-                end = contentPadding.calculateEndPadding(layoutDirection) + GridGutter,
-                bottom = contentPadding.calculateBottomPadding() + GridGutter,
+                start = contentPadding.calculateStartPadding(layoutDirection) + LibraryContentHorizontalPadding,
+                top = contentPadding.calculateTopPadding() + LibraryContentTopPadding,
+                end = contentPadding.calculateEndPadding(layoutDirection) + LibraryContentHorizontalPadding,
+                bottom = contentPadding.calculateBottomPadding() + LibraryContentBottomPadding,
             ),
-            horizontalArrangement = Arrangement.spacedBy(GridGutter),
-            verticalArrangement = Arrangement.spacedBy(GridGutter),
+            horizontalArrangement = Arrangement.spacedBy(GridColumnGap),
+            verticalArrangement = Arrangement.spacedBy(GridRowGap),
         ) {
             items(
                 items = loadedRoms,
@@ -69,7 +94,7 @@ fun RomGrid(
                     onClick = { onRomClick(rom) },
                     onLongClick = { onRomConfigClick(rom) },
                     retrieveTitleIcon = { retrieveRomIcon(rom) },
-                    retrieveMetadata = { retrieveRomMetadata(rom) },
+                    metadata = metadataSnapshot.metadataFor(rom),
                 )
             }
         }
@@ -88,7 +113,7 @@ private fun PreviewRomGrid() {
             onRomClick = { },
             onRomConfigClick = { },
             retrieveRomIcon = { PreviewRomLibrary.icon },
-            retrieveRomMetadata = { PreviewRomLibrary.metadataFor(it) },
+            romMetadata = PreviewRomLibrary.metadataSnapshot,
         )
     }
 }

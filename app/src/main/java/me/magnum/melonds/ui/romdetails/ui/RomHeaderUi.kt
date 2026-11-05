@@ -36,14 +36,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
@@ -55,8 +60,10 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.rom.Rom
+import me.magnum.melonds.domain.model.rom.RomLibraryMetadata
 import me.magnum.melonds.domain.model.rom.config.RomConfig
 import me.magnum.melonds.ui.common.MelonPreviewSet
+import me.magnum.melonds.ui.common.component.text.CaptionText
 import me.magnum.melonds.ui.romdetails.model.RomDetailsTab
 import me.magnum.melonds.ui.theme.MelonTheme
 import java.util.Date
@@ -66,6 +73,7 @@ import kotlin.time.Duration
 fun RomHeaderUi(
     modifier: Modifier,
     rom: Rom,
+    metadata: RomLibraryMetadata?,
     pagerState: PagerState,
     initialFocusRequester: FocusRequester,
     onLaunchRom: () -> Unit,
@@ -82,6 +90,7 @@ fun RomHeaderUi(
             if (isLandscape) {
                 LandscapeTopBar(
                     rom = rom,
+                    metadata = metadata,
                     initialFocusRequester = initialFocusRequester,
                     onLaunchRom = onLaunchRom,
                     onNavigateBack = onNavigateBack,
@@ -89,6 +98,7 @@ fun RomHeaderUi(
             } else {
                 PortraitTopBar(
                     rom = rom,
+                    metadata = metadata,
                     initialFocusRequester = initialFocusRequester,
                     onLaunchRom = onLaunchRom,
                     onNavigateBack = onNavigateBack,
@@ -131,16 +141,17 @@ fun RomHeaderUi(
 @Composable
 private fun PortraitTopBar(
     rom: Rom,
+    metadata: RomLibraryMetadata?,
     initialFocusRequester: FocusRequester,
     onLaunchRom: () -> Unit,
     onNavigateBack: () -> Unit,
 ) {
     TopAppBar(
         title = {
-            RomTitleRow(rom) {
+            RomTitleRow(rom, metadata) {
                 Text(
                     modifier = Modifier.padding(start = 16.dp),
-                    text = rom.config.customName ?: rom.name,
+                    text = metadata?.displayTitle(rom) ?: rom.config.customName ?: rom.name,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -165,7 +176,12 @@ private fun PortraitTopBar(
             onClick = onLaunchRom,
         )
 
-        PlayTimeText(rom.totalPlayTime)
+        Column {
+            PlayTimeText(rom.totalPlayTime)
+            metadata?.details()?.let {
+                RomDetailsLine(details = it, maxLines = 2)
+            }
+        }
     }
 }
 
@@ -173,20 +189,30 @@ private fun PortraitTopBar(
 @Composable
 private fun ColumnScope.LandscapeTopBar(
     rom: Rom,
+    metadata: RomLibraryMetadata?,
     initialFocusRequester: FocusRequester,
     onLaunchRom: () -> Unit,
     onNavigateBack: () -> Unit,
 ) {
     TopAppBar(
         title = {
-            RomTitleRow(rom) {
+            RomTitleRow(rom, metadata) {
                 Column(Modifier.padding(start = 16.dp).weight(1f)) {
                     Text(
-                        text = rom.config.customName ?: rom.name,
+                        text = metadata?.displayTitle(rom) ?: rom.config.customName ?: rom.name,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    PlayTimeText(rom.totalPlayTime)
+                    // On one line, since the app bar has no room for a third
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        PlayTimeText(rom.totalPlayTime)
+                        metadata?.details()?.let {
+                            RomDetailsLine(details = it, maxLines = 1)
+                        }
+                    }
                 }
 
                 PlayButton(
@@ -205,14 +231,36 @@ private fun ColumnScope.LandscapeTopBar(
     )
 }
 
+@Composable
+private fun RomDetailsLine(details: String, maxLines: Int) {
+    CaptionText(
+        text = details,
+        style = MaterialTheme.typography.bodySmall,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
 /**
- * The title row of both top bars: the ROM's icon followed by [content].
+ * The title row of both top bars: the game's art or else the ROM's icon, followed by [content].
  */
 @Composable
-private fun RomTitleRow(rom: Rom, content: @Composable RowScope.() -> Unit) {
+private fun RomTitleRow(rom: Rom, metadata: RomLibraryMetadata?, content: @Composable RowScope.() -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
+        val image = metadata?.tileImage
+        // Back to the ROM's icon if the image can't be loaded
+        var failedImage by remember(metadata?.artModifiedAt) { mutableStateOf<Any?>(null) }
+        val art = image.takeIf { it != failedImage }
         if (LocalInspectionMode.current) {
             Box(Modifier.size(42.dp).background(Color.Gray))
+        } else if (art != null) {
+            AsyncImage(
+                modifier = Modifier.size(42.dp).clip(RoundedCornerShape(6.dp)),
+                model = art,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                onError = { failedImage = art },
+            )
         } else {
             AsyncImage(
                 modifier = Modifier.size(42.dp),
@@ -285,6 +333,7 @@ private fun PreviewRomHeaderUi() {
                 isDsiWareTitle = false,
                 retroAchievementsHash = "",
             ),
+            metadata = RomLibraryMetadata(publisher = "Nontendo", developer = "Level 6", genre = "Puzzle", releaseYear = 2008),
             pagerState = pagerState,
             initialFocusRequester = remember { FocusRequester() },
             onLaunchRom = { },

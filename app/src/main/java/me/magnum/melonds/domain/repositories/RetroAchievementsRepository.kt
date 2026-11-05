@@ -20,6 +20,11 @@ interface RetroAchievementsRepository {
     suspend fun logout()
     suspend fun getUserGameData(gameHash: String, forHardcoreMode: Boolean): Result<RAUserGameData?>
     suspend fun getRuntimeUserAchievements(achievements: List<RAUserAchievement>): List<RARuntimeUserAchievement>
+    /**
+     * The games the given hashes belong to, leaving out hashes RetroAchievements doesn't know. Refreshes the hash library first if it's due, and
+     * falls back on the local copy if that fails.
+     */
+    suspend fun getGameIds(gameHashes: Collection<String>): Map<String, RAGameId>
     suspend fun getGameSummary(gameHash: String): RAGameSummary?
     suspend fun getGameSummary(gameId: RAGameId): RAGameSummary?
     suspend fun getAchievementSetSummary(setId: RASetId): RAAchievementSetSummary?

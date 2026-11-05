@@ -21,6 +21,7 @@ import me.magnum.melonds.common.vibration.Api26VibratorDelegate
 import me.magnum.melonds.common.vibration.OldVibratorDelegate
 import me.magnum.melonds.common.vibration.TouchVibrator
 import me.magnum.melonds.database.MelonDatabase
+import me.magnum.melonds.database.daos.RAGameMetadataDao
 import me.magnum.melonds.database.daos.RetroAchievementsDao
 import me.magnum.melonds.domain.repositories.*
 import me.magnum.melonds.domain.services.ConfigurationDirectoryVerifier
@@ -39,6 +40,8 @@ import me.magnum.melonds.impl.layout.DefaultLayoutProvider
 import me.magnum.melonds.impl.layout.UILayoutProvider
 import me.magnum.melonds.impl.layout.devicemapper.AynThorLayoutDisplayMapper
 import me.magnum.melonds.impl.layout.devicemapper.DefaultLayoutDisplayMapper
+import me.magnum.melonds.impl.retroachievements.RetroAchievementsArtStore
+import me.magnum.melonds.impl.retroachievements.RomMetadataSyncScheduler
 import me.magnum.melonds.impl.romprocessors.Api24RomFileProcessorFactory
 import me.magnum.melonds.ui.romdetails.RomDetailsUiMapper
 import me.magnum.rcheevosapi.RAApi
@@ -92,8 +95,20 @@ object MelonModule {
 
     @Provides
     @Singleton
-    fun provideRomsRepository(@ApplicationContext context: Context, gson: Gson, settingsRepository: SettingsRepository, romFileProcessorFactory: RomFileProcessorFactory): RomsRepository {
-        return FileSystemRomsRepository(context, gson, settingsRepository, romFileProcessorFactory)
+    fun provideRomsRepository(
+        @ApplicationContext context: Context,
+        gson: Gson,
+        settingsRepository: SettingsRepository,
+        romFileProcessorFactory: RomFileProcessorFactory,
+        romMetadataSyncScheduler: RomMetadataSyncScheduler,
+    ): RomsRepository {
+        return FileSystemRomsRepository(context, gson, settingsRepository, romFileProcessorFactory, romMetadataSyncScheduler)
+    }
+
+    @Provides
+    @Singleton
+    fun provideRomMetadataRepository(gameMetadataDao: RAGameMetadataDao, artStore: RetroAchievementsArtStore, romsRepository: RomsRepository): RomMetadataRepository {
+        return RoomRomMetadataRepository(gameMetadataDao, artStore, romsRepository)
     }
 
     @Provides

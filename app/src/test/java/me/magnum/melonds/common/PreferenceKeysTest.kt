@@ -66,7 +66,10 @@ class PreferenceKeysTest {
         repositoryDefaults.forEach { (constant, defaults) ->
             val key = preferenceKeys.getValue(constant)
             assertEquals("Defaults of $key in the repository", 1, defaults.size)
-            assertEquals("Default of $key", defaults.single(), xmlPreferences[key])
+            // A key with no screen has no XML default to disagree with
+            if (key !in keysWithoutAScreen) {
+                assertEquals("Default of $key", defaults.single(), xmlPreferences[key])
+            }
         }
     }
 }

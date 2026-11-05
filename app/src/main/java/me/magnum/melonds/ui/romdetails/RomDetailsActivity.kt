@@ -10,6 +10,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.net.toUri
 import dagger.hilt.android.AndroidEntryPoint
 import me.magnum.melonds.R
@@ -51,6 +52,7 @@ class RomDetailsActivity : AppCompatActivity() {
 
         setContent {
             val rom by romDetailsViewModel.rom.collectAsState()
+            val romMetadata by romDetailsViewModel.romMetadata.collectAsStateWithLifecycle()
             val romConfig by romDetailsViewModel.romConfigUiState.collectAsState()
 
             val retroAchievementsUiState by romRetroAchievementsViewModel.uiState.collectAsState()
@@ -73,6 +75,7 @@ class RomDetailsActivity : AppCompatActivity() {
             MelonTheme {
                 RomDetailsScreen(
                     rom = rom,
+                    romMetadata = romMetadata,
                     romConfigUiState = romConfig,
                     retroAchievementsUiState = retroAchievementsUiState,
                     onNavigateBack = { onNavigateUp() },

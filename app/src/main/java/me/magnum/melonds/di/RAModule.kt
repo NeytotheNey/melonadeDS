@@ -11,10 +11,16 @@ import kotlinx.serialization.json.Json
 import me.magnum.melonds.common.network.MelonOkHttpInterceptor
 import me.magnum.melonds.common.retroachievements.AndroidRASignatureProvider
 import me.magnum.melonds.common.retroachievements.AndroidRAUserAuthStore
+import me.magnum.melonds.common.retroachievements.AndroidRAWebApiKeyStore
+import me.magnum.melonds.impl.retroachievements.RetroAchievementsArtStore
+import me.magnum.melonds.impl.retroachievements.RomMetadataSyncScheduler
 import me.magnum.rcheevosapi.RASignatureProvider
 import me.magnum.rcheevosapi.RAApi
 import me.magnum.rcheevosapi.RAUserAuthStore
+import me.magnum.rcheevosapi.RAWebApi
+import me.magnum.rcheevosapi.RAWebApiKeyStore
 import okhttp3.OkHttpClient
+import java.io.File
 import javax.inject.Named
 import javax.inject.Singleton
 
@@ -56,5 +62,29 @@ object RAModule {
             userAuthStore = userAuthStore,
             signatureProvider = achievementSignatureProvider,
         )
+    }
+
+    @Provides
+    @Singleton
+    fun provideRAWebApiKeyStore(@ApplicationContext context: Context): RAWebApiKeyStore {
+        return AndroidRAWebApiKeyStore(context.getSharedPreferences(AndroidRAWebApiKeyStore.PREFERENCES_FILE, Context.MODE_PRIVATE))
+    }
+
+    @Provides
+    @Singleton
+    fun provideRAWebApi(@Named("ra-api-client") client: OkHttpClient, json: Json, keyStore: RAWebApiKeyStore): RAWebApi {
+        return RAWebApi(client, json, keyStore)
+    }
+
+    @Provides
+    @Singleton
+    fun provideRetroAchievementsArtStore(@ApplicationContext context: Context): RetroAchievementsArtStore {
+        return RetroAchievementsArtStore { context.externalCacheDir?.let { File(it, "ra_art") } }
+    }
+
+    @Provides
+    @Singleton
+    fun provideRomMetadataSyncScheduler(@ApplicationContext context: Context, keyStore: RAWebApiKeyStore): RomMetadataSyncScheduler {
+        return RomMetadataSyncScheduler(context, keyStore)
     }
 }

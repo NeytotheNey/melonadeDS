@@ -1,8 +1,10 @@
 package me.magnum.melonds.ui.settings.fragments
 
+import android.content.DialogInterface
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -15,11 +17,13 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import me.magnum.melonds.R
+import me.magnum.melonds.databinding.DialogRaWebApiKeyBinding
 import me.magnum.melonds.databinding.DialogRetroachievementsLoginBinding
 import me.magnum.melonds.extensions.addOnPreferenceChangeListener
 import me.magnum.melonds.ui.common.LoadingDialog
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
 import me.magnum.melonds.ui.settings.flow.observeAsFlow
+import me.magnum.melonds.ui.settings.model.RAWebApiKeyTestState
 import me.magnum.melonds.ui.settings.model.RetroAchievementsAccountState
 import me.magnum.melonds.ui.settings.viewmodel.RetroAchievementsSettingsViewModel
 
@@ -29,6 +33,7 @@ class RetroAchievementsPreferencesFragment : BasePreferenceFragment(), Preferenc
     private val viewModel by viewModels<RetroAchievementsSettingsViewModel>()
 
     private var loginProgressDialog: LoadingDialog? = null
+    private var webApiKeyDialogBinding: DialogRaWebApiKeyBinding? = null
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.pref_retroachievements, rootKey)
@@ -36,6 +41,10 @@ class RetroAchievementsPreferencesFragment : BasePreferenceFragment(), Preferenc
         val accountPreference = findPreference<Preference>("ra_login")!!
         val hardcoreModePreference = findPreference<SwitchPreference>("ra_hardcore_enabled")!!
         val richPresencePreference = findPreference<SwitchPreference>("ra_rich_presence")!!
+        val webApiKeyPreference = findPreference<Preference>("ra_web_api_key")!!
+        val removeWebApiKeyPreference = findPreference<Preference>("ra_web_api_key_remove")!!
+        val refreshMetadataPreference = findPreference<Preference>("ra_refresh_metadata")!!
+        val clearArtPreference = findPreference<Preference>("ra_clear_art")!!
 
         hardcoreModePreference.addOnPreferenceChangeListener { _, newValue ->
             val isEnabled = newValue as Boolean
@@ -59,6 +68,48 @@ class RetroAchievementsPreferencesFragment : BasePreferenceFragment(), Preferenc
                 }
             }
             true
+        }
+
+        webApiKeyPreference.setOnPreferenceClickListener {
+            showWebApiKeyDialog()
+            true
+        }
+
+        removeWebApiKeyPreference.setOnPreferenceClickListener {
+            viewModel.removeWebApiKey()
+            Toast.makeText(requireContext(), R.string.ra_web_api_key_removed, Toast.LENGTH_SHORT).show()
+            true
+        }
+
+        refreshMetadataPreference.setOnPreferenceClickListener {
+            viewModel.refreshMetadata()
+            Toast.makeText(requireContext(), R.string.ra_refresh_metadata_scheduled, Toast.LENGTH_LONG).show()
+            true
+        }
+
+        clearArtPreference.setOnPreferenceClickListener {
+            viewModel.clearDownloadedArt()
+            Toast.makeText(requireContext(), R.string.ra_clear_art_done, Toast.LENGTH_SHORT).show()
+            clearArtPreference.summary = getString(R.string.ra_clear_art_done)
+            true
+        }
+
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.hasWebApiKey.collect { hasKey ->
+                    webApiKeyPreference.summary = getString(if (hasKey) R.string.ra_web_api_key_summary_set else R.string.ra_web_api_key_summary_unset)
+                    removeWebApiKeyPreference.isVisible = hasKey
+                    refreshMetadataPreference.isEnabled = hasKey
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.webApiKeyTestState.collect { testState ->
+                    webApiKeyDialogBinding?.layoutApiKey?.helperText = testState.message()?.let(::getString)
+                }
+            }
         }
 
         lifecycleScope.launch {
@@ -147,6 +198,46 @@ class RetroAchievementsPreferencesFragment : BasePreferenceFragment(), Preferenc
                 dialog.dismiss()
             }
             .show()
+    }
+
+    /**
+     * The field starts empty rather than with the saved key, so opening this can't show the key to anyone looking at the screen.
+     */
+    private fun showWebApiKeyDialog() {
+        val dialogBuilder = MaterialAlertDialogBuilder(requireContext())
+        val binding = DialogRaWebApiKeyBinding.inflate(LayoutInflater.from(dialogBuilder.context))
+        viewModel.resetWebApiKeyTest()
+        webApiKeyDialogBinding = binding
+
+        val dialog = dialogBuilder
+            .setTitle(R.string.ra_web_api_key)
+            .setMessage(R.string.ra_web_api_key_dialog_message)
+            .setView(binding.root)
+            .setPositiveButton(R.string.save) { _, _ ->
+                viewModel.saveWebApiKey(binding.textApiKey.text?.toString() ?: "")
+            }
+            .setNeutralButton(R.string.ra_web_api_key_test, null)
+            .setNegativeButton(R.string.cancel, null)
+            .setOnDismissListener {
+                webApiKeyDialogBinding = null
+                viewModel.resetWebApiKeyTest()
+            }
+            .show()
+
+        // Set here, since a listener given to the builder would also close the dialog
+        dialog.getButton(DialogInterface.BUTTON_NEUTRAL).setOnClickListener {
+            viewModel.testWebApiKey(binding.textApiKey.text?.toString() ?: "")
+        }
+    }
+
+    @StringRes
+    private fun RAWebApiKeyTestState.message(): Int? = when (this) {
+        RAWebApiKeyTestState.IDLE -> null
+        RAWebApiKeyTestState.EMPTY -> R.string.ra_web_api_key_test_empty
+        RAWebApiKeyTestState.TESTING -> R.string.ra_web_api_key_testing
+        RAWebApiKeyTestState.VALID -> R.string.ra_web_api_key_test_valid
+        RAWebApiKeyTestState.REJECTED -> R.string.ra_web_api_key_test_rejected
+        RAWebApiKeyTestState.FAILED -> R.string.ra_web_api_key_test_failed
     }
 
     private fun showLogoutConfirmationDialog() {

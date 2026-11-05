@@ -8,6 +8,6 @@ enum class RomListViewMode {
     LIST,
     /** Uniform box-art cards in columns, title under each. */
     GRID,
-    /** Full-bleed art tiles where the most recently played games take wider tiles. */
+    /** A dense grid of full-bleed art tiles, where the most recently played games take 2x2 and games with a title screen 2x1. */
     MOSAIC,
 }

@@ -152,6 +152,16 @@ class AndroidRetroAchievementsRepository(
         }
     }
 
+    override suspend fun getGameIds(gameHashes: Collection<String>): Map<String, RAGameId> {
+        if (mustRefreshHashLibrary()) {
+            refreshHashLibrary()
+        }
+
+        return gameHashes.mapNotNull { gameHash ->
+            retroAchievementsDao.getGameHashEntity(gameHash)?.let { gameHash to RAGameId(it.gameId) }
+        }.toMap()
+    }
+
     override suspend fun getGameSummary(gameHash: String): RAGameSummary? {
         val gameId = getGameIdFromGameHash(gameHash).getOrNull() ?: return null
         return getGameSummary(gameId)
@@ -248,16 +258,7 @@ class AndroidRetroAchievementsRepository(
 
     private suspend fun getGameIdFromGameHash(gameHash: String): Result<RAGameId?> {
         return if (mustRefreshHashLibrary()) {
-            raApi.getGameHashList()
-                .onSuccess { gameHashes ->
-                    val gameHashEntities = gameHashes.map {
-                        RAGameHashEntity(it.key, it.value.id)
-                    }
-                    retroAchievementsDao.updateGameHashLibrary(gameHashEntities)
-                    sharedPreferences.edit {
-                        putLong(RA_HASH_LIBRARY_LAST_UPDATED, Clock.System.now().toEpochMilliseconds())
-                    }
-                }
+            refreshHashLibrary()
                 .map {
                     it[gameHash]
                 }
@@ -342,6 +343,19 @@ class AndroidRetroAchievementsRepository(
                 }
             }
         }
+    }
+
+    private suspend fun refreshHashLibrary(): Result<Map<String, RAGameId>> {
+        return raApi.getGameHashList()
+            .onSuccess { gameHashes ->
+                val gameHashEntities = gameHashes.map {
+                    RAGameHashEntity(it.key, it.value.id)
+                }
+                retroAchievementsDao.updateGameHashLibrary(gameHashEntities)
+                sharedPreferences.edit {
+                    putLong(RA_HASH_LIBRARY_LAST_UPDATED, Clock.System.now().toEpochMilliseconds())
+                }
+            }
     }
 
     private fun mustRefreshHashLibrary(): Boolean {
