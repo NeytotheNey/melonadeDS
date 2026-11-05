@@ -6,7 +6,10 @@
   for the mosaic packing. The metadata cards show what the app already knows (banner title and publisher line, plus the
   RetroAchievements icon for games already in the local cache). The Web API cache in section 3 is designed but not built.
 - Visual mock-up of the three modes with the metadata sheet, light and dark, and the degraded "unknown ROM" state:
-  https://claude.ai/artifact/AbrpUXUoQ9YJ8KJqMTCQ2y (fictional games and art).
+  [mockups/launcher-mockup.html](mockups/launcher-mockup.html), a single self-contained page; open it in any browser, or resize it to
+  phone width. Also published at https://claude.ai/artifact/AbrpUXUoQ9YJ8KJqMTCQ2y. Fictional games and art.
+- To continue this in a new session, point it at this file and the branch `claude/festive-heisenberg-e0yxw0`; section 4 is the order
+  of work.
 - The Compose code was written in a container without the Android SDK, so it has not been compiled. `MosaicLayoutTest` passed with a
   standalone Kotlin compiler; `PreferenceKeysTest` and a debug build still need a run on the PC.
 - Short answer on RetroAchievements: the connect API the app already uses gives title and icon only; box art and credits need the
