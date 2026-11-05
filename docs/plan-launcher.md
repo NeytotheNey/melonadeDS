@@ -1,8 +1,16 @@
 # Plan: game library views and RetroAchievements metadata
 
-Status: mock-up. The grid and mosaic views are wired behind a view-mode menu on the ROM list, with previews and a unit test for the
-mosaic packing. The metadata cards show what the app already knows (banner title and publisher line, plus the RetroAchievements icon
-for games already in the local cache). The Web API cache below is designed but not built.
+## Status (2026-11-05)
+
+- Mock-up only. The grid and mosaic views are wired behind a view-mode menu on the ROM list, with Compose previews and a unit test
+  for the mosaic packing. The metadata cards show what the app already knows (banner title and publisher line, plus the
+  RetroAchievements icon for games already in the local cache). The Web API cache in section 3 is designed but not built.
+- Visual mock-up of the three modes with the metadata sheet, light and dark, and the degraded "unknown ROM" state:
+  https://claude.ai/artifact/AbrpUXUoQ9YJ8KJqMTCQ2y (fictional games and art).
+- The Compose code was written in a container without the Android SDK, so it has not been compiled. `MosaicLayoutTest` passed with a
+  standalone Kotlin compiler; `PreferenceKeysTest` and a debug build still need a run on the PC.
+- Short answer on RetroAchievements: the connect API the app already uses gives title and icon only; box art and credits need the
+  user's own Web API key and one `API_GetGame` call per game, cached for good (section 2 and 3).
 
 ## 1. Views
 
