@@ -9,7 +9,7 @@ Notes for working on melonadeDS. The user-facing overview is the [README](../REA
 - [blackmagic3.md](blackmagic3.md): what we borrowed from upstream's blackmagic3 instead of porting it. Done, with a few follow-ups.
 - [polish.md](polish.md): the cleanup and polish pass over `material3`, with its leftovers and two device-free check recipes. Done.
 - [ideas.md](ideas.md): loose feature ideas, not planned.
-- [shelved/frame-interpolation.md](shelved/frame-interpolation.md): smoothing 30 FPS games. Shelved.
+- [shelved/frame-interpolation.md](shelved/frame-interpolation.md): smoothing 30 FPS games. Old attempts shelved; a halfway-camera prototype is merged behind a debug switch, compute only.
 - [shelved/widemelon-software.md](shelved/widemelon-software.md): WideMelon on the software renderer. Shelved.
 
 `PERF-NOTES.md` (phone measurements) and `HANDOFF.md` (working notes) are the maintainer's local files at the repo root. They are not in git, so where these docs cite `PERF-NOTES.md` the numbers only exist on that PC.
