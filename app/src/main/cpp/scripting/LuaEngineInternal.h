@@ -73,6 +73,24 @@ struct LuaDrawCommand
     int imageHeight = 0;
 };
 
+/**
+ * What melon.screen.tilt_shift() asks for, clamped; a default one is off, and every call that means off makes a default one so that they compare equal
+ */
+struct LuaTiltShift
+{
+    float top = 0.0f;
+    float bottom = 0.0f;
+    float center = 0.5f;
+    float width = 0.3f;
+    float radius = 6.0f;
+    float saturation = 1.0f;
+    float contrast = 1.0f;
+    // Strength of saturation and contrast, or negative when the script didn't pass it: they follow the stronger band then
+    float color = -1.0f;
+
+    bool operator==(const LuaTiltShift&) const = default;
+};
+
 struct LuaScript
 {
     LuaEngine* engine;
@@ -100,6 +118,9 @@ struct LuaScript
     std::optional<bool> fastForward;
     // melon.screen.set_layout(): the layout option's key, or an empty string for set_layout(nil)
     std::optional<std::string> layoutKey;
+    std::optional<LuaTiltShift> tiltShift;
+    // What the app was last told, so that a script can call tilt_shift() every frame and only changes cost an event
+    LuaTiltShift sentTiltShift;
 
     void clearRequests()
     {
@@ -107,6 +128,7 @@ struct LuaScript
         showControls.reset();
         fastForward.reset();
         layoutKey.reset();
+        tiltShift.reset();
     }
 
     // melon.state slots: whole savestates, empty when unused, kept outside the Lua state so they survive a reset (until the script is switched off)

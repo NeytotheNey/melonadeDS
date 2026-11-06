@@ -121,4 +121,17 @@ enum class EmulatorEventType(val event: Int) {
      * A Lua script loaded one of its savestates, with no data.
      */
     EventLuaStateLoaded(306),
+
+    /**
+     * A Lua script wants the tilt-shift blur changed. Data:
+     * * script ID (`i32`)
+     * * top band's strength (`f32`), 0 to 1
+     * * bottom band's strength (`f32`), 0 to 1
+     * * sharp band's center (`f32`), a fraction of the screen's height from the top
+     * * sharp band's height (`f32`), a fraction of the screen's height
+     * * blur radius (`f32`), in DS pixels
+     * * saturation multiplier (`f32`), 0 to 2
+     * * contrast multiplier (`f32`), 0 to 2
+     */
+    EventLuaTiltShift(307),
 }

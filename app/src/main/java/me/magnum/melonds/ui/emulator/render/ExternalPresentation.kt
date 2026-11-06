@@ -16,6 +16,7 @@ import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import me.magnum.melonds.domain.model.RuntimeBackground
+import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.ui.emulator.DSRenderer
 import me.magnum.melonds.ui.emulator.EmulatorSurfaceView
 import me.magnum.melonds.ui.emulator.RuntimeLayoutView
@@ -115,6 +116,10 @@ class ExternalPresentation(
     fun updateRendererConfiguration(newRendererConfiguration: RuntimeRendererConfiguration?) {
         currentRendererConfiguration = newRendererConfiguration
         surfaceView.updateRendererConfiguration(newRendererConfiguration)
+    }
+
+    fun updateTiltShift(tiltShift: TiltShift?) {
+        emulatorRenderer.tiltShift = tiltShift
     }
 
     override fun onStop() {

@@ -1,5 +1,6 @@
 #include "LuaEngine.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <string_view>
 #include "LuaEngineInternal.h"
@@ -15,6 +16,10 @@ static const int kLoadInstructionLimit = 10'000'000;
 static const int kCallbackInstructionLimit = 1'000'000;
 // melon.storage: changed data is snapshotted at least this often, in frames (about 10 seconds)
 static const int kStorageSaveInterval = 600;
+// melon.screen.tilt_shift(): the largest blur radius in DS pixels, where the blur's samples are 2 texels apart at 1x, the most bilinear filtering can bridge
+static const lua_Number kMaxTiltShiftRadius = 12.0;
+// melon.screen.tilt_shift(): the largest saturation and contrast multipliers
+static const lua_Number kMaxTiltShiftBoost = 2.0;
 
 /**
  * A new table on the stack with [functions] in it, like luaL_newlib() for a table whose size isn't known here
@@ -440,6 +445,12 @@ void LuaEngine::sendRequests(LuaScript& script)
             eventMessenger->onLuaFastForward(script.id, *script.fastForward);
         if (script.layoutKey)
             eventMessenger->onLuaSetLayout(script.id, *script.layoutKey);
+        if (script.tiltShift && *script.tiltShift != script.sentTiltShift)
+        {
+            script.sentTiltShift = *script.tiltShift;
+            const LuaTiltShift& tiltShift = script.sentTiltShift;
+            eventMessenger->onLuaTiltShift(script.id, tiltShift.top, tiltShift.bottom, tiltShift.center, tiltShift.width, tiltShift.radius, tiltShift.saturation, tiltShift.contrast, tiltShift.color);
+        }
     }
 
     script.clearRequests();
@@ -482,6 +493,7 @@ int LuaEngine::setupScript(lua_State* L)
         { "swap", luaSetBoolRequest<&LuaScript::swapScreens> },
         { "show_controls", luaSetBoolRequest<&LuaScript::showControls> },
         { "set_layout", luaScreenSetLayout },
+        { "tilt_shift", luaScreenTiltShift },
         { nullptr, nullptr },
     };
     static const luaL_Reg emuFunctions[] = {
@@ -607,6 +619,17 @@ void LuaEngine::closeScript(LuaScript& script)
     script.press = 0;
     script.release = 0;
     LuaDrawApi::clearCommands(script);
+
+    // Always sent while the blur or the color boost is on, even from on_unload() (an error there closes the script during a reset, and the app isn't told about either), or
+    // the old run's blur would stay and the new run's tilt_shift(0, 0) would count as no change. It changes nothing for a script the app knows has
+    // stopped, or once the session has ended, since it only drops that script's own request
+    if (script.sentTiltShift != LuaTiltShift())
+    {
+        LuaTiltShift off;
+        if (eventMessenger)
+            eventMessenger->onLuaTiltShift(script.id, off.top, off.bottom, off.center, off.width, off.radius, off.saturation, off.contrast, off.color);
+        script.sentTiltShift = off;
+    }
 
     if (!script.L)
         return;
@@ -757,6 +780,65 @@ int LuaEngine::luaScreenSetLayout(lua_State* L)
 
     if (!script.engine->isUnloading)
         script.layoutKey = std::string(keyView);
+    return 0;
+}
+
+/**
+ * Argument [argument] clamped to 0..1, or an error if it's not a number
+ */
+static float checkTiltShiftStrength(lua_State* L, int argument)
+{
+    lua_Number value = luaL_checknumber(L, argument);
+    if (std::isnan(value))
+        luaL_argerror(L, argument, "number expected, got NaN");
+    return (float) std::clamp<lua_Number>(value, 0.0, 1.0);
+}
+
+/**
+ * The [name] field of the options table at index 3 clamped to 0..[max], or [defaultValue] if it's nil
+ */
+static float getTiltShiftOption(lua_State* L, const char* name, float defaultValue, lua_Number max)
+{
+    float result = defaultValue;
+    if (lua_getfield(L, 3, name) != LUA_TNIL)
+    {
+        int isNumber;
+        lua_Number value = lua_tonumberx(L, -1, &isNumber);
+        if (!isNumber || std::isnan(value))
+            luaL_error(L, "%s must be a number", name);
+        result = (float) std::clamp<lua_Number>(value, 0.0, max);
+    }
+    lua_pop(L, 1);
+    return result;
+}
+
+int LuaEngine::luaScreenTiltShift(lua_State* L)
+{
+    LuaScript& script = getScript(L);
+    LuaTiltShift tiltShift;
+    tiltShift.top = checkTiltShiftStrength(L, 1);
+    tiltShift.bottom = checkTiltShiftStrength(L, 2);
+    if (!lua_isnoneornil(L, 3))
+    {
+        luaL_checktype(L, 3, LUA_TTABLE);
+        tiltShift.center = getTiltShiftOption(L, "center", tiltShift.center, 1.0);
+        tiltShift.width = getTiltShiftOption(L, "width", tiltShift.width, 1.0);
+        tiltShift.radius = getTiltShiftOption(L, "radius", tiltShift.radius, kMaxTiltShiftRadius);
+        tiltShift.saturation = getTiltShiftOption(L, "saturation", tiltShift.saturation, kMaxTiltShiftBoost);
+        tiltShift.contrast = getTiltShiftOption(L, "contrast", tiltShift.contrast, kMaxTiltShiftBoost);
+        tiltShift.color = getTiltShiftOption(L, "color", tiltShift.color, 1.0);
+    }
+
+    // Off is off, whatever the options are, so going over them while it's off costs no events. It's off with neither a blur nor a color boost to draw
+    float strongerBand = std::max(tiltShift.top, tiltShift.bottom);
+    float colorStrength = tiltShift.color < 0.0f ? strongerBand : tiltShift.color;
+    bool hasBlur = strongerBand > 0.0f && tiltShift.radius > 0.0f;
+    bool hasColorBoost = colorStrength > 0.0f && (tiltShift.saturation != 1.0f || tiltShift.contrast != 1.0f);
+    if (!hasBlur && !hasColorBoost)
+        tiltShift = LuaTiltShift();
+
+    if (!script.engine->isUnloading)
+        script.tiltShift = tiltShift;
     return 0;
 }
 

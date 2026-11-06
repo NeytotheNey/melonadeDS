@@ -57,6 +57,7 @@ import me.magnum.melonds.domain.model.layout.Insets
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.layout.LayoutDisplayPair
 import me.magnum.melonds.domain.model.layout.ScreenFold
+import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.domain.model.retroachievements.GameAchievementData
 import me.magnum.melonds.domain.model.retroachievements.RAEvent
 import me.magnum.melonds.domain.model.retroachievements.RASimpleAchievement
@@ -198,6 +199,11 @@ class EmulatorViewModel @Inject constructor(
     private val _luaLayoutId = MutableStateFlow<UUID?>(null)
     // The ids of the player's layouts, or null until they're read; main thread only
     private var luaExistingLayoutIds: Set<UUID>? = null
+
+    // Blur scripts asked for with melon.screen.tilt_shift(), or null for none; main thread only
+    private val luaTiltShiftRequests = LuaTiltShiftRequests()
+    private val _luaTiltShift = MutableStateFlow<TiltShift?>(null)
+    val luaTiltShift = _luaTiltShift.asStateFlow()
 
     init {
         // Here and in onCleared() rather than in the activity, since this outlives a recreated activity and every way into a game goes through here
@@ -789,6 +795,7 @@ class EmulatorViewModel @Inject constructor(
                     is EmulatorEvent.LuaShowControls -> sendLuaUiEvent(LuaUiEvent.Request(LuaUiSetting.SHOW_CONTROLS, it.scriptId, it.visible))
                     is EmulatorEvent.LuaFastForward -> sendLuaUiEvent(LuaUiEvent.Request(LuaUiSetting.FAST_FORWARD, it.scriptId, it.enabled))
                     is EmulatorEvent.LuaSetLayout -> onLuaLayoutRequest(it.scriptId, it.optionKey)
+                    is EmulatorEvent.LuaTiltShift -> _luaTiltShift.value = luaTiltShiftRequests.onScriptRequest(it.scriptId, it.tiltShift)
                     // Like after the player's load, the achievements' primed and progress indicators start over
                     EmulatorEvent.LuaStateLoaded -> _achievementsEvent.tryEmit(RAEventUi.Reset)
                     is EmulatorEvent.Stop -> {
@@ -1100,13 +1107,22 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * Sends a Lua UI event to the screen, tagged with the current session, and keeps the scripts' layout request up to date with it
+     * Sends a Lua UI event to the screen, tagged with the current session, and keeps the scripts' layout and blur requests up to date with it
      */
     private fun sendLuaUiEvent(event: LuaUiEvent) {
         when (event) {
-            is LuaUiEvent.ScriptStopped -> _luaLayoutId.value = luaLayoutRequests.onScriptStopped(event.scriptId)
-            is LuaUiEvent.ScriptStarted -> luaLayoutRequests.onScriptStarted(event.scriptId)
-            LuaUiEvent.SessionEnded -> _luaLayoutId.value = luaLayoutRequests.onSessionEnded()
+            is LuaUiEvent.ScriptStopped -> {
+                _luaLayoutId.value = luaLayoutRequests.onScriptStopped(event.scriptId)
+                _luaTiltShift.value = luaTiltShiftRequests.onScriptStopped(event.scriptId)
+            }
+            is LuaUiEvent.ScriptStarted -> {
+                luaLayoutRequests.onScriptStarted(event.scriptId)
+                luaTiltShiftRequests.onScriptStarted(event.scriptId)
+            }
+            LuaUiEvent.SessionEnded -> {
+                _luaLayoutId.value = luaLayoutRequests.onSessionEnded()
+                _luaTiltShift.value = luaTiltShiftRequests.onSessionEnded()
+            }
             is LuaUiEvent.SessionStarted,
             is LuaUiEvent.Request -> { }
         }

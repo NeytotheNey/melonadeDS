@@ -30,6 +30,8 @@ public:
     virtual void onLuaFastForward(int scriptId, bool enabled) = 0;
     // [optionKey] is one of the script's layout options, or empty to go back to the player's layout
     virtual void onLuaSetLayout(int scriptId, const std::string& optionKey) = 0;
+    // melon.screen.tilt_shift()'s values, clamped; both strengths are 0 and the color is negative (not passed) when the script no longer wants the effect
+    virtual void onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation, float contrast, float color) = 0;
     // A script loaded one of its savestates
     virtual void onLuaStateLoaded() = 0;
     // Snapshots of the scripts' storage are waiting in LuaStorage's outbox (a wake-up only, without data)

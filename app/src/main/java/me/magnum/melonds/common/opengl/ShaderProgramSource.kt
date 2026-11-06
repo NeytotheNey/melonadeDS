@@ -761,6 +761,114 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "}"
         )
 
+        // What the tilt-shift pass that doesn't apply the color boost does with a texel it has finished
+        private const val TILT_SHIFT_NO_BOOST_FUNCTION = "vec3 finishTiltShift(vec3 color) {\n" +
+                "    return color;\n" +
+                "}\n"
+
+        // What the last tilt-shift pass does instead: saturation (x) as a mix with the luma and contrast (y) around 0.5, on RGB in its real order
+        private const val TILT_SHIFT_BOOST_FUNCTION = "uniform vec2 tiltShiftBoost;\n" +
+                "const vec3 BOOST_LUMA = vec3(0.299, 0.587, 0.114);\n" +
+                "vec3 finishTiltShift(vec3 color) {\n" +
+                "    vec3 saturated = mix(vec3(dot(color, BOOST_LUMA)), color, tiltShiftBoost.x);\n" +
+                "    return clamp((saturated - 0.5) * tiltShiftBoost.y + 0.5, 0.0, 1.0);\n" +
+                "}\n"
+
+        // One direction of the tilt-shift blur: a pre-pass that only changes the DS top screen, where the blur's radius grows from 0 at the sharp
+        // band to tiltShift.zw at the screen's edges. 13 Gaussian samples, as far apart as that row's radius needs, kept inside the part of the
+        // screen that's drawn. Radii are in DS pixels, so it reaches as far at every internal resolution. finishFunction runs on every texel of the
+        // screen, the sharp band's too
+        private fun tiltShiftPrePassShader(direction: String, finishFunction: String): ShaderProgramSource {
+            return ShaderProgramSource(
+                TextureFiltering.LINEAR,
+                PRE_PASS_VERT_SHADER,
+                PRECISION_HEADER +
+                        SCREEN_UNIFORMS +
+                        "varying vec2 uv;\n" +
+                        "// Sharp band's edges as fractions of the screen's height from its top (xy), and the blur's radius in DS pixels at the screen's top and bottom edges (zw)\n" +
+                        "uniform vec4 tiltShift;\n" +
+                        screenBandFunctions("texture2D") +
+                        "" +
+                        "const vec2 BLUR_DIRECTION = $direction;\n" +
+                        "// Below this many texels the blur can't be seen, so the row skips it\n" +
+                        "const float MIN_BLUR_RADIUS = 0.1;\n" +
+                        "// A Gaussian whose sigma is the radius / 2.5 at offsets of 0 to 6 sixths of the radius, adding up to 1\n" +
+                        "const float WEIGHT_0 = 0.167292;\n" +
+                        "const float WEIGHT_1 = 0.153382;\n" +
+                        "const float WEIGHT_2 = 0.118217;\n" +
+                        "const float WEIGHT_3 = 0.076592;\n" +
+                        "const float WEIGHT_4 = 0.041715;\n" +
+                        "const float WEIGHT_5 = 0.019098;\n" +
+                        "const float WEIGHT_6 = 0.007350;\n" +
+                        finishFunction +
+                        "" +
+                        "float blurRadius(float y) {\n" +
+                        "    // y is from 0 to just under 1, so neither division can be by 0\n" +
+                        "    if (y < tiltShift.x) {\n" +
+                        "        return tiltShift.z * smoothstep(0.0, 1.0, (tiltShift.x - y) / tiltShift.x);\n" +
+                        "    }\n" +
+                        "    if (y > tiltShift.y) {\n" +
+                        "        return tiltShift.w * smoothstep(0.0, 1.0, (y - tiltShift.y) / (1.0 - tiltShift.y));\n" +
+                        "    }\n" +
+                        "    return 0.0;\n" +
+                        "}\n" +
+                        "" +
+                        "void main() {\n" +
+                        "    // The gap and the DS bottom screen stay as they are\n" +
+                        "    if (uv.y >= topScreenEnd) {\n" +
+                        "        gl_FragColor = vec4(texture2D(tex, uv).rgb, 1.0);\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "" +
+                        "    // Texels per DS pixel; the frame texture is FRAME_TEXTURE_HEIGHT DS pixels high at any internal resolution\n" +
+                        "    float radius = blurRadius(uv.y / topScreenEnd) * texSize.y / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+                        "    if (radius < MIN_BLUR_RADIUS) {\n" +
+                        "        gl_FragColor = vec4(finishTiltShift(texture2D(tex, uv).bgr).bgr, 1.0);\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "" +
+                        "    vec4 band = screenBand(uv);\n" +
+                        "    vec2 spacing = BLUR_DIRECTION * radius / 6.0 / texSize;\n" +
+                        "    vec3 color = WEIGHT_0 * sampleScreen(uv, band);\n" +
+                        "    color += WEIGHT_1 * (sampleScreen(uv - spacing, band) + sampleScreen(uv + spacing, band));\n" +
+                        "    color += WEIGHT_2 * (sampleScreen(uv - spacing * 2.0, band) + sampleScreen(uv + spacing * 2.0, band));\n" +
+                        "    color += WEIGHT_3 * (sampleScreen(uv - spacing * 3.0, band) + sampleScreen(uv + spacing * 3.0, band));\n" +
+                        "    color += WEIGHT_4 * (sampleScreen(uv - spacing * 4.0, band) + sampleScreen(uv + spacing * 4.0, band));\n" +
+                        "    color += WEIGHT_5 * (sampleScreen(uv - spacing * 5.0, band) + sampleScreen(uv + spacing * 5.0, band));\n" +
+                        "    color += WEIGHT_6 * (sampleScreen(uv - spacing * 6.0, band) + sampleScreen(uv + spacing * 6.0, band));\n" +
+                        "    // Swap back to the frame texture's channel order, since sampleScreen() reads the BGR texels as RGB\n" +
+                        "    gl_FragColor = vec4(finishTiltShift(color).bgr, 1.0);\n" +
+                        "}"
+            )
+        }
+
+        // Built when a script first asks for the blur (see VideoFilterPipeline), which runs them in this order, so the color boost comes last
+        val TiltShiftHorizontalPrePassShader get() = tiltShiftPrePassShader("vec2(1.0, 0.0)", TILT_SHIFT_NO_BOOST_FUNCTION)
+        val TiltShiftVerticalPrePassShader get() = tiltShiftPrePassShader("vec2(0.0, 1.0)", TILT_SHIFT_BOOST_FUNCTION)
+
+        // What the blur's last pass does to a sharp texel, and nothing else, for when there's no blur to draw: both give the same colors, so going
+        // between them shows no step. Built when a script first asks for only the color boost (see VideoFilterPipeline)
+        val TiltShiftColorPrePassShader get() = ShaderProgramSource(
+            TextureFiltering.LINEAR,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    "uniform sampler2D tex;\n" +
+                    "varying vec2 uv;\n" +
+                    "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+                    TILT_SHIFT_BOOST_FUNCTION +
+                    "" +
+                    "void main() {\n" +
+                    "    vec3 texel = texture2D(tex, uv).rgb;\n" +
+                    "    // The gap and the DS bottom screen stay as they are\n" +
+                    "    if (uv.y >= topScreenEnd) {\n" +
+                    "        gl_FragColor = vec4(texel, 1.0);\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "" +
+                    "    gl_FragColor = vec4(finishTiltShift(texel.bgr).bgr, 1.0);\n" +
+                    "}"
+        )
+
         // sharp-shimmerless
         // Author: zadpos (Woohyun Kang)
         // License: Public domain

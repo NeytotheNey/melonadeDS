@@ -4,6 +4,7 @@ import android.opengl.GLES30
 import android.util.Log
 import me.magnum.melonds.domain.model.FRAME_TEXTURE_HEIGHT
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
+import me.magnum.melonds.domain.model.render.TiltShift
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -42,6 +43,13 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         ShaderFactory.createShaderProgramOrNull(prePass.source)?.let { PrePass(it, prePass.scale, prePass.nativeResolutionOnly) }
     }
 
+    // Built the first time a script asks for the blur, so that everyone else pays nothing for it; stays null if it can't be built
+    private var tiltShiftPasses: TiltShiftPasses? = null
+    private var isTiltShiftBuilt = false
+    // The same for a script that only asks for the color boost right now, which needs none of the above
+    private var tiltShiftColorPass: PrePass? = null
+    private var isTiltShiftColorBuilt = false
+
     // Returned by renderPrePasses(), reused so that no garbage is created on every frame
     private val output = FilterOutput()
 
@@ -56,6 +64,8 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     private var lastFrameHeight = 0
     // Swapping the screens changes which half's sides the passes keep, so the same frame is filtered again
     private var lastFrameBottomScreenWide = false
+    // A fade changes the blur without a new frame (and scripts can stop it while paused), so the same frame is filtered again
+    private var lastFrameTiltShift: TiltShift? = null
     // What renderPrePasses() returned for that frame
     private var lastOutputTextureId = 0
     private var lastOutputWidth = 0
@@ -68,12 +78,18 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     private var savedReadFramebuffer = 0
     private var savedBlendEnabled = false
 
+    // The next pass's input and whether the state above is saved yet, while renderPrePasses() runs
+    private var inputTexture = 0
+    private var inputWidth = 0
+    private var inputHeight = 0
+    private var isStateSaved = false
+
     /**
-     * Runs the pre-passes and returns the texture the screen shader should draw, whose size the caller sets as the shader's texSize (a scaled
-     * pass makes it bigger); call it before drawing to the surface and for invalid frames too, and set the program, VAO, array buffer and
-     * texture unit 0 again afterwards.
+     * Runs the pre-passes, then the [tiltShift] if there's one, and returns the texture the screen shader should draw, whose size the caller
+     * sets as the shader's texSize (a scaled pass makes it bigger); call it before drawing to the surface and for invalid frames too, and set the
+     * program, VAO, array buffer and texture unit 0 again afterwards.
      */
-    fun renderPrePasses(frame: PresentFrameWrapper, isBottomScreenWide: Boolean): FilterOutput {
+    fun renderPrePasses(frame: PresentFrameWrapper, isBottomScreenWide: Boolean, tiltShift: TiltShift?): FilterOutput {
         output.set(frame.textureId, frame.textureWidth, frame.textureHeight)
 
         if (!frame.isValidFrame) {
@@ -82,7 +98,11 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
             return output
         }
 
-        if (prePasses.isEmpty()) {
+        // Without a blur, or if its passes can't be built, only the color boost is left to apply, in one pass that takes one sample per texel. So the
+        // boost doesn't jump as the bands reach or leave 0 even then. Each is only tried once
+        val tiltShiftPasses = if (tiltShift != null && tiltShift.hasBlur) getTiltShiftPasses() else null
+        val tiltShiftColorPass = if (tiltShift != null && tiltShiftPasses == null && tiltShift.hasColorBoost) getTiltShiftColorPass() else null
+        if (prePasses.isEmpty() && tiltShiftPasses == null && tiltShiftColorPass == null) {
             return output
         }
 
@@ -92,8 +112,10 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
             return output
         }
 
+        val appliedTiltShift = if (tiltShiftPasses != null || tiltShiftColorPass != null) tiltShift else null
         val isSameFrame = frame.frameSequence != 0L && frame.frameSequence == lastFrameSequence && frame.textureId == lastFrameTextureId &&
-                width == lastFrameWidth && height == lastFrameHeight && isBottomScreenWide == lastFrameBottomScreenWide
+                width == lastFrameWidth && height == lastFrameHeight && isBottomScreenWide == lastFrameBottomScreenWide &&
+                appliedTiltShift == lastFrameTiltShift
         if (isSameFrame) {
             output.set(lastOutputTextureId, lastOutputWidth, lastOutputHeight)
             return output
@@ -101,10 +123,10 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
 
         // The width can't tell, since widescreen makes the frame wider without upscaling it
         val isUpscaled = height > FRAME_TEXTURE_HEIGHT
-        var inputTexture = frame.textureId
-        var inputWidth = width
-        var inputHeight = height
-        var isStateSaved = false
+        inputTexture = frame.textureId
+        inputWidth = width
+        inputHeight = height
+        isStateSaved = false
         var isComplete = true
         // Indexed so that no iterator is created on every frame
         for (i in prePasses.indices) {
@@ -113,29 +135,17 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
                 continue
             }
 
-            if (!isStateSaved) {
-                saveState()
-                isStateSaved = true
-                GLES30.glDisable(GLES30.GL_BLEND)
-                GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-                if (quadVao == 0) {
-                    createQuad()
-                }
-                GLES30.glBindVertexArray(quadVao)
-                GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
-            }
-
-            val outputWidth = inputWidth * pass.scale
-            val outputHeight = inputHeight * pass.scale
-            if (!pass.prepareTarget(outputWidth, outputHeight)) {
+            if (!renderPass(pass, frame.topScreenWidth, isBottomScreenWide, null)) {
                 isComplete = false
                 break
             }
-            GLES30.glViewport(0, 0, outputWidth, outputHeight)
-            pass.render(inputTexture, inputWidth, inputHeight, frame.topScreenWidth, isBottomScreenWide)
-            inputTexture = pass.texture
-            inputWidth = outputWidth
-            inputHeight = outputHeight
+        }
+
+        if (isComplete && tiltShiftPasses != null) {
+            isComplete = renderPass(tiltShiftPasses.horizontal, frame.topScreenWidth, isBottomScreenWide, appliedTiltShift) &&
+                    renderPass(tiltShiftPasses.vertical, frame.topScreenWidth, isBottomScreenWide, appliedTiltShift)
+        } else if (isComplete && tiltShiftColorPass != null) {
+            isComplete = renderPass(tiltShiftColorPass, frame.topScreenWidth, isBottomScreenWide, appliedTiltShift)
         }
 
         if (isStateSaved) {
@@ -153,6 +163,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         lastFrameWidth = width
         lastFrameHeight = height
         lastFrameBottomScreenWide = isBottomScreenWide
+        lastFrameTiltShift = appliedTiltShift
         lastOutputTextureId = inputTexture
         lastOutputWidth = inputWidth
         lastOutputHeight = inputHeight
@@ -160,9 +171,74 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         return output
     }
 
+    /**
+     * Draws the current input through [pass], whose target becomes the next input, and returns false if its target can't be drawn to.
+     */
+    private fun renderPass(pass: PrePass, topScreenWidth: Int, isBottomScreenWide: Boolean, tiltShift: TiltShift?): Boolean {
+        if (!isStateSaved) {
+            saveState()
+            isStateSaved = true
+            GLES30.glDisable(GLES30.GL_BLEND)
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+            if (quadVao == 0) {
+                createQuad()
+            }
+            GLES30.glBindVertexArray(quadVao)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
+        }
+
+        val outputWidth = inputWidth * pass.scale
+        val outputHeight = inputHeight * pass.scale
+        if (!pass.prepareTarget(outputWidth, outputHeight)) {
+            return false
+        }
+        GLES30.glViewport(0, 0, outputWidth, outputHeight)
+        pass.render(inputTexture, inputWidth, inputHeight, topScreenWidth, isBottomScreenWide, tiltShift)
+        inputTexture = pass.texture
+        inputWidth = outputWidth
+        inputHeight = outputHeight
+        return true
+    }
+
+    private fun getTiltShiftPasses(): TiltShiftPasses? {
+        if (!isTiltShiftBuilt) {
+            isTiltShiftBuilt = true
+            val horizontal = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.TiltShiftHorizontalPrePassShader)
+            val vertical = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.TiltShiftVerticalPrePassShader)
+            if (horizontal != null && vertical != null) {
+                tiltShiftPasses = TiltShiftPasses(PrePass(horizontal, 1, false), PrePass(vertical, 1, false))
+            } else {
+                // The frame is drawn without the blur rather than not at all
+                Log.e(TAG, "Tilt-shift shaders failed to build, so the blur is left out")
+                horizontal?.delete()
+                vertical?.delete()
+            }
+        }
+        return tiltShiftPasses
+    }
+
+    private fun getTiltShiftColorPass(): PrePass? {
+        if (!isTiltShiftColorBuilt) {
+            isTiltShiftColorBuilt = true
+            val shader = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.TiltShiftColorPrePassShader)
+            if (shader != null) {
+                tiltShiftColorPass = PrePass(shader, 1, false)
+            } else {
+                // The frame is drawn without the color boost rather than not at all
+                Log.e(TAG, "Tilt-shift color shader failed to build, so the color boost is left out")
+            }
+        }
+        return tiltShiftColorPass
+    }
+
     fun delete() {
         screenShader.delete()
         prePasses.forEach { it.delete() }
+        tiltShiftPasses?.horizontal?.delete()
+        tiltShiftPasses?.vertical?.delete()
+        tiltShiftPasses = null
+        tiltShiftColorPass?.delete()
+        tiltShiftColorPass = null
         if (quadVao != 0) {
             GLES30.glDeleteVertexArrays(1, intArrayOf(quadVao), 0)
             GLES30.glDeleteBuffers(1, intArrayOf(quadVbo), 0)
@@ -218,6 +294,8 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         }
     }
 
+    private class TiltShiftPasses(val horizontal: PrePass, val vertical: PrePass)
+
     private class PrePass(private val shader: Shader, val scale: Int, val nativeResolutionOnly: Boolean) {
         private var framebuffer = 0
         var texture = 0
@@ -265,7 +343,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         /**
          * Draws the input texture through this pass's shader into the target; the caller binds the quad and sets the viewport and blending.
          */
-        fun render(inputTexture: Int, inputWidth: Int, inputHeight: Int, topScreenWidth: Int, isBottomScreenWide: Boolean) {
+        fun render(inputTexture: Int, inputWidth: Int, inputHeight: Int, topScreenWidth: Int, isBottomScreenWide: Boolean, tiltShift: TiltShift?) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
             // The quad covers every texel, so the old contents never have to be loaded
             GLES30.glInvalidateFramebuffer(GLES30.GL_FRAMEBUFFER, 1, COLOR_ATTACHMENTS, 0)
@@ -280,6 +358,9 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
             shader.setTextureSize(inputWidth, inputHeight)
             shader.setTopScreenWidth(topScreenWidth)
             shader.setBottomScreenWide(isBottomScreenWide)
+            if (tiltShift != null) {
+                shader.setTiltShift(tiltShift)
+            }
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         }
 
