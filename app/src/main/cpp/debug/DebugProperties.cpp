@@ -75,6 +75,12 @@ Overrides apply(GPU& gpu)
     if (read("capspin", value))
         gpu.CaptureSpinUs = std::clamp(atoi(value), 0, 20000);
 
+    if (read("vertexid", value))
+        gpu.GPU3D.SetVertexIdLogging(std::clamp(atoi(value), 0, 2));
+
+    if (read("halfcam", value))
+        gpu.GPU3D.SetHalfCamera(std::clamp(atoi(value), 0, 5));
+
     if (read("hirescap", value))
     {
         if (strcmp(value, "0") == 0)
@@ -99,8 +105,8 @@ Overrides apply(GPU& gpu)
     int length = snprintf(summary, sizeof(summary), "Debug switches:");
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
         length += snprintf(summary + length, sizeof(summary) - length, " %s=%d", boolSwitch.name, gpu.*boolSwitch.target ? 1 : 0);
-    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d hirescap=%d hirescapdebug=%d threaded2d=%d",
-             gpu.ShadowLogFrames, gpu.CaptureSpinUs, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.threaded2d);
+    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d hirescap=%d hirescapdebug=%d threaded2d=%d vertexid=%d halfcam=%d",
+             gpu.ShadowLogFrames, gpu.CaptureSpinUs, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), gpu.GPU3D.GetHalfCamera());
     LOG_INFO(LOG_TAG_DEBUG, "%s", summary);
     return overrides;
 }
