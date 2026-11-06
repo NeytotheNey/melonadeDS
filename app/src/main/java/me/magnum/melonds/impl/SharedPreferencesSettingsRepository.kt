@@ -188,6 +188,7 @@ class SharedPreferencesSettingsRepository(
             fastForwardSpeedMultiplier = getFastForwardSpeedMultiplier(),
             framePacingVsyncEnabled = isFramePacingVsyncEnabled(),
             framePacingBufferEnabled = isFramePacingBufferEnabled(),
+            framePacingSmooth30FpsEnabled = isFramePacingSmooth30FpsEnabled(),
             rewindEnabled = isRewindEnabled(),
             rewindPeriodSeconds = getRewindPeriod(),
             rewindWindowSeconds = getRewindWindow(),
@@ -246,6 +247,10 @@ class SharedPreferencesSettingsRepository(
 
     override fun isFramePacingBufferEnabled(): Boolean {
         return preferences.getBoolean(PreferenceKeys.FRAME_PACING_BUFFER, true)
+    }
+
+    override fun isFramePacingSmooth30FpsEnabled(): Boolean {
+        return preferences.getBoolean(PreferenceKeys.FRAME_PACING_SMOOTH_30FPS, false)
     }
 
     override fun isPerformanceLoggingEnabled(): Boolean {

@@ -16,6 +16,7 @@ data class EmulatorConfiguration(
         val fastForwardSpeedMultiplier: Float,
         val framePacingVsyncEnabled: Boolean,
         val framePacingBufferEnabled: Boolean,
+        val framePacingSmooth30FpsEnabled: Boolean,
         val rewindEnabled: Boolean,
         val rewindPeriodSeconds: Int,
         val rewindWindowSeconds: Int,

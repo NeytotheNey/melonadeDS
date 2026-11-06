@@ -30,6 +30,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     jfloat fastForwardMaxSpeed = env->GetFloatField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "fastForwardSpeedMultiplier", "F"));
     jboolean framePacingVsync = env->GetBooleanField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "framePacingVsyncEnabled", "Z"));
     jboolean framePacingBuffer = env->GetBooleanField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "framePacingBufferEnabled", "Z"));
+    jboolean framePacingSmooth30Fps = env->GetBooleanField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "framePacingSmooth30FpsEnabled", "Z"));
     jboolean enableRewind = env->GetBooleanField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "rewindEnabled", "Z"));
     jint rewindPeriodSeconds = env->GetIntField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "rewindPeriodSeconds", "I"));
     jint rewindWindowSeconds = env->GetIntField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "rewindWindowSeconds", "I"));
@@ -84,6 +85,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     finalEmulatorConfiguration.fastForwardSpeedMultiplier = fastForwardMaxSpeed;
     finalEmulatorConfiguration.framePacingVsync = framePacingVsync;
     finalEmulatorConfiguration.framePacingBuffer = framePacingBuffer;
+    finalEmulatorConfiguration.framePacingSmooth30Fps = framePacingSmooth30Fps;
     finalEmulatorConfiguration.showBootScreen = showBootScreen;
     finalEmulatorConfiguration.useJit = useJit;
     finalEmulatorConfiguration.syncRtcToDevice = syncRtcToDevice;

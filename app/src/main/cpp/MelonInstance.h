@@ -162,6 +162,7 @@ private:
     // The width setWideViewWidth() asked for, from any thread, picked up by the emulator thread before the next frame
     std::atomic_int requestedWideViewWidth;
 
+    // Replaced by updateConfiguration() from other threads, so only used through std::atomic_load and std::atomic_store
     std::shared_ptr<EmulatorConfiguration> currentConfiguration;
     FrameQueue frameQueue;
     std::unique_ptr<ScreenshotRenderer> screenshotRenderer;
@@ -169,7 +170,8 @@ private:
     Renderer currentRenderer;
     // The requested renderer whose New() failed, so the software fallback is in use, only tried again once a different renderer is asked for
     std::optional<Renderer> failedRenderer;
-    bool isRenderConfigurationDirty;
+    // Set by updateConfiguration() from other threads, after it replaced the configuration
+    std::atomic_bool isRenderConfigurationDirty;
 #ifdef MELONADE_DEBUG_TOOLS
     // The debug.melonade.* switches that override settings (see DebugProperties.h)
     DebugProperties::Overrides debugOverrides;

@@ -1,6 +1,6 @@
 # Frame interpolation
 
-Update 2026-11-06: a new approach worked and is merged behind `debug.melonade.halfcam` (debug builds, compute only). Use mode 4. See "Halfway-camera prototype" below. The sections before it describe the older attempts.
+Update 2026-11-06: a new approach worked and is merged behind `debug.melonade.halfcam` (debug builds, compute only). Use mode 4. It's also the "Smooth 30 FPS games" setting, which is mode 4 with no logging, in all builds. See "Halfway-camera prototype" below. The sections before it describe the older attempts.
 
 Tried on 2026-10-31 and set aside. The goal was 2x-fast-forward smoothness at normal speed in 30 FPS games, with Pokémon White 2's overworld as the test case. Every approach was built and tested on the Z Fold 8 (compute renderer, 4x, WideMelon on). They were all smooth, but none got rid of the artifacts, so the code was reverted. A local copy of the patches is in `logs/shelved-frame-interpolation/` (git-ignored, so it only exists on this PC).
 

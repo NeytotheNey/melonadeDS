@@ -17,6 +17,7 @@ object PreferenceKeys {
     const val FRAME_PACING_VSYNC = "frame_pacing_vsync"
     const val FRAME_PACING_LOCK_60HZ = "frame_pacing_lock_60hz"
     const val FRAME_PACING_BUFFER = "frame_pacing_buffer"
+    const val FRAME_PACING_SMOOTH_30FPS = "frame_pacing_smooth_30fps"
 
     // pref_input.xml
     const val INPUT_CONTROLLER_STYLE = "input_controller_style"

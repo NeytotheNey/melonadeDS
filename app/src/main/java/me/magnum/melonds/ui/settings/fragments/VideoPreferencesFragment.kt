@@ -30,6 +30,8 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
     private lateinit var renderingCategory: PreferenceCategory
     // Threaded 3D rendering is only used by the software renderer
     private lateinit var threadedRenderingPreference: SwitchPreference
+    // Only the compute renderer can draw the in-between frames
+    private lateinit var smooth30FpsPreference: Preference
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.pref_video, rootKey)
@@ -39,6 +41,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         hiresCapturePreference = findPreference(PreferenceKeys.VIDEO_HIRES_CAPTURE)!!
         colorDitheringPreference = findPreference(PreferenceKeys.VIDEO_COLOR_DITHERING)!!
         threadedRenderingPreference = findPreference("enable_threaded_rendering")!!
+        smooth30FpsPreference = findPreference(PreferenceKeys.FRAME_PACING_SMOOTH_30FPS)!!
 
         val rendererPreference = findPreference<ListPreference>("video_renderer")!!
 
@@ -78,6 +81,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         internalResolutionPreference.isVisible = !isSoftwareRenderer
         hiresCapturePreference.isVisible = !isSoftwareRenderer
         colorDitheringPreference.isVisible = newRenderer == VideoRenderer.COMPUTE
+        smooth30FpsPreference.isEnabled = newRenderer == VideoRenderer.COMPUTE
         threadedRenderingPreference.isEnabled = isSoftwareRenderer
         threadedRenderingPreference.setSummary(
             if (isSoftwareRenderer) R.string.threaded_rendering_summary else R.string.threaded_rendering_software_only
