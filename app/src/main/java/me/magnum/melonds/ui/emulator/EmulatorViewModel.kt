@@ -105,7 +105,6 @@ import javax.inject.Inject
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.math.roundToInt
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -329,7 +328,6 @@ class EmulatorViewModel @Inject constructor(
                 }
                 _emulatorState.value = EmulatorState.RunningRom(rom)
                 startTrackingFps()
-                startTrackingPlayTime(rom)
                 updatePerformanceLoggingSession(_emulatorState.value)
             }
         }
@@ -503,7 +501,7 @@ class EmulatorViewModel @Inject constructor(
      */
     private fun endSession() {
         endSessionTracking()
-        // Stop session jobs (RA heartbeat, play time) so they don't outlive the native instance
+        // Stop session jobs (RA heartbeat, FPS) so they don't outlive the native instance
         sessionCoroutineScope.cancel()
         emulatorManager.stopEmulator()
     }
@@ -511,18 +509,6 @@ class EmulatorViewModel @Inject constructor(
     private fun endSessionTracking() {
         endLuaUiSession()
         performanceLogger.stopSession()
-    }
-
-    private fun startTrackingPlayTime(rom: Rom) {
-        sessionCoroutineScope.launch {
-            var lastTime = System.currentTimeMillis()
-            while (isActive) {
-                delay(1000)
-                val now = System.currentTimeMillis()
-                romsRepository.addRomPlayTime(rom, (now - lastTime).milliseconds)
-                lastTime = now
-            }
-        }
     }
 
     fun onPauseMenuOptionSelected(option: PauseMenuOption) {

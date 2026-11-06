@@ -2,6 +2,7 @@ package me.magnum.melonds.utils
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -74,5 +75,56 @@ class AtomicFileWriteTest {
 
         assertEquals("old", destination.readText())
         assertOnlyDestinationIsLeft()
+    }
+
+    @Test
+    fun aTemporaryFileLeftByAnEarlierCrashDoesNotGetInTheWay() {
+        destination.writeText("old")
+        val staleFile = File(tempFolder.root, "data.json.123.tmp").apply { writeText("stale") }
+
+        assertTrue(writeFileAtomically(destination) { it.write("new".toByteArray()); true })
+
+        assertEquals("new", destination.readText())
+        assertEquals("stale", staleFile.readText())
+    }
+
+    @Test
+    fun leftoversOfTheDestinationAreDeleted() {
+        destination.writeText("old")
+        File(tempFolder.root, "data.json.123.tmp").writeText("stale")
+        File(tempFolder.root, "data.json.tmp").writeText("stale")
+        val kept = listOf("data.json", "data.json.corrupt", "other.json.123.tmp", "data.json2.123.tmp")
+        kept.drop(1).forEach { File(tempFolder.root, it).writeText("keep") }
+
+        deleteAtomicWriteLeftovers(destination)
+
+        assertEquals(kept.sorted(), tempFolder.root.list()?.sorted())
+        assertEquals("old", destination.readText())
+    }
+
+    @Test
+    fun theSizeOfAFileThatExistsIsGiven() {
+        destination.writeText("old")
+
+        assertEquals(3L, sizeIfFileExists(destination))
+    }
+
+    @Test
+    fun aMissingFileHasNoSize() {
+        assertNull(sizeIfFileExists(destination))
+    }
+
+    @Test
+    fun aDirectoryThrowsInsteadOfCountingAsMissing() {
+        destination.mkdir()
+
+        assertThrows(IOException::class.java) { sizeIfFileExists(destination) }
+    }
+
+    @Test
+    fun deletingLeftoversWithNoFolderYetDoesNothing() {
+        deleteAtomicWriteLeftovers(File(File(tempFolder.root, "missing"), "data.json"))
+
+        assertEquals(emptyList<String>(), tempFolder.root.list()?.toList())
     }
 }

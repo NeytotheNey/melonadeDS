@@ -31,7 +31,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -44,7 +43,6 @@ import me.magnum.melonds.ui.emulator.model.RAEventUi
 import me.magnum.melonds.ui.theme.MelonTheme
 import me.magnum.melonds.ui.theme.gameMasteryColor
 import java.net.URL
-import kotlin.time.Duration.Companion.seconds
 
 private enum class MasteryPopupState {
     SHOW_ICON,
@@ -104,35 +102,10 @@ fun GameMasteredPopupUi(
                         Box(Modifier.fillMaxHeight())
                     }
                     MasteryPopupState.SHOW_FULL -> {
-                        val resources = LocalResources.current
                         val masteryText = if (masteryEvent.forHardcodeMode) {
                             stringResource(R.string.game_mastered, masteryEvent.gameTitle)
                         } else {
                             stringResource(R.string.game_completed, masteryEvent.gameTitle)
-                        }
-                        val romPlayTime = remember(masteryEvent.playTime) {
-                            masteryEvent.playTime?.toComponents { hours, minutes, _, _ ->
-                                if (hours > 0) {
-                                    resources.getString(R.string.info_play_time_hours_minutes, hours, minutes)
-                                } else {
-                                    resources.getString(R.string.info_play_time_minutes, minutes)
-                                }
-                            }
-                        }
-                        val userInfo = remember(masteryEvent) {
-                            buildString {
-                                if (masteryEvent.userName != null) {
-                                    append(masteryEvent.userName)
-                                }
-
-                                if (masteryEvent.userName != null && romPlayTime != null) {
-                                    append(" • ")
-                                }
-
-                                if (romPlayTime != null) {
-                                    append(romPlayTime)
-                                }
-                            }
                         }
 
                         Column(Modifier.padding(start = 8.dp)) {
@@ -142,9 +115,9 @@ fun GameMasteredPopupUi(
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                             )
-                            if (userInfo.isNotEmpty()) {
+                            if (!masteryEvent.userName.isNullOrEmpty()) {
                                 Text(
-                                    text = userInfo,
+                                    text = masteryEvent.userName,
                                     style = MaterialTheme.typography.bodyMedium,
                                     maxLines = 1,
                                 )
@@ -166,7 +139,6 @@ private fun PreviewGameMasteredPopupUi() {
                 gameTitle = "Mega Robots: Master Clankers",
                 gameIcon = URL("http://example.com/icon.png"),
                 userName = "UserName",
-                playTime = 92.seconds,
                 forHardcodeMode = false,
             )
         )

@@ -50,7 +50,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -67,7 +66,6 @@ import me.magnum.melonds.ui.common.component.text.CaptionText
 import me.magnum.melonds.ui.romdetails.model.RomDetailsTab
 import me.magnum.melonds.ui.theme.MelonTheme
 import java.util.Date
-import kotlin.time.Duration
 
 @Composable
 fun RomHeaderUi(
@@ -176,11 +174,8 @@ private fun PortraitTopBar(
             onClick = onLaunchRom,
         )
 
-        Column {
-            PlayTimeText(rom.totalPlayTime)
-            metadata?.details()?.let {
-                RomDetailsLine(details = it, maxLines = 2)
-            }
+        metadata?.details()?.let {
+            RomDetailsLine(details = it, maxLines = 2)
         }
     }
 }
@@ -203,15 +198,8 @@ private fun ColumnScope.LandscapeTopBar(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    // On one line, since the app bar has no room for a third
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        PlayTimeText(rom.totalPlayTime)
-                        metadata?.details()?.let {
-                            RomDetailsLine(details = it, maxLines = 1)
-                        }
+                    metadata?.details()?.let {
+                        RomDetailsLine(details = it, maxLines = 1)
                     }
                 }
 
@@ -287,25 +275,6 @@ private fun PlayButton(
     ) {
         Text(text = stringResource(R.string.play).uppercase())
     }
-}
-
-@Composable
-private fun PlayTimeText(playTime: Duration) {
-    val resources = LocalResources.current
-    val romPlayTime = remember(playTime) {
-        playTime.toComponents { hours, minutes, _, _ ->
-            if (hours > 0) {
-                resources.getString(R.string.info_play_time_hours_minutes, hours, minutes)
-            } else {
-                resources.getString(R.string.info_play_time_minutes, minutes)
-            }
-        }
-    }
-    Text(
-        text = romPlayTime,
-        style = MaterialTheme.typography.bodyLarge,
-        maxLines = 1,
-    )
 }
 
 @ExperimentalFoundationApi

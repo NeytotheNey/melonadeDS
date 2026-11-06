@@ -3,7 +3,6 @@ package me.magnum.melonds.ui.emulator.model
 import me.magnum.rcheevosapi.model.RAAchievement
 import me.magnum.rcheevosapi.model.RALeaderboard
 import java.net.URL
-import kotlin.time.Duration
 
 sealed class RAEventUi {
     data object Reset : RAEventUi()
@@ -29,7 +28,6 @@ sealed class RAEventUi {
         val gameTitle: String,
         val gameIcon: URL,
         val userName: String?,
-        val playTime: Duration?,
         val forHardcodeMode: Boolean,
     ) : RAEventUi()
 }

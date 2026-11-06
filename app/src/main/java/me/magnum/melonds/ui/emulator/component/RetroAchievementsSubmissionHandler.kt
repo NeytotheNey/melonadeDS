@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.timeout
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import me.magnum.melonds.domain.repositories.RetroAchievementsRepository
-import me.magnum.melonds.domain.repositories.RomsRepository
 import me.magnum.melonds.impl.emulator.EmulatorSession
 import me.magnum.melonds.impl.network.NetworkConnectivityObserver
 import me.magnum.melonds.ui.emulator.model.RAEventUi
@@ -32,7 +31,6 @@ import kotlin.time.Duration.Companion.minutes
 @OptIn(FlowPreview::class)
 class RetroAchievementsSubmissionHandler @Inject constructor(
     private val retroAchievementsRepository: RetroAchievementsRepository,
-    private val romsRepository: RomsRepository,
     private val emulatorSession: EmulatorSession,
     private val networkConnectivityObserver: NetworkConnectivityObserver,
 ) {
@@ -200,7 +198,6 @@ class RetroAchievementsSubmissionHandler @Inject constructor(
         if (rom != null) {
             val setSummary = retroAchievementsRepository.getAchievementSetSummary(setId)
             val raUserName = (retroAchievementsRepository.getUserAuthentication() as? RAUserAuth.Authenticated)?.username
-            val romPlayTime = romsRepository.getRomAtUri(rom.uri)?.totalPlayTime
 
             if (setSummary != null) {
                 val title = if (setSummary.type == RAAchievementSet.Type.Core) {
@@ -214,7 +211,6 @@ class RetroAchievementsSubmissionHandler @Inject constructor(
                     gameTitle = title,
                     gameIcon = setSummary.iconUrl,
                     userName = raUserName,
-                    playTime = romPlayTime,
                     forHardcodeMode = forHardcoreMode,
                 )
             }
