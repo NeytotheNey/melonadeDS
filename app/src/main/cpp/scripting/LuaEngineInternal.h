@@ -85,6 +85,8 @@ struct LuaTiltShift
     float radius = 6.0f;
     float saturation = 1.0f;
     float contrast = 1.0f;
+    // Strength of saturation and contrast, or negative when the script didn't pass it: they follow the stronger band then
+    float color = -1.0f;
 
     bool operator==(const LuaTiltShift&) const = default;
 };

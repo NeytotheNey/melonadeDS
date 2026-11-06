@@ -152,6 +152,8 @@ class AndroidEmulatorManager(
                     radius = data.getFloat(),
                     saturation = data.getFloat(),
                     contrast = data.getFloat(),
+                    // Negative when the script didn't pass it
+                    color = data.getFloat().takeIf { it >= 0f },
                 )
                 _emulatorEvents.tryEmit(EmulatorEvent.LuaTiltShift(scriptId, tiltShift))
             }

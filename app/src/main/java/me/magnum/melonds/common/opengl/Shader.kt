@@ -24,7 +24,7 @@ class Shader(
     private val uniformBottomScreenWide: Int
     // Only declared by the tilt-shift pre-passes (see ShaderProgramSource.tiltShiftPrePassShader)
     private val uniformTiltShift: Int
-    // Only declared by the last of those pre-passes, which applies the color boost
+    // Only declared by the tilt-shift pre-passes that apply the color boost: the blur's last one and the color-only one
     private val uniformTiltShiftBoost: Int
 
     init {

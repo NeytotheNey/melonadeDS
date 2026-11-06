@@ -449,7 +449,7 @@ void LuaEngine::sendRequests(LuaScript& script)
         {
             script.sentTiltShift = *script.tiltShift;
             const LuaTiltShift& tiltShift = script.sentTiltShift;
-            eventMessenger->onLuaTiltShift(script.id, tiltShift.top, tiltShift.bottom, tiltShift.center, tiltShift.width, tiltShift.radius, tiltShift.saturation, tiltShift.contrast);
+            eventMessenger->onLuaTiltShift(script.id, tiltShift.top, tiltShift.bottom, tiltShift.center, tiltShift.width, tiltShift.radius, tiltShift.saturation, tiltShift.contrast, tiltShift.color);
         }
     }
 
@@ -620,14 +620,14 @@ void LuaEngine::closeScript(LuaScript& script)
     script.release = 0;
     LuaDrawApi::clearCommands(script);
 
-    // Always sent while the blur is on, even from on_unload() (an error there closes the script during a reset, and the app isn't told about either), or
+    // Always sent while the blur or the color boost is on, even from on_unload() (an error there closes the script during a reset, and the app isn't told about either), or
     // the old run's blur would stay and the new run's tilt_shift(0, 0) would count as no change. It changes nothing for a script the app knows has
     // stopped, or once the session has ended, since it only drops that script's own request
     if (script.sentTiltShift != LuaTiltShift())
     {
         LuaTiltShift off;
         if (eventMessenger)
-            eventMessenger->onLuaTiltShift(script.id, off.top, off.bottom, off.center, off.width, off.radius, off.saturation, off.contrast);
+            eventMessenger->onLuaTiltShift(script.id, off.top, off.bottom, off.center, off.width, off.radius, off.saturation, off.contrast, off.color);
         script.sentTiltShift = off;
     }
 
@@ -826,11 +826,15 @@ int LuaEngine::luaScreenTiltShift(lua_State* L)
         tiltShift.radius = getTiltShiftOption(L, "radius", tiltShift.radius, kMaxTiltShiftRadius);
         tiltShift.saturation = getTiltShiftOption(L, "saturation", tiltShift.saturation, kMaxTiltShiftBoost);
         tiltShift.contrast = getTiltShiftOption(L, "contrast", tiltShift.contrast, kMaxTiltShiftBoost);
+        tiltShift.color = getTiltShiftOption(L, "color", tiltShift.color, 1.0);
     }
 
-    // Off is off, whatever the options are, so going over them while it's off costs no events. A radius of 0 only turns it off without a color boost
-    bool hasColorBoost = tiltShift.saturation != 1.0f || tiltShift.contrast != 1.0f;
-    if ((tiltShift.top == 0.0f && tiltShift.bottom == 0.0f) || (tiltShift.radius == 0.0f && !hasColorBoost))
+    // Off is off, whatever the options are, so going over them while it's off costs no events. It's off with neither a blur nor a color boost to draw
+    float strongerBand = std::max(tiltShift.top, tiltShift.bottom);
+    float colorStrength = tiltShift.color < 0.0f ? strongerBand : tiltShift.color;
+    bool hasBlur = strongerBand > 0.0f && tiltShift.radius > 0.0f;
+    bool hasColorBoost = colorStrength > 0.0f && (tiltShift.saturation != 1.0f || tiltShift.contrast != 1.0f);
+    if (!hasBlur && !hasColorBoost)
         tiltShift = LuaTiltShift();
 
     if (!script.engine->isUnloading)

@@ -136,4 +136,105 @@ class LuaTiltShiftRequestsTest {
         assertNotEquals(blurA, blurA.copy(contrast = 1.1f))
         assertEquals(blurA, blurA.copy())
     }
+
+    @Test
+    fun aColorStrengthKeepsTheBoostOnWithoutBands() {
+        val colorOnly = colorOnly(color = 0.5f)
+
+        assertEquals(1.15f, colorOnly.appliedSaturation, 0.0001f)
+        assertEquals(1.05f, colorOnly.appliedContrast, 0.0001f)
+        assertTrue(colorOnly.hasColorBoost)
+        assertFalse(colorOnly.hasBlur)
+        assertFalse(colorOnly.isOff)
+    }
+
+    @Test
+    fun noColorKeepsFollowingTheStrongerBand() {
+        val noColor = TiltShift(top = 0.25f, bottom = 0.5f, center = 0.5f, width = 0.3f, radius = 6f, saturation = 1.5f, contrast = 0.5f)
+
+        assertNull(noColor.color)
+        assertEquals(1.25f, noColor.appliedSaturation, 0f)
+        assertEquals(0.75f, noColor.appliedContrast, 0f)
+        assertTrue(colorOnly(color = null).isOff)
+    }
+
+    // Blur fading in or out mustn't show in the colors
+    @Test
+    fun theSameColorGivesTheSameBoostWhateverTheBands() {
+        val colorOnly = colorOnly(color = 0.6f)
+        val blurred = colorOnly.copy(top = 1f, bottom = 0.25f)
+
+        assertEquals(colorOnly.appliedSaturation, blurred.appliedSaturation, 0f)
+        assertEquals(colorOnly.appliedContrast, blurred.appliedContrast, 0f)
+        assertFalse(colorOnly.hasBlur)
+        assertTrue(blurred.hasBlur)
+    }
+
+    @Test
+    fun fullColorLooksLikeFullBandsWithoutOne() {
+        val noColor = TiltShift(top = 1f, bottom = 1f, center = 0.5f, width = 0.3f, radius = 6f, saturation = 1.3f, contrast = 1.1f)
+        val withColor = noColor.copy(color = 1f)
+
+        assertEquals(noColor.appliedSaturation, withColor.appliedSaturation, 0f)
+        assertEquals(noColor.appliedContrast, withColor.appliedContrast, 0f)
+    }
+
+    @Test
+    fun colorZeroTurnsTheBoostOffButLeavesTheBlur() {
+        val blurOnly = TiltShift(top = 1f, bottom = 1f, center = 0.5f, width = 0.3f, radius = 6f, saturation = 1.3f, contrast = 1.1f, color = 0f)
+
+        assertEquals(1f, blurOnly.appliedSaturation, 0f)
+        assertEquals(1f, blurOnly.appliedContrast, 0f)
+        assertFalse(blurOnly.hasColorBoost)
+        assertFalse(blurOnly.isOff)
+    }
+
+    @Test
+    fun aColorWithNothingToDoIsOff() {
+        assertTrue(colorOnly(color = 0f).isOff)
+        assertTrue(colorOnly(color = 1f).copy(saturation = 1f, contrast = 1f).isOff)
+    }
+
+    @Test
+    fun aBlurRadiusWithBandsAtTheEdgesLeavesOnlyTheColor() {
+        val noRoom = TiltShift(top = 1f, bottom = 1f, center = 0.5f, width = 1f, radius = 6f, saturation = 1.3f, color = 1f)
+
+        assertFalse(noRoom.hasBlur)
+        assertFalse(noRoom.isOff)
+    }
+
+    @Test
+    fun aColorOnlyRequestStaysUntilItsScriptStops() {
+        val requests = LuaTiltShiftRequests()
+        val colorOnly = colorOnly(color = 1f)
+
+        assertEquals(colorOnly, requests.onScriptRequest(0, colorOnly))
+        assertEquals(colorOnly, requests.tiltShift)
+        assertNull(requests.onScriptStopped(0))
+        assertNull(requests.tiltShift)
+    }
+
+    @Test
+    fun aColorOnlyRequestFollowsTheSameRulesAsABlur() {
+        val requests = LuaTiltShiftRequests()
+        val colorOnly = colorOnly(color = 1f)
+
+        requests.onScriptRequest(0, blurA)
+        assertEquals(colorOnly, requests.onScriptRequest(1, colorOnly))
+        assertEquals(blurA, requests.onScriptRequest(1, off))
+
+        requests.onScriptStopped(2)
+        assertEquals(blurA, requests.onScriptRequest(2, colorOnly))
+
+        requests.onScriptRequest(1, colorOnly)
+        assertNull(requests.onSessionEnded())
+    }
+
+    @Test
+    fun theColorStrengthCountsAsAChange() {
+        assertNotEquals(blurA, blurA.copy(color = 1f))
+        assertNotEquals(blurA.copy(color = 1f), blurA.copy(color = 0.5f))
+    }
+
+    private fun colorOnly(color: Float?) = TiltShift(top = 0f, bottom = 0f, center = 0.5f, width = 0.3f, radius = 6f, saturation = 1.3f, contrast = 1.1f, color = color)
 }

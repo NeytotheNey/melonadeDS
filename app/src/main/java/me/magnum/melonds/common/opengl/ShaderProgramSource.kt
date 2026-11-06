@@ -846,6 +846,29 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         val TiltShiftHorizontalPrePassShader get() = tiltShiftPrePassShader("vec2(1.0, 0.0)", TILT_SHIFT_NO_BOOST_FUNCTION)
         val TiltShiftVerticalPrePassShader get() = tiltShiftPrePassShader("vec2(0.0, 1.0)", TILT_SHIFT_BOOST_FUNCTION)
 
+        // What the blur's last pass does to a sharp texel, and nothing else, for when there's no blur to draw: both give the same colors, so going
+        // between them shows no step. Built when a script first asks for only the color boost (see VideoFilterPipeline)
+        val TiltShiftColorPrePassShader get() = ShaderProgramSource(
+            TextureFiltering.LINEAR,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    "uniform sampler2D tex;\n" +
+                    "varying vec2 uv;\n" +
+                    "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+                    TILT_SHIFT_BOOST_FUNCTION +
+                    "" +
+                    "void main() {\n" +
+                    "    vec3 texel = texture2D(tex, uv).rgb;\n" +
+                    "    // The gap and the DS bottom screen stay as they are\n" +
+                    "    if (uv.y >= topScreenEnd) {\n" +
+                    "        gl_FragColor = vec4(texel, 1.0);\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "" +
+                    "    gl_FragColor = vec4(finishTiltShift(texel.bgr).bgr, 1.0);\n" +
+                    "}"
+        )
+
         // sharp-shimmerless
         // Author: zadpos (Woohyun Kang)
         // License: Public domain

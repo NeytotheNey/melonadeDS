@@ -25,7 +25,7 @@ public:
     void onLuaFastForward(int scriptId, bool enabled) override;
     void onLuaStorageSaved() override;
     void onLuaSetLayout(int scriptId, const std::string& optionKey) override;
-    void onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation, float contrast) override;
+    void onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation, float contrast, float color) override;
     void onLuaStateLoaded() override;
 
 private:

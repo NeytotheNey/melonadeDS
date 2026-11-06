@@ -1,4 +1,4 @@
--- description: Tilt-shift blur for Pokémon White 2 US. On in the overworld, clears by itself elsewhere. Hold L, tap R: off/auto.
+-- description: Tilt-shift blur for Pokémon White 2 US. On in the overworld, clears by itself elsewhere, and the color boost stays on when the blur clears. Hold L, tap R: off/auto.
 -- option: strength type=number min=0 max=1 step=0.05 default=1 label="Blur strength"
 -- option: center type=number min=0 max=1 step=0.05 default=0.5 label="Sharp band center"
 -- option: width type=number min=0 max=1 step=0.05 default=0.3 label="Sharp band height"
@@ -140,6 +140,8 @@ local target_top = 0
 local target_bottom = 0
 local current_top = 0
 local current_bottom = 0
+-- Only the forced off turns the color boost off: no game state does
+local current_color = 0
 local should_snap = false
 local is_clearing_fast = false
 
@@ -386,7 +388,7 @@ local function describe(state, separator)
         "routine " .. show("%d", info.routine) .. " sub " .. show("%d", info.sub_screen),
         "place " .. show("%d", info.place_name) .. " bits " .. show("0x%04X", info.bits),
         "text top " .. flag(info.text_top) .. " bottom " .. flag(info.text_bottom),
-        string.format("strength top %.2f bottom %.2f", current_top, current_bottom),
+        string.format("strength top %.2f bottom %.2f color %.2f", current_top, current_bottom, current_color),
     }, separator)
 end
 
@@ -447,17 +449,21 @@ function on_frame()
 
     local goal_top = is_automatic and target_top or 0
     local goal_bottom = is_automatic and target_bottom or 0
+    local goal_color = is_automatic and strength or 0
     if should_snap then
         -- No fade after a savestate load: the first frame already looks right
         should_snap = false
         current_top = goal_top
         current_bottom = goal_bottom
+        current_color = goal_color
     else
         current_top = move_towards(current_top, goal_top, fade_step_for(current_top, goal_top))
         current_bottom = move_towards(current_bottom, goal_bottom, fade_step_for(current_bottom, goal_bottom))
+        current_color = move_towards(current_color, goal_color, fade_step)
     end
 
     -- Called every frame: only frames where a value changes cost an event
+    blur_options.color = current_color
     melon.screen.tilt_shift(current_top, current_bottom, blur_options)
 
     if message_frames > 0 then

@@ -46,6 +46,9 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     // Built the first time a script asks for the blur, so that everyone else pays nothing for it; stays null if it can't be built
     private var tiltShiftPasses: TiltShiftPasses? = null
     private var isTiltShiftBuilt = false
+    // The same for a script that only asks for the color boost right now, which needs none of the above
+    private var tiltShiftColorPass: PrePass? = null
+    private var isTiltShiftColorBuilt = false
 
     // Returned by renderPrePasses(), reused so that no garbage is created on every frame
     private val output = FilterOutput()
@@ -82,7 +85,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     private var isStateSaved = false
 
     /**
-     * Runs the pre-passes, then the [tiltShift] blur if there's one, and returns the texture the screen shader should draw, whose size the caller
+     * Runs the pre-passes, then the [tiltShift] if there's one, and returns the texture the screen shader should draw, whose size the caller
      * sets as the shader's texSize (a scaled pass makes it bigger); call it before drawing to the surface and for invalid frames too, and set the
      * program, VAO, array buffer and texture unit 0 again afterwards.
      */
@@ -95,8 +98,11 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
             return output
         }
 
-        val tiltShiftPasses = if (tiltShift != null) getTiltShiftPasses() else null
-        if (prePasses.isEmpty() && tiltShiftPasses == null) {
+        // Without a blur, or if its passes can't be built, only the color boost is left to apply, in one pass that takes one sample per texel. So the
+        // boost doesn't jump as the bands reach or leave 0 even then. Each is only tried once
+        val tiltShiftPasses = if (tiltShift != null && tiltShift.hasBlur) getTiltShiftPasses() else null
+        val tiltShiftColorPass = if (tiltShift != null && tiltShiftPasses == null && tiltShift.hasColorBoost) getTiltShiftColorPass() else null
+        if (prePasses.isEmpty() && tiltShiftPasses == null && tiltShiftColorPass == null) {
             return output
         }
 
@@ -106,7 +112,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
             return output
         }
 
-        val appliedTiltShift = if (tiltShiftPasses != null) tiltShift else null
+        val appliedTiltShift = if (tiltShiftPasses != null || tiltShiftColorPass != null) tiltShift else null
         val isSameFrame = frame.frameSequence != 0L && frame.frameSequence == lastFrameSequence && frame.textureId == lastFrameTextureId &&
                 width == lastFrameWidth && height == lastFrameHeight && isBottomScreenWide == lastFrameBottomScreenWide &&
                 appliedTiltShift == lastFrameTiltShift
@@ -138,6 +144,8 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         if (isComplete && tiltShiftPasses != null) {
             isComplete = renderPass(tiltShiftPasses.horizontal, frame.topScreenWidth, isBottomScreenWide, appliedTiltShift) &&
                     renderPass(tiltShiftPasses.vertical, frame.topScreenWidth, isBottomScreenWide, appliedTiltShift)
+        } else if (isComplete && tiltShiftColorPass != null) {
+            isComplete = renderPass(tiltShiftColorPass, frame.topScreenWidth, isBottomScreenWide, appliedTiltShift)
         }
 
         if (isStateSaved) {
@@ -209,12 +217,28 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         return tiltShiftPasses
     }
 
+    private fun getTiltShiftColorPass(): PrePass? {
+        if (!isTiltShiftColorBuilt) {
+            isTiltShiftColorBuilt = true
+            val shader = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.TiltShiftColorPrePassShader)
+            if (shader != null) {
+                tiltShiftColorPass = PrePass(shader, 1, false)
+            } else {
+                // The frame is drawn without the color boost rather than not at all
+                Log.e(TAG, "Tilt-shift color shader failed to build, so the color boost is left out")
+            }
+        }
+        return tiltShiftColorPass
+    }
+
     fun delete() {
         screenShader.delete()
         prePasses.forEach { it.delete() }
         tiltShiftPasses?.horizontal?.delete()
         tiltShiftPasses?.vertical?.delete()
         tiltShiftPasses = null
+        tiltShiftColorPass?.delete()
+        tiltShiftColorPass = null
         if (quadVao != 0) {
             GLES30.glDeleteVertexArrays(1, intArrayOf(quadVao), 0)
             GLES30.glDeleteBuffers(1, intArrayOf(quadVbo), 0)

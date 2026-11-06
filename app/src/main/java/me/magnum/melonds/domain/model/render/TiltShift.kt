@@ -3,7 +3,7 @@ package me.magnum.melonds.domain.model.render
 /**
  * What a script's `melon.screen.tilt_shift()` asks for: a sharp band across the DS top screen, [center] and [width] being fractions of the screen's
  * height, with a blur that grows towards the screen's edges up to [radius] DS pixels times the strength of that side, [top] or [bottom]. [saturation]
- * and [contrast] are color multipliers for the whole screen, 1 meaning no change.
+ * and [contrast] are color multipliers for the whole screen, 1 meaning no change, applied at [color] strength, or at the stronger band's without one.
  *
  * Immutable, so the render thread can read it without a lock.
  */
@@ -15,6 +15,7 @@ data class TiltShift(
     val radius: Float,
     val saturation: Float = 1f,
     val contrast: Float = 1f,
+    val color: Float? = null,
 ) {
     /**
      * Where the sharp band starts and ends, as fractions of the screen's height from its top
@@ -29,10 +30,18 @@ data class TiltShift(
     val bottomRadius = if (bandBottom < 1f) radius * bottom else 0f
 
     /**
-     * The color multipliers to apply, which fade with the blur: they follow the stronger band, so clearing only one band leaves them as they are
+     * Whether there's any blur to draw; without it only the color pass runs (see VideoFilterPipeline)
      */
-    val appliedSaturation = 1f + (saturation - 1f) * maxOf(top, bottom)
-    val appliedContrast = 1f + (contrast - 1f) * maxOf(top, bottom)
+    val hasBlur get() = topRadius > 0f || bottomRadius > 0f
 
-    val isOff get() = topRadius <= 0f && bottomRadius <= 0f && appliedSaturation == 1f && appliedContrast == 1f
+    /**
+     * The color multipliers to apply. They follow [color], or without one fade with the blur: they follow the stronger band, so clearing only one band
+     * leaves them as they are
+     */
+    val appliedSaturation = 1f + (saturation - 1f) * (color ?: maxOf(top, bottom))
+    val appliedContrast = 1f + (contrast - 1f) * (color ?: maxOf(top, bottom))
+
+    val hasColorBoost get() = appliedSaturation != 1f || appliedContrast != 1f
+
+    val isOff get() = !hasBlur && !hasColorBoost
 }
