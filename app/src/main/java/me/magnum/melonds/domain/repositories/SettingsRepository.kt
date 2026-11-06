@@ -24,6 +24,7 @@ interface SettingsRepository {
     fun isFramePacingVsyncEnabled(): Boolean
     fun isFramePacingLock60HzEnabled(): Boolean
     fun isFramePacingBufferEnabled(): Boolean
+    fun isFramePacingSmooth30FpsEnabled(): Boolean
     fun isPerformanceLoggingEnabled(): Boolean
     fun getPerformanceLogDirectory(): Uri?
     fun isDebugLogEnabled(): Boolean

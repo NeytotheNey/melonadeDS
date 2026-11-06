@@ -39,6 +39,7 @@ internal object DiagnosticsInfo {
             "frame_pacing_vsync" to settingsRepository.isFramePacingVsyncEnabled().toString(),
             "frame_pacing_lock_60hz" to settingsRepository.isFramePacingLock60HzEnabled().toString(),
             "frame_pacing_buffer" to settingsRepository.isFramePacingBufferEnabled().toString(),
+            "frame_pacing_smooth_30fps" to settingsRepository.isFramePacingSmooth30FpsEnabled().toString(),
             "fast_forward_multiplier" to settingsRepository.getFastForwardSpeedMultiplier().toString(),
             "default_console_type" to settingsRepository.getDefaultConsoleType().name,
             "sound_enabled" to settingsRepository.isSoundEnabled().toString(),

@@ -285,12 +285,12 @@ bool MelonInstance::bootFirmware()
 void MelonInstance::start()
 {
     auto cart = nds->NDSCartSlot.GetCart();
-    if (nds->ConsoleType == 1 && cart != nullptr && cart->GetHeader().IsDSiWare() && !currentConfiguration->showBootScreen)
+    if (nds->ConsoleType == 1 && cart != nullptr && cart->GetHeader().IsDSiWare() && !std::atomic_load(&currentConfiguration)->showBootScreen)
     {
         auto dsi = (DSi*) nds;
         DSiSupport::SetupDSiDirectBoot(dsi);
     }
-    else if (!currentConfiguration->showBootScreen || nds->NeedsDirectBoot())
+    else if (!std::atomic_load(&currentConfiguration)->showBootScreen || nds->NeedsDirectBoot())
     {
         // This seems to be unused, but it's required
         std::string romName;
@@ -314,7 +314,7 @@ void MelonInstance::reset()
     // If there is a cart inserted, check if direct boot is required
     if (nds->GetNDSCart())
     {
-        if (!currentConfiguration->showBootScreen || nds->NeedsDirectBoot())
+        if (!std::atomic_load(&currentConfiguration)->showBootScreen || nds->NeedsDirectBoot())
         {
             // This seems to be unused, but it's required
             std::string romName;
@@ -345,11 +345,9 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D()).SetViewWidth(wideViewWidth);
     }
 
-    if (isRenderConfigurationDirty)
-    {
+    // Cleared first, so a configuration that arrives during updateRenderer() is applied on the next frame
+    if (isRenderConfigurationDirty.exchange(false))
         updateRenderer();
-        isRenderConfigurationDirty = false;
-    }
 
     if (hasPendingRewindSettings.load(std::memory_order_acquire)) [[unlikely]]
         applyRewindSettings();
@@ -369,7 +367,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     }
     else if (currentRenderer == Renderer::Compute)
     {
-        auto computeRenderSettings = static_cast<ComputeRenderSettings&>(*currentConfiguration->renderSettings);
+        auto computeRenderSettings = static_cast<ComputeRenderSettings&>(*std::atomic_load(&currentConfiguration)->renderSettings);
         int scale = computeRenderSettings.scale;
         // Same as OpenGL, the compositor's width can lag behind the requested one
         topScreenWidth = static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D()).GetOutputWidth();
@@ -693,7 +691,7 @@ void MelonInstance::updateConfiguration(std::shared_ptr<EmulatorConfiguration> n
     }
 
     luaDrawingsInScreenshots.store(newConfiguration->luaDrawingsInScreenshots, std::memory_order_relaxed);
-    currentConfiguration = newConfiguration;
+    std::atomic_store(&currentConfiguration, newConfiguration);
     isRenderConfigurationDirty = true;
 }
 
@@ -881,7 +879,9 @@ std::vector<RetroAchievements::RARuntimeAchievement> MelonInstance::getRuntimeAc
 
 void MelonInstance::updateRenderer()
 {
-    Renderer newRenderer = currentConfiguration->renderer;
+    // One configuration for all of this, as the renderer it asks for decides the type of its render settings
+    std::shared_ptr<EmulatorConfiguration> configuration = std::atomic_load(&currentConfiguration);
+    Renderer newRenderer = configuration->renderer;
 
     // A renderer that failed is only tried again once something else was asked for in between
     if (failedRenderer && *failedRenderer != newRenderer)
@@ -925,14 +925,14 @@ void MelonInstance::updateRenderer()
             // The settings are only software ones if that's the renderer that was asked for, not the fallback
             if (newRenderer == Renderer::Software)
             {
-                auto softwareRenderSettings = static_cast<SoftwareRenderSettings&>(*currentConfiguration->renderSettings);
+                auto softwareRenderSettings = static_cast<SoftwareRenderSettings&>(*configuration->renderSettings);
                 static_cast<SoftRenderer&>(nds->GPU.GetRenderer3D()).SetThreaded(softwareRenderSettings.threadedRendering, nds->GPU);
             }
             break;
         }
         case Renderer::OpenGl:
         {
-            auto glRenderSettings = static_cast<OpenGlRenderSettings&>(*currentConfiguration->renderSettings);
+            auto glRenderSettings = static_cast<OpenGlRenderSettings&>(*configuration->renderSettings);
             auto& glRenderer = static_cast<GLRenderer&>(nds->GPU.GetRenderer3D());
             // Every time, since the renderer may be a new one at 256, and first so a new renderer's targets are only sized once
             glRenderer.SetViewWidth(wideViewWidth);
@@ -941,7 +941,7 @@ void MelonInstance::updateRenderer()
         }
         case Renderer::Compute:
         {
-            auto computeRenderSettings = static_cast<ComputeRenderSettings&>(*currentConfiguration->renderSettings);
+            auto computeRenderSettings = static_cast<ComputeRenderSettings&>(*configuration->renderSettings);
             auto& computeRenderer = static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D());
             // Like OpenGL, every time and first, so that a new renderer's shaders are only compiled once
             computeRenderer.SetViewWidth(wideViewWidth);
@@ -952,8 +952,8 @@ void MelonInstance::updateRenderer()
         default: __builtin_unreachable();
     }
 
-    bool threaded2d = currentConfiguration->threaded2dRendering;
-    bool hiresCapture = currentConfiguration->hiresCapture;
+    bool threaded2d = configuration->threaded2dRendering;
+    bool hiresCapture = configuration->hiresCapture;
 #ifdef MELONADE_DEBUG_TOOLS
     if (debugOverrides.threaded2d >= 0)
         threaded2d = debugOverrides.threaded2d == 1;
@@ -964,6 +964,15 @@ void MelonInstance::updateRenderer()
     nds->GPU.SetThreaded2D(threaded2d);
     // Only the OpenGL and compute renderers use it (the core ignores it for software), and a change drops the hi-res copies
     nds->GPU.SetHiresCapture(hiresCapture);
+
+    bool isHalfCameraOverridden = false;
+#ifdef MELONADE_DEBUG_TOOLS
+    // DebugProperties::apply already set the mode for this game, and it stays through renderer changes
+    isHalfCameraOverridden = debugOverrides.halfCamera >= 0;
+#endif
+    // Also between frames. Only the compute renderer can draw the in-between scenes, so the others don't pay for them
+    if (!isHalfCameraOverridden)
+        nds->GPU.GPU3D.SetHalfCameraSmoothing(configuration->framePacingSmooth30Fps && currentRenderer == Renderer::Compute);
 }
 
 void MelonInstance::logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs)
@@ -1020,7 +1029,7 @@ void MelonInstance::syncDateTimeToDevice()
 {
     // The RTC stops while emulation is paused and falls behind the device's time, so only ever move it forward: some games (like Pokemon) treat the
     // clock going backward as tampering
-    if (!nds || !currentConfiguration->syncRtcToDevice)
+    if (!nds || !std::atomic_load(&currentConfiguration)->syncRtcToDevice)
         return;
 
     int year, month, day, hour, minute, second;
