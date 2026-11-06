@@ -106,6 +106,120 @@ local function read_party_entry(entry)
   return species, form, ability
 end
 
+-- The party entry's battle stats, enciphered from its PID (PartyPkm in the decomp). Only the party flag says they're plain: the box flag is for the blocks.
+local PARTY_STATS, PARTY_MAX_HP_WORD = 0x88, 4
+local PARTY_DECRYPTED = 1
+local MAX_HP_LIMIT = 714
+
+--- The max HP in a party entry, or nil if it can't be a real one
+local function read_party_max_hp(entry)
+  local max_hp = R16(entry + PARTY_STATS + PARTY_MAX_HP_WORD * 2)
+  if R16(entry + 4) & PARTY_DECRYPTED == 0 then
+    local key = R32(entry)
+    for _ = 0, PARTY_MAX_HP_WORD do
+      key = (key * 0x41C64E6D + 0x6073) & 0xFFFFFFFF
+    end
+    max_hp = max_hp ~ (key >> 16)
+  end
+  if max_hp < 1 or max_hp > MAX_HP_LIMIT then return nil end
+  return max_hp
+end
+
+--- HP as a disguise with that max HP would show it: rounds up, so anything alive shows at least 1, and full stays full
+local function scale_hp(hp, real_max, shown_max)
+  if hp <= 0 then return 0 end
+  if hp >= real_max then return shown_max end
+  return (hp * shown_max + real_max - 1) // real_max
+end
+
+--- A battle record's species, level, max HP, HP and mon ID, or nil if it doesn't look like one. foe_side says which range its mon ID has to be in.
+local function check_record(rec, foe_side)
+  if not in_ram(rec) then return nil end
+  local species, level = R16(rec + 0x0C), R8(rec + 0x18)
+  if species < 1 or species > SPECIES_MAX or level < 1 or level > LEVEL_MAX then return nil end
+  local max_hp, hp = R16(rec + 0x0E), R16(rec + 0x10)
+  if max_hp == 0 or hp > max_hp then return nil end
+  local id = R8(rec + 0x19)
+  if id > LAST_ID or (id >= FOE_FIRST_ID) ~= foe_side then return nil end
+  return species, level, max_hp, hp, id
+end
+
+-- The client's command queue, values big-endian. docs/pokemon-battle-ram.md, "Damage, heals and crits".
+local CLIENT_QUEUE, CLIENT_COMMAND = 0x13C, 0x180
+local QUEUE_BYTES = 8
+local QUEUE_SIZE = 3000
+local CMD_DAMAGE, CMD_DAMAGE_PLURAL, CMD_EXP_GAIN, CMD_MESSAGE, CMD_MESSAGE_ARGS = 50, 51, 69, 90, 91
+local ARGS_END = 0xFFFF0000
+local MESSAGE_MAX_ARGS = 15
+-- Messages that can sit between a hit and its crit message. Singles and doubles have their own IDs.
+local MESSAGE_CRIT, MESSAGE_CRIT_ON_MON = 0x51, 0x180
+local EFFECTIVENESS_MESSAGE = { [0x4E] = true, [0x4F] = true }
+local EFFECTIVENESS_MESSAGE_ON_MON = { [6] = true, [9] = true, [0xC] = true, [0xF] = true, [0x12] = true, [0x15] = true }
+-- A hit has at most one message per target ahead of its crit, and more than this means it's not what we think it is
+local CRIT_SCAN_MESSAGES = 8
+
+local function queue_u16(queue, pos)
+  return (R8(queue + QUEUE_BYTES + pos) << 8) | R8(queue + QUEUE_BYTES + pos + 1)
+end
+
+local function queue_u32(queue, pos)
+  return (queue_u16(queue, pos) << 16) | queue_u16(queue, pos + 2)
+end
+
+--- The client's record, or nil. It has to point back at main, so a freed battle can't pass.
+local function live_client(ctx)
+  local client = R32(ctx.core + 4)
+  if not in_ram(client) or R32(client) ~= ctx.main then return nil end
+  return client
+end
+
+--- Where a message command ends, or nil if its args run off the end of what's written
+local function after_message(queue, pos, write)
+  local p = pos + 4
+  for _ = 1, MESSAGE_MAX_ARGS do
+    if p + 4 > write then return nil end
+    local arg = queue_u32(queue, p)
+    p = p + 4
+    if arg == ARGS_END then return p end
+  end
+  return nil
+end
+
+-- The game's HP boxes, through its battle effect work. docs/pokemon-battle-ram.md, "HP boxes".
+local EFFECT_GAUGE, EFFECT_MAIN = 0x1A4, 0x1E4
+-- Counts down from 0 to -16 as the screen fades out when the battle ends. The chain stays live for about 30 frames more, with the boxes still up.
+local MAIN_EXIT_FADE = 0x460
+local GAUGE_ENTRIES, GAUGE_ENTRY_STRIDE = 0x40, 0x84
+local ENTRY_NAME_ACTOR, ENTRY_BAR_ACTOR, ENTRY_MON = 0x00, 0x08, 0x40
+local BOX_STYLE, BOX_SIDE, BOX_HP, BOX_MAX_HP, BOX_HP_ANIM, BOX_HP_DELTA, BOX_FLAGS = 0x00, 0x04, 0x08, 0x0C, 0x10, 0x28, 0x30
+local BOX_HP_MOVING, BOX_SHOWN = 1, 8
+local BOX_STYLE_SINGLE_OR_DOUBLE, BOX_SIDE_FOE = 0, 1
+local HP_ANIM_START = 0x80000000
+-- Below this many max HP the box keeps its moving HP in 1/256ths
+local BAR_PIXELS = 48
+local ACTOR_X, ACTOR_Y, ACTOR_FLAGS = 0x0C, 0x0E, 0x60
+local ACTOR_VISIBLE = 1 << 26
+-- The boxes by view position: the foe's by the reader's foe order, for singles and doubles
+local FOE_BOXES = { [0] = { 1 }, [1] = { 3, 5 } }
+
+local function s16(v)
+  return v >= 0x8000 and v - 0x10000 or v
+end
+
+--- The HP the bar shows now, the way the box works out its own numbers. Record HP leads this.
+local function box_hp(box)
+  local hp = R32(box + BOX_HP)
+  if R32(box + BOX_FLAGS) & BOX_HP_MOVING == 0 then return hp end
+  local anim = R32(box + BOX_HP_ANIM)
+  if anim == HP_ANIM_START then return hp end
+  if R32(box + BOX_MAX_HP) >= BAR_PIXELS then return anim end
+  local shown = anim >> 8
+  if RS32(box + BOX_HP_DELTA) > 0 and anim & 0xFF > 0 then
+    shown = shown + 1
+  end
+  return shown
+end
+
 --- A reader for one game; cfg is its line in games.lua
 function M.new(cfg)
   local self = {}
@@ -142,12 +256,14 @@ function M.new(cfg)
     return stages
   end
 
-  --- What a disguise's party entry says: species, raw type IDs and ability, or nil. A good result is kept until the battle resets.
+  --- What a disguise's party entry says: species, raw type IDs, ability and max HP, or nil. A good result is kept until the battle resets.
   local function read_disguise(entry)
     local known = disguises[entry]
     if known then return known end
     local species, form, ability = read_party_entry(entry)
     if not species then return nil end
+    local max_hp = read_party_max_hp(entry)
+    if not max_hp then return nil end
     local forms = personal.forms[species]
     local form_types = forms and forms[form]
     local view = {
@@ -155,6 +271,7 @@ function M.new(cfg)
       type1 = form_types and form_types[1] or personal.type1[species],
       type2 = form_types and form_types[2] or personal.type2[species],
       ability = ability,
+      max_hp = max_hp,
     }
     disguises[entry] = view
     return view
@@ -162,13 +279,8 @@ function M.new(cfg)
 
   --- A battle record, or nil if it doesn't look like one. foe_side says which range its mon ID has to be in.
   local function read_mon(rec, foe_side)
-    if not in_ram(rec) then return nil end
-    local species, level = R16(rec + 0x0C), R8(rec + 0x18)
-    if species < 1 or species > SPECIES_MAX or level < 1 or level > LEVEL_MAX then return nil end
-    local max_hp, hp = R16(rec + 0x0E), R16(rec + 0x10)
-    if max_hp == 0 or hp > max_hp then return nil end
-    local id = R8(rec + 0x19)
-    if id > LAST_ID or (id >= FOE_FIRST_ID) ~= foe_side then return nil end
+    local species, level, max_hp, hp = check_record(rec, foe_side)
+    if not species then return nil end
 
     local roost = condition_on(rec, ROOST_ID)
     local gastro_acid = condition_on(rec, GASTRO_ACID_ID)
@@ -194,6 +306,8 @@ function M.new(cfg)
         mon.species = view.species
         mon.types = effective_types(view.type1, view.type2, roost)
         mon.ability = gastro_acid and 0 or view.ability
+        mon.hp = scale_hp(hp, max_hp, view.max_hp)
+        mon.max_hp = view.max_hp
       else
         mon.no_info = true
       end
@@ -226,6 +340,8 @@ function M.new(cfg)
     if screen > 7 then return nil end
     return {
       party = party,
+      main = main,
+      core = core,
       scd = scd,
       input = input,
       screen = screen,
@@ -235,35 +351,174 @@ function M.new(cfg)
     }
   end
 
-  local function client_mon(ctx, client, slot, foe_side)
-    return read_mon(R32(ctx.party + client * CLIENT_STRIDE + slot * 4), foe_side) or false
-  end
-
-  --- The active mons on both sides and the one choosing. Entries in foes and mine are false when that record isn't usable.
-  function self.battle(ctx)
+  --- The records of the active mons, by position on each side, and whether it's a multi battle. Nil before the foe's client exists.
+  local function active_records(ctx)
     local party = ctx.party
     local active = ctx.rule == 0 and 1 or (ctx.rule == 1 and 2 or 3)
     local second_foe_client = R8(party + 3 * CLIENT_STRIDE + 0x18) ~= 0
     local ally_client = R8(party + 2 * CLIENT_STRIDE + 0x18) ~= 0
     if R8(party + CLIENT_STRIDE + 0x18) == 0 then return nil end
 
+    local function record(client, slot)
+      return R32(party + client * CLIENT_STRIDE + slot * 4)
+    end
     local foes, mine = {}, {}
     if second_foe_client then
       -- Multi: clients are player, enemy 1, ally, enemy 2. Each has its own party with one mon out. Not run yet.
-      foes[1] = client_mon(ctx, 1, 0, true)
-      foes[2] = client_mon(ctx, 3, 0, true)
+      foes[1] = record(1, 0)
+      foes[2] = record(3, 0)
     else
       for slot = 0, active - 1 do
-        foes[slot + 1] = client_mon(ctx, 1, slot, true)
+        foes[slot + 1] = record(1, slot)
       end
     end
     if ally_client then
-      mine[1] = client_mon(ctx, 0, 0, false)
-      mine[2] = client_mon(ctx, 2, 0, false)
+      mine[1] = record(0, 0)
+      mine[2] = record(2, 0)
     else
       for slot = 0, active - 1 do
-        mine[slot + 1] = client_mon(ctx, 0, slot, false)
+        mine[slot + 1] = record(0, slot)
       end
+    end
+    return foes, mine, second_foe_client or ally_client
+  end
+
+  --- The HP of each active mon, cheaply: a list of { id, hp, max_hp, real_hp, real_max_hp, foe, slot }, with slot counted from 1 on its side.
+  --- hp and max_hp are what a player should see, so a disguised foe has the disguise's: it also has disguised, and hidden if the disguise
+  --- can't be read. Unusable records are left out.
+  function self.active_hp(ctx)
+    local foes, mine = active_records(ctx)
+    local out = {}
+    if not foes then return out end
+    local function add(records, foe)
+      for slot = 1, #records do
+        local rec = records[slot]
+        local species, _, max_hp, hp, id = check_record(rec, foe)
+        if species then
+          local mon = { id = id, hp = hp, max_hp = max_hp, real_hp = hp, real_max_hp = max_hp, foe = foe, slot = slot }
+          if foe and is_disguised(rec) then
+            mon.disguised = true
+            local view = read_disguise(R32(rec + 0x04))
+            if view then
+              mon.hp, mon.max_hp = scale_hp(hp, max_hp, view.max_hp), view.max_hp
+            else
+              mon.hidden = true
+            end
+          end
+          out[#out + 1] = mon
+        end
+      end
+    end
+    add(foes, true)
+    add(mine, false)
+    return out
+  end
+
+  --- True while the client plays the command that raises HP and max HP at a level-up
+  function self.gaining_exp(ctx)
+    local client = live_client(ctx)
+    return client ~= nil and R32(client + CLIENT_COMMAND) == CMD_EXP_GAIN
+  end
+
+  --- True if an HP drop this frame is a critical hit on that mon. Reads on from the hit that's landing only, up to where its own messages
+  --- end: the queue holds the rest of the turn, which would spoil it. Anything unexpected is false.
+  function self.hit_is_crit(ctx, mon_id)
+    local client = live_client(ctx)
+    if not client then return false end
+    local command = R32(client + CLIENT_COMMAND)
+    if command ~= CMD_DAMAGE and command ~= CMD_DAMAGE_PLURAL then return false end
+    local queue = R32(client + CLIENT_QUEUE)
+    if not in_ram(queue) then return false end
+    local write, pos = R32(queue), R32(queue + 4)
+    if write > QUEUE_SIZE or pos > write then return false end
+    for _ = 1, CRIT_SCAN_MESSAGES do
+      if pos + 4 > write then return false end
+      local id, message = queue_u16(queue, pos), queue_u16(queue, pos + 2)
+      local skip
+      if id == CMD_MESSAGE then
+        if message == MESSAGE_CRIT then return true end
+        skip = EFFECTIVENESS_MESSAGE[message]
+      elseif id == CMD_MESSAGE_ARGS then
+        if message == MESSAGE_CRIT_ON_MON then
+          if pos + 8 > write then return false end
+          if queue_u32(queue, pos + 4) == mon_id then return true end
+          skip = true
+        else
+          skip = EFFECTIVENESS_MESSAGE_ON_MON[message]
+        end
+      end
+      if not skip then return false end
+      pos = after_message(queue, pos, write)
+      if not pos then return false end
+    end
+    return false
+  end
+
+  --- One foe's entry for foe_boxes, or nil
+  local function read_foe_box(gauge, view_pos, slot, rec)
+    local view
+    local disguised = in_ram(rec) and is_disguised(rec)
+    if disguised then
+      view = read_disguise(R32(rec + 0x04))
+      if not view then return { slot = slot, disguised = true, hidden = true, unreadable = true } end
+    end
+    local entry = gauge + GAUGE_ENTRIES + view_pos * GAUGE_ENTRY_STRIDE
+    local name, bar = R32(entry + ENTRY_NAME_ACTOR), R32(entry + ENTRY_BAR_ACTOR)
+    local box = entry + ENTRY_MON
+    local up = in_ram(name) and in_ram(bar) and R32(box + BOX_FLAGS) & BOX_SHOWN ~= 0
+      and R32(name + ACTOR_FLAGS) & ACTOR_VISIBLE ~= 0 and R32(bar + ACTOR_FLAGS) & ACTOR_VISIBLE ~= 0
+      and R32(box + BOX_STYLE) == BOX_STYLE_SINGLE_OR_DOUBLE and R32(box + BOX_SIDE) == BOX_SIDE_FOE
+    local shown
+    if up then
+      local species, _, real_max = check_record(rec, true)
+      local max_hp, hp = R32(box + BOX_MAX_HP), box_hp(box)
+      local x, y = s16(R16(name + ACTOR_X)), s16(R16(name + ACTOR_Y))
+      if species and max_hp == real_max and hp >= 1 and hp <= max_hp and x >= 0 and x < 256 and y >= 0 and y < 192 then
+        shown = { slot = slot, hp = hp, max_hp = max_hp, x = x, y = y, disguised = disguised }
+        if view then
+          shown.hp, shown.max_hp = scale_hp(hp, max_hp, view.max_hp), view.max_hp
+        end
+      end
+    end
+    -- Saying it's disguised even with no box up keeps a real value that's still waiting from being drawn
+    return shown or (disguised and { slot = slot, disguised = true, hidden = true }) or nil
+  end
+
+  --- What's showing in the foe's HP boxes right now: a list of { slot, hp, max_hp, x, y, disguised }, with the name box's center on the top
+  --- screen, for each box on screen with a foe it's safe to show, and a disguised foe's HP as the disguise would show it. A disguised foe
+  --- with no box up gets { slot, disguised, hidden }, and one whose disguise can't be read gets unreadable as well. Anything unexpected
+  --- leaves that foe out. Not for multi battles, which haven't been run.
+  function self.foe_boxes(ctx)
+    local out = {}
+    local views = FOE_BOXES[ctx.rule]
+    if not cfg.effect_pointer or not views or R32(ctx.main + MAIN_EXIT_FADE) ~= 0 then return out end
+    local effect = R32(cfg.effect_pointer)
+    if not in_ram(effect) or R32(effect + EFFECT_MAIN) ~= ctx.main then return out end
+    local gauge = R32(effect + EFFECT_GAUGE)
+    if not in_ram(gauge) then return out end
+    local foes, _, multi = active_records(ctx)
+    if not foes or multi then return out end
+    for i = 1, #foes do
+      out[#out + 1] = read_foe_box(gauge, views[i], i, foes[i])
+    end
+    return out
+  end
+
+  local function client_mon(rec, foe_side)
+    return read_mon(rec, foe_side) or false
+  end
+
+  --- The active mons on both sides and the one choosing. Entries in foes and mine are false when that record isn't usable.
+  function self.battle(ctx)
+    local foe_records, my_records, multi = active_records(ctx)
+    if not foe_records then return nil end
+
+    local foes, mine = {}, {}
+    for i = 1, #foe_records do
+      foes[i] = client_mon(foe_records[i], true)
+    end
+    for i = 1, #my_records do
+      mine[i] = client_mon(my_records[i], false)
     end
 
     local choosing_rec = R32(ctx.scd + 0x6C)
@@ -273,7 +528,7 @@ function M.new(cfg)
         choosing = mine[i]
       end
     end
-    return { rule = ctx.rule, multi = second_foe_client or ally_client, foes = foes, mine = mine, choosing = choosing }
+    return { rule = ctx.rule, multi = multi, foes = foes, mine = mine, choosing = choosing }
   end
 
   --- The move IDs in use in a mon's four slots (Mimic and Transform replace these, not the true ones). 0 is an empty slot.

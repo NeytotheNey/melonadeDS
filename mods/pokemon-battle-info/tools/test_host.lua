@@ -524,7 +524,8 @@ local ORDERS = {
 }
 local ENTRY = 0x02258874
 
-local function put_entry(pid, species_id, form, plain, ability)
+--- plain says the blocks are plain, and party_plain the battle stats as well, like the game's two flags
+local function put_entry(pid, species_id, form, plain, ability, max_hp, party_plain)
   local words = {}
   for i = 0, 63 do words[i] = (i * 257 + 11) & 0xFFFF end
   local order = ORDERS[((pid & 0x3E000) >> 13) % 24 + 1]
@@ -536,12 +537,19 @@ local function put_entry(pid, species_id, form, plain, ability)
   local sum = 0
   for i = 0, 63 do sum = (sum + words[i]) & 0xFFFF end
   w32(ENTRY, pid)
-  w16(ENTRY + 4, plain and 2 or 0)
+  w16(ENTRY + 4, (plain and 2 or 0) | (party_plain and 1 or 0))
   w16(ENTRY + 6, sum)
   local key = sum
   for i = 0, 63 do
     key = (key * 0x41C64E6D + 0x6073) & 0xFFFFFFFF
     w16(ENTRY + 8 + i * 2, plain and words[i] or (words[i] ~ (key >> 16)))
+  end
+  -- The battle stats: status, level, HP, max HP, the rest, each word enciphered from the PID
+  key = pid
+  for i = 0, 41 do
+    key = (key * 0x41C64E6D + 0x6073) & 0xFFFFFFFF
+    local word = i == 4 and (max_hp or 148) or ((i * 89 + 3) & 0xFFFF)
+    w16(ENTRY + 0x88 + i * 2, party_plain and word or (word ~ (key >> 16)))
   end
 end
 
@@ -767,7 +775,7 @@ commands = {}
 ui.panels(battle(), true, MOVE_MENU)
 check("state row", top_view(), "WAT FLY BRN ATK -1 DEF +1 SPA+1")
 check("state row x", drawn("top", "BRN").x, 4)
-check("state row y", drawn("top", "BRN").y, 53)
+check("state row y", drawn("top", "BRN").y, 55)
 check("stat icon gap", drawn("top", "ATK").x - drawn("top", "BRN").x, 9 + 1 + 2)
 check("number after its icon", drawn("top", "-1").x, drawn("top", "ATK").x + 9.5)
 check("number on the icon's line", drawn("top", "-1").y, drawn("top", "ATK").y + 1)
@@ -933,7 +941,7 @@ check("disguised card hides the real ability", top_view():find("Illusion", 1, tr
 check("disguised card shows the disguise's ability", top_view():find("Intimidate", 1, true) ~= nil, true)
 check("disguised card has no ???", top_view():find("???", 1, true), nil)
 
--- A disguise has to look exactly like a real foe of that species and ability, apart from HP
+-- A disguise has to look exactly like a real foe of that species and ability, its HP in the disguise's numbers included
 local function foe_views(show)
   local bt = battle()
   commands = {}
@@ -944,7 +952,7 @@ local function foe_views(show)
   local tags = pills()
   commands = {}
   ui.card(bt, show)
-  return panel, tags, (top_view():gsub("HP %d+/%d+", "HP"))
+  return panel, tags, top_view()
 end
 for _, setup in ipairs({
   { "Gyarados with Intimidate", 130, "WAT", "FLY", 22 },
@@ -956,6 +964,8 @@ for _, setup in ipairs({
   for _, show in ipairs({ true, false }) do
     fresh_singles()
     set_mon(RECS.foe1, 12, id, t1, t2, ability, { 16 })
+    -- The disguised one below is at 77/201, which is 57/148 scaled up
+    w16(RECS.foe1 + 0x10, 57)
     local real_panel, real_tags, real_card = foe_views(show)
     disguised_foe()
     w16(RECS.foe1 + 0x0E, 201)
@@ -1083,15 +1093,15 @@ ui.panels(battle(), true, MOVE_MENU)
 check("only foe 2 has a row", top_view(), "WAT FLY GRO STE 2 SLP DEF -2")
 check("its number", drawn("top", "2").x, 1)
 check("its first icon", drawn("top", "SLP").x, 7)
-check("its row moves up", drawn("top", "SLP").y, 64)
+check("its row moves up", drawn("top", "SLP").y, 67)
 fresh_doubles()
 stages_and_burn(RECS.foe1)
 w8(RECS.foe2 + 0xFD, 4)
 commands = {}
 ui.panels(battle(), true, MOVE_MENU)
 check("both foes have a row", top_view(), "WAT FLY 1 BRN ATK -1 DEF +1 SPA+1 GRO STE 2 DEF -2")
-check("row 1 at 64", drawn("top", "BRN").y, 64)
-check("row 2 at 74", drawn("top", "-2").y, 75)
+check("row 1 at 67", drawn("top", "BRN").y, 67)
+check("row 2 at 78", drawn("top", "-2").y, 78)
 check("stages alone start at the column", drawn("top", "DEF").x, 7 + 12 + 19.5 + 2)
 
 fresh_doubles()
@@ -1553,6 +1563,863 @@ held = 0
 start({}, "ADAE")
 fresh_singles()
 check("other game draws nothing", frame(), 0)
+
+-- The foe's HP numbers ----------------------------------------------------------------------------------------------
+
+do
+local EFFECT_POINTER, EFFECT, GAUGE = 0x021F4280, 0x02294BE8, 0x022A8454
+local NAME_ACTORS, BAR_ACTORS = 0x022A9000, 0x022AA000
+local ACTOR_VISIBLE = 1 << 26
+
+--- A foe box as the game keeps it, at view position view. Options change one field each, for what has to hide it.
+local function set_box(view, hp, max_hp, x, y, fields)
+  fields = fields or {}
+  w32(EFFECT_POINTER, EFFECT)
+  w32(EFFECT + 0x1E4, fields.main or MAIN)
+  w32(EFFECT + 0x1A4, GAUGE)
+  local entry = GAUGE + 0x40 + view * 0x84
+  local name, bar = NAME_ACTORS + view * 0x80, BAR_ACTORS + view * 0x80
+  w32(entry, fields.no_name and 0 or name)
+  w32(entry + 8, bar)
+  local box = entry + 0x40
+  w32(box, fields.style or 0)
+  w32(box + 4, fields.side or 1)
+  w32(box + 8, hp)
+  w32(box + 0x0C, max_hp)
+  w32(box + 0x10, fields.anim or 0)
+  w32(box + 0x28, fields.delta or 0)
+  w32(box + 0x30, (fields.moving and 1 or 0) | (fields.hidden and 0 or 8))
+  w32(name + 0x60, fields.name_off and 0 or ACTOR_VISIBLE)
+  w32(bar + 0x60, fields.bar_off and 0 or ACTOR_VISIBLE)
+  w16(name + 0x0C, x)
+  w16(name + 0x0E, y)
+end
+
+--- The white text of the HP numbers drawn this frame: each { text, x, y }. Everything else stays out of the way: no menu in these frames.
+local function hp_numbers_now()
+  commands = {}
+  on_frame_end()
+  local out = {}
+  for _, c in ipairs(commands) do
+    if c.kind == "text" and c.screen == "top" and c.args[3]:find("^%d+/%d+$") and c.args[4] == 0xFFFFFFFF then
+      out[#out + 1] = { text = c.args[3], x = c.args[1], y = c.args[2] }
+    end
+  end
+  return out
+end
+
+--- The same with the box left as it is for long enough: what's drawn lags the box by two frames
+local function hp_numbers()
+  on_frame_end()
+  on_frame_end()
+  return hp_numbers_now()
+end
+
+local function hp_text()
+  local shown = hp_numbers()
+  return shown[1] and shown[1].text or nil
+end
+
+local function foe_hp_singles(fields, hp, max_hp)
+  fresh_singles()
+  w32(INPUT + 0x58, 0) -- no menu, so only the numbers draw
+  set_box(1, hp or 89, max_hp or 148, 60, 40, fields)
+end
+
+start()
+foe_hp_singles()
+local at = hp_numbers()
+check("foe hp text", at[1] and at[1].text, "89/148")
+check("foe hp shows with no menu and before the first one", #at, 1)
+check("foe hp ends at the bar's end", at[1].x + 29, 92) -- "89/148" is 29 wide
+check("foe hp sits under the bar", at[1].y, 46)
+local dark = 0
+for _, c in ipairs(commands) do
+  if c.kind == "text" and c.args[4] == 0xFF101418 then dark = dark + 1 end
+end
+check("foe hp has an outline", dark, 8)
+
+-- It follows the box as it slides or shakes
+foe_hp_singles()
+set_box(1, 89, 148, 52, 41)
+at = hp_numbers()
+check("foe hp follows the box across", at[1].x + 29, 84)
+check("foe hp follows the box down", at[1].y, 47)
+
+-- What has to hide it. Each of these leaves the box in place otherwise.
+local hidden_by = {
+  ["the box isn't shown"] = { hidden = true },
+  ["the name is hidden"] = { name_off = true },
+  ["the bar is hidden"] = { bar_off = true },
+  ["no actor"] = { no_name = true },
+  ["another battle's work"] = { main = 0x02200000 },
+  ["triple style box"] = { style = 2 },
+  ["your side's box"] = { side = 0 },
+  ["moving HP past the max"] = { moving = true, anim = 149 << 8, delta = 3 },
+}
+for name, fields in pairs(hidden_by) do
+  foe_hp_singles(fields)
+  check("foe hp hides: " .. name, hp_text(), nil)
+end
+foe_hp_singles(nil, 89, 150)
+check("foe hp hides: max HP isn't the record's", hp_text(), nil)
+foe_hp_singles(nil, 0)
+check("foe hp hides: nothing left", hp_text(), nil)
+foe_hp_singles(nil, 149)
+check("foe hp hides: HP past max", hp_text(), nil)
+foe_hp_singles()
+w32(EFFECT_POINTER, 0)
+check("foe hp hides: no effect work", hp_text(), nil)
+foe_hp_singles()
+w32(EFFECT + 0x1A4, 0)
+check("foe hp hides: no gauge", hp_text(), nil)
+foe_hp_singles()
+set_box(1, 89, 148, 0xFF80, 40) -- off to the left, like a hidden box
+check("foe hp hides: box off the screen", hp_text(), nil)
+foe_hp_singles()
+w32(CORE, 0)
+check("foe hp hides: no chain", hp_text(), nil)
+w32(CORE, MAIN)
+foe_hp_singles()
+w32(MAIN + 0x460, 0xFFFFFFFF)
+check("foe hp hides: the exit's fade", hp_text(), nil)
+
+-- The value counts with the bar, not the record. Numbers from a real hit: 14 max HP, 14 to 11, in 1/256ths.
+local function box_value(hp, max_hp, anim, delta)
+  w16(RECS.foe1 + 0x0E, max_hp)
+  w16(RECS.foe1 + 0x10, hp - delta)
+  set_box(1, hp, max_hp, 60, 40, { moving = true, anim = anim, delta = delta })
+  return hp_text()
+end
+foe_hp_singles()
+check("before the bar starts", box_value(14, 14, 0x80000000, 3), "14/14")
+check("first step down rounds up", box_value(14, 14, 0xD6C, 3), "14/14")
+check("mid drain", box_value(14, 14, 0xC44, 3), "13/14")
+check("whole number", box_value(14, 14, 0xB00, 3), "11/14")
+check("draining heals round down", box_value(10, 14, 0xB80, -3), "11/14")
+check("48 max HP and up moves in whole HP", box_value(100, 148, 73, 50), "73/148")
+check("47 max HP is still 1/256ths", box_value(47, 47, 0x2E40, 5), "47/47")
+-- After the drain the box has the new HP and its moving HP is zero
+foe_hp_singles()
+w16(RECS.foe1 + 0x10, 80)
+set_box(1, 80, 148, 60, 40)
+check("finished bar", hp_text(), "80/148")
+-- The record leads the bar: the bar's what shows
+foe_hp_singles()
+w16(RECS.foe1 + 0x10, 40)
+check("record ahead of the bar", hp_text(), "89/148")
+-- A drain to nothing shows until the bar's there, while the record has been 0 all along
+foe_hp_singles()
+w16(RECS.foe1 + 0x10, 0)
+set_box(1, 5, 148, 60, 40, { moving = true, anim = 2, delta = 5 })
+check("draining to a faint", hp_text(), "2/148")
+set_box(1, 5, 148, 60, 40, { moving = true, anim = 0, delta = 5 })
+check("nothing once the bar's empty", hp_text(), nil)
+
+-- Illusion: a disguised foe shows its HP as the disguise would, on the box and in the card. One that can't be read shows nothing.
+local function card_shows(text)
+  -- The card waits for the first menu of the battle
+  w32(INPUT + 0x58, 1)
+  on_frame_end()
+  w32(INPUT + 0x58, 0)
+  held = melon.KEY.L
+  commands = {}
+  on_frame_end()
+  held = 0
+  for _, c in ipairs(commands) do
+    if c.kind == "text" and c.args[3]:find(text, 1, true) then return true end
+  end
+  return false
+end
+
+local function disguised_box(real_hp, real_max, disguise_max, fields)
+  on_state_loaded() -- forgets the disguise it read last time
+  disguised_foe()
+  put_entry(0x12345678, 130, 0, false, 22, disguise_max)
+  w32(INPUT + 0x58, 0)
+  w16(RECS.foe1 + 0x0E, real_max)
+  w16(RECS.foe1 + 0x10, real_hp)
+  set_box(1, real_hp, real_max, 60, 40, fields)
+end
+
+start()
+foe_hp_singles()
+check("plain foe: box numbers", hp_text(), "89/148")
+check("plain foe: card numbers", card_shows("HP 89/148"), true)
+
+-- Scaled in both directions: a disguise with more HP than the real mon, and with less
+disguised_box(50, 100, 300)
+check("bigger disguise: box", hp_text(), "150/300")
+check("bigger disguise: card", card_shows("HP 150/300"), true)
+check("bigger disguise: still the disguise", card_shows("Gyarados"), true)
+check("bigger disguise: no real species", card_shows("Zoroark"), false)
+disguised_box(50, 100, 37)
+check("smaller disguise rounds up: box", hp_text(), "19/37")
+check("smaller disguise rounds up: card", card_shows("HP 19/37"), true)
+-- Both ends
+disguised_box(100, 100, 37)
+check("full stays full", hp_text(), "37/37")
+disguised_box(1, 714, 11)
+check("1 HP left shows at least 1", hp_text(), "1/11")
+check("1 HP left in the card", card_shows("HP 1/11"), true)
+disguised_box(713, 714, 11)
+check("almost full can round up to full", hp_text(), "11/11")
+-- 0 is a faint: the box hides, and so does the card's HP
+disguised_box(0, 100, 37)
+check("nothing at 0", hp_text(), nil)
+-- The real max has to match the record's, not the disguise's
+disguised_box(50, 100, 300)
+set_box(1, 50, 300, 60, 40)
+check("the box's max is checked against the real one", hp_text(), nil)
+
+-- It moves with the bar, not the record: a drain and a heal through the real 14 max HP bar, shown as 50 max HP
+local function scaled_value(hp, anim, delta)
+  disguised_box(hp, 14, 50, { moving = true, anim = anim, delta = delta })
+  return hp_text()
+end
+check("drain starts where it was", scaled_value(14, 0x80000000, 3), "50/50")
+check("mid drain, 13 of 14", scaled_value(14, 0xC44, 3), "47/50")
+check("end of the drain, 11 of 14", scaled_value(14, 0xB00, 3), "40/50")
+check("mid heal, 11 of 14", scaled_value(10, 0xB80, -3), "40/50")
+
+-- The party flag says the stats are plain. The box flag alone doesn't.
+disguised_foe()
+put_entry(0x12345678, 130, 0, true, 22, 300, true)
+w32(INPUT + 0x58, 0)
+set_box(1, 89, 148, 60, 40)
+check("plain battle stats", battle().foes[1].max_hp, 300)
+reader.reset()
+disguised_foe()
+put_entry(0x12345678, 130, 0, true, 22, 300, false)
+check("box flag alone, stats still enciphered", battle().foes[1].max_hp, 300)
+reader.reset()
+
+-- A max HP that can't be real makes the entry unreadable: 0, and past the top
+for _, bad in ipairs({ 0, 715 }) do
+  disguised_foe()
+  put_entry(0x12345678, 130, 0, false, 22, bad)
+  check("bad max HP " .. bad .. ": no info", battle().foes[1].no_info, true)
+  reader.reset()
+end
+disguised_foe()
+put_entry(0x12345678, 130, 0, false, 22, 714)
+check("the top max HP is fine", battle().foes[1].max_hp, 714)
+reader.reset()
+
+-- Unreadable: nothing on the box or the card
+foe_hp_singles()
+w8(RECS.foe1 + 0x1B, 0x40)
+w32(RECS.foe1 + 0x04, 0)
+check("unreadable disguise: no box numbers", hp_text(), nil)
+check("unreadable disguise: no card numbers", card_shows("HP 89/148"), false)
+check("unreadable disguise: no real species", card_shows("Zoroark"), false)
+
+-- The read is kept: writing over the entry later changes nothing, so it's not read each frame
+disguised_box(50, 100, 300)
+check("kept: first read", hp_text(), "150/300")
+put_entry(0x12345678, 130, 0, false, 22, 37)
+check("kept: same after", hp_text(), "150/300")
+
+-- The disguise breaking: the real numbers take over, and the card with them
+local function now_numbers()
+  local shown = hp_numbers_now()
+  return shown[1] and shown[1].text or nil
+end
+disguised_box(50, 100, 300)
+hp_text()
+w8(RECS.foe1 + 0x1B, 0)
+check("breaking: what's waiting is the disguise's", now_numbers(), "150/300")
+check("breaking: and the next", now_numbers(), "150/300")
+check("broken: the real numbers", now_numbers(), "50/100")
+check("broken: real numbers in the card", card_shows("HP 50/100"), true)
+check("broken: real species", card_shows("Zoroark"), true)
+
+-- Real numbers read just before the disguise went on can't flash, box or no box
+disguised_box(50, 100, 300)
+w8(RECS.foe1 + 0x1B, 0)
+hp_text()
+w8(RECS.foe1 + 0x1B, 0x40)
+check("flag on: the real numbers waiting don't show", now_numbers(), nil)
+check("flag on: nor the next", now_numbers(), nil)
+check("flag on: then the disguise's", now_numbers(), "150/300")
+w8(RECS.foe1 + 0x1B, 0)
+hp_text()
+w8(RECS.foe1 + 0x1B, 0x40)
+set_box(1, 50, 100, 60, 40, { hidden = true })
+check("flag on, box gone: nothing", now_numbers(), nil)
+check("flag on, box gone: nothing next", now_numbers(), nil)
+check("flag on, box gone: still nothing", now_numbers(), nil)
+
+-- Doubles: only the disguised foe's numbers scale
+fresh_doubles()
+start()
+w32(INPUT + 0x58, 0)
+w16(RECS.foe2 + 0x10, 74)
+w8(RECS.foe2 + 0x1B, 0x40)
+w32(RECS.foe2 + 0x04, ENTRY)
+put_entry(0x12345678, 130, 0, false, 22, 300)
+set_box(3, 89, 148, 64, 28)
+set_box(5, 74, 148, 60, 52)
+local both = hp_numbers()
+check("doubles: upper foe's real", both[1].text, "89/148")
+check("doubles: lower foe's scaled", both[2].text, "150/300")
+-- And an unreadable one leaves the other alone
+w32(RECS.foe2 + 0x04, 0)
+local one_left = hp_numbers_now()
+check("doubles: unreadable goes at once, the other stays", #one_left, 1)
+check("doubles: and it's the upper box", one_left[1].y, 34)
+local listed = reader.foe_boxes(reader.chain())
+check("reader: unreadable has no HP", listed[2].hp, nil)
+check("reader: says which", listed[2].slot, 2)
+check("reader: says unreadable", listed[2].unreadable, true)
+
+-- Doubles: each box, upper first, and only the one that's up
+fresh_doubles()
+w32(INPUT + 0x58, 0)
+w16(RECS.foe2 + 0x10, 70)
+set_box(3, 89, 148, 64, 28)
+set_box(5, 70, 148, 60, 52)
+at = hp_numbers()
+check("both foes", #at, 2)
+check("upper box is the first foe", at[1].text, "89/148")
+check("upper y", at[1].y, 34)
+check("lower box is the second foe", at[2].text, "70/148")
+check("lower y", at[2].y, 58)
+set_box(3, 89, 148, 64, 28, { hidden = true })
+at = hp_numbers()
+check("only the box that's up", at[1] and at[1].text, "70/148")
+check("one box", #at, 1)
+-- Triples, rotation and multi
+w32(INPUT + 0x50, 2)
+check("triples: none", hp_text(), nil)
+w32(INPUT + 0x50, 3)
+check("rotation: none", hp_text(), nil)
+w32(INPUT + 0x50, 1)
+set_box(3, 89, 148, 64, 28)
+w32(P + 3 * 0x1C, RECS.foe2)
+w8(P + 3 * 0x1C + 0x18, 6)
+check("multi: none", hp_text(), nil)
+
+-- Clear of the type icons and the rows under the box
+foe_hp_singles()
+set_mon(RECS.foe1, 12, 130, "WAT", "FLY", 22, { 16 })
+w16(RECS.foe1 + 0x0E, 748)
+w16(RECS.foe1 + 0x10, 748)
+set_box(1, 748, 748, 60, 40)
+at = hp_numbers()
+check("widest numbers clear the type icons", at[1].x - 1 > game.layout.foe_bar_types.right, true)
+check("numbers clear the row under the box", at[1].y + 7 + 1 <= game.layout.foe_box[2] + game.layout.foe_box[4] + 1, true)
+fresh_doubles()
+w32(INPUT + 0x58, 0)
+set_box(5, 89, 148, 60, 52)
+at = hp_numbers()
+check("numbers clear the row under the lower box", at[1].y + 7 + 1 <= game.layout.lower_foe_box[2] + game.layout.lower_foe_box[4] + 1, true)
+for i, types in ipairs(game.layout.doubles_bar_types) do
+  check("doubles numbers clear the type icons " .. i, at[1].x - 1 > types.right, true)
+end
+
+-- The numbers lag the box's state by two frames, as the picture does, coming and going and while the bar moves
+start()
+foe_hp_singles(nil, 89)
+local function now_text()
+  local shown = hp_numbers_now()
+  return shown[1] and shown[1].text or nil
+end
+set_box(1, 89, 148, 60, 40, { hidden = true })
+now_text()
+now_text()
+now_text()
+check("box not up yet", now_text(), nil)
+set_box(1, 89, 148, 60, 40)
+check("box up, frame 1 of the state", now_text(), nil)
+check("box up, frame 2", now_text(), nil)
+check("box up, frame 3 is in the picture", now_text(), "89/148")
+set_box(1, 88, 148, 60, 40)
+check("value lags too, frame 1", now_text(), "89/148")
+check("value lags too, frame 2", now_text(), "89/148")
+check("value lags too, frame 3", now_text(), "88/148")
+set_box(1, 88, 148, 60, 40, { hidden = true })
+check("box going, still in the picture, frame 1", now_text(), "88/148")
+check("box going, still in the picture, frame 2", now_text(), "88/148")
+check("box gone from the picture", now_text(), nil)
+-- A state load or a lost chain forgets what's waiting
+set_box(1, 89, 148, 60, 40)
+now_text()
+now_text()
+check("up again", now_text(), "89/148")
+on_state_loaded()
+check("nothing right after a state load", now_text(), nil)
+check("nor the next frame", now_text(), nil)
+check("back on the third", now_text(), "89/148")
+w32(CORE, 0)
+check("nothing with no chain", now_text(), nil)
+w32(CORE, MAIN)
+check("nothing right after the chain's back", now_text(), nil)
+check("nor the next frame after it", now_text(), nil)
+check("back on the third after it", now_text(), "89/148")
+
+-- Options
+foe_hp_singles()
+start({ show_foe_hp = false })
+check("show_foe_hp off", hp_text(), nil)
+start({ show_foe_hidden = false })
+check("show_foe_hidden off hides it too", hp_text(), nil)
+start({})
+check("on by default", hp_text(), "89/148")
+-- Nothing's kept from frame to frame, so a state load starts right
+on_state_loaded()
+check("after a state load", hp_text(), "89/148")
+-- A game with no effect pointer draws none
+local saved_pointer = game.effect_pointer
+game.effect_pointer = nil
+check("no pointer for this game", hp_text(), nil)
+game.effect_pointer = saved_pointer
+end
+
+-- Damage numbers ----------------------------------------------------------------------------------------------------
+
+local CLIENT, QUEUE = 0x02290000, 0x02291000
+local CMD_DAMAGE, CMD_DAMAGE_PLURAL, CMD_GAUGE, CMD_EXP = 50, 51, 65, 69
+local ARGS_END = 0xFFFF0000
+local WHITE_NUMBER, YELLOW_NUMBER, GREEN_NUMBER = 0xFFFFFFFF, 0xFFFFE040, 0xFF60E060
+
+--- The queue from the read position on. Each item is { command, message, args... }.
+local function set_queue(command, items)
+  w32(CORE + 4, CLIENT)
+  w32(CLIENT, MAIN)
+  w32(CLIENT + 0x13C, QUEUE)
+  w32(CLIENT + 0x180, command)
+  local read = 20
+  local pos = read
+  local function put16(v)
+    w8(QUEUE + 8 + pos, v >> 8)
+    w8(QUEUE + 9 + pos, v)
+    pos = pos + 2
+  end
+  local function put32(v)
+    put16(v >> 16)
+    put16(v & 0xFFFF)
+  end
+  for _, item in ipairs(items or {}) do
+    put16(item[1])
+    if item[2] then
+      put16(item[2])
+      for i = 3, #item do put32(item[i]) end
+      put32(ARGS_END)
+    end
+  end
+  w32(QUEUE, pos)
+  w32(QUEUE + 4, read)
+end
+
+local numbers_chunk = assert(loadfile(root .. "/damage_numbers.lua"))
+local function start_numbers(options, code)
+  melon.options = options or {}
+  numbers_chunk()
+  on_load(code or "IRDO")
+end
+
+--- Runs a frame and gives back the numbers drawn: the top-layer text of each, skipping its outline
+local function number_frame()
+  commands = {}
+  on_frame_end()
+  local out = {}
+  for _, c in ipairs(commands) do
+    check("numbers are text on the top screen", c.kind == "text" and c.screen == "top", true)
+    local color = c.args[4] & 0xFFFFFFFF
+    if color & 0xFFFFFF ~= 0x101418 then
+      out[#out + 1] = { x = c.args[1], y = c.args[2], text = c.args[3], color = color, size = c.args[6] }
+    end
+  end
+  return out
+end
+
+--- A hit on a record, during that command, with that queue after it. Gives back the one new number, or nil.
+local function hit(rec, loss, command, items)
+  set_queue(command, items)
+  w16(rec + 0x10, r16(rec + 0x10) - loss)
+  local shown = number_frame()
+  return shown[#shown]
+end
+
+local function clear_numbers()
+  on_state_loaded()
+  number_frame()
+end
+
+start_numbers()
+fresh_singles()
+set_queue(CMD_GAUGE)
+check("first frame shows nothing", #number_frame(), 0)
+check("no change shows nothing", #number_frame(), 0)
+
+local plain = hit(RECS.foe1, 12, CMD_DAMAGE_PLURAL)
+check("plain hit", plain.text, "12")
+check("plain hit is white", plain.color, WHITE_NUMBER)
+check("default size", plain.size, 2)
+local anchor = game.layout.damage_numbers.singles.foes[1]
+check("number is centered on the foe's anchor", plain.x + 8, anchor[1]) -- "12" is 16 wide at size 2
+check("number starts at the foe's anchor", plain.y, anchor[2])
+local outlined = 0
+for _, c in ipairs(commands) do
+  if c.args[4] & 0xFFFFFF == 0x101418 then outlined = outlined + 1 end
+end
+check("number has an outline", outlined, 8)
+
+-- It rises, fades over the last 15 frames, and goes after 45
+local rising = number_frame()[1]
+check("number rises", rising.y < plain.y, true)
+check("number starts opaque", rising.color >> 24, 0xFF)
+local last_seen
+for _ = 3, 45 do
+  last_seen = number_frame()[1]
+end
+check("number still there on its last frame", last_seen ~= nil, true)
+check("number almost faded on its last frame", last_seen.color >> 24 < 0x20, true)
+check("number rose about 20", plain.y - last_seen.y > 18 and plain.y - last_seen.y <= 20, true)
+check("number gone after its life", #number_frame(), 0)
+
+check("crit in singles", hit(RECS.foe1, 5, CMD_DAMAGE_PLURAL, { { 90, 0x51 } }).color, YELLOW_NUMBER)
+clear_numbers()
+check("crit after effectiveness", hit(RECS.foe1, 5, CMD_DAMAGE, { { 90, 0x4E }, { 90, 0x51 } }).color, YELLOW_NUMBER)
+clear_numbers()
+check("crit message after another command is another hit", hit(RECS.foe1, 5, CMD_DAMAGE_PLURAL, { { 57 }, { 90, 0x51 } }).color, WHITE_NUMBER)
+clear_numbers()
+check("crit message after another message", hit(RECS.foe1, 5, CMD_DAMAGE_PLURAL, { { 90, 0x99 }, { 90, 0x51 } }).color, WHITE_NUMBER)
+clear_numbers()
+check("drop outside a hit isn't a crit", hit(RECS.foe1, 5, CMD_GAUGE, { { 90, 0x51 } }).color, WHITE_NUMBER)
+clear_numbers()
+
+-- A queue that doesn't look right reads as no crit, not an error
+local function broken_queue(name, breaks)
+  set_queue(CMD_DAMAGE_PLURAL, { { 90, 0x51 } })
+  breaks()
+  w16(RECS.foe1 + 0x10, r16(RECS.foe1 + 0x10) - 1)
+  local shown = number_frame()
+  check(name, shown[#shown].color, WHITE_NUMBER)
+  clear_numbers()
+  w32(CLIENT, MAIN)
+  w32(CLIENT + 0x13C, QUEUE)
+end
+broken_queue("freed client", function() w32(CLIENT, 0) end)
+broken_queue("no queue", function() w32(CLIENT + 0x13C, 0) end)
+broken_queue("read past write", function() w32(QUEUE + 4, r32(QUEUE) + 1) end)
+broken_queue("write past the end", function() w32(QUEUE, 3001) end)
+broken_queue("cut-off message", function() w32(QUEUE, 22) end)
+-- Message args that never end
+set_queue(CMD_DAMAGE_PLURAL, { { 91, 6, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }, { 90, 0x51 } })
+w16(RECS.foe1 + 0x10, r16(RECS.foe1 + 0x10) - 1)
+check("endless args", number_frame()[1].color, WHITE_NUMBER)
+clear_numbers()
+
+-- Heals
+set_queue(CMD_GAUGE)
+number_frame()
+w16(RECS.foe1 + 0x10, r16(RECS.foe1 + 0x10) + 7)
+local healed = number_frame()[1]
+check("heal text", healed.text, "7")
+check("heal is green", healed.color, GREEN_NUMBER)
+clear_numbers()
+
+-- Your side
+local my_hit = hit(RECS.me1, 3, CMD_DAMAGE_PLURAL)
+check("your side's anchor", my_hit.y, game.layout.damage_numbers.singles.mine[1][2])
+clear_numbers()
+
+-- Level-up: both rise, no heal. The command alone is enough too.
+set_queue(CMD_EXP)
+w16(RECS.me1 + 0x10, r16(RECS.me1 + 0x10) + 2)
+w16(RECS.me1 + 0x0E, r16(RECS.me1 + 0x0E) + 2)
+check("max HP change is quiet", #number_frame(), 0)
+set_queue(CMD_GAUGE)
+w16(RECS.me1 + 0x10, r16(RECS.me1 + 0x10) + 2)
+w16(RECS.me1 + 0x0E, r16(RECS.me1 + 0x0E) + 2)
+check("max HP change alone is quiet", #number_frame(), 0)
+set_queue(CMD_EXP)
+w16(RECS.me1 + 0x10, r16(RECS.me1 + 0x10) - 2)
+check("exp command is quiet", #number_frame(), 0)
+clear_numbers()
+
+-- A switch: another mon in that place, with other HP, says nothing
+set_queue(CMD_GAUGE)
+number_frame()
+set_mon(RECS.me2, 1, 183, "WAT", nil, 47, { 55 })
+w32(P, RECS.me2)
+check("switch is quiet", #number_frame(), 0)
+w16(RECS.me2 + 0x10, r16(RECS.me2 + 0x10) - 4)
+check("the new mon counts from then on", number_frame()[1].text, "4")
+w32(P, RECS.me1)
+clear_numbers()
+
+-- Crowding depends on real overlap at the text size: hits the way a multi-hit move lands them, and right after each other
+local function overlaps(shown, size)
+  local h = size * 7 + 2 - 0.001 -- touching is fine, and rounding can make it look a hair less
+  for i = 1, #shown do
+    for j = i + 1, #shown do
+      if shown[i].y < shown[j].y + h and shown[j].y < shown[i].y + h then return true end
+    end
+  end
+  return false
+end
+
+for size = 1, 3 do
+  for _, gap in ipairs({ 1, 5, 20, 34, 44 }) do
+    start_numbers({ text_size = size })
+    fresh_singles()
+    set_queue(CMD_GAUGE)
+    number_frame()
+    local clear = true
+    for _ = 1, 4 do
+      local shown = hit(RECS.foe1, 1, CMD_DAMAGE_PLURAL)
+      clear = clear and shown ~= nil
+      for _ = 1, gap do
+        clear = clear and not overlaps(number_frame(), size)
+      end
+    end
+    check("numbers clear at size " .. size .. " every " .. gap .. " frames", clear, true)
+  end
+end
+
+-- At 34 frames a number has risen 15: enough to clear size 1 with no push, not size 3. Size 2 is 16 high, so just short too.
+local function second_hit_start(size)
+  start_numbers({ text_size = size })
+  fresh_singles()
+  set_queue(CMD_GAUGE)
+  number_frame()
+  local first = hit(RECS.foe1, 1, CMD_DAMAGE_PLURAL)
+  for _ = 1, 33 do number_frame() end
+  return hit(RECS.foe1, 1, CMD_DAMAGE_PLURAL).y - first.y
+end
+check("no push when already clear", second_hit_start(1), 0)
+check("pushed down at size 2", second_hit_start(2) > 0, true)
+check("pushed further at size 3", second_hit_start(3) > second_hit_start(2), true)
+
+-- Numbers at other places don't push
+start_numbers()
+fresh_doubles()
+set_queue(CMD_GAUGE)
+number_frame()
+hit(RECS.foe1, 1, CMD_DAMAGE_PLURAL)
+check("another place doesn't push", hit(RECS.foe2, 1, CMD_DAMAGE_PLURAL).y, game.layout.damage_numbers.doubles.foes[2][2])
+start_numbers()
+fresh_singles()
+set_queue(CMD_GAUGE)
+number_frame()
+
+-- A record that goes unusable and comes back starts over, however much changed meanwhile
+local foe_species = r16(RECS.foe1 + 0x0C)
+w16(RECS.foe1 + 0x0C, 0)
+check("unusable record draws nothing", #number_frame(), 0)
+w16(RECS.foe1 + 0x10, r16(RECS.foe1 + 0x10) - 30)
+w16(RECS.foe1 + 0x0C, foe_species)
+check("no number covering the gap", #number_frame(), 0)
+check("a hit right after still shows", hit(RECS.foe1, 2, CMD_DAMAGE_PLURAL).text, "2")
+clear_numbers()
+-- The other mon isn't affected, and a hit on it in that gap shows
+w16(RECS.foe1 + 0x0C, 0)
+number_frame()
+check("hit on the other side during a gap", hit(RECS.me1, 3, CMD_DAMAGE_PLURAL).text, "3")
+w16(RECS.foe1 + 0x0C, foe_species)
+clear_numbers()
+-- A foe client that isn't there yet is a gap too
+w8(P + 0x1C + 0x18, 0)
+number_frame()
+w8(P + 0x1C + 0x18, 6)
+w16(RECS.me1 + 0x10, r16(RECS.me1 + 0x10) - 5)
+check("no number after the whole list was empty", #number_frame(), 0)
+clear_numbers()
+
+-- A state load and a lost chain clear what's live and what's known
+on_state_loaded()
+check("state load clears numbers", #number_frame(), 0)
+number_frame()
+hit(RECS.foe1, 1, CMD_GAUGE)
+on_state_loaded()
+w16(RECS.foe1 + 0x10, 40)
+check("no number from before a state load", #number_frame(), 0)
+hit(RECS.foe1, 1, CMD_GAUGE)
+w32(CORE, 0)
+check("lost chain draws nothing", #number_frame(), 0)
+w32(CORE, MAIN)
+w16(RECS.foe1 + 0x10, 20)
+check("no number from before a lost chain", #number_frame(), 0)
+
+-- Doubles: each target gets its own place and its own crit
+fresh_doubles()
+start_numbers({ text_size = 3 })
+set_queue(CMD_GAUGE)
+number_frame()
+w16(RECS.foe1 + 0x10, 80)
+w16(RECS.foe2 + 0x10, 70)
+set_queue(CMD_DAMAGE_PLURAL, { { 91, 9, 13 }, { 91, 0x180, 13 } })
+local both = number_frame()
+check("spread hits two", #both, 2)
+check("first foe isn't the crit", both[1].color, WHITE_NUMBER)
+check("second foe is the crit", both[2].color, YELLOW_NUMBER)
+check("size option", both[1].size, 3)
+check("doubles anchors", both[1].y, game.layout.damage_numbers.doubles.foes[1][2])
+check("doubles foes are apart", both[1].x ~= both[2].x, true)
+clear_numbers()
+check("crit message for the other mon only", hit(RECS.foe1, 1, CMD_DAMAGE_PLURAL, { { 91, 0x180, 13 } }).color, WHITE_NUMBER)
+clear_numbers()
+w16(RECS.foe2 + 0x10, 60)
+w16(RECS.foe1 + 0x10, 60)
+set_queue(CMD_DAMAGE_PLURAL, { { 91, 0x180, 12 }, { 91, 0x180, 13 } })
+number_frame()
+w16(RECS.foe2 + 0x10, 50)
+w16(RECS.foe1 + 0x10, 50)
+both = number_frame()
+check("both crit", both[#both].color == YELLOW_NUMBER and both[#both - 1].color == YELLOW_NUMBER, true)
+clear_numbers()
+
+-- The most it costs: both sides hit on each of 6 frames, all still live
+fresh_doubles()
+start_numbers({ text_size = 3 })
+set_queue(CMD_GAUGE)
+number_frame()
+local most_steps = 0
+for _ = 1, 6 do
+  for _, rec in ipairs({ RECS.foe1, RECS.foe2, RECS.me1, RECS.me2 }) do
+    w16(rec + 0x10, r16(rec + 0x10) - 1)
+  end
+  set_queue(CMD_DAMAGE_PLURAL, { { 91, 9, 13 }, { 91, 0x180, 13 } })
+  local steps = 0
+  debug.sethook(function() steps = steps + 1 end, "", 100)
+  number_frame()
+  debug.sethook()
+  most_steps = math.max(most_steps, steps * 100)
+end
+print(string.format("work: 24 live damage numbers %d instructions, %d commands (limits 1000000 and 4096)", most_steps, #commands))
+check("numbers stay well inside the budget", most_steps < 100000, true)
+clear_numbers()
+
+-- Multi uses the doubles places, from clients 2 and 3
+fresh_doubles()
+w32(P + 2 * 0x1C, RECS.me2)
+w8(P + 2 * 0x1C + 0x18, 6)
+w32(P + 3 * 0x1C, RECS.foe2)
+w8(P + 3 * 0x1C + 0x18, 6)
+local multi = reader.active_hp(reader.chain())
+check("multi mons", #multi, 4)
+check("multi foe 2", multi[2].id, 13)
+check("multi mine 2", multi[4].id, 1)
+check("multi slot", multi[4].slot, 2)
+
+-- A bad record is left out
+fresh_singles()
+w16(RECS.foe1 + 0x0C, 0)
+local only_mine = reader.active_hp(reader.chain())
+check("bad record left out", #only_mine, 1)
+check("the other stays", only_mine[1].id, 0)
+
+-- A disguised foe's numbers are in the disguise's HP
+local function disguised_numbers(real_hp, real_max, disguise_max)
+  start_numbers()
+  disguised_foe()
+  put_entry(0x12345678, 130, 0, false, 22, disguise_max)
+  w16(RECS.foe1 + 0x0E, real_max)
+  w16(RECS.foe1 + 0x10, real_hp)
+  set_queue(CMD_GAUGE)
+  number_frame()
+end
+
+disguised_numbers(100, 100, 300)
+check("scaled damage", hit(RECS.foe1, 10, CMD_DAMAGE_PLURAL).text, "30")
+check("scaled crit stays a crit", hit(RECS.foe1, 10, CMD_DAMAGE_PLURAL, { { 90, 0x51 } }).color, YELLOW_NUMBER)
+set_queue(CMD_GAUGE)
+w16(RECS.foe1 + 0x10, r16(RECS.foe1 + 0x10) + 20)
+local scaled_heal = number_frame()
+check("scaled heal", scaled_heal[#scaled_heal].text, "60")
+check("scaled heal is green", scaled_heal[#scaled_heal].color, GREEN_NUMBER)
+
+-- They add up to what the box lost, rounding and all
+disguised_numbers(97, 97, 300)
+local lost = 0
+for _, loss in ipairs({ 13, 7, 29, 1, 11 }) do
+  lost = lost + tonumber(hit(RECS.foe1, loss, CMD_DAMAGE_PLURAL).text)
+end
+local real_now = r16(RECS.foe1 + 0x10)
+check("numbers sum to the scaled drop", lost, 300 - ((real_now * 300 + 96) // 97))
+
+-- Smaller than the real max: a hit too small to move the scaled HP still shows 1
+disguised_numbers(700, 700, 20)
+check("at least 1", hit(RECS.foe1, 1, CMD_DAMAGE_PLURAL).text, "1")
+
+-- Unreadable: nothing for that foe, and the rest as usual
+disguised_numbers(100, 100, 300)
+w32(RECS.foe1 + 0x04, 0)
+number_frame()
+check("unreadable: no number", #number_frame(), 0)
+w16(RECS.foe1 + 0x10, 90)
+check("unreadable: nothing for a hit", #number_frame(), 0)
+check("unreadable: your side as usual", hit(RECS.me1, 3, CMD_DAMAGE_PLURAL).text, "3")
+
+-- The bit changing on the frame HP changes shows no number, either way, and the next hit counts in the new numbers
+disguised_numbers(100, 100, 300)
+w8(RECS.foe1 + 0x1B, 0)
+w16(RECS.foe1 + 0x10, 60)
+check("bit off with a hit: nothing", #number_frame(), 0)
+check("bit off, then real numbers", hit(RECS.foe1, 5, CMD_DAMAGE_PLURAL).text, "5")
+for _ = 1, 50 do number_frame() end
+w8(RECS.foe1 + 0x1B, 0x40)
+w16(RECS.foe1 + 0x10, 40)
+check("bit on with a hit: nothing", #number_frame(), 0)
+check("bit on, then the disguise's numbers", hit(RECS.foe1, 10, CMD_DAMAGE_PLURAL).text, "30")
+-- With no HP change, the scale changing alone is nothing at all
+for _ = 1, 50 do number_frame() end
+w8(RECS.foe1 + 0x1B, 0)
+check("bit off, no hit: nothing", #number_frame(), 0)
+
+-- A state load and a lost chain forget the disguise that was read, so another at the same address counts in its own max HP
+disguised_numbers(100, 100, 300)
+check("before the load: the first disguise's numbers", hit(RECS.foe1, 10, CMD_DAMAGE_PLURAL).text, "30")
+on_state_loaded()
+put_entry(0x12345678, 130, 0, false, 22, 40)
+set_queue(CMD_GAUGE)
+number_frame()
+check("after a state load: the new disguise's numbers", hit(RECS.foe1, 10, CMD_DAMAGE_PLURAL).text, "4")
+disguised_numbers(100, 100, 300)
+check("before the lost chain: the first disguise's numbers", hit(RECS.foe1, 10, CMD_DAMAGE_PLURAL).text, "30")
+w32(CORE, 0)
+number_frame()
+w32(CORE, MAIN)
+put_entry(0x12345678, 130, 0, false, 22, 40)
+set_queue(CMD_GAUGE)
+number_frame()
+check("after a lost chain: the new disguise's numbers", hit(RECS.foe1, 10, CMD_DAMAGE_PLURAL).text, "4")
+
+-- Doubles with one disguised
+start_numbers()
+fresh_doubles()
+w8(RECS.foe2 + 0x1B, 0x40)
+w32(RECS.foe2 + 0x04, ENTRY)
+put_entry(0x12345678, 130, 0, false, 22, 296)
+set_queue(CMD_GAUGE)
+number_frame()
+w16(RECS.foe1 + 0x10, r16(RECS.foe1 + 0x10) - 4)
+w16(RECS.foe2 + 0x10, r16(RECS.foe2 + 0x10) - 4)
+set_queue(CMD_DAMAGE_PLURAL)
+local two = number_frame()
+check("doubles: real foe real number", two[1].text, "4")
+check("doubles: disguised foe scaled", two[2].text, "8")
+
+-- Triples and rotation draw nothing
+start_numbers()
+fresh_doubles()
+set_queue(CMD_GAUGE)
+number_frame()
+w32(INPUT + 0x50, 2)
+w16(RECS.foe1 + 0x10, 10)
+check("triples draw nothing", #number_frame(), 0)
+
+-- Another game does nothing
+start_numbers({}, "ADAE")
+fresh_singles()
+set_queue(CMD_GAUGE)
+commands = {}
+on_frame_end()
+on_state_loaded()
+check("numbers: other game draws nothing", #commands, 0)
 
 -- The fake refuses I/O reads like the engine, and nothing above made one
 check("the fake refuses 0x04xxxxxx", pcall(r8, 0x04000000), false)

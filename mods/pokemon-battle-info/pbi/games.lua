@@ -13,14 +13,16 @@ local GEN5 = {
 
 -- Where things are on the screens, in DS pixels. Rects are x, y, w, h.
 local B2W2_LAYOUT = {
-  -- Singles: the foe's status and stat changes go under its HP box
-  foe_box = { 4, 30, 106, 22 },
+  -- Singles: the foe's status and stat changes go under its HP box, below the HP numbers
+  foe_box = { 4, 30, 106, 24 },
   foe_panel_w = 118,
-  -- Doubles: the same go under the lower foe box, one row per foe that has any, the first icon after the 1 or 2 at icons_x
-  lower_foe_box = { 6, 41, 104, 22 },
+  -- Doubles: the same go under the lower foe box and its HP numbers, one row per foe that has any, the first icon after the 1 or 2 at icons_x
+  lower_foe_box = { 6, 41, 104, 25 },
   rows_x = 1,
   rows_icons_x = 7,
   rows_limit = 140,
+  -- The foe's HP numbers, from its name box's center: where they end, at the bar's end like your box's, and their top, just under the bar
+  foe_hp = { right = 32, below = 6 },
   -- The foe's type icons on the grey part of its HP bar: where the last icon ends, just left of "HP", and the icons' top
   foe_bar_types = { right = 26.5, y = 40.5 },
   -- By foe number. foes[1] is slot 0, the upper HP box, and foes[2] the lower: docs/pokemon-battle-ram.md, "Verified in game".
@@ -44,13 +46,20 @@ local B2W2_LAYOUT = {
   pill_right = 106,
   pill_left = 14,
   strip = { 14, 40, 96, 2 },
+  -- Where damage numbers start on the top screen, the middle of the number's top edge, near each mon at the usual camera angle. The camera
+  -- pans, so these are only close. In the order of the reader's foes and mine: in doubles the upper HP box's foe stands on the right, and your
+  -- first mon on the left. Multi battles use the doubles ones.
+  damage_numbers = {
+    singles = { foes = { { 186, 62 } }, mine = { { 72, 108 } } },
+    doubles = { foes = { { 216, 50 }, { 160, 50 } }, mine = { { 38, 100 }, { 112, 128 } } },
+  },
 }
 
 local GAMES = {
   -- docs/pokemon-battle-ram.md, "Verified in game"
-  IRDO = { name = "White 2", generation = GEN5, base_pointer = 0x02000024, party_table = 0x526A8, layout = B2W2_LAYOUT },
+  IRDO = { name = "White 2", generation = GEN5, base_pointer = 0x02000024, party_table = 0x526A8, effect_pointer = 0x021F4280, layout = B2W2_LAYOUT },
   -- Black 2 is untested. The doc says it has the same layout.
-  IREO = { name = "Black 2", generation = GEN5, base_pointer = 0x02000024, party_table = 0x526A8, layout = B2W2_LAYOUT },
+  IREO = { name = "Black 2", generation = GEN5, base_pointer = 0x02000024, party_table = 0x526A8, effect_pointer = 0x021F4240, layout = B2W2_LAYOUT },
 }
 
 return GAMES

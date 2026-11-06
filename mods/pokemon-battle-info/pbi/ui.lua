@@ -549,6 +549,42 @@ function M.new(game, reader)
   local layout = game.layout
   load_icons()
 
+  -- What foe_boxes said the last two frames. A change to a box reaches the OAM the next frame and the picture the frame after that, so
+  -- drawing what it said two frames ago keeps the numbers with the box, instead of floating there before it appears.
+  local boxes_1_ago, boxes_2_ago
+
+  --- Forgets the boxes of a battle that's gone or a state that's been replaced
+  function self.reset()
+    boxes_1_ago, boxes_2_ago = nil, nil
+  end
+
+  --- Whether what's known now rules out a box that's waiting: its foe has a disguise that can't be read, or it was read as its real self before
+  --- the disguise went on, so it would show real numbers
+  local function ruled_out(boxes, waiting)
+    for i = 1, #boxes do
+      local now = boxes[i]
+      if now.slot == waiting.slot then
+        return now.unreadable or (now.disguised and not waiting.disguised)
+      end
+    end
+    return false
+  end
+
+  --- The foe's HP as numbers on each box in the list, from the reader's foe_boxes, the way your own box shows yours. Call it every frame.
+  function self.foe_hp(boxes)
+    local spot = layout.foe_hp
+    local showing = boxes_2_ago
+    boxes_2_ago, boxes_1_ago = boxes_1_ago, boxes
+    if not showing then return end
+    for i = 1, #showing do
+      local box = showing[i]
+      if not box.hidden and not ruled_out(boxes, box) then
+        local text = box.hp .. "/" .. box.max_hp
+        draw_text(TOP, { text = text, fg = WHITE, outline = true }, box.x + spot.right - text_width(text), box.y + spot.below)
+      end
+    end
+  end
+
   --- screen says where the bottom screen's rows go: the action menu has less room than the move menu and target select
   function self.panels(battle, show_hidden, screen)
     local attacker = acting_mon(battle)

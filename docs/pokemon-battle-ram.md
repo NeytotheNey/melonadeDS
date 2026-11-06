@@ -86,7 +86,7 @@ Move slot: true move ID +0, PP +2, max PP +3; in-use move ID +6, PP +8, max PP +
 
 Only needed for Illusion. [X] 220 bytes: PID u32 at 0, flags u16 at 4, checksum u16 at 6, four shuffled 32-byte blocks at `0x08`, battle stats at `0x88`.
 
-Cipher, one u16 at a time: `key = key * 0x41C64E6D + 0x6073` (mod 2^32), then `word ^= key >> 16`. The key advances before the first word. Blocks start with key = checksum, the battle section with key = PID. Skip the XOR if flag bit 0 (party) or bit 1 (box) says it's already decrypted. [I for the skip]
+Cipher, one u16 at a time: `key = key * 0x41C64E6D + 0x6073` (mod 2^32), then `word ^= key >> 16`. The key advances before the first word. Blocks start with key = checksum, the battle section with key = PID. For the blocks, skip the XOR if flag bit 0 (party) or bit 1 (box) says it's already decrypted. For the battle section, only bit 0 means plain. [Blocks I for the skip; battle section decomp, `PML_PkmDecrypt`] Max HP is at 0x90, word 4 of the battle section, so 5 key advances from the PID. It matched the record on 15 of 15 mons in game.
 
 Block order: `index = ((pid & 0x3E000) >> 13) % 24`, then by index:
 
@@ -173,5 +173,25 @@ Inside a move button the name is centered at about y+11 to y+23, type and PP at 
 - The disguise's ability is in decrypted block A at +0xD.
 - A faint clears the Illusion bit on the client copy with no break animation when the foe wasn't hit directly (`BattleClient_ScFaint`), so the real species can show after poison, burn or recoil. Don't show a fainted foe's species.
 - In ROM (`IRDO`): move data is NARC `a/0/2/1`, with the sound flag at bit 8 of the flag word at `0x20`. Personal data, including form types, is `a/0/1/6`.
+
+**Damage, heals and crits** (decomp, then run on `melonade_poke` with the software renderer):
+- The client's command queue: `client = read32(core + 4)`, and `read32(client)` must equal `main`. `queue = read32(client + 0x13C)` holds the write position (u32 at +0), the read position (u32 at +4) and the command bytes (at +8, values big-endian). `read32(client + 0x180)` is the command playing now, with its args at `client + 0x140`.
+- A hit: record HP drops while the command playing is 51 (`SC_DAMAGE_PLURAL`) or 50 (`SC_DAMAGE`). The bar starts one frame later and takes about 1.2 frames per HP at 43 max HP or less. The next command starts at +34.
+- A crit on that hit: read on from the read position. Each command is a u16 ID. A message command (90, 91) then has a u16 message ID, then u32 args up to `0xFFFF0000`. Command 90 with message `0x51` is a crit in singles. Command 91 with message `0x180` and arg0 equal to the mon ID is a crit in doubles. Skip effectiveness messages (90: `0x4E`, `0x4F`; 91: 6, 9, `0xC`, `0xF`, `0x12`, `0x15`) and other mons' `0x180`, and stop at anything else. The queue holds the whole turn, so never scan past that point: it spoils the turn. In forced-crit runs this made 0 wrong calls on 93 hits (43 crits): 30 hits in singles, 63 in doubles, one target of a spread move critted and the other not. Those runs compared it with the queue's own messages. One natural crit was also seen on screen as "A critical hit!".
+- Heals raise record HP during command 65 (`SC_UPDATE_HP_GAUGE`), which also carries recoil, Substitute's cost, Leech Seed and Toxic. Use the HP difference, since the queue's value isn't clamped (Potion's says 20 when the real heal was 4).
+- Level-up raises HP and max HP on the same frame during command 69, so it looks like a heal unless filtered. A switch swaps pointers during `SC_SEND_OUT` while HP and mon ID stay put, so track by mon ID.
+- Hits on a Substitute don't change HP, and `rec+0x1F2` only changes on creation and break, so they can't show a damage number.
+- Which side each doubles slot stands on, from single-target hits: foe slot 0 (the upper HP box) is on the right and foe slot 1 on the left. Your slot 0 is on the left and slot 1 on the right.
+- Not run: real Leftovers, natural confusion damage, OHKO moves, a foe sending out its next mon, bars above 43 max HP, and the phone.
+
+**HP boxes** (decomp, then logged on `melonade_poke`):
+- `effect = read32(0x021F4280)`, and `effect+0x1E4` must equal `main`. `gauge = read32(effect+0x1A4)`. Black 2's address is `0x021F4240`, from the decomp's symbols and not run.
+- One entry per view: `gauge + 0x40 + view*0x84`. The foe views are 1 in singles, and 3 and 5 for foe slots 0 and 1 in doubles. The name actor pointer is at +0, the bar actor pointer at +8, and the box data at +0x40. Actor x and y are at `0x0C` and `0x0E`.
+- On screen means `shown` (bit 3 of box+0x30), plus the visible bit (bit 26 of actor+0x60) on both actors. Box style has to be 0 and its side 1.
+- The HP the box shows: box+8 while not moving (bit 0 of box+0x30 clear). While moving: box+0x10, in 1/256ths below 48 max HP and rounded up on a drain, and whole HP at 48 max HP and up. `0x80000000` means it hasn't started. The delta is at box+0x28. A port of the game's stepping matched this over every drain and heal up to 60 max HP, and samples up to 714.
+- The box's state reaches the picture 2 frames late, so anything drawn over a box has to use what was read 2 frames ago.
+- `main+0x460` counts 0 to -16 during the fade when a battle ends, while the chain and boxes are still live. Non-zero means hide. Battle Video quit and chapter skip use a different fade this doesn't catch (decomp, not run).
+- Which side doubles foes stand on doesn't change this: HP, max HP and position all come from the same box.
+- Not run: a foe with 48+ max HP, a real Illusion, losing a battle, catching a mon, and the phone.
 
 **Not run:** freeze, burn, poison, badly poisoned and confusion from a real battle (sleep has been seen); other stat stages; a foe sending out its next mon; Transform and a real Illusion (bit 6 of `0x1B` matches the decomp but no real Zoroark has been run); triples, rotation, multi and link battles; capture, level-up and evolution screens; other languages; Black 2. Encore and disabled moves are inferred to still open `screen == 2`.

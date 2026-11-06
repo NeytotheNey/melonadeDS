@@ -3,13 +3,14 @@
 -- option: show_move_tags type=toggle default=true label="Show effectiveness on the move buttons"
 -- option: card_button type=choice values=L,R,X,Y,SELECT default=L label="Hold this button for the full card"
 -- option: show_foe_hidden type=toggle default=true label="Show foe's ability and exact HP"
+-- option: show_foe_hp type=toggle default=true label="Show the foe's HP numbers on its HP box"
 
 local games = require("pbi.games")
 
 local reader, ui
 local armed = false -- nothing shows until the first menu of a battle
 local card_mask = 0
-local show_tags, show_move_tags, show_foe_hidden = true, true, true
+local show_tags, show_move_tags, show_foe_hidden, show_foe_hp = true, true, true, true
 
 function on_load(game_code)
   local game = games[game_code]
@@ -21,6 +22,7 @@ function on_load(game_code)
   show_tags = options.show_tags ~= false
   show_move_tags = options.show_move_tags ~= false
   show_foe_hidden = options.show_foe_hidden ~= false
+  show_foe_hp = show_foe_hidden and options.show_foe_hp ~= false
   card_mask = melon.KEY[options.card_button] or melon.KEY.L
   reader = require(game.generation.reader).new(game)
   ui = require("pbi.ui").new(game, reader)
@@ -29,6 +31,7 @@ end
 local function reset()
   armed = false
   if reader then reader.reset() end
+  if ui then ui.reset() end
 end
 
 function on_state_loaded()
@@ -42,13 +45,16 @@ function on_frame_end()
     reset()
     return
   end
+  -- Triples and rotation have no room for these, and weren't tested. The card still works.
+  local small_rule = ctx.rule < 2
+  -- These follow the game's own HP boxes, so they don't wait for a menu like the rest
+  if show_foe_hp and small_rule then ui.foe_hp(reader.foe_boxes(ctx)) end
+
   local screen = ctx.screen
   -- The intro is all screen 0. Any menu arms it, so a save state on the move screen shows tags right away.
   if screen >= 1 and screen <= 4 then armed = true end
   if not armed then return end
 
-  -- Triples and rotation have no room for these, and weren't tested. The card still works.
-  local small_rule = ctx.rule < 2
   local want_card = melon.input.held() & card_mask ~= 0
   local want_panels = show_tags and small_rule and not want_card and screen >= 1 and screen <= 3
   local want_tags = show_move_tags and small_rule and screen == 2 and ctx.busy == 0 and ctx.pressed == -1
