@@ -79,7 +79,7 @@ Overrides apply(GPU& gpu)
         gpu.GPU3D.SetVertexIdLogging(std::clamp(atoi(value), 0, 2));
 
     if (read("halfcam", value))
-        gpu.GPU3D.SetHalfCamera(std::clamp(atoi(value), 0, 3));
+        gpu.GPU3D.SetHalfCamera(std::clamp(atoi(value), 0, 5));
 
     if (read("hirescap", value))
     {
