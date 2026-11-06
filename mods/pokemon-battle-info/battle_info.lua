@@ -1,5 +1,5 @@
 -- description: Shows types, weaknesses and move effectiveness during Pokemon White 2 battles. Reads only.
--- option: show_tags type=toggle default=true label="Show panels by the HP boxes"
+-- option: show_tags type=toggle default=true label="Show foe info by its HP box and on the bottom screen"
 -- option: show_move_tags type=toggle default=true label="Show effectiveness on the move buttons"
 -- option: card_button type=choice values=L,R,X,Y,SELECT default=L label="Hold this button for the full card"
 -- option: show_foe_hidden type=toggle default=true label="Show foe's ability and exact HP"
@@ -56,7 +56,7 @@ function on_frame_end()
 
   local battle = reader.battle(ctx)
   if not battle then return end
-  if want_panels then ui.panels(battle, show_foe_hidden) end
+  if want_panels then ui.panels(battle, show_foe_hidden, screen) end
   if want_tags then ui.move_tags(battle, show_foe_hidden) end
   if want_card then ui.card(battle, show_foe_hidden) end
 end

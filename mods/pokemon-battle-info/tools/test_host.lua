@@ -601,6 +601,7 @@ check("roost applies to the disguise's types", battle().foes[1].types[1], "NOR")
 
 -- Drawing -----------------------------------------------------------------------------------------------------------
 
+local font = require("pbi.font")
 local icon_at = {}
 for name, rect in pairs(require("pbi.data_icons")) do
   icon_at[rect[1] .. "," .. rect[2]] = name
@@ -625,24 +626,72 @@ local function strips()
   return n
 end
 
---- What's on the top screen in draw order: text, without its outline, and icon names
-local function top_view()
+--- Everything on a screen in draw order: text, without its outline, and icons, each with its name, x and y
+local function draws(screen)
   local out = {}
   for _, c in ipairs(commands) do
-    if c.screen == "top" and c.kind == "text" and c.args[4] ~= DARK then
-      out[#out + 1] = c.args[3]
-    elseif c.screen == "top" and c.kind == "image" then
+    if c.screen == screen and c.kind == "text" and c.args[4] ~= DARK then
+      out[#out + 1] = { name = c.args[3], x = c.args[1], y = c.args[2], color = c.args[4] }
+    elseif c.screen == screen and c.kind == "image" then
       local src = c.args[4].src
-      out[#out + 1] = icon_at[src[1] .. "," .. src[2]] or "?icon"
+      out[#out + 1] = { name = icon_at[src[1] .. "," .. src[2]] or "?icon", x = c.args[1], y = c.args[2], w = c.args[4].w, icon = true }
+    end
+  end
+  return out
+end
+
+local function view(screen)
+  local out = {}
+  for _, d in ipairs(draws(screen)) do
+    out[#out + 1] = d.name
+  end
+  return table.concat(out, " ")
+end
+
+local function top_view()
+  return view("top")
+end
+
+local function bottom_view()
+  return view("bottom")
+end
+
+--- The first draw with that name on a screen
+local function drawn(screen, name)
+  for _, d in ipairs(draws(screen)) do
+    if d.name == name then return d end
+  end
+  return {}
+end
+
+--- Where a draw ends on the right, whether it's an icon or text
+local function right_edge(d)
+  if not d.x then return -1 end
+  if d.icon then return d.x + d.w end
+  local w = 0
+  for i = 1, #d.name do
+    w = w + (font[d.name:byte(i) - 31] or 12)
+  end
+  return d.x + w / 2
+end
+
+--- The types listed under a marker in a view with one foe's rows
+local function under_marker(text, marker)
+  local out, on = {}, false
+  for word in text:gmatch("%S+") do
+    if word:match("^x[%d%.]+$") then
+      on = word == marker
+    elseif on then
+      out[#out + 1] = word
     end
   end
   return table.concat(out, " ")
 end
 
-local function top_rects()
+local function rects(screen)
   local n = 0
   for _, c in ipairs(commands) do
-    if c.screen == "top" and c.kind == "rect" then n = n + 1 end
+    if c.screen == screen and c.kind == "rect" then n = n + 1 end
   end
   return n
 end
@@ -658,63 +707,145 @@ local function no_top_past_right_edge()
   end
 end
 
--- Panels: icons, no background, approved row order
+local ACTION_MENU, MOVE_MENU, TARGET_SELECT = 1, 2, 3
+
+-- Panels: icons, no background. Only the foe's, types on its bar and the rest on the bottom screen.
 fresh_singles()
 commands = {}
-ui.panels(battle(), true)
-check("panel view", top_view(), "WAT FLY x4 ELE x2 ROC x.5 FIR WAT FIG BUG STE x0 GRO FIR FIG x2 WAT GRO FLY PSY")
-check("panels have no background", top_rects(), 0)
+ui.panels(battle(), true, MOVE_MENU)
+check("panel top", top_view(), "WAT FLY")
+check("panel bottom", bottom_view(), "x4 ELE x2 ROC x.5 FIR WAT FIG BUG STE x0 GRO")
+check("panels have no background", rects("top") + rects("bottom"), 0)
 for _, c in ipairs(commands) do
   if c.kind == "image" then
     check("icons are one image pixel per overlay pixel", c.args[4].scale, 0.5)
   end
 end
--- Row positions: foe panel from x=4, y=53, 10 apart; your panel ends at y=111 at x=142
-local first_foe, last_mine = commands[1], commands[#commands]
-check("foe panel x", first_foe.args[1], 4)
-check("foe panel y", first_foe.args[2], 53)
-local my_first
-for _, c in ipairs(commands) do
-  if c.args[1] == 142 then my_first = my_first or c end
+-- Types end just left of "HP", and one type sits next to it
+check("bar type 1 x", drawn("top", "WAT").x, 7.5)
+check("bar type 2 x", drawn("top", "FLY").x, 17.5)
+check("bar types y", drawn("top", "FLY").y, 40.5)
+-- Bottom rows: weak, resist, immune, 10 apart from y=146 on the move menu and target select, from y=88 on the action menu
+for _, screen in ipairs({ MOVE_MENU, TARGET_SELECT }) do
+  commands = {}
+  ui.panels(battle(), true, screen)
+  check("weak row", drawn("bottom", "x4").x .. "," .. drawn("bottom", "x4").y, "3,146")
+  check("resist row", drawn("bottom", "x.5").x .. "," .. drawn("bottom", "x.5").y, "3,156")
+  check("immune row", drawn("bottom", "x0").x .. "," .. drawn("bottom", "x0").y, "3,166")
 end
-check("your panel x", my_first.args[1], 142)
-check("your panel top", my_first.args[2], 92)
-check("your panel bottom", last_mine.args[2] + 9, 111)
+commands = {}
+ui.panels(battle(), true, ACTION_MENU)
+check("action weak row", drawn("bottom", "x4").x .. "," .. drawn("bottom", "x4").y, "3,88")
+check("action resist row", drawn("bottom", "x.5").y, 98)
+check("action immune row", drawn("bottom", "x0").y, 108)
 
--- x4 and x2 are separate groups on your panel and in the doubles rows
+-- A single type, and empty rows get skipped: Normal has no resists
+fresh_singles()
+set_mon(RECS.foe1, 12, 19, "NOR", nil, 22)
+commands = {}
+ui.panels(battle(), true, MOVE_MENU)
+check("one type sits next to HP", drawn("top", "NOR").x, 17.5)
+check("no resist row", bottom_view(), "x2 FIG x0 GHO")
+check("immune moves up", drawn("bottom", "x0").y, 156)
+
+-- Under the HP box: nothing without a status or stat change. ATK and DEF are an icon and a number, the rest stay text.
+local WARM_COLOR, COOL_COLOR = 0xFFFFB347, 0xFF62B6FF
+local function stages_and_burn(rec)
+  w8(rec + 0xFC, 5)
+  w8(rec + 0xFD, 7)
+  w8(rec + 0xFE, 7)
+  set_condition(rec, 4, 1)
+end
+fresh_singles()
+commands = {}
+ui.panels(battle(), true, ACTION_MENU)
+for _, d in ipairs(draws("top")) do
+  check("nothing but types without a state: " .. d.name, d.y, 40.5)
+end
+stages_and_burn(RECS.foe1)
+commands = {}
+ui.panels(battle(), true, MOVE_MENU)
+check("state row", top_view(), "WAT FLY BRN ATK -1 DEF +1 SPA+1")
+check("state row x", drawn("top", "BRN").x, 4)
+check("state row y", drawn("top", "BRN").y, 53)
+check("stat icon gap", drawn("top", "ATK").x - drawn("top", "BRN").x, 9 + 1 + 2)
+check("number after its icon", drawn("top", "-1").x, drawn("top", "ATK").x + 9.5)
+check("number on the icon's line", drawn("top", "-1").y, drawn("top", "ATK").y + 1)
+check("down is cool", drawn("top", "-1").color, COOL_COLOR)
+check("up is warm", drawn("top", "+1").color, WARM_COLOR)
+commands = {}
+ui.card(battle(), true)
+check("card has the icons and numbers", top_view():find("ATK -1 DEF +1 SPA+1", 1, true) ~= nil, true)
+check("card keeps the number on the icon's line", drawn("top", "-1").y, drawn("top", "ATK").y + 1)
+check("card's stages end at its right edge", right_edge(drawn("top", "SPA+1")), 248)
+-- All seven take their own row, and still end there
+fresh_singles()
+for i = 0, 6 do w8(RECS.foe1 + 0xFC + i, i % 2 == 0 and 8 or 3) end
+commands = {}
+ui.card(battle(), true)
+check("card's full row of stages ends at its right edge", right_edge(drawn("top", "EVA+2")), 248)
+
+-- An icon never gets left without its number, and each pair counts as one for +N, however narrow the row is, down to what a +N needs
+local all_ui = setmetatable({ foe_panel_w = 0 }, { __index = game.layout })
+local narrow_ui = require("pbi.ui").new(setmetatable({ layout = all_ui }, { __index = game }), reader)
+for width = 12, 100 do
+  all_ui.foe_panel_w = width
+  fresh_singles()
+  w8(RECS.foe1 + 0xFC, 8)
+  w8(RECS.foe1 + 0xFD, 3)
+  w8(RECS.foe1 + 0xFE, 8)
+  commands = {}
+  narrow_ui.panels(battle(), true, MOVE_MENU)
+  local under = {}
+  for _, d in ipairs(draws("top")) do
+    if d.y >= 53 then under[#under + 1] = d.name end
+  end
+  local shown, more = 0, 0
+  for i, name in ipairs(under) do
+    if name == "ATK" then check("atk has its number, width " .. width, under[i + 1], "+2") end
+    if name == "DEF" then check("def has its number, width " .. width, under[i + 1], "-3") end
+    if name == "ATK" or name == "DEF" or name == "SPA+2" then shown = shown + 1 end
+    -- A +N is the last thing on the row, and it isn't ATK's own number
+    if i == #under and under[i - 1] ~= "ATK" and name:match("^%+%d+$") then more = tonumber(name:sub(2)) end
+  end
+  check("stat changes add up, width " .. width, shown + more, 3)
+  check("the row stays in its width, width " .. width, (function()
+    for _, d in ipairs(draws("top")) do
+      if d.y >= 53 and right_edge(d) > 4 + width then return false end
+    end
+    return true
+  end)(), true)
+end
+
+-- Your rows are only in the card now. x4 and x2 are separate groups.
 fresh_singles()
 set_mon(RECS.me1, 0, 460, "GRA", "ICE", 117, { EMBER })
 commands = {}
-ui.panels(battle(), true)
+ui.card(battle(), true)
 check("your x4 and x2 are separate", top_view():find("x4 FIR x2 FIG", 1, true) ~= nil, true)
 check("your x2 group is whole", top_view():find("x2 FIG POI FLY BUG ROC STE", 1, true) ~= nil, true)
 no_top_past_right_edge()
 
--- Your ability counts in your rows, unless a shown foe's Mold Breaker bypasses it
-fresh_singles()
-set_mon(RECS.me1, 0, 479, "ELE", "GHO", LEVITATE, { EMBER })
-set_mon(RECS.foe1, 12, 130, "WAT", "FLY", 22)
-commands = {}
-ui.panels(battle(), true)
-local levitating = top_view()
-check("your levitate row", levitating:match("ELE GHO (.*)$"):find("GRO", 1, true), nil)
-set_mon(RECS.foe1, 12, 130, "WAT", "FLY", MOLD)
-commands = {}
-ui.panels(battle(), true)
-check("shown mold breaker bypasses your levitate", top_view():match("ELE GHO (.*)$"):find("GRO", 1, true) ~= nil, true)
-commands = {}
-ui.panels(battle(), false)
-check("hidden mold breaker doesn't", top_view():match("ELE GHO (.*)$"):find("GRO", 1, true), nil)
--- A foe's Scrappy counts in your rows like its Mold Breaker family, only when foe abilities are shown. Its Tinted Lens stays out.
-set_mon(RECS.me1, 0, 94, "GHO", "POI", 26)
-set_mon(RECS.foe1, 12, 130, "NOR", nil, SCRAPPY)
 local function your_immune_row(show)
   commands = {}
   ui.card(battle(), show)
   local section = top_view():match("YOU .*$")
   return section:match("IMMUNE (.-) STRONG")
 end
+
+-- Your ability counts in your rows, unless a shown foe's Mold Breaker bypasses it
+fresh_singles()
+set_mon(RECS.me1, 0, 479, "ELE", "GHO", LEVITATE, { EMBER })
+set_mon(RECS.foe1, 12, 130, "WAT", "FLY", 22)
+check("your levitate row", your_immune_row(true), "NOR FIG GRO")
+set_mon(RECS.foe1, 12, 130, "WAT", "FLY", MOLD)
+check("shown mold breaker bypasses your levitate", your_immune_row(true), "NOR FIG")
+check("hidden mold breaker doesn't", your_immune_row(false), "NOR FIG GRO")
+-- A foe's Scrappy counts in your rows like its Mold Breaker family, only when foe abilities are shown. Its Tinted Lens stays out.
+set_mon(RECS.me1, 0, 94, "GHO", "POI", 26)
+set_mon(RECS.foe1, 12, 130, "NOR", nil, SCRAPPY)
 check("shown scrappy takes your ghost immunities off", your_immune_row(true), "GRO")
+
 check("hidden scrappy doesn't", your_immune_row(false), "NOR FIG GRO")
 set_mon(RECS.foe1, 12, 130, "NOR", nil, TINTED)
 check("foe tinted lens stays out", your_immune_row(true), "NOR FIG GRO")
@@ -791,8 +922,9 @@ commands = {}
 ui.move_tags(battle(), true)
 check("disguised tags use the disguise's types", pills(), "x.5 x0 ?")
 commands = {}
-ui.panels(battle(), true)
-check("disguised panel", top_view():sub(1, 7), "WAT FLY")
+ui.panels(battle(), true, MOVE_MENU)
+check("disguised panel", top_view(), "WAT FLY")
+check("disguised bottom rows use the disguise's types", bottom_view():sub(1, 6), "x4 ELE")
 commands = {}
 ui.card(battle(), true)
 check("disguised card shows the disguise's name", top_view():find("Gyarados Lv42", 1, true) ~= nil, true)
@@ -805,8 +937,8 @@ check("disguised card has no ???", top_view():find("???", 1, true), nil)
 local function foe_views(show)
   local bt = battle()
   commands = {}
-  ui.panels(bt, show)
-  local panel = top_view()
+  ui.panels(bt, show, MOVE_MENU)
+  local panel = top_view() .. " | " .. bottom_view()
   commands = {}
   ui.move_tags(bt, show)
   local tags = pills()
@@ -846,6 +978,13 @@ check("disguise's levitate on the pills", pills(), "x1 x0 ?")
 commands = {}
 ui.move_tags(battle(), false)
 check("disguise's levitate hidden", pills(), "x1 x2 ?")
+commands = {}
+ui.panels(battle(), true, MOVE_MENU)
+check("disguise's levitate on the rows", under_marker(bottom_view(), "x0"), "NOR FIG GRO")
+commands = {}
+ui.panels(battle(), false, MOVE_MENU)
+check("disguise's levitate hidden from the rows", under_marker(bottom_view(), "x2"), "GRO GHO DAR")
+check("disguise's levitate hidden from the x0 row", under_marker(bottom_view(), "x0"), "NOR FIG")
 
 -- Disguise that can't be read: nothing about that foe, and no ??? anywhere
 disguised_foe()
@@ -853,8 +992,8 @@ commands = {}
 ui.move_tags(battle(), true)
 check("no info: no pills", pills(), "")
 commands = {}
-ui.panels(battle(), true)
-check("no info: no foe panel", top_view():sub(1, 3), "FIR")
+ui.panels(battle(), true, MOVE_MENU)
+check("no info: no panels", #commands, 0)
 commands = {}
 ui.card(battle(), true)
 check("no info: only your section", top_view():sub(1, 3), "YOU")
@@ -869,21 +1008,91 @@ local function fresh_doubles()
   w32(P + 0x1C + 4, RECS.foe2)
 end
 
+-- The bottom rows count the foe's ability only when it's shown, and your own ability always. Rotom with Levitate.
+for _, doubles in ipairs({ false, true }) do
+  local name = doubles and "doubles " or "singles "
+  local function foe_rows(show)
+    commands = {}
+    ui.panels(battle(), show, MOVE_MENU)
+    return doubles and bottom_view():match("^1 (.-) 2 ") or bottom_view()
+  end
+  local setup = doubles and fresh_doubles or fresh_singles
+  setup()
+  set_mon(RECS.foe1, 12, 479, "ELE", "GHO", LEVITATE)
+  check(name .. "shown levitate is immune", under_marker(foe_rows(true), "x0"), "NOR FIG GRO")
+  check(name .. "shown levitate isn't weak", under_marker(foe_rows(true), "x2"), "GHO DAR")
+  check(name .. "hidden levitate is weak", under_marker(foe_rows(false), "x2"), "GRO GHO DAR")
+  check(name .. "hidden levitate isn't immune", under_marker(foe_rows(false), "x0"), "NOR FIG")
+  w16(RECS.me1 + 0x13C, MOLD)
+  check(name .. "your mold breaker takes it off x0", under_marker(foe_rows(true), "x0"), "NOR FIG")
+  check(name .. "your mold breaker puts it on x2", under_marker(foe_rows(true), "x2"), "GRO GHO DAR")
+end
+
 fresh_doubles()
 commands = {}
 ui.move_tags(battle(), true)
 check("doubles tags", pills(), "1x.5 2x2 1x0 2x2 1? 2?")
 check("doubles no strips", strips(), 0)
 commands = {}
-ui.panels(battle(), true)
-check("doubles rows", top_view(), "1 WAT FLY x4 ELE x2 ROC 2 GRO STE x2 FIR WAT FIG GRO")
-check("doubles rows have no background", top_rects(), 0)
-local row_y = {}
-for _, c in ipairs(commands) do
-  if c.kind == "image" then row_y[c.args[2]] = true end
+ui.panels(battle(), true, MOVE_MENU)
+check("doubles top without a state", top_view(), "WAT FLY GRO STE")
+check("doubles bottom", bottom_view(), "1 x4 ELE x2 ROC x.5 FIR WAT FIG BUG STE x0 GRO 2 x2 FIR WAT FIG GRO x.25 ROC x.5 NOR FLY PSY BUG GHO DRA DAR STE x0 ELE POI")
+check("doubles have no background", rects("top") + rects("bottom"), 0)
+-- foes[1] owns the upper box and foes[2] the lower, like the 1 and 2 on the move pills
+check("foe 1 bar type x", drawn("top", "WAT").x, 11.5)
+check("foe 1 bar type ends", drawn("top", "FLY").x + 9, 30.5)
+check("foe 1 bar y", drawn("top", "FLY").y, 29)
+check("foe 2 bar type ends", drawn("top", "STE").x + 9, 26.5)
+check("foe 2 bar y", drawn("top", "STE").y, 53)
+-- Each foe: its number at x=3, weak from x=10, the row below it with resist and immune together
+local function check_doubles_spots(name, y1, y2)
+  local foe1_rows = {}
+  for _, d in ipairs(draws("bottom")) do
+    if d.name == "1" or d.name == "2" then
+      check(name .. " number " .. d.name .. " x", d.x, 3)
+      check(name .. " number " .. d.name .. " y", d.y, (d.name == "1" and y1 or y2) + 1)
+    elseif d.icon then
+      foe1_rows[d.y] = true
+      check(name .. " nothing left of the column: " .. d.name, d.x >= 10, true)
+    end
+  end
+  check(name .. " foe 1 weak row", foe1_rows[y1], true)
+  check(name .. " foe 1 second row", foe1_rows[y1 + 10] or foe1_rows[y1 + 20], true)
+  check(name .. " foe 2 weak row", foe1_rows[y2], true)
+  check(name .. " foe 2 second row", foe1_rows[y2 + 10] or foe1_rows[y2 + 20], true)
 end
-check("doubles row 1 at 64", row_y[64], true)
-check("doubles row 2 at 74", row_y[74], true)
+check_doubles_spots("move menu", 146, 168)
+check("doubles resist row", drawn("bottom", "x.5").y, 156)
+check("doubles immune shares the resist row", drawn("bottom", "x0").y, 156)
+commands = {}
+ui.panels(battle(), true, TARGET_SELECT)
+check_doubles_spots("target select", 146, 168)
+commands = {}
+ui.panels(battle(), true, ACTION_MENU)
+check_doubles_spots("action menu", 40, 88)
+for _, d in ipairs(draws("bottom")) do
+  if d.icon then check("action menu stays in its column: " .. d.name, d.x + d.w <= 79, true) end
+end
+
+-- Under the HP boxes: only a foe with a state gets a row, so a single row moves up to y=64
+fresh_doubles()
+w8(RECS.foe2 + 0xFD, 4)
+set_condition(RECS.foe2, 2, 1)
+commands = {}
+ui.panels(battle(), true, MOVE_MENU)
+check("only foe 2 has a row", top_view(), "WAT FLY GRO STE 2 SLP DEF -2")
+check("its number", drawn("top", "2").x, 1)
+check("its first icon", drawn("top", "SLP").x, 7)
+check("its row moves up", drawn("top", "SLP").y, 64)
+fresh_doubles()
+stages_and_burn(RECS.foe1)
+w8(RECS.foe2 + 0xFD, 4)
+commands = {}
+ui.panels(battle(), true, MOVE_MENU)
+check("both foes have a row", top_view(), "WAT FLY 1 BRN ATK -1 DEF +1 SPA+1 GRO STE 2 DEF -2")
+check("row 1 at 64", drawn("top", "BRN").y, 64)
+check("row 2 at 74", drawn("top", "-2").y, 75)
+check("stages alone start at the column", drawn("top", "DEF").x, 7 + 12 + 19.5 + 2)
 
 fresh_doubles()
 w16(RECS.foe1 + 0x10, 0)
@@ -891,8 +1100,13 @@ commands = {}
 ui.move_tags(battle(), true)
 check("fainted foe has no pill", pills(), "2x2 2x2 2?")
 commands = {}
-ui.panels(battle(), true)
-check("fainted foe has no row", top_view():sub(1, 1), "2")
+ui.panels(battle(), true, MOVE_MENU)
+check("fainted foe has no bar types", top_view(), "GRO STE")
+check("fainted foe has no rows", bottom_view():sub(1, 1), "2")
+check("the other foe stays in its place", drawn("bottom", "x2").y, 168)
+commands = {}
+ui.panels(battle(), true, ACTION_MENU)
+check("the other foe stays in its place, action menu", drawn("bottom", "x2").y, 88)
 commands = {}
 ui.card(battle(), true)
 check("fainted foe in doubles has no name", top_view():sub(1, 15), "FOE 1 FNT FOE 2")
@@ -909,8 +1123,8 @@ check("fainted disguised foe, no species", top_view():find("Zoroark", 1, true), 
 check("fainted disguised foe, no ability", top_view():find("Illusion", 1, true), nil)
 check("fainted disguised foe, no HP", top_view():find("0/148", 1, true), nil)
 commands = {}
-ui.panels(battle(), true)
-check("fainted disguised foe, no panel", top_view():find("DAR", 1, true), nil)
+ui.panels(battle(), true, MOVE_MENU)
+check("fainted disguised foe, no panel", #commands, 0)
 commands = {}
 ui.move_tags(battle(), true)
 check("fainted disguised foe, no pills", pills(), "")
@@ -971,8 +1185,8 @@ check("3 clients with a second foe are multi", three_foes.multi, true)
 check("3 clients with a second foe, foe 2 from client 3", three_foes.foes[2].rec, FOE3)
 check("3 clients with a second foe, your second stays yours", three_foes.mine[2].rec, RECS.me2)
 commands = {}
-ui.panels(three_foes, true)
-check("3 clients draw doubles rows", top_view():sub(1, 1), "1")
+ui.panels(three_foes, true, MOVE_MENU)
+check("3 clients draw doubles rows", bottom_view():sub(1, 1), "1")
 commands = {}
 ui.card(three_foes, true)
 check("3 clients draw a card", #commands > 0, true)
@@ -1072,7 +1286,7 @@ set_condition(RECS.foe1, 6, 1)
 local i_full, c_full = worst(function()
   reader.reset()
   local bt = battle()
-  ui.panels(bt, true)
+  ui.panels(bt, true, MOVE_MENU)
   ui.move_tags(bt, true)
   ui.card(bt, true)
 end)
@@ -1082,34 +1296,92 @@ print(string.format("work: triple card %d instructions, %d commands; full double
 check("full frame budget", i_full < 100000, true)
 check("full frame commands", c_full < 1000, true)
 
--- Singles panel with the most resists: wraps to 2 rows of icons, and +N past that
+-- The narrow action menu column: wraps to 2 lines per row, with the indent after the marker
 fresh_singles()
 set_mon(RECS.foe1, 12, 306, "STE", nil, 69)
 commands = {}
-ui.panels(battle(), true)
-local steel = top_view()
-check("steel panel lists its x.5s", steel:find("x.5 NOR", 1, true) ~= nil, true)
+ui.panels(battle(), true, ACTION_MENU)
+check("steel panel lists its x.5s", bottom_view():find("x.5 NOR", 1, true) ~= nil, true)
 fresh_singles()
 set_mon(RECS.foe1, 12, 292, "BUG", "GHO", WG)
 commands = {}
-ui.panels(battle(), true)
-check("wonder guard immune row wraps whole", top_view():find("x0 NOR WAT ELE GRA ICE FIG POI GRO PSY BUG DRA STE", 1, true) ~= nil, true)
-local wrapped = {}
-for _, c in ipairs(commands) do
-  if c.kind == "image" and c.args[1] < 142 and c.args[1] + c.args[4].w > 4 + 118 then wrapped[#wrapped + 1] = c end
-end
-check("foe panel stays in its width", #wrapped, 0)
-no_top_past_right_edge()
--- Stage text is what overflows a first row: it ends in an outlined +N
+ui.panels(battle(), true, ACTION_MENU)
+check("wonder guard immune row wraps whole", bottom_view():find("x0 NOR WAT ELE GRA ICE FIG POI GRO PSY BUG DRA STE", 1, true) ~= nil, true)
+check("the wrapped line starts after the marker", drawn("bottom", "POI").x, 10)
+check("the wrapped line is the next one", drawn("bottom", "POI").y, drawn("bottom", "x0").y + 10)
+-- Stage text is what overflows the row under the HP box: it ends in an outlined +N
 fresh_singles()
 for i = 0, 6 do w8(RECS.foe1 + 0xFC + i, i % 2 == 0 and 8 or 3) end
 commands = {}
-ui.panels(battle(), true)
-local plus_token
-for _, c in ipairs(commands) do
-  if c.kind == "text" and c.args[3]:match("^%+%d+$") then plus_token = c.args[3] end
+ui.panels(battle(), true, MOVE_MENU)
+check("too many stages end in +N", top_view():match(" (%+%d+)$") ~= nil, true)
+check("the +N is outlined", (function()
+  for _, c in ipairs(commands) do
+    if c.kind == "text" and c.args[3] == top_view():match(" (%+%d+)$") and c.args[4] == DARK then return true end
+  end
+  return false
+end)(), true)
+
+-- Every pair of types, with the abilities that change the most, on all the menus: everything stays in its place, and nothing's cut
+local function fake_foe(t1, t2, ability)
+  return { hp = 1, max_hp = 1, types = t1 == t2 and { t1 } or { t1, t2 }, ability = ability, status = {}, stages = {} }
 end
-check("too many stages end in +N", plus_token ~= nil, true)
+local function bottom_extent()
+  local right, bottom_edge = 0, 0
+  for _, d in ipairs(draws("bottom")) do
+    if d.icon then
+      right = math.max(right, d.x + d.w)
+      bottom_edge = math.max(bottom_edge, d.y + 9)
+    end
+  end
+  return right, bottom_edge
+end
+local function has_plus()
+  return bottom_view():find("+", 1, true) ~= nil
+end
+local worst_action_bottom, doubles_action_plus = 0, 0
+for a = 0, 16 do
+  for d = a, 16 do
+    local t1, t2 = typechart.GEN5_IDS[a], typechart.GEN5_IDS[d]
+    for _, ability in ipairs({ 0, LEVITATE, WG, VOLT }) do
+      local pair = t1 .. "/" .. t2 .. " ability " .. ability
+      -- Wonder Guard on anything but Bug/Ghost (Trace, Skill Swap) has too many x0s to always fit, so that one may end in +N
+      local natural = ability ~= WG or (t1 == "BUG" and t2 == "GHO")
+      local one = { rule = 0, multi = false, foes = { fake_foe(t1, t2, ability) }, mine = {} }
+      commands = {}
+      ui.panels(one, true, ACTION_MENU)
+      local right, low = bottom_extent()
+      worst_action_bottom = math.max(worst_action_bottom, low)
+      check("singles action right edge, " .. pair, right <= 79, true)
+      check("singles action ends by 144, " .. pair, low <= 144, true)
+      if natural then check("singles action has no +N, " .. pair, has_plus(), false) end
+      commands = {}
+      ui.panels(one, true, MOVE_MENU)
+      right, low = bottom_extent()
+      check("singles moves right edge, " .. pair, right <= 176, true)
+      check("singles moves in screen, " .. pair, low <= 192, true)
+      if natural then check("singles moves has no +N, " .. pair, has_plus(), false) end
+      local two = { rule = 1, multi = false, foes = { fake_foe(t1, t2, ability), fake_foe(t1, t2, ability) }, mine = {} }
+      commands = {}
+      ui.panels(two, true, ACTION_MENU)
+      right, low = bottom_extent()
+      check("doubles action right edge, " .. pair, right <= 79, true)
+      check("doubles action height, " .. pair, low <= 144, true)
+      for _, row in ipairs(draws("bottom")) do
+        if row.icon and row.y < 88 then check("doubles action foe 1 stays above foe 2, " .. pair, row.y + 9 <= 88, true) end
+      end
+      if ability == 0 and has_plus() then doubles_action_plus = doubles_action_plus + 1 end
+      commands = {}
+      ui.panels(two, true, MOVE_MENU)
+      right, low = bottom_extent()
+      check("doubles moves right edge, " .. pair, right <= 176, true)
+      check("doubles moves in screen, " .. pair, low <= 192, true)
+      -- A given ability adds an x0 at most, which can tip the fullest row (Steel/Electric with Levitate) into +N
+      if ability == 0 then check("doubles moves has no +N, " .. pair, has_plus(), false) end
+    end
+  end
+end
+print(string.format("singles action menu ends at y=%d at most; doubles action menu ends in +N for %d of 153 type pairs", worst_action_bottom, doubles_action_plus))
 
 -- Without the sheet: logged once, text chips, no errors
 have_sheet = false
@@ -1117,16 +1389,27 @@ logged = {}
 local chip_ui = require("pbi.ui").new(game, reader)
 check("sheet failure logged once", #logged, 1)
 fresh_singles()
+stages_and_burn(RECS.foe1)
 commands = {}
-chip_ui.panels(battle(), true)
+chip_ui.panels(battle(), true, ACTION_MENU)
 check("chips are text", top_view():sub(1, 3), "WAT")
 check("no icons without a sheet", top_view():find("?icon", 1, true), nil)
+check("atk and def stay text without a sheet", top_view():find("BRN ATK-1 DEF+1 SPA+1", 1, true) ~= nil, true)
+check("two chips start at the screen's edge", drawn("top", "WAT").x, 1)
 local any_image = false
 for _, c in ipairs(commands) do any_image = any_image or c.kind == "image" end
 check("no image draws without a sheet", any_image, false)
 commands = {}
+chip_ui.panels(battle(), true, MOVE_MENU)
+check("bottom rows draw without a sheet", bottom_view():sub(1, 2), "x4")
+commands = {}
 chip_ui.card(battle(), true)
 check("chip card draws", #commands > 0, true)
+check("atk and def stay text in the card", top_view():find("ATK-1 DEF+1", 1, true) ~= nil, true)
+fresh_doubles()
+commands = {}
+chip_ui.panels(battle(), true, ACTION_MENU)
+check("doubles chips draw", #commands > 0, true)
 have_sheet = true
 ui = require("pbi.ui").new(game, reader)
 
@@ -1169,18 +1452,41 @@ on_state_loaded()
 w32(INPUT + 0x58, 0)
 check("state load resets", frame(), 0)
 
--- Arming: any menu screen, so a load on the move screen shows tags straight away
-local function bottom_commands()
+-- The script tells the panels which menu is up. Holding the card hides them on both screens.
+on_state_loaded()
+w32(INPUT + 0x58, 1)
+frame()
+check("panels at the action menu's spot", drawn("bottom", "x4").y, 88)
+check("bar types without the card", drawn("top", "WAT").y, 40.5)
+held = melon.KEY.L
+frame()
+check("the card hides the bottom rows", bottom_view(), "")
+local on_the_bar = 0
+for _, d in ipairs(draws("top")) do
+  if d.y == 40.5 then on_the_bar = on_the_bar + 1 end
+end
+check("the card hides the bar types", on_the_bar, 0)
+held = 0
+w32(INPUT + 0x58, 2)
+frame()
+check("panels at the move menu's spot", drawn("bottom", "x4").y, 146)
+w32(INPUT + 0x58, 3)
+frame()
+check("panels at target select's spot", drawn("bottom", "x4").y, 146)
+
+-- Arming: any menu screen, so a load on the move screen shows tags straight away. These look at the pills alone, not at the rows
+-- that share the bottom screen. With the sheet, only a pill draws a rect of this height.
+local function pills_drawn()
   local n = 0
   for _, c in ipairs(commands) do
-    if c.screen == "bottom" then n = n + 1 end
+    if c.screen == "bottom" and c.kind == "rect" and c.args[4] == 8 then n = n + 1 end
   end
   return n
 end
 on_state_loaded()
 w32(INPUT + 0x58, 2)
 frame()
-check("armed by move select", bottom_commands() > 0, true)
+check("armed by move select", pills_drawn() > 0, true)
 on_state_loaded()
 w32(INPUT + 0x58, 3)
 check("armed by target select", frame() > 0, true)
@@ -1196,14 +1502,14 @@ check("not armed by other screens", frame(), 0)
 -- Move tags only when move select is really up
 w32(INPUT + 0x58, 2)
 frame()
-check("tags at move select", bottom_commands() > 0, true)
+check("tags at move select", pills_drawn() > 0, true)
 w32(INPUT + 0x68, 1)
 frame()
-check("no tags while busy", bottom_commands(), 0)
+check("no tags while busy", pills_drawn(), 0)
 w32(INPUT + 0x68, 0)
 w32(INPUT + 0x70, 2)
 frame()
-check("no tags once a button is pressed", bottom_commands(), 0)
+check("no tags once a button is pressed", pills_drawn(), 0)
 w32(INPUT + 0x70, 0xFFFFFFFF)
 
 -- Triples: no panels or tags, the card still works
@@ -1225,7 +1531,7 @@ w32(INPUT + 0x58, 1)
 frame()
 w32(INPUT + 0x58, 2)
 frame()
-check("show_move_tags off", bottom_commands(), 0)
+check("show_move_tags off", pills_drawn(), 0)
 start({ card_button = "X" })
 w32(INPUT + 0x58, 1)
 frame()

@@ -357,6 +357,59 @@ def no_sign():
     return im
 
 
+def outlined(layer):
+    """A 1 px dark edge around whatever is drawn"""
+    out = layer.copy()
+    src, px = layer.load(), out.load()
+    for y in range(ICON):
+        for x in range(ICON):
+            if src[x, y][3]:
+                continue
+            for ox, oy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + ox, y + oy
+                if 0 <= nx < ICON and 0 <= ny < ICON and src[nx, ny][3]:
+                    px[x, y] = DARK
+                    break
+    return out
+
+
+def sword():
+    """Attack's stat changes: a sword pointing up and to the right, no badge"""
+    im = Image.new("RGBA", (ICON, ICON), (0, 0, 0, 0))
+    px = im.load()
+    silver, shine, gold, grip = (214, 222, 232, 255), (255, 255, 255, 255), (240, 196, 70, 255), (150, 96, 52, 255)
+    for i in range(11):  # blade, tip top right, 3 px across
+        x, y = 16 - i, 1 + i
+        px[x, y] = shine
+        if i > 0:
+            px[x, y - 1] = silver
+            px[x - 1, y] = silver
+            px[x + 1, y] = silver
+            px[x, y + 1] = silver
+    for i in range(8):  # guard, across the blade
+        for w in (0, 1, 2):
+            px[2 + i + w, 7 + i] = gold
+    for i in range(3):  # grip
+        for w in (0, 1, 2):
+            px[3 - i + w, 12 + i] = grip
+    for w in (0, 1, 2):
+        px[1 + w, 15] = gold
+    return outlined(im)
+
+
+def shield():
+    """Defense's stat changes: a shield, no badge"""
+    im = Image.new("RGBA", (ICON, ICON), (0, 0, 0, 0))
+    px = im.load()
+    light, deep, rim = (120, 170, 235, 255), (62, 110, 190, 255), (214, 222, 232, 255)
+    half = {1: 7, 2: 7, 3: 7, 4: 7, 5: 7, 6: 7, 7: 7, 8: 7, 9: 6, 10: 6, 11: 5, 12: 4, 13: 3, 14: 2, 15: 1, 16: 0}
+    for y, h in half.items():
+        for x in range(8 - h, 10 + h):
+            on_rim = y in (1, 2) or x <= 8 - h or x >= 9 + h
+            px[x, y] = rim if on_rim else (light if x < 9 else deep)
+    return outlined(im)
+
+
 def build_icons():
     icons = [(t, make_icon(t, TYPE_COLOR[t])) for t in TYPES]
     icons += [(s, make_icon(STATUS_ICON[s][0], STATUS_ICON[s][1], True)) for s in STATUSES]
@@ -366,6 +419,8 @@ def build_icons():
         ("x.5", arrow(COOL, up=False)),
         ("x.25", arrow(COOL, up=False, double=True)),
         ("x0", no_sign()),
+        ("ATK", sword()),
+        ("DEF", shield()),
     ]
     return icons
 

@@ -1,8 +1,9 @@
--- Draws the HP box panels, the move tags and the card. Everything here works on what a reader returns and on the game's layout, so it
--- doesn't care which game this is.
+-- Draws the foe panels (types on its HP bar, status and stat changes under its HP box, weak, resist and immune on the bottom screen), the
+-- move tags and the card. Everything here works on what a reader returns and on the game's layout, so it doesn't care which game this is.
 --
 -- Rows are lists of tokens (icons, text) that get laid out first and drawn after, because the card's background has to go under them and
--- its height depends on how many lines they wrap to. When the icon sheet can't be loaded, types and status fall back to text chips.
+-- its height depends on how many lines they wrap to. When the icon sheet can't be loaded, types and status fall back to text chips, and
+-- the ATK and DEF stat changes to text like the other stats.
 local font = require("pbi.font")
 local matchup = require("pbi.matchup")
 local typechart = require("pbi.typechart")
@@ -14,6 +15,7 @@ local M = {}
 
 local TOP, BOTTOM = "top", "bottom"
 local ICON_SHEET = "img/icons.png"
+local ACTION_SCREEN = 1 -- the "screen" value of the action menu: docs/pokemon-battle-ram.md, "Verified in game"
 
 local TYPE_COLOR = {
   NOR = 0xFF9A9A82, FIR = 0xFFE2622C, WAT = 0xFF3F7FE0, ELE = 0xFFF0C81E, GRA = 0xFF5AAE46, ICE = 0xFF7CD0D0,
@@ -89,23 +91,33 @@ local function words(text, color, gap, group)
   return { text = text, w = text_width(text), fg = color, gap = gap or 0, group = group, dy = 1 }
 end
 
+--- An icon that stays on the same line as the token after it, and counts as one with it for +N
+local function leading_icon_token(name, gap)
+  local token = icon_token(name, gap)
+  token.counts = false
+  token.group = true
+  return token
+end
+
 --- The mark in front of a group: an arrow or the no sign, or its text without the sheet. Stays with the icon after it.
 local function marker_token(label, gap)
-  if icon_options then
-    local token = icon_token(label, gap)
-    token.counts = false
-    token.group = true
-    return token
-  end
+  if icon_options then return leading_icon_token(label, gap) end
   local token = words(label, MARKER_COLOR[label], gap, true)
   token.outline = true
   return token
 end
 
-local function stage_token(entry, gap)
-  local n = entry[2]
-  local text = entry[1] .. (n > 0 and "+" or "") .. n
-  return { text = text, w = text_width(text), fg = n > 0 and WARM or COOL, gap = gap or 0, counts = true, dy = 1 }
+--- One stat change: the stat's icon and the number when the sheet has an icon for it, otherwise text like "SPA+1"
+local function add_stage(tokens, entry, gap, outline)
+  local name, n = entry[1], entry[2]
+  local text = (n > 0 and "+" or "") .. n
+  if icon_options and icon_options[name] then
+    tokens[#tokens + 1] = leading_icon_token(name, gap)
+    gap = -.5 -- half a pixel after the icon, not the usual 1
+  else
+    text = name .. text
+  end
+  tokens[#tokens + 1] = { text = text, w = text_width(text), fg = n > 0 and WARM or COOL, gap = gap, counts = true, dy = 1, outline = outline }
 end
 
 local function add_types(tokens, types, gap)
@@ -123,9 +135,7 @@ end
 
 local function add_stages(tokens, mon, gap, outline)
   for i = 1, #mon.stages do
-    local token = stage_token(mon.stages[i], i == 1 and gap or 2)
-    token.outline = outline
-    tokens[#tokens + 1] = token
+    add_stage(tokens, mon.stages[i], i == 1 and gap or 2, outline)
   end
 end
 
@@ -263,7 +273,7 @@ local function acting_mon(battle)
   return nil
 end
 
---- The ability that counts for a foe's multipliers, nil when it mustn't be used. A disguised foe has none.
+--- The ability that counts for a foe's multipliers, nil when it mustn't be used. A disguised foe's is its disguise's, as the reader gives it.
 local function foe_ability(foe, show_hidden)
   if show_hidden then return foe.ability end
   return nil
@@ -299,7 +309,7 @@ local function effect_color(m)
   return COOL
 end
 
--- HP box panels: no background, a marker in front of each group ----------------------------------------------------
+-- Foe panels: no background, a marker in front of each group -------------------------------------------------------
 
 local PANEL_ROW_H = 10
 local GROUP_GAP = 2
@@ -331,60 +341,76 @@ local function resist_tokens(groups)
   return tokens
 end
 
-local function identity_tokens(mon)
+local function number_token(number)
+  local token = words(tostring(number), WHITE)
+  token.outline = true
+  return token
+end
+
+--- The foe's types on its HP bar, ending at spot.right
+local function draw_bar_types(foe, spot)
   local tokens = {}
-  add_types(tokens, mon.types)
-  add_status(tokens, mon, GROUP_GAP)
-  add_stages(tokens, mon, GROUP_GAP, true)
-  return tokens
-end
-
-local function draw_panel(y, rows)
-  for _, row in ipairs(rows) do
-    draw_row(TOP, row, y, PANEL_ROW_H)
-    y = y + row.lines * PANEL_ROW_H
+  add_types(tokens, foe.types)
+  local row = { placed = {}, lines = 1 }
+  -- Only text chips can be too wide for the room left of "HP". Those start at the screen's edge instead.
+  if not place_right(row, tokens, spot.right, 0) then
+    row = lay_out(tokens, 0, 0, 256, 1, true)
   end
+  draw_row(TOP, row, spot.y, PANEL_ROW_H)
 end
 
-local function singles_foe_panel(layout, foe, attacker, show_hidden)
+local function has_state(mon)
+  return #mon.status > 0 or #mon.stages > 0
+end
+
+--- Status, then stat changes. The first of them goes after a gap of first_gap.
+local function add_state(tokens, mon, first_gap)
+  add_status(tokens, mon, first_gap)
+  add_stages(tokens, mon, #mon.status > 0 and GROUP_GAP or first_gap, true)
+end
+
+local function singles_foe_state(layout, foe)
   local box = layout.foe_box
-  local x, limit = box[1], box[1] + layout.foe_panel_w
-  local indent = x + MARKER_W
-  local groups = foe_groups(foe, attacker, show_hidden)
-  local rows = { lay_out(identity_tokens(foe), x, x, limit, 1, true) }
-  local weak, resist, immune = weak_tokens(groups), resist_tokens(groups), {}
-  add_group(immune, "x0", groups[0], 0)
-  for _, tokens in ipairs({ weak, resist, immune }) do
-    if #tokens > 0 then
-      rows[#rows + 1] = lay_out(tokens, x, indent, limit, 2, true)
-    end
-  end
-  draw_panel(box[2] + box[4] + 1, rows)
+  local x = box[1]
+  local tokens = {}
+  add_state(tokens, foe, 0)
+  draw_row(TOP, lay_out(tokens, x, x, x + layout.foe_panel_w, 1, true), box[2] + box[4] + 1, PANEL_ROW_H)
 end
 
-local function singles_my_panel(layout, mon, battle, show_hidden)
-  local box = layout.my_box
-  local x, limit = box[1], box[1] + box[3] - 1
-  local rows = { lay_out(identity_tokens(mon), x, x, limit, 1, true) }
-  local weak = weak_tokens(my_groups(mon, battle, show_hidden))
-  if #weak > 0 then
-    rows[#rows + 1] = lay_out(weak, x, x, limit, 1, true)
-  end
-  -- The last row's icons end right above the HP box
-  draw_panel(box[2] - ICON_H - 1 - (#rows - 1) * PANEL_ROW_H, rows)
-end
-
-local function doubles_row(layout, foe, number, attacker, show_hidden)
+--- row is which row this is, as only a foe with something to show gets one
+local function doubles_foe_state(layout, foe, number, row)
   local box = layout.lower_foe_box
   local x = layout.rows_x
-  local tokens = { words(tostring(number), WHITE) }
-  tokens[1].outline = true
-  add_types(tokens, foe.types, layout.rows_icons_x - x - tokens[1].w - 1)
-  add_status(tokens, foe, GROUP_GAP)
-  local groups = foe_groups(foe, attacker, show_hidden)
-  add_group(tokens, "x4", groups[4], GROUP_GAP)
-  add_group(tokens, "x2", groups[2], GROUP_GAP)
-  draw_row(TOP, lay_out(tokens, x, x, layout.rows_limit, 1, true), box[2] + box[4] + 1 + (number - 1) * PANEL_ROW_H, PANEL_ROW_H)
+  local tokens = { number_token(number) }
+  add_state(tokens, foe, layout.rows_icons_x - x - tokens[1].w - 1)
+  draw_row(TOP, lay_out(tokens, x, x, layout.rows_limit, 1, true), box[2] + box[4] + 1 + (row - 1) * PANEL_ROW_H, PANEL_ROW_H)
+end
+
+--- Draws the token lists that aren't empty on the bottom screen, one under the other from y
+local function draw_matchup_rows(lists, spot, y)
+  for _, tokens in ipairs(lists) do
+    if #tokens > 0 then
+      local row = lay_out(tokens, spot.x, spot.x + MARKER_W, spot.limit, spot.lines, true)
+      draw_row(BOTTOM, row, y, PANEL_ROW_H)
+      y = y + row.lines * PANEL_ROW_H
+    end
+  end
+end
+
+local function singles_matchups(spot, groups)
+  local immune = {}
+  add_group(immune, "x0", groups[0], 0)
+  draw_matchup_rows({ weak_tokens(groups), resist_tokens(groups), immune }, spot, spot.y)
+end
+
+--- Weak, then resist and immune together, next to the foe's number
+local function doubles_matchups(spot, number, groups)
+  local weak, others = weak_tokens(groups), resist_tokens(groups)
+  add_group(others, "x0", groups[0], GROUP_GAP)
+  if #weak == 0 and #others == 0 then return end
+  local y = spot.ys[number]
+  draw_token(BOTTOM, number_token(number), spot.number_x, y)
+  draw_matchup_rows({ weak, others }, spot, y)
 end
 
 -- Card ----------------------------------------------------------------------------------------------------------
@@ -523,16 +549,29 @@ function M.new(game, reader)
   local layout = game.layout
   load_icons()
 
-  function self.panels(battle, show_hidden)
+  --- screen says where the bottom screen's rows go: the action menu has less room than the move menu and target select
+  function self.panels(battle, show_hidden, screen)
     local attacker = acting_mon(battle)
+    local menu = screen == ACTION_SCREEN and "action" or "moves"
     if battle.rule == 0 and not battle.multi then
-      local foe, mine = battle.foes[1], battle.mine[1]
-      if is_alive(foe) then singles_foe_panel(layout, foe, attacker, show_hidden) end
-      if is_alive(mine) then singles_my_panel(layout, mine, battle, show_hidden) end
+      local foe = battle.foes[1]
+      if is_alive(foe) then
+        draw_bar_types(foe, layout.foe_bar_types)
+        if has_state(foe) then singles_foe_state(layout, foe) end
+        singles_matchups(layout.singles_matchups[menu], foe_groups(foe, attacker, show_hidden))
+      end
     else
+      local state_rows = 0
       for i = 1, math.min(2, #battle.foes) do
         local foe = battle.foes[i]
-        if is_alive(foe) then doubles_row(layout, foe, i, attacker, show_hidden) end
+        if is_alive(foe) then
+          draw_bar_types(foe, layout.doubles_bar_types[i])
+          if has_state(foe) then
+            state_rows = state_rows + 1
+            doubles_foe_state(layout, foe, i, state_rows)
+          end
+          doubles_matchups(layout.doubles_matchups[menu], i, foe_groups(foe, attacker, show_hidden))
+        end
       end
     end
   end
