@@ -104,6 +104,8 @@ typedef struct
     bool threaded2dRendering;
     // OpenGL and compute: VRAM display shows display capture redone at the internal resolution (GPU::HiresCapture)
     bool hiresCapture;
+    // OpenGL and compute, at internal resolution 2x and up: the compositor smooths 2D edges (GPU::Filter2D)
+    bool filter2d;
     // Puts the Lua scripts' drawings into savestate and rewind pictures
     bool luaDrawingsInScreenshots;
     // WideMelon: width of the top screen's 3D view (even, 256..768; anything else, 0 when it's off, means 256), on the OpenGL and compute renderers

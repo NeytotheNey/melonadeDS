@@ -954,16 +954,21 @@ void MelonInstance::updateRenderer()
 
     bool threaded2d = configuration->threaded2dRendering;
     bool hiresCapture = configuration->hiresCapture;
+    int filter2d = configuration->filter2d ? 1 : 0;
 #ifdef MELONADE_DEBUG_TOOLS
     if (debugOverrides.threaded2d >= 0)
         threaded2d = debugOverrides.threaded2d == 1;
     if (debugOverrides.hiresCapture >= 0)
         hiresCapture = debugOverrides.hiresCapture == 1;
+    if (debugOverrides.filter2d >= 0)
+        filter2d = debugOverrides.filter2d;
 #endif
     // Runs between frames, so the 2D thread can start or stop right away
     nds->GPU.SetThreaded2D(threaded2d);
     // Only the OpenGL and compute renderers use it (the core ignores it for software), and a change drops the hi-res copies
     nds->GPU.SetHiresCapture(hiresCapture);
+    // Only the compositor reads it, at the next Blit, and it does nothing for software
+    nds->GPU.Filter2D = filter2d;
 
     bool isHalfCameraOverridden = false;
 #ifdef MELONADE_DEBUG_TOOLS

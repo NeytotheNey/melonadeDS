@@ -119,9 +119,10 @@ class SharedPreferencesSettingsRepository(
         }
         val gpuExtrasFlow = combine(
             isHiresCaptureEnabled(),
+            isFilter2dEnabled(),
             isColorDitheringEnabled(),
-        ) { hiresCaptureEnabled, colorDitheringEnabled ->
-            Pair(hiresCaptureEnabled, colorDitheringEnabled)
+        ) { hiresCaptureEnabled, filter2dEnabled, colorDitheringEnabled ->
+            Triple(hiresCaptureEnabled, filter2dEnabled, colorDitheringEnabled)
         }
         renderConfigurationFlow = combine(
             getVideoRenderer(),
@@ -129,10 +130,10 @@ class SharedPreferencesSettingsRepository(
             threadingSettingsFlow,
             gpuExtrasFlow,
             getVideoInternalResolutionScaling(),
-        ) { renderer, look, (threadedRenderingEnabled, threaded2dRenderingEnabled), (hiresCaptureEnabled, colorDitheringEnabled), resolutionScaling ->
+        ) { renderer, look, (threadedRenderingEnabled, threaded2dRenderingEnabled), (hiresCaptureEnabled, filter2dEnabled, colorDitheringEnabled), resolutionScaling ->
             RendererConfiguration(
                 renderer, look.filtering, look.deband, look.dsScreenColors, look.screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled,
-                hiresCaptureEnabled, colorDitheringEnabled, resolutionScaling,
+                hiresCaptureEnabled, filter2dEnabled, colorDitheringEnabled, resolutionScaling,
             )
         }.conflate().shareIn(preferencesCoroutineScope, SharingStarted.Lazily, replay = 1)
     }
@@ -410,6 +411,12 @@ class SharedPreferencesSettingsRepository(
     override fun isHiresCaptureEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_HIRES_CAPTURE) {
             preferences.getBoolean(PreferenceKeys.VIDEO_HIRES_CAPTURE, true)
+        }
+    }
+
+    override fun isFilter2dEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_FILTER_2D) {
+            preferences.getBoolean(PreferenceKeys.VIDEO_FILTER_2D, false)
         }
     }
 

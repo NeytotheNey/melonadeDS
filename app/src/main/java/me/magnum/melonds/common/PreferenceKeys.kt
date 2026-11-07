@@ -8,6 +8,7 @@ object PreferenceKeys {
     // pref_video.xml
     const val VIDEO_THREADED_2D = "video_threaded_2d"
     const val VIDEO_HIRES_CAPTURE = "video_hires_capture"
+    const val VIDEO_FILTER_2D = "video_filter_2d"
     const val VIDEO_COLOR_DITHERING = "video_color_dithering"
     const val VIDEO_DS_SCREEN_COLORS = "video_ds_screen_colors"
     const val VIDEO_DEBAND = "video_deband"

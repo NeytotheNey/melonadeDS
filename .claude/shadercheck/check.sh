@@ -21,12 +21,16 @@ rc=0
 for f in *.vert *.frag *.comp; do
   if ! glslangValidator "$f" >"$f.log" 2>&1; then echo "FAIL $f"; cat "$f.log"; rc=1; else echo "ok   $f"; fi
 done
-for p in RenderZ RenderW ClearBitmap Clear Compositor CompositorWide HiresCapture; do
+for p in RenderZ RenderW ClearBitmap Clear Compositor CompositorWide HiresCapture Filter2DKey Filter2DMmpx CompositorFilter2D CompositorWideFilter2D; do
   v=$p.vert; f=$p.frag; [ "$p" = Clear ] && v=ClearVS.vert && f=ClearFS.frag
   [ "$p" = ClearBitmap ] && v=ClearBitmapVS.vert && f=ClearBitmapFS.frag
   [ "$p" = Compositor ] && v=CompositorVS.vert && f=CompositorFS_Nearest.frag
   [ "$p" = CompositorWide ] && v=CompositorWideVS.vert && f=CompositorWideFS_Nearest.frag
   [ "$p" = HiresCapture ] && v=HiresCaptureVS.vert && f=HiresCaptureFS.frag
+  [ "$p" = Filter2DKey ] && v=HiresCaptureVS.vert && f=Filter2DKeyFS.frag
+  [ "$p" = Filter2DMmpx ] && v=HiresCaptureVS.vert && f=Filter2DMmpxFS.frag
+  [ "$p" = CompositorFilter2D ] && v=CompositorVS.vert && f=CompositorFilter2DFS.frag
+  [ "$p" = CompositorWideFilter2D ] && v=CompositorWideVS.vert && f=CompositorWideFilter2DFS.frag
   if ! glslangValidator -l "$v" "$f" >"$p.link.log" 2>&1; then echo "FAIL link $p"; cat "$p.link.log"; rc=1; else echo "ok   link $p"; fi
 done
 echo "outputs in $OUT"

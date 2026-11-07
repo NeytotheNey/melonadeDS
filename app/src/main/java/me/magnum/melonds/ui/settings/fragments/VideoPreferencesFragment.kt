@@ -22,9 +22,10 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         const val GLES_3_2 = 0x30002
     }
 
-    // Only the OpenGL and compute renderers have an internal resolution, and upscaled display capture
+    // Only the OpenGL and compute renderers have an internal resolution, upscaled display capture and 2D smoothing
     private lateinit var internalResolutionPreference: Preference
     private lateinit var hiresCapturePreference: Preference
+    private lateinit var filter2dPreference: Preference
     // Only the compute renderer dithers color gradients
     private lateinit var colorDitheringPreference: Preference
     private lateinit var renderingCategory: PreferenceCategory
@@ -39,6 +40,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
 
         internalResolutionPreference = findPreference("video_internal_resolution")!!
         hiresCapturePreference = findPreference(PreferenceKeys.VIDEO_HIRES_CAPTURE)!!
+        filter2dPreference = findPreference(PreferenceKeys.VIDEO_FILTER_2D)!!
         colorDitheringPreference = findPreference(PreferenceKeys.VIDEO_COLOR_DITHERING)!!
         threadedRenderingPreference = findPreference("enable_threaded_rendering")!!
         smooth30FpsPreference = findPreference(PreferenceKeys.FRAME_PACING_SMOOTH_30FPS)!!
@@ -80,6 +82,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         val isSoftwareRenderer = newRenderer == VideoRenderer.SOFTWARE
         internalResolutionPreference.isVisible = !isSoftwareRenderer
         hiresCapturePreference.isVisible = !isSoftwareRenderer
+        filter2dPreference.isVisible = !isSoftwareRenderer
         colorDitheringPreference.isVisible = newRenderer == VideoRenderer.COMPUTE
         smooth30FpsPreference.isEnabled = newRenderer == VideoRenderer.COMPUTE
         threadedRenderingPreference.isEnabled = isSoftwareRenderer

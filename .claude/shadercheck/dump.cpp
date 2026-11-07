@@ -12,7 +12,8 @@
 using namespace melonDS;
 static void w(const std::string& n, const std::string& s){ FILE* f=fopen(n.c_str(),"w"); fputs(s.c_str(),f); fclose(f); }
 // GLCompositor::PrepareWide: WIDE defined after the #version line
-static std::string wide(std::string s){ s.insert(s.find('\n') + 1, "#define WIDE\n"); return s; }
+static std::string define(std::string s, const char* defines){ s.insert(s.find('\n') + 1, defines); return s; }
+static std::string wide(std::string s){ return define(std::move(s), "#define WIDE\n"); }
 
 static void dumpGL(){
   w("ClearVS.vert", kClearVS); w("ClearFS.frag", kClearFS);
@@ -27,6 +28,10 @@ static void dumpGL(){
   w("CompositorWideVS.vert", wide(kCompositorVS)); w("CompositorWideFS_Nearest.frag", wide(compFS));
   w("HiresCaptureVS.vert", kHiresCaptureVS);
   w("HiresCaptureFS.frag", std::string(kHiresCaptureFS_Head) + kCompositePixelFS + kHiresCaptureFS_Main);
+  // GLCompositor::PrepareFilter2DShaders: the pre-pass programs, and the compositor with FILTER2D
+  w("Filter2DKeyFS.frag", kFilter2DKeyFS); w("Filter2DMmpxFS.frag", kFilter2DMmpxFS);
+  w("CompositorFilter2DFS.frag", define(compFS, "#define FILTER2D\n"));
+  w("CompositorWideFilter2DFS.frag", define(compFS, "#define WIDE\n#define FILTER2D\n"));
 }
 
 // ComputeRenderer::CompileShader's assembly (compute_assembly.inc, cut from GPU3D_Compute.cpp by check.sh) with the scale 1 settings

@@ -29,6 +29,13 @@
                 android:summary="@string/hires_capture_summary"
                 android:defaultValue="true" />
 
+        <!-- OpenGL and compute only, so it's hidden for software (set up in VideoPreferencesFragment) -->
+        <SwitchPreference
+                android:key="video_filter_2d"
+                android:title="@string/filter_2d"
+                android:summary="@string/filter_2d_summary"
+                android:defaultValue="false" />
+
         <!-- Compute only, so it's hidden for the others (set up in VideoPreferencesFragment) -->
         <SwitchPreference
                 android:key="video_color_dithering"

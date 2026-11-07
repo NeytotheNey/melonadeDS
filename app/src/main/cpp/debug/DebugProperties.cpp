@@ -107,17 +107,24 @@ Overrides apply(GPU& gpu)
         }
     }
 
+    if (read("filter2d", value) && value[0] >= '0' && value[0] <= '3' && value[1] == '\0')
+        overrides.filter2d = value[0] - '0';
+    gpu.Filter2DLogging = overrides.filter2d > 0;
+
     overrides.threaded2d = readBool("threaded2d");
 
     bool captureReads = readBool("capreads") == 1;
     gpu.SetCaptureReadLogging(captureReads);
 
+    bool gpu2dStats = readBool("gpu2dstats") == 1;
+    gpu.Set2DStatsLogging(gpu2dStats);
+
     char summary[512];
     int length = snprintf(summary, sizeof(summary), "Debug switches:");
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
         length += snprintf(summary + length, sizeof(summary) - length, " %s=%d", boolSwitch.name, gpu.*boolSwitch.target ? 1 : 0);
-    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d hirescap=%d hirescapdebug=%d capreads=%d threaded2d=%d vertexid=%d halfcam=%d",
-             gpu.ShadowLogFrames, gpu.CaptureSpinUs, overrides.hiresCapture, gpu.HiresCaptureDebug, captureReads ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), gpu.GPU3D.GetHalfCamera());
+    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d threaded2d=%d vertexid=%d halfcam=%d",
+             gpu.ShadowLogFrames, gpu.CaptureSpinUs, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.filter2d, captureReads ? 1 : 0, gpu2dStats ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), gpu.GPU3D.GetHalfCamera());
     LOG_INFO(LOG_TAG_DEBUG, "%s", summary);
     return overrides;
 }
