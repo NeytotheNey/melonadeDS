@@ -31,6 +31,7 @@ static const BoolSwitch BOOL_SWITCHES[] = {
     { "computedirect", &GPU::ComputeDirectDispatch },
     { "blitflush", &GPU::BlitFlushCapture },
     { "lateblit", &GPU::LateBlit },
+    { "bnohold", &GPU::EngineBNoHold },
 };
 
 bool read(const char* name, char* value)
@@ -58,6 +59,10 @@ Overrides apply(GPU& gpu)
 {
     char value[PROP_VALUE_MAX];
     Overrides overrides;
+
+    // on by default in debug builds, so it gets real use, and off in the core until it's proven.
+    // only an accelerated renderer holds capture lines or clears the plane, so this is GL and compute
+    gpu.EngineBNoHold = true;
 
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
     {
@@ -104,12 +109,15 @@ Overrides apply(GPU& gpu)
 
     overrides.threaded2d = readBool("threaded2d");
 
+    bool captureReads = readBool("capreads") == 1;
+    gpu.SetCaptureReadLogging(captureReads);
+
     char summary[512];
     int length = snprintf(summary, sizeof(summary), "Debug switches:");
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
         length += snprintf(summary + length, sizeof(summary) - length, " %s=%d", boolSwitch.name, gpu.*boolSwitch.target ? 1 : 0);
-    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d hirescap=%d hirescapdebug=%d threaded2d=%d vertexid=%d halfcam=%d",
-             gpu.ShadowLogFrames, gpu.CaptureSpinUs, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), gpu.GPU3D.GetHalfCamera());
+    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d hirescap=%d hirescapdebug=%d capreads=%d threaded2d=%d vertexid=%d halfcam=%d",
+             gpu.ShadowLogFrames, gpu.CaptureSpinUs, overrides.hiresCapture, gpu.HiresCaptureDebug, captureReads ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), gpu.GPU3D.GetHalfCamera());
     LOG_INFO(LOG_TAG_DEBUG, "%s", summary);
     return overrides;
 }
