@@ -31,6 +31,7 @@ static const BoolSwitch BOOL_SWITCHES[] = {
     { "computedirect", &GPU::ComputeDirectDispatch },
     { "blitflush", &GPU::BlitFlushCapture },
     { "lateblit", &GPU::LateBlit },
+    { "bnohold", &GPU::EngineBNoHold },
 };
 
 bool read(const char* name, char* value)
@@ -58,6 +59,10 @@ Overrides apply(GPU& gpu)
 {
     char value[PROP_VALUE_MAX];
     Overrides overrides;
+
+    // on by default in debug builds, so it gets real use, and off in the core until it's proven.
+    // only an accelerated renderer holds capture lines or clears the plane, so this is GL and compute
+    gpu.EngineBNoHold = true;
 
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
     {
