@@ -16,10 +16,11 @@ How filtered 2D works, in one line: a pre-pass runs MMPX over a key image of the
 
 ## Next up
 
-1. **Two savings, tested on both phones** (plan doc, "Two savings"). Both phones have a build with both; the old APK is in `perf_logs/2026-11-07-filter2d/savings/old-apk-*`.
-   - **Deband early-out:** committed in the app (`cfdcf4f9`).
-   - **Filter skip:** on hold, on core branch `gpu-2d-filter-skip` (`72104fd7`), not in `gpu-2d`. It makes White 2 stutter on the OnePlus. The user chose to revisit it after the filter is moved off the readback's critical path (item 2).
-2. **White 2's real limit is the line-192 readback stall** (see the plan doc, "What sets the pace"). Next options for the filter: the quarter-size second pass the filter coder proposed (512x768 writing four results, picked by sub-pixel parity), and running the passes off the readback's critical path. A non-blocking capture readback would help every capture game, filter or not, but needs care with accuracy.
+1. **Blit after the readback: built, reviewed twice, OnePlus-tested, committed (core `7516a617`), not pushed** (plan doc, "Blit after the readback"). `debug.melonade.blitafterread`, on in debug builds only. White 2's title on the OnePlus goes to 59.9 fps with the filter on or off (was 37.9 / 54.2), and the map wait goes to 0.1 ms. Pictures matched the old path on exact frames. Core: `GPU.cpp/.h`, `GPU3D.h`, `GPU3D_OpenGL.cpp/.h`, `GPU2D_Soft.cpp`, `GPU_OpenGL.cpp/.h`, `GPU_CaptureReads.h`. App: `DebugProperties.cpp/.h`. Next:
+   - a Fold run (GL changes need one), a plugged-in OnePlus run, and other capture games;
+   - decide whether it goes on in release builds;
+   - the compute renderer has the same stall and needs the same change (its own image binding, resize path and fence). In progress after the commit.
+2. **Filter skip:** on hold, on core branch `gpu-2d-filter-skip` (`72104fd7`), not in `gpu-2d`. It made White 2 stutter on the OnePlus, because the frames that still ran the filter waited behind the readback at a low GPU clock. With the Blit after the readback that may be gone, so retest it on top. The quarter-size second pass (512x768 writing four results, picked by sub-pixel parity) is still an option if the GPU gets tight. The Deband early-out is committed in the app (`cfdcf4f9`).
 3. **Optional: a long Fold run plugged in** (20–30 min of gameplay, filter on, main screen), logging fps, clocks, SIOP and `limitCPUFreq`. The user treats plugged in as the worse thermal case. The 70 s runs so far never got hot enough to throttle.
 4. **Push once the user agrees** (core first, then the app). Extra commits for the cheaper filter go on the same branches.
 5. **Step 3, the shadow renderer**, starts after filtered 2D is settled. Before designing it, run the counters over real gameplay, not title screens. Golden Sun Dark Dawn is the case to design for, with lots of rotated layers and lots of mid-frame changes.
@@ -38,6 +39,7 @@ How filtered 2D works, in one line: a pre-pass runs MMPX over a key image of the
 
 ## Leftovers
 
+- **OnePlus scratch from the blitafterread runs, needs the user's OK to delete** (all pulled): the `ba_*` dirs and scripts plus `f2_work/ba_gpuprod.log` in `/data/local/tmp` (about 190 MB), and `ba_*.pftrace` in `/data/misc/perfetto-traces` (about 404 MB).
 - **OnePlus scratch files, need the user's OK to delete:** the 60 `f2_*` files from the first run plus `f2_crw_*`, `f2_crn_*`, `f2_crchain*.log`, `f2_b*`, `bl_*` and `f2_work/bl_gpuprod.log` in `/data/local/tmp`, and the matching `.pftrace` files (plus `bl_probe.pftrace`) in `/data/misc/perfetto-traces`. Everything is already pulled. Older ones from 11-06 are listed in `HANDOFF.md`.
 - **OnePlus setting:** a tester ran `svc power stayon true`, so `stay_on_while_plugged_in` is now 7. The old value wasn't recorded.
 - **App logs from the test runs:** about 150 perf/debug logs in the Fold's `Documents/2DS/Logs` (11-07 09:2x–10:3x) and in the OnePlus's app `perf_logs` folder.

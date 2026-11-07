@@ -141,6 +141,33 @@ On the OnePlus, Deband's gain comes mostly from the shorter readback wait (3.2 �
 
 Next for this step: make the filter cheaper (skip the passes when the 2D planes didn't change, then a cheaper second pass). Deband's shader is separately worth a look, since it costs more than the filter.
 
+### Blit after the readback (11-07, core `7516a617`, debug builds only)
+
+The GPU runs work in the order it's sent. In a capture frame the compositor and filter for frame N went in at line 192, ahead of the 3D render of N+1 (line 215) and its readback (line 0), so the map at the next line 192 waited behind them. The present of frame N could also get ahead of the readback, which is probably why Deband made the wait longer.
+
+`debug.melonade.blitafterread` (core `GPU::BlitAfterReadback`, off in the core, forced on in debug builds like `bnohold`) changes the order in frames that hold capture lines (OpenGL only):
+
+- **line 192:** nothing is sent. The lines are drawn, the bank write masks are saved, and the capture pass's destination bank is copied (`HiresCaptureRecord::DstNative`), since the CPU can write it in VBlank.
+- **line 215:** the 3D render of N+1 goes into a second color buffer, so frame N's 3D stays alive. Then the readback of N+1 goes into its own PBO, then a flush, then the Blit of N from the kept buffer, then a flush.
+- **line 0:** if this frame captures 3D and nothing changed the 3D since 215, the early PBO is swapped in. Otherwise line 0 reads back as before, and the main PBO is left as the old path would leave it, so a capture armed late reads the same data either way.
+
+Display latency is the same: the Blit still runs inside `RunFrame`, before the frontend's fence. A `Sync2D` between 192 and 215 runs the Blit early, except for LCDC and POWCNT writes, which the compositor doesn't read. A resize at 215 keeps the old order. It costs one more color texture (3 MB at 4x, up to about 17 MB at 8x with WideMelon 342) and 128 KB per hi-res capture record. Compute still has the old order and would need the same change.
+
+OnePlus, White 2 title, OpenGL 4x, Deband off, **on battery** (the phone wasn't charging), order A B C D twice, averages of the two:
+
+| blitafterread / filter2d | fps | 1% low | p99 ms | map wait ms/frame | GPU MHz | GPU Mclk/frame | emu CPU ms @ GHz |
+|---|---|---|---|---|---|---|---|
+| 0 / off | 54.2 | 40.0 | 23.7 | 3.0 | 257 | 3.7 | 14.1 @ 1.95 |
+| 1 / off | 59.9 | 56.2 | 17.7 | 0.1 | 308 | 3.7 | 13.0 @ 2.18 |
+| 0 / on | 37.9 | 28.6 | 33.3 | 6.9 | 345 | 7.5 | 19.8 @ 1.45 |
+| 1 / on | 59.9 | 56.1 | 17.5 | 0.1 | 500 | 6.8 | 13.0 @ 2.03 |
+
+The old-path numbers match the plugged-in runs above almost exactly. Every early readback was used. With the new order the gold cores stay near 2 GHz and the emulator thread waits on vsync instead. Filter on is the busiest GPU case (about 405 M/s at 500 MHz) and ran hottest (GPU 52–54 °C against 37–45), with no throttling caps.
+
+Pictures: exact-frame pairs matched with 0 differing pixels for new vs old at filter 0, 1 and 3, and for filter 3 vs 0 on the new path. Those frames include the 3D Kyurem and the captured fire, and still areas never differed. No stutter, crashes, black frames or GL errors over 16 boots, and the saves didn't change. Data: `perf_logs/2026-11-07-filter2d/blitafter/`.
+
+Still to do: a Fold run (GL changes need one), a plugged-in OnePlus run, more capture games than White 2, and then the filter skip, which was held because it stuttered behind the readback.
+
 ## Step 3: shadow renderer
 
 Shaders decode tiles and sprites from VRAM and composite at output resolution. Hi-res comes from evaluating the affine matrix per output pixel. Rough size is 2,500–3,500 lines, against about 4,500 upstream.
@@ -156,7 +183,7 @@ Opt-in. On compute it adds load to a GPU that's already maxed out on the OnePlus
 
 ## Step 4: wide 2D
 
-The shader draws X outside 0..255. Today wings are 3D only, and 2D-only lines are black. Two problems have no safe automatic rule: tilemaps wrap and show junk in the wings, and sprite X is 9-bit, so a sprite parked offscreen looks the same as one in a wing. Expect a per-game opt-in, possibly from Lua ([MODS.md](../MODS.md)). Capture stays at the middle 256.
+The shader draws X outside 0..255. Today wings are 3D only, and 2D-only lines are black. Two problems have no safe automatic rule: tilemaps wrap and show junk in the wings, and sprite X is 9-bit, so a sprite parked offscreen looks the same as one in a wing. Expect a per-game opt-in, possibly from Lua ([MODS.md](../MODS.md)). Capture stays at the middle 256. The detailed wide 2D plan is [plan-widemelon.md](plan-widemelon.md) (steps 5 to 7: edge repeat, full-outline carry, a Lua API, HG/SS battles first). Wide 2D waits for step 3, which must draw any layer over an X range wider than 0..255 from the start.
 
 ## Later, if it earns it
 

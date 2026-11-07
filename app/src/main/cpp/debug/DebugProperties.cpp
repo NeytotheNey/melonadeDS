@@ -31,6 +31,7 @@ static const BoolSwitch BOOL_SWITCHES[] = {
     { "computedirect", &GPU::ComputeDirectDispatch },
     { "blitflush", &GPU::BlitFlushCapture },
     { "lateblit", &GPU::LateBlit },
+    { "blitafterread", &GPU::BlitAfterReadback },
     { "bnohold", &GPU::EngineBNoHold },
 };
 
@@ -63,6 +64,8 @@ Overrides apply(GPU& gpu)
     // on by default in debug builds, so it gets real use, and off in the core until it's proven.
     // only an accelerated renderer holds capture lines or clears the plane, so this is GL and compute
     gpu.EngineBNoHold = true;
+    // the same until it's tested on a phone: OpenGL only (Renderer3D::SupportsBlitAfterRender)
+    gpu.BlitAfterReadback = true;
 
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
     {
