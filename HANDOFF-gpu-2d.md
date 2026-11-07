@@ -4,7 +4,7 @@ The plan, the design decisions and all results so far are in [docs/plan-gpu-2d.m
 
 ## State (11-07)
 
-Branch `gpu-2d` in the app (from `material3`) and in the core (from `melonade`). **Committed, not pushed:** core `57c1e735` (counters) and `97341228` (filter), app `87f008eb` (setting and switches) and `7a52c106` (plan and handoff). Neither branch has an upstream yet.
+Branch `gpu-2d` in the app (from `material3`) and in the core (from `melonade`). **Pushed to `origin/gpu-2d` in both repos:** core `57c1e735` (counters) and `97341228` (filter); app `87f008eb` (setting and switches), `7a52c106` (plan and handoff), `cfdcf4f9` (Deband early-out) and the docs after it. The held filter skip is pushed too, as core `origin/gpu-2d-filter-skip`.
 
 - **Step 1, counters:** done. `debug.melonade.gpu2dstats`, in the core's `src/GPU_2DStats.h` plus hooks in `GPU.cpp`/`GPU.h`.
 - **Step 2, filtered 2D:** works on both phones. All correctness checks passed on the OnePlus and the Fold (OpenGL and compute, mode 3 identity at 2x/4x/8x and wide). The Fold holds 60 fps in every scene with it on (measured plugged in). The open problem is cost on the OnePlus: White 2's title drops to about 37–45 fps, because its GPU is full and the capture readback waits behind it. Details in the plan doc.
