@@ -723,20 +723,15 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    return fract((p3.x + p3.y) * p3.z);\n" +
                     "}\n" +
                     "" +
-                    "// Replaces result with the average of 4 samples around uv, offset rotated 90 degrees each, if all of them are close to center\n" +
-                    "vec3 debandRing(vec3 center, vec3 result, vec2 offset, vec4 band) {\n" +
+                    "// Whether all 4 samples around uv (offset and perpendicular, both ways) are close to center, with their average in average\n" +
+                    "bool debandRing(vec3 center, vec2 offset, vec2 perpendicular, vec4 band, out vec3 average) {\n" +
                     "    vec3 s1 = sampleScreen(uv + offset, band);\n" +
                     "    vec3 s2 = sampleScreen(uv - offset, band);\n" +
-                    "    // Rotated in texels, since the frame texture isn't square\n" +
-                    "    vec2 texels = offset * texSize;\n" +
-                    "    vec2 perpendicular = vec2(-texels.y, texels.x) / texSize;\n" +
                     "    vec3 s3 = sampleScreen(uv + perpendicular, band);\n" +
                     "    vec3 s4 = sampleScreen(uv - perpendicular, band);\n" +
                     "    vec3 d = max(max(abs(s1 - center), abs(s2 - center)), max(abs(s3 - center), abs(s4 - center)));\n" +
-                    "    if (max(d.r, max(d.g, d.b)) < DEBAND_THRESHOLD) {\n" +
-                    "        return (s1 + s2 + s3 + s4) * 0.25;\n" +
-                    "    }\n" +
-                    "    return result;\n" +
+                    "    average = (s1 + s2 + s3 + s4) * 0.25;\n" +
+                    "    return max(d.r, max(d.g, d.b)) < DEBAND_THRESHOLD;\n" +
                     "}\n" +
                     "" +
                     "void main() {\n" +
@@ -747,11 +742,19 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    float angle = 6.2831853 * hash12(gl_FragCoord.xy);\n" +
                     "    float radius = DEBAND_RANGE * scale * (0.5 + 0.5 * hash12(gl_FragCoord.yx + 17.0));\n" +
                     "    vec2 offset = vec2(cos(angle), sin(angle)) * radius / texSize;\n" +
+                    "    // Rotated in texels, since the frame texture isn't square; scaling both by 2 or 4 later is exact\n" +
+                    "    vec2 texels = offset * texSize;\n" +
+                    "    vec2 perpendicular = vec2(-texels.y, texels.x) / texSize;\n" +
                     "    vec3 result = center;\n" +
-                    "    // Nearest ring first: a farther ring that also passes overrides it, since it blends more\n" +
-                    "    result = debandRing(center, result, offset, band);\n" +
-                    "    result = debandRing(center, result, offset * 2.0, band);\n" +
-                    "    result = debandRing(center, result, offset * 4.0, band);\n" +
+                    "    vec3 average;\n" +
+                    "    // Farthest ring first, since it blends the most: the first that passes wins, so flat areas never sample the nearer ones\n" +
+                    "    if (debandRing(center, offset * 4.0, perpendicular * 4.0, band, average)) {\n" +
+                    "        result = average;\n" +
+                    "    } else if (debandRing(center, offset * 2.0, perpendicular * 2.0, band, average)) {\n" +
+                    "        result = average;\n" +
+                    "    } else if (debandRing(center, offset, perpendicular, band, average)) {\n" +
+                    "        result = average;\n" +
+                    "    }\n" +
                     "    // Grain only where the texel was changed, so flat areas and untouched detail stay clean\n" +
                     "    if (result != center) {\n" +
                     "        result += (hash12(gl_FragCoord.xy + 101.0) - 0.5) * DEBAND_GRAIN;\n" +
