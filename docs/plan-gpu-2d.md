@@ -59,9 +59,9 @@ Display capture, hi-res capture, CPU 2D and threaded 2D aren't touched. The filt
 
 Switches: Settings → Display → "Smooth 2D edges" (OpenGL and compute, default off), and `debug.melonade.filter2d`: `0` off, `1` on, `2` only the 2x pass at every scale, `3` all passes with identity output (must match off exactly).
 
-### Results (OnePlus 7 Pro, 11-07, uncommitted on `gpu-2d`)
+### Results (OnePlus 7 Pro, 11-07)
 
-Built, reviewed and phone-tested, with no bugs found. The Fold hasn't run it.
+Built, reviewed and phone-tested, with no bugs found. Committed on `gpu-2d` (core `97341228`, app `87f008eb`), not pushed.
 
 - **It works.** Advance Wars and New Super Mario Bros menus at 4x, on OpenGL and compute: 2D edges smoothed on both screens, including the lower rows (the suspected Adreno sign bug didn't show), and 3D stays sharp. Filter on adds no new colors, so nothing is blended. MMPX has small quirks on fine detail. White 2's title art is already anti-aliased, so it barely changes.
 - **Identity mode 3 matches off:** 0 differing pixels at 2x and 4x on exact frame pairs. At 8x and with WideMelon, the still pixels matched; only animated areas differed, and an off-vs-off pair differed as much.
@@ -75,9 +75,71 @@ Built, reviewed and phone-tested, with no bugs found. The Fold hasn't run it.
 | Advance Wars menu, fps | 59.9 | 59.9 | 59.9 |
 | Advance Wars menu, GPU Mclk/frame | 1.1 | 2.0 | 4.0 |
 
-Compute 4x on White 2 went from 29.7 to 25.6 fps. On OpenGL the GPU stayed near 267 of about 574 M/s, so it's not simply out of GPU. The tester's guess, not measured: the next frame's capture readback waits behind the heavier compositor. Data: `perf_logs/2026-11-07-filter2d/`.
+Compute 4x on White 2 went from 29.7 to 25.6 fps. On OpenGL the GPU stayed near 267 of about 574 M/s in these runs. Data: `perf_logs/2026-11-07-filter2d/`.
 
-Next for this step: find where White 2's time goes (`capreads` timing on vs off), then make it cheaper. One option is to skip the passes when the 2D planes didn't change. Another is a cheaper second pass.
+### Results (Fold, 11-07)
+
+Same checks as the OnePlus, all passed: edges smoothed on both screens and in the lower halves, on OpenGL and compute; 3D sharp; no stray rows or columns; mode 3 matched off at 2x, 4x, 8x and with WideMelon (exact frames where the scene was still, otherwise no further from off than off is from itself). The Fold was plugged in and folded (cover screen) for every run, and White 2 ran with the user's own WideMelon 342, Lua scripts and layout.
+
+| Scene, 4x | Off | 2x map only | Full |
+|---|---|---|---|
+| White 2 title, OpenGL, fps | 60.0 | 60.0 | 60.0 |
+| White 2 title, OpenGL, GPU Mclk/frame | 2.8 | 3.0 | 3.4 |
+| Advance Wars menu, OpenGL, fps | 60.0 | 60.0 | 60.0 |
+| Advance Wars menu, OpenGL, GPU Mclk/frame | 1.5 | 1.75 | 2.1 |
+| White 2 title, compute, fps | 60.0 | | 60.0 |
+
+The Fold's GPU numbers are kgsl busy × clock, so compare on vs off within one phone, not across phones. No SIOP throttling; `limitCPUFreq` trimmed the prime cores a little with the filter on and off alike.
+
+### Where White 2's time goes on the OnePlus (`capreads`, 11-07)
+
+OpenGL 4x, unplugged, off/on/off/on. With the filter on, the line-192 capture readback map goes from usually ready (1.3 ms per frame) to waiting nearly every frame (5.5 ms per frame). That's about half of the extra frame time (14.4 → 22.4 ms, 58.4 → 44.6 fps); the rest is probably other GL calls stuck behind the same busy GPU, which `capreads` doesn't time. On the Fold the map never waits.
+
+In this run the OnePlus GPU was maxed out with the filter both off and on (about 575 M/s, 92–94% shaders busy), and the filter-off frame cost 9.7 Mclk against 3.5 in the earlier run. **That was Deband, not the filter** (checked 11-07, plugged in, filter off; data in `perf_logs/2026-11-07-filter2d/baseline/`):
+
+| OnePlus, White 2 title, OpenGL 4x, filter off | fps | 1% low | GPU Mclk/frame | busy % |
+|---|---|---|---|---|
+| Old prefs (Deband off) | 53.8 | 39.3 | 3.51 | 80 |
+| Old prefs + Deband on | 55.4 | 30.8 | 10.23 | 92 |
+| Current prefs | 53.8 | 29.6 | 10.54 | 92 |
+| Current prefs, Deband off | 52.6 | 40.6 | 3.89 | 80 |
+| Current prefs, `capreads` 1 | 54.2 | 30.0 | 10.46 | 92 |
+
+Deband adds about 6.5 Mclk/frame, almost twice what the full filter adds (3.8). It also costs about 10 fps of 1% low and runs the GPU about 15 °C hotter. `capreads` costs nothing measurable. The other pref changes (dithering, the "sharp" filter) add about 0.4 together.
+
+So the "out of GPU" result holds only with Deband on. Judge the filter against the Deband-off baseline (3.5). That reopens run 1's question: with Deband off, the filter took White 2 from 53.6 to 36.8 fps while the GPU sat near 270 M/s. Fps sits near 54 with the filter off too, whatever the GPU load, so something other than GPU throughput is setting the pace. `capreads` timing with Deband off, filter 0 vs 1, is the next measurement.
+
+**What sets the pace (OnePlus, Deband off, plugged in, 11-07; data in `perf_logs/2026-11-07-filter2d/paced/`):** a serial loop. The emulator thread works ~12 ms on the gold cores, then sleeps in White 2's line-192 capture readback map until the GPU catches up. Neither side is maxed: the GPU sits at about 257 MHz (probably its lowest step), and the governor never steps up because the GPU idles while the CPU runs. The prime core isn't used.
+
+| Filter | fps | map wait ms/frame | GPU clock | emu CPU ms/frame @ GHz |
+|---|---|---|---|---|
+| off | 54.5 | 3.0 | 257 MHz | 14.0 @ 1.96 |
+| on | 37.9 | 6.9 | 345 MHz | 19.7 @ 1.45 |
+
+Of the filter's +8 ms per frame, about 4 ms is the longer wait: its GPU work sits ahead of the readback and runs at a low clock. About 5.7 ms is the gold cores clocking down to 1.45 GHz for the same work. Why the clock drops isn't known: there's no thermal cap, and ADPF isn't supported. Qualcomm's perf HAL tags the app as a heavy game, which is the only lead.
+
+So the filter's cost on the OnePlus is a sync stall, not GPU throughput. Cheaper passes help in proportion to the work removed. Moving the filter off the readback's critical path should help more: run the passes after the readback, or flush the readback before compositing. The same stall caps White 2 at ~54 with no filter, so a readback that doesn't block the emulator thread would help every capture game. That needs care, since games read the captured image back.
+
+### Two savings (11-07, uncommitted)
+
+- **Deband** now checks its rings farthest first and stops at the first that passes. The output is the same, with fewer texture reads in flat areas.
+- **The filter** skips its key and MMPX passes, and reuses the map, when a CPU check of the 2D planes finds nothing changed (`UpdateFilter2DKeys`; the FILTER2D log shows `skipped=` and `checkus=`).
+
+Both were reviewed, and both gave pictures identical to the old build on both phones: Deband on, filter 3 vs 0 while skipping, filter 1 new vs old, moving 2D, and compute. Data is in `perf_logs/2026-11-07-filter2d/savings/`. OpenGL 4x, old → new:
+
+| | Fold (battery, cover screen) | OnePlus (plugged in) |
+|---|---|---|
+| White 2, Deband on: fps / 1% low | 60 / 58.2 → 60 / 59.7 | 53.9 / 30.1 → 59.1 / 33.5 |
+| White 2, Deband on: GPU Mclk/frame | 2.81 → 2.46 | 10.52 → 9.50 |
+| White 2, filter on: fps / 1% low | 60 / 51.1 → 60 / 59.6 | 37.9 / 28.5 → 41.3 / 20.3 |
+| White 2, filter on: GPU Mclk/frame | 1.96 → 1.56 | 7.51 → 5.03 |
+| White 2 frames skipped | 85% | 80% |
+| Advance Wars menu frames skipped | 0% (the map scrolls) | 0% (the background crossfades) |
+| Check cost per frame, mean / max | 60 µs / 0.5 ms (W2), 167 µs / 0.9 ms (AW) | 150 µs / 1.3 ms (W2), 355 µs / 1.4 ms (AW) |
+
+On the OnePlus, Deband's gain comes mostly from the shorter readback wait (3.2 → 0.9 ms per frame), not from the 10% less GPU work. The skip helps the Fold, but on the OnePlus it makes White 2 stutter. While frames are skipped, the GPU drops to its lowest clock, so the 1 in 5 frames that still run the filter take about 37 ms. 19% of frames go over 33 ms (1% before), and p99 goes from 33.6 to 47 ms. Taking the filter off the readback's critical path should fix both the cost and the pacing.
+
+Next for this step: make the filter cheaper (skip the passes when the 2D planes didn't change, then a cheaper second pass). Deband's shader is separately worth a look, since it costs more than the filter.
 
 ## Step 3: shadow renderer
 
