@@ -48,7 +48,7 @@ Checked in code on `gpu-2d`:
 - **The wings see only the 3D texture.** `WingPixel()` in `GPU_OpenGL_shaders.h` reads the line's control word, samples the 3D texture at the wing X, and then applies the BLDCNT fade and master brightness. It never sees the 2D planes, the backdrop or 3D alpha, which is why transparent 3D shows the clear color. `ScreenTex` holds the middle 256 only. Compute goes through the same `GLCompositor`, so wing work covers both renderers.
 - **The control word is full.** All 32 bits are in use (brightness, hi-res capture, wing bits, 3D X scroll), so new wing data needs its own buffer.
 - **Lua** can already read VRAM, OAM, palette and game RAM. `melon.draw` is clipped to 256 wide (`LuaDraw.h` `kScreenWidth`). `LuaEngine` runs on the emulator thread with the `NDS*`, so a `melon.wide` table can hand a config to the core. Lua is off in RetroAchievements hardcore, so per-game wide 2D will be too.
-- BoxTest is always squeezed (`GPU3D.cpp` BoxTest). HalfCamera already replays a frame's FIFO into a shadow `GPU3D`, which a shadow polygon list could reuse later.
+- BoxTest was always squeezed (`GPU3D.cpp` BoxTest); since step 3 it retries only a native miss. HalfCamera already replays a frame's FIFO into a shadow `GPU3D`, which a shadow polygon list could reuse later.
 
 ## Decisions (user, 11-07)
 
@@ -68,7 +68,7 @@ Steps 1 to 3 don't need the GPU renderer and can be done any time. Step 4 is pla
 
 **2. Headless wide check.** A core debug switch plus a runner built on `tools/swi-harness` runs the same frames with wide on and off, using software 3D. It fails if the middle 256 changes: planes 0 to 2, the control words with the wing bits masked, and the capture banks. It also writes the wing output as PNGs, so wing 2D can be looked at without the phone. Once step 4 exists, the same runner also checks that the GPU renderer's middle 256 matches CPU 2D. About 30 core lines and 200 to 250 tool lines. No phone needed.
 
-**3. Small 3D fixes.**
+**3. Small 3D fixes.** Done 11-08 (core `widemelon`): BoxTest retry, the `debug.melonade.widedrops` counter (also in the wide check's summary), and geometry timing from the native view's clip result, checked with the wide check's `--timing native`. No drops in the check's three games at 342, so the counter still needs real games on the phone.
 - **BoxTest retry on a miss.** Test the native box first, and only if that misses, test it squeezed plus about 4 px, so games that cull with BoxTest stop popping at the edges. About 25 lines in `GPU3D.cpp`. Check on a game that culls with BoxTest (`VertexIdLog->OnBoxTest` can help find one).
 - **Dropped-polygon counter.** Count polygons dropped when polygon RAM is full with wide on, in the debug counters. About 20 lines. This decides whether the shadow list ever gets built.
 
