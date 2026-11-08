@@ -166,6 +166,17 @@ The old-path numbers match the plugged-in runs above almost exactly. Every early
 
 Pictures: exact-frame pairs matched with 0 differing pixels for new vs old at filter 0, 1 and 3, and for filter 3 vs 0 on the new path. Those frames include the 3D Kyurem and the captured fire, and still areas never differed. No stutter, crashes, black frames or GL errors over 16 boots, and the saves didn't change. Data: `perf_logs/2026-11-07-filter2d/blitafter/`.
 
+**Compute** got the same change: the final pass writes a spare image so frame N's 3D stays alive, and the early readback has its own pixel buffer and fence, created before the flush ahead of the Blit. It helps much less, because compute on the OnePlus is GPU-bound (585 MHz, its top step, 98% shaders busy). Same scene, on battery, averages of two passes:
+
+| compute, blitafterread / filter2d | fps | 1% low | frames >50 ms (of ~2000) | map wait ms/frame | GPU util % | GPU Mclk/frame |
+|---|---|---|---|---|---|---|
+| 0 / off | 29.7 | 19.8 | 12 | 15.0 | 89 | 18.2 |
+| 1 / off | 30.9 | 20.6 | 7 | 14.5 | 93 | 18.0 |
+| 0 / on | 24.8 | 16.4 | 85 | 17.5 | 93 | 22.3 |
+| 1 / on | 28.3 | 19.7 | 12 | 15.1 | 100 | 20.7 |
+
+The new order fills some GPU idle time and takes most of the filter's cost away, but the map still waits about 15 ms per frame because the GPU is simply behind. Pictures matched the old path on exact frames (including a full-screen 3D frame with the capture), filter 3 matched 0, and there were no GL errors or tile corruption in about 400 screenshots. Kyurem's grey feet below the floor line in the big-3D phase are the title's own effect; they show on the old path too. Data: `perf_logs/2026-11-07-filter2d/blitafter-compute/`.
+
 Still to do: a Fold run (GL changes need one), a plugged-in OnePlus run, more capture games than White 2, and then the filter skip, which was held because it stuttered behind the readback.
 
 ## Step 3: shadow renderer
