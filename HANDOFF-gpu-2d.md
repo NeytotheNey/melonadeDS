@@ -2,9 +2,9 @@
 
 The plan, the design decisions and all results so far are in [docs/plan-gpu-2d.md](docs/plan-gpu-2d.md). Read that first. This file is the current state and the next steps. Build, install and phone-connection commands are in `HANDOFF.md`.
 
-## State (11-07)
+## State (11-08)
 
-Branch `gpu-2d` in the app (from `material3`) and in the core (from `melonade`). **Everything is pushed to `origin/gpu-2d`:** core up to `e5c7c29a`, app up to `ad16d9d9`. The held filter skip is pushed too, as core `origin/gpu-2d-filter-skip`.
+Branch `gpu-2d` in the app (from `material3`) and in the core (from `melonade`). The core is at `0de067ee` (the filter skip) and the app commit after `5a4715c4` points to it. Check `git log origin/gpu-2d..gpu-2d` in both repos to see whether that's pushed yet.
 
 - **Step 1, counters:** done. `debug.melonade.gpu2dstats`, in the core's `src/GPU_2DStats.h` plus hooks in `GPU.cpp`/`GPU.h`.
 - **Step 2, filtered 2D:** works on both phones. All correctness checks passed on the OnePlus and the Fold (OpenGL and compute, mode 3 identity at 2x/4x/8x and wide). Its cost in capture scenes was a readback stall, and that's fixed by the Blit after the readback below. White 2's title now holds 60 fps with the filter on, on OpenGL on both phones.
@@ -21,20 +21,9 @@ How filtered 2D works, in one line: a pre-pass runs MMPX over a key image of the
 
   Pictures matched the old path on exact frames. Core files: `GPU.cpp/.h`, `GPU3D.h`, `GPU3D_OpenGL.cpp/.h`, `GPU3D_Compute.cpp/.h`, `GPU2D_Soft.cpp`, `GPU_OpenGL.cpp/.h`, `GPU_CaptureReads.h`. App: `DebugProperties.cpp/.h`.
 
+- **Filter skip:** merged (11-08, core `0de067ee`, cherry-picked from `72104fd7`). When a CPU check finds the 2D planes unchanged, the key and MMPX passes are skipped and the map is reused. On top of the Blit after the readback it no longer stutters on the OnePlus, and it cut the Fold's GPU work by 16% on White 2's title (plan doc, "Filter skip on top of the Blit after the readback"). Core branches `gpu-2d-filter-skip` and `gpu-2d-filter-skip-2` can go.
+
 ## Next step
-
-**Retest the filter skip on top of the Blit after the readback.** The skip is on core branch `gpu-2d-filter-skip` (`72104fd7`), which branches off before the Blit after the readback. When a CPU check finds the 2D planes unchanged, it skips the key and MMPX passes and reuses the map. It helped the Fold, but made White 2 stutter on the OnePlus: the frames that still ran the filter waited behind the readback at a low GPU clock, and that wait should be gone now.
-
-1. Rebase or cherry-pick `72104fd7` onto `gpu-2d`. Expect conflicts in `GPU_OpenGL.cpp`. Then review it and build.
-2. OnePlus first, then the Fold, using the quick recipe (memory `quick-ab-recipe`):
-   - White 2 title, OpenGL 4x, Deband off, filter on, blitafterread 1;
-   - skip build vs the current `gpu-2d` build;
-   - look at fps, 1% low, p99, frames over 33 ms, the skipped share, and GPU load.
-   
-   Pixel check: the skip should match no-skip exactly.
-3. If it's smooth and saves GPU, merge it into `gpu-2d`. If not, leave it shelved.
-
-## After that
 
 - Decide whether the Blit after the readback goes on in release builds. Before that: a plugged-in OnePlus run and a few other capture games.
 - Optional: a long Fold run plugged in, 20–30 min of gameplay with the filter on. The 70 s runs never got hot enough to throttle.
@@ -55,6 +44,7 @@ How filtered 2D works, in one line: a pre-pass runs MMPX over a key image of the
 
 ## Leftovers
 
+- **Fold scratch files from the 11-08 skip A/B, need the user's OK to delete:** in `/data/local/tmp`, `fs_apk_base.apk` and `fs_apk_skip.apk` (about 44 MB each), the `fs_base`, `fs_skip`, `fs_id_base` and `fs_id_skip` folders, `fs_fchain.log`, the three `fs_*` scripts, `fs_prefs_fold.xml` and `fs_user_prefs.xml`. All pulled to `perf_logs/2026-11-08-filterskip/fold/`.
 - **OnePlus scratch files, need the user's OK to delete:** the 60 `f2_*` files from the first run plus `f2_crw_*`, `f2_crn_*`, `f2_crchain*.log`, `f2_b*`, `bl_*` and `f2_work/bl_gpuprod.log` in `/data/local/tmp`, and the matching `.pftrace` files (plus `bl_probe.pftrace`) in `/data/misc/perfetto-traces`. Everything is already pulled. Older ones from 11-06 are listed in `HANDOFF.md`.
 - **OnePlus setting:** a tester ran `svc power stayon true`, so `stay_on_while_plugged_in` is now 7. The old value wasn't recorded.
 - **App logs from the test runs:** about 150 perf/debug logs in the Fold's `Documents/2DS/Logs` (11-07 09:2x–10:3x) and in the OnePlus's app `perf_logs` folder.

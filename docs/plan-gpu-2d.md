@@ -137,7 +137,7 @@ Both were reviewed, and both gave pictures identical to the old build on both ph
 | Advance Wars menu frames skipped | 0% (the map scrolls) | 0% (the background crossfades) |
 | Check cost per frame, mean / max | 60 µs / 0.5 ms (W2), 167 µs / 0.9 ms (AW) | 150 µs / 1.3 ms (W2), 355 µs / 1.4 ms (AW) |
 
-On the OnePlus, Deband's gain comes mostly from the shorter readback wait (3.2 → 0.9 ms per frame), not from the 10% less GPU work. The skip helps the Fold, but on the OnePlus it makes White 2 stutter. While frames are skipped, the GPU drops to its lowest clock, so the 1 in 5 frames that still run the filter take about 37 ms. 19% of frames go over 33 ms (1% before), and p99 goes from 33.6 to 47 ms. Taking the filter off the readback's critical path should fix both the cost and the pacing.
+On the OnePlus, Deband's gain comes mostly from the shorter readback wait (3.2 → 0.9 ms per frame), not from the 10% less GPU work. The skip helps the Fold, but on the OnePlus it makes White 2 stutter. While frames are skipped, the GPU drops to its lowest clock, so the 1 in 5 frames that still run the filter take about 37 ms. 19% of frames go over 33 ms (1% before), and p99 goes from 33.6 to 47 ms. Taking the filter off the readback's critical path should fix both the cost and the pacing. (It did: see "Filter skip on top of the Blit after the readback".)
 
 Next for this step: make the filter cheaper (skip the passes when the 2D planes didn't change, then a cheaper second pass). Deband's shader is separately worth a look, since it costs more than the filter.
 
@@ -190,7 +190,23 @@ The new order fills some GPU idle time and takes most of the filter's cost away,
 
 Busy × clock rises 10–13% with the new order. Busy % stays the same while the clock steps up, so it's probably the governor, not more work. Pictures matched on exact frames (OpenGL filter 0 and 1, compute filter 1), still pixels never differed, and there were no GL errors, black frames or broken 3D. The cover-screen, plugged-in case wasn't rerun.
 
-Still to do: a plugged-in OnePlus run, more capture games than White 2, and then the filter skip, which was held because it stuttered behind the readback.
+Still to do: a plugged-in OnePlus run and more capture games than White 2.
+
+### Filter skip on top of the Blit after the readback (11-08, core `0de067ee`)
+
+The filter skip from "Two savings" was held because it stuttered on the OnePlus behind the readback. It's now cherry-picked onto `gpu-2d` and merged. Nothing in its logic changed. The key check reads the same back buffer and control words as the compositor upload in the same call, so it matches the frame being composited at line 192, with lateblit, and with the Blit deferred to 215. A fresh review found no bugs.
+
+White 2 title, OpenGL 4x, Deband off, filter 1, blitafterread 1, one 30 s pass per build (quick recipe). Baseline is core `e5c7c29a`.
+
+| | OnePlus (battery) base → skip | Fold (plugged in, cover screen) base → skip |
+|---|---|---|
+| fps / 1% low | 59.8 / 56.7 → 59.9 / 56.5 | 60.0 / 59.7 → 60.0 / 59.3 |
+| p99 ms / frames over 33 ms | 17.5 / 0 → 17.6 / 0 | 16.8 / 0 → 16.8 / 0 |
+| frames skipped | 73% | 63% |
+| check cost, mean / max | 90 / 328 µs | 56 / 150 µs |
+| GPU busy × clock | no counters; GPU ~3 °C cooler | 142 → 119 Mclk/s (−16%) |
+
+The stutter is gone: frame times on the OnePlus are flat on both builds, with nothing over 20 ms. On the Fold the GPU sat at its 160 MHz floor the whole run (183 MHz on the baseline), and the saving is 14% while the title's 2D animates at 30 Hz and 24% once it stands still. Pictures: exact-frame matches on both phones, and still areas never differed. The check is pure overhead in scenes that never skip (Advance Wars, 0%), about 0.1–0.35 ms per frame; stopping the check after a run of changed frames is an option if that matters. Data: `perf_logs/2026-11-08-filterskip/` (`oneplus/`, `fold/`).
 
 ## Step 3: shadow renderer
 
