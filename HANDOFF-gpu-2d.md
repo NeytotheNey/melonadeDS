@@ -4,26 +4,42 @@ The plan, the design decisions and all results so far are in [docs/plan-gpu-2d.m
 
 ## State (11-07)
 
-Branch `gpu-2d` in the app (from `material3`) and in the core (from `melonade`). **Pushed to `origin/gpu-2d` in both repos:** core `57c1e735` (counters) and `97341228` (filter); app `87f008eb` (setting and switches), `7a52c106` (plan and handoff), `cfdcf4f9` (Deband early-out) and the docs after it. The held filter skip is pushed too, as core `origin/gpu-2d-filter-skip`.
+Branch `gpu-2d` in the app (from `material3`) and in the core (from `melonade`). **Everything is pushed to `origin/gpu-2d`:** core up to `e5c7c29a`, app up to `ad16d9d9`. The held filter skip is pushed too, as core `origin/gpu-2d-filter-skip`.
 
 - **Step 1, counters:** done. `debug.melonade.gpu2dstats`, in the core's `src/GPU_2DStats.h` plus hooks in `GPU.cpp`/`GPU.h`.
-- **Step 2, filtered 2D:** works on both phones. All correctness checks passed on the OnePlus and the Fold (OpenGL and compute, mode 3 identity at 2x/4x/8x and wide). The Fold holds 60 fps in every scene with it on (measured plugged in). The open problem is cost on the OnePlus: White 2's title drops to about 37–45 fps, because its GPU is full and the capture readback waits behind it. Details in the plan doc.
+- **Step 2, filtered 2D:** works on both phones. All correctness checks passed on the OnePlus and the Fold (OpenGL and compute, mode 3 identity at 2x/4x/8x and wide). Its cost in capture scenes was a readback stall, and that's fixed by the Blit after the readback below. White 2's title now holds 60 fps with the filter on, on OpenGL on both phones.
   - Core: `GPU_OpenGL.cpp/.h` (`PrepareFilter2D`, `RunFilter2D`, `FreeFilter2D*`), `GPU_OpenGL_shaders.h` (key and MMPX passes, `FILTER2D` compositor variant), `GPU.h` (`Filter2D`, `Filter2DLogging`).
   - App: the "Smooth 2D edges" setting, plumbed like "Upscaled display capture", and the `filter2d` switch in `DebugProperties`.
 - **Not part of this work, uncommitted in the app:** `docs/shelved/compute-on-mali.md` and its `docs/README.md` line, `.claude/launch.json`, `gradle/gradle-daemon-jvm.properties`. Leave them out of these commits unless the user says otherwise.
 
 How filtered 2D works, in one line: a pre-pass runs MMPX over a key image of the 2D planes and writes a map from each sub-pixel to a native pixel. The compositor reads planes 0–2 through that map and runs `CompositePixel` unchanged, so blending and 3D stay exact, and 3D is still fetched at the real position.
 
-## Next up
+- **Blit after the readback:** done, reviewed, tested on both phones, and pushed (core `7516a617` OpenGL, `e5c7c29a` compute; plan doc, "Blit after the readback"). It's `debug.melonade.blitafterread`, on in debug builds only. In capture frames, the compositor and filter go to the GPU after the next frame's readback instead of before it. Results:
+  - OnePlus, OpenGL: 37.9 → 59.9 fps with the filter on.
+  - Fold, OpenGL: 56.7 → 60 fps on the inner screen.
+  - OnePlus, compute: 24.8 → 28.3. Compute is GPU-bound there, so the gain is smaller.
 
-1. **Blit after the readback: built, reviewed, tested on both phones, committed (core `7516a617` OpenGL, `e5c7c29a` compute)** (plan doc, "Blit after the readback"). `debug.melonade.blitafterread`, on in debug builds only. White 2's title on the OnePlus goes to 59.9 fps with the filter on or off (was 37.9 / 54.2), and the map wait goes to 0.1 ms. Pictures matched the old path on exact frames. Core: `GPU.cpp/.h`, `GPU3D.h`, `GPU3D_OpenGL.cpp/.h`, `GPU2D_Soft.cpp`, `GPU_OpenGL.cpp/.h`, `GPU_CaptureReads.h`. App: `DebugProperties.cpp/.h`. Next:
-   - Fold done (inner screen, on battery): OpenGL with the filter goes from 56.7 to 60 fps, 1% low 34.9 → 59.6, pictures match. Still open: a plugged-in OnePlus run and other capture games;
-   - decide whether it goes on in release builds;
-   - compute has it too (reviewed, OnePlus-tested): 24.8 → 28.3 fps with the filter on, 29.7 → 30.9 off. It's GPU-bound there, so the gain is small. The shared code is a candidate for helpers (docs/ideas.md).
-2. **Filter skip:** on hold, on core branch `gpu-2d-filter-skip` (`72104fd7`), not in `gpu-2d`. It made White 2 stutter on the OnePlus, because the frames that still ran the filter waited behind the readback at a low GPU clock. With the Blit after the readback that may be gone, so retest it on top. The quarter-size second pass (512x768 writing four results, picked by sub-pixel parity) is still an option if the GPU gets tight. The Deband early-out is committed in the app (`cfdcf4f9`).
-3. **Optional: a long Fold run plugged in** (20–30 min of gameplay, filter on, main screen), logging fps, clocks, SIOP and `limitCPUFreq`. The user treats plugged in as the worse thermal case. The 70 s runs so far never got hot enough to throttle.
-4. **Push once the user agrees** (core first, then the app). Extra commits for the cheaper filter go on the same branches.
-5. **Step 3, the shadow renderer**, starts after filtered 2D is settled. Before designing it, run the counters over real gameplay, not title screens. Golden Sun Dark Dawn is the case to design for, with lots of rotated layers and lots of mid-frame changes.
+  Pictures matched the old path on exact frames. Core files: `GPU.cpp/.h`, `GPU3D.h`, `GPU3D_OpenGL.cpp/.h`, `GPU3D_Compute.cpp/.h`, `GPU2D_Soft.cpp`, `GPU_OpenGL.cpp/.h`, `GPU_CaptureReads.h`. App: `DebugProperties.cpp/.h`.
+
+## Next step
+
+**Retest the filter skip on top of the Blit after the readback.** The skip is on core branch `gpu-2d-filter-skip` (`72104fd7`), which branches off before the Blit after the readback. When a CPU check finds the 2D planes unchanged, it skips the key and MMPX passes and reuses the map. It helped the Fold, but made White 2 stutter on the OnePlus: the frames that still ran the filter waited behind the readback at a low GPU clock, and that wait should be gone now.
+
+1. Rebase or cherry-pick `72104fd7` onto `gpu-2d`. Expect conflicts in `GPU_OpenGL.cpp`. Then review it and build.
+2. OnePlus first, then the Fold, using the quick recipe (memory `quick-ab-recipe`):
+   - White 2 title, OpenGL 4x, Deband off, filter on, blitafterread 1;
+   - skip build vs the current `gpu-2d` build;
+   - look at fps, 1% low, p99, frames over 33 ms, the skipped share, and GPU load.
+   
+   Pixel check: the skip should match no-skip exactly.
+3. If it's smooth and saves GPU, merge it into `gpu-2d`. If not, leave it shelved.
+
+## After that
+
+- Decide whether the Blit after the readback goes on in release builds. Before that: a plugged-in OnePlus run and a few other capture games.
+- Optional: a long Fold run plugged in, 20–30 min of gameplay with the filter on. The 70 s runs never got hot enough to throttle.
+- The quarter-size second pass (512x768 writing four results, picked by sub-pixel parity) if the GPU gets tight.
+- **Step 3, the shadow renderer**, once filtered 2D is settled. First run the counters over real gameplay, not title screens. Golden Sun Dark Dawn is the case to design for, with lots of rotated layers and mid-frame changes.
 
 ## Testing notes
 
