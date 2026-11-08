@@ -132,4 +132,5 @@ OpenGL, and so all WideMelon output, is phone-only: the emulator has no GLES 3.2
 - On-disk script savestate slots, if anyone asks.
 - WideMelon on the software renderer is shelved; notes in [docs/shelved/widemelon-software.md](docs/shelved/widemelon-software.md).
 - Frame interpolation for 30 FPS games was tried and shelved; notes in [docs/shelved/frame-interpolation.md](docs/shelved/frame-interpolation.md).
+- A WideMelon improvement pass, mainly 2D in the wings: notes and ideas in [docs/plan-widemelon.md](docs/plan-widemelon.md).
 - Smaller ideas: a pause-menu widescreen/layout toggle (the core handles a width change), filling transparent wings with the 2D backdrop.
