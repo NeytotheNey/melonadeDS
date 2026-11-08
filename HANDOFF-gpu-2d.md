@@ -16,8 +16,8 @@ How filtered 2D works, in one line: a pre-pass runs MMPX over a key image of the
 
 ## Next up
 
-1. **Blit after the readback: built, reviewed twice, OnePlus-tested, committed (core `7516a617`), not pushed** (plan doc, "Blit after the readback"). `debug.melonade.blitafterread`, on in debug builds only. White 2's title on the OnePlus goes to 59.9 fps with the filter on or off (was 37.9 / 54.2), and the map wait goes to 0.1 ms. Pictures matched the old path on exact frames. Core: `GPU.cpp/.h`, `GPU3D.h`, `GPU3D_OpenGL.cpp/.h`, `GPU2D_Soft.cpp`, `GPU_OpenGL.cpp/.h`, `GPU_CaptureReads.h`. App: `DebugProperties.cpp/.h`. Next:
-   - a Fold run (GL changes need one), a plugged-in OnePlus run, and other capture games;
+1. **Blit after the readback: built, reviewed, tested on both phones, committed (core `7516a617` OpenGL, `e5c7c29a` compute)** (plan doc, "Blit after the readback"). `debug.melonade.blitafterread`, on in debug builds only. White 2's title on the OnePlus goes to 59.9 fps with the filter on or off (was 37.9 / 54.2), and the map wait goes to 0.1 ms. Pictures matched the old path on exact frames. Core: `GPU.cpp/.h`, `GPU3D.h`, `GPU3D_OpenGL.cpp/.h`, `GPU2D_Soft.cpp`, `GPU_OpenGL.cpp/.h`, `GPU_CaptureReads.h`. App: `DebugProperties.cpp/.h`. Next:
+   - Fold done (inner screen, on battery): OpenGL with the filter goes from 56.7 to 60 fps, 1% low 34.9 → 59.6, pictures match. Still open: a plugged-in OnePlus run and other capture games;
    - decide whether it goes on in release builds;
    - compute has it too (reviewed, OnePlus-tested): 24.8 → 28.3 fps with the filter on, 29.7 → 30.9 off. It's GPU-bound there, so the gain is small. The shared code is a candidate for helpers (docs/ideas.md).
 2. **Filter skip:** on hold, on core branch `gpu-2d-filter-skip` (`72104fd7`), not in `gpu-2d`. It made White 2 stutter on the OnePlus, because the frames that still ran the filter waited behind the readback at a low GPU clock. With the Blit after the readback that may be gone, so retest it on top. The quarter-size second pass (512x768 writing four results, picked by sub-pixel parity) is still an option if the GPU gets tight. The Deband early-out is committed in the app (`cfdcf4f9`).
@@ -39,7 +39,6 @@ How filtered 2D works, in one line: a pre-pass runs MMPX over a key image of the
 
 ## Leftovers
 
-- **OnePlus scratch from the blitafterread runs, needs the user's OK to delete** (all pulled): the `ba_*` and `bc_*` dirs and files plus `f2_work/ba_gpuprod.log` and `f2_work/bc_gpuprod.log` in `/data/local/tmp` (about 570 MB), and `ba_*.pftrace` and `bc_*.pftrace` in `/data/misc/perfetto-traces` (about 845 MB).
 - **OnePlus scratch files, need the user's OK to delete:** the 60 `f2_*` files from the first run plus `f2_crw_*`, `f2_crn_*`, `f2_crchain*.log`, `f2_b*`, `bl_*` and `f2_work/bl_gpuprod.log` in `/data/local/tmp`, and the matching `.pftrace` files (plus `bl_probe.pftrace`) in `/data/misc/perfetto-traces`. Everything is already pulled. Older ones from 11-06 are listed in `HANDOFF.md`.
 - **OnePlus setting:** a tester ran `svc power stayon true`, so `stay_on_while_plugged_in` is now 7. The old value wasn't recorded.
 - **App logs from the test runs:** about 150 perf/debug logs in the Fold's `Documents/2DS/Logs` (11-07 09:2x–10:3x) and in the OnePlus's app `perf_logs` folder.

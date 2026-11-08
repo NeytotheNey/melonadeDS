@@ -177,7 +177,20 @@ Pictures: exact-frame pairs matched with 0 differing pixels for new vs old at fi
 
 The new order fills some GPU idle time and takes most of the filter's cost away, but the map still waits about 15 ms per frame because the GPU is simply behind. Pictures matched the old path on exact frames (including a full-screen 3D frame with the capture), filter 3 matched 0, and there were no GL errors or tile corruption in about 400 screenshots. Kyurem's grey feet below the floor line in the big-3D phase are the title's own effect; they show on the old path too. Data: `perf_logs/2026-11-07-filter2d/blitafter-compute/`.
 
-Still to do: a Fold run (GL changes need one), a plugged-in OnePlus run, more capture games than White 2, and then the filter skip, which was held because it stuttered behind the readback.
+**Fold** (11-07, unfolded on the inner screen in landscape, on battery, one 30 s pass each; data in `perf_logs/2026-11-07-filter2d/blitafter-fold/`): on the inner screen the old path doesn't hold 60 with the filter on, and the new order fixes it.
+
+| Fold, 4x | fps | 1% low | map wait ms/frame | GPU busy Mclk/frame |
+|---|---|---|---|---|
+| OpenGL, blit 0, filter off | 59.9 | 51.7 | 0.37 | 2.11 |
+| OpenGL, blit 1, filter off | 60.0 | 59.6 | 0.09 | 2.34 |
+| OpenGL, blit 0, filter on | 56.7 | 34.9 | 3.04 | 2.67 |
+| OpenGL, blit 1, filter on | 60.0 | 59.6 | 0.02 | 3.01 |
+| compute, blit 0, filter on | 60.0 | 59.6 | 0.30 | 5.41 |
+| compute, blit 1, filter on | 60.0 | 58.0 | 0.05 | 5.89 |
+
+Busy × clock rises 10–13% with the new order. Busy % stays the same while the clock steps up, so it's probably the governor, not more work. Pictures matched on exact frames (OpenGL filter 0 and 1, compute filter 1), still pixels never differed, and there were no GL errors, black frames or broken 3D. The cover-screen, plugged-in case wasn't rerun.
+
+Still to do: a plugged-in OnePlus run, more capture games than White 2, and then the filter skip, which was held because it stuttered behind the readback.
 
 ## Step 3: shadow renderer
 
