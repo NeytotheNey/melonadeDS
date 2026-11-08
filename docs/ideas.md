@@ -2,20 +2,17 @@
 
 ## Lua and game features
 
-- **Type weakness/resistance Lua script for Pokémon White 2.** Show a Pokémon's weaknesses and resistances during battle. Needs the battle Pokémon's species and types read from memory.
 - **Extend 2D scenes that WideMelon doesn't support.** Duplicate the screen edges and repeat them with a blur, or auto-crop to expose the background for a while.
 
 ## Rendering
 
-- **2D rendering on the GPU.**
+- **2D rendering on the GPU.** - WIP
 - **Filtering for 2D assets.** Add texture filtering options.
-- **Fix floor texture separation in classic OpenGL** for older Pokémon games like SoulSilver.
-- **Controller-style backgrounds using vectors**, so they scale cleanly when the window is resized.
-- **Background support for landscape and unfolded mode** on phones.
+- **Share the blitafterread code between OpenGL and compute.** Both renderers already share `GLCompositor`, but the kept/spare 3D buffer swap and the early capture readback (second pixel buffer, optional fence, valid flag, the drop list) are written twice in `GPU3D_OpenGL.cpp` and `GPU3D_Compute.cpp`. Two small helpers owned by each renderer could hold that logic, with callbacks for what really differs: texture creation, the readback itself, and how the output is bound. Roughly 100–150 lines less, and no behavior change, so check it against the current build with matching pictures and capture data.
 
 ## Performance
 
-- **Profile the OnePlus 7 Pro.**
+- **Switch `debug.melonade.*` props without restarting the game.** Each A/B config needs a fresh boot today, because the props are only read at startup. If the core re-read them on a broadcast, a whole A/B could run in one session, and pixel checks could compare the same scene back to back.
 
 ## App features
 
@@ -25,5 +22,4 @@
 
 ## Questions to look into
 
-- Ask Fable for a better understanding of how the CPU works (for the emulator's CPU core and the Lua side).
 - **`Failed to allocate memory using ftruncate! (Invalid argument)`** logs once per game load (seen on all 13 launches on 2026-11-02, and before that in the polish pass), and every game runs. It comes from the JIT fastmem setup in the core's `src/ARMJIT_Memory.cpp` (around line 919). On Android the region is made with `ASharedMemory_create`, which already sets the size, and the ftruncate after it likely fails because ashmem doesn't support it. If so it's only noise and the fix is to skip ftruncate there. Check that fastmem is really mapped and in use before calling it harmless.
