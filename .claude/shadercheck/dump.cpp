@@ -23,7 +23,7 @@ static void dumpGL(){
     w(wb?"RenderW.vert":"RenderZ.vert", std::string(kShaderHeader)+d+kRenderVSCommon+kRenderVS);
     w(wb?"RenderW.frag":"RenderZ.frag", std::string(kShaderHeader)+d+kRenderFSCommon+kRenderFS); }
   // GLCompositor::CompositorFS and HiresCaptureFS: the head, the shared composite, the rest
-  std::string compFS = std::string(kCompositorFS_Nearest_Head) + kCompositePixelFS + kCompositorFS_Nearest_Main;
+  std::string compFS = std::string(kCompositorFS_Nearest_Head) + kCompositePixelFS + kCompositorFS_Nearest_Main + kCompositorFS_Nearest_Entry;
   w("CompositorVS.vert", kCompositorVS); w("CompositorFS_Nearest.frag", compFS);
   w("CompositorWideVS.vert", wide(kCompositorVS)); w("CompositorWideFS_Nearest.frag", wide(compFS));
   w("HiresCaptureVS.vert", kHiresCaptureVS);
@@ -32,6 +32,14 @@ static void dumpGL(){
   w("Filter2DKeyFS.frag", kFilter2DKeyFS); w("Filter2DMmpxFS.frag", kFilter2DMmpxFS);
   w("CompositorFilter2DFS.frag", define(compFS, "#define FILTER2D\n"));
   w("CompositorWideFilter2DFS.frag", define(compFS, "#define WIDE\n#define FILTER2D\n"));
+  // GLCompositor::Shadow2DFS and Shadow2DObjFS: the GPU 2D shadow programs (middle, wide, check) and the OBJ pass
+  std::string shadowFS = std::string(kCompositorFS_Nearest_Head) + kCompositePixelFS + kCompositorFS_Nearest_Main + kShadow2DMemFS + kShadow2DFS_Main;
+  w("Shadow2DVS.vert", kShadow2DVS);
+  w("Shadow2DFS.frag", define(shadowFS, "#define SHADOW2D\n"));
+  w("Shadow2DWideFS.frag", define(shadowFS, "#define WIDE\n#define SHADOW2D\n"));
+  w("Shadow2DCheckFS.frag", define(shadowFS, "#define SHADOW2D\n#define SHADOW2D_PLANES\n"));
+  w("Shadow2DObjVS.vert", kShadow2DObjVS);
+  w("Shadow2DObjFS.frag", std::string(kShadow2DObjFS_Head) + kShadow2DMemFS + kShadow2DObjFS_Main);
 }
 
 // ComputeRenderer::CompileShader's assembly (compute_assembly.inc, cut from GPU3D_Compute.cpp by check.sh) with the scale 1 settings

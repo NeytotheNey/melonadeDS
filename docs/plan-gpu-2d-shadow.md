@@ -1,6 +1,6 @@
 # GPU 2D step 3: the shadow renderer
 
-Plan for step 3 of [plan-gpu-2d.md](plan-gpu-2d.md), written 11-08. Not started. CPU 2D stays the real result. The shadow pass redraws lines it can prove it matches, at output resolution, on the GPU, for display only. Nothing in `GPU2D_Soft.cpp` changes, so CPU output, HASH2D, capture and threaded 2D can't change. It has to draw X outside 0..255 from the start for WideMelon steps 4–7 ([plan-widemelon.md](plan-widemelon.md)).
+Plan for step 3 of [plan-gpu-2d.md](plan-gpu-2d.md), written 11-08. Increment 1 is built and tested on the OnePlus and the Fold, on branch `gpu-2d-shadow` (11-09, results below). CPU 2D stays the real result. The shadow pass redraws lines it can prove it matches, at output resolution, on the GPU, for display only. Nothing in `GPU2D_Soft.cpp` changes, so CPU output, HASH2D, capture and threaded 2D can't change. It has to draw X outside 0..255 from the start for WideMelon steps 4–7 ([plan-widemelon.md](plan-widemelon.md)).
 
 ## What step 1's logs say for this
 
@@ -172,6 +172,81 @@ Sizes are rough line counts. A phone step is one install-and-test round. The dev
    - **7b, hi-res capture Phase 2, if it fits.** A bitmap BG whose range resolves to one bank A–D with a valid copy samples `HiresBankTex` (unit 3). Bank validity has to catch writes through the BG, OBJ and ARM7 mappings too ([hires-capture.md](hires-capture.md)). About 250 lines. First log White 2's battle registers to confirm it's a bitmap BG.
 
 Total: about 3,200 lines, inside the old 2,500–3,500 estimate.
+
+### Increment 1 results (11-09)
+
+Branch `gpu-2d-shadow` in both repos, from `widemelon`, uncommitted. The open decisions went with the defaults: the order is text BGs and sprites, then windows, blending, affine BGs, affine sprites, bitmap BGs, mosaic last; the page log counts physical pages with a 512 cap; mode `1` draws only lines with a real rotation or scale or 2D in the wings; drawn lines lose MMPX; compute is allowed, opt-in.
+
+**What landed** (about 2,700 lines with the harness tools):
+- Core: `GPU_Shadow2D.h/.cpp` (recorder), hooks in `GPU.cpp/.h`, `GPU2D.h` (`AccelShadowStateStart`, 32 words a line), `GPU_OpenGL.cpp/.h` and `GPU_OpenGL_shaders.h` (upload, OBJ pass, composite, check, log), reset calls in `GPU3D_OpenGL.cpp` and `GPU3D_Compute.cpp`.
+- Harness: `--accel`, `--hash2d`, `--shadow2d N` and `--threaded2d` in `main.cpp`; `SWI_HARNESS_SHADOW2D=on|both` for `wide_check.sh`; `Shadow2DReplay.cpp`, a C++ copy of the OBJ and composite shaders compared with the CPU's planes.
+- App: `gpu2d` and `gpu2dwide` in `DebugProperties`.
+- `.claude/shadercheck`: 4 new programs.
+
+**Changes from the plan:**
+- The composite keeps only the top two stack entries, since the third never reaches the planes without blending. Increment 5 brings it back.
+- OBJ-window sprites aren't built or drawn. They can't matter with windows off, and this drops the per-channel `glColorMaski` on RG32UI, which is a driver risk. Increment 4 brings them back.
+- `PageLogTex` isn't created yet (1b).
+- Also kept on CPU: capture-armed engine A lines and screens-off lines. Mosaic is decided from the mosaic bit alone, whatever the size.
+- The upload generation comes from a process-wide counter, so a new recorder can't repeat an old value.
+- Hi-res display lines never show the `hires` reason. They're display mode 2 or bitmap BGs, so `dispmode` or `bgtype` catches them first.
+
+**Device-free checks (all pass):**
+- Host core build.
+- `shadercheck`: all 75 lines ok.
+- `wide_check.sh` with the recorder on and off: identical results.
+- HASH2D with the recorder on and off over 1,200 frames: identical on 8 games (Mario Kart, Golden Sun cave, Advance Wars, Contra 4, White 2, Phantom Hourglass, NSMB, Kirby), plus threaded 2D on Kirby and White 2.
+- Shader replay from the phase 0 states: 6.67 M eligible lines with 0 plane mismatches and 0 stale `MemTex` words. A deliberate BG X+1 gave 2.6 M mismatches, so the compare is live.
+- Scripts and logs are in `logs/gpu2d-shadow/` (`host_checks.sh`, `replay_batch.sh`).
+
+**Eligible lines (replay):**
+- Kirby: 67% from boot, 100% from the states.
+- White 1, SoulSilver and DQ9 boots: 58–67%.
+- White 2 overworld: 50%.
+- Advance Wars menus: 20%.
+- NSMB, Mario Kart, Golden Sun and Phantom Hourglass: 0%, because of blending, BG types or capture. Nearly everything else waits for increments 4 and 5.
+
+**OnePlus 7 Pro, plugged in** (`perf_logs/2026-11-09-shadow2d/oneplus/`):
+- **`check`** gave 0 mismatches and 0 failures at 1x and 4x, on OpenGL and on compute:
+
+| Scene | Checks (GL 4x / GL 1x / compute 4x / compute 1x) | Drawn |
+|---|---|---|
+| Kirby boot, title and demo | 131 / 133 / 129 / 131 | 34% |
+| White 2 title | 141 / 142 / 158 / 142 | 27% |
+| White 2 overworld | 121 / 121 / 81+77 / 121 | 100% |
+| Advance Wars intro | 163 / 164 / 163 / 164 | 65% |
+| Phantom Hourglass | 0 | 0% |
+
+  Phantom Hourglass drew nothing, as expected, and looked right.
+- **`all` vs `0` at OpenGL 4x** (non-wide):
+  - Every pair that landed on the same frame had 0 differing pixels: Advance Wars 6 of 16; the GPU-drawn bottom screen in 16 of 16, 12 of 12 and 12 of 12.
+  - The other pairs differed by animation, not row patterns, so the reviewer's mediump texcoord worry didn't show up on the Adreno 640.
+- **HASH2D:** `all` with threaded 2D on and with it off, 600 frames of Kirby's boot, matched `0` frame for frame. Mode `0` alone splits between two outcomes from frame 313 on, so it isn't the shadow.
+- **WideMelon 342** at OpenGL 4x:
+  - `all` with `gpu2dwide 0`: wings identical to `0` on every exact pair (23).
+  - `gpu2dwide 1`: policy `1` lines get drawn (Kirby 34%, Advance Wars 73%, White 2 overworld 100%), and the middle stays exact. Advance Wars' intro letters, bars and banner carry into the wings.
+  - In Kirby and White 2 the wings looked the same as off. That's worth a look in WideMelon step 4.
+  - `check` with `gpu2dwide 1`: 0 mismatches. One compute 4x pair: exact.
+- **Cost, OpenGL 4x on Kirby:**
+  - The recorder averages 0.39 ms a frame (max 0.56), under the 1 ms stop line.
+  - Uploads average 45 KB a frame when drawing (max 104).
+  - fps and frame time are within noise of `0` (59.9 fps either way).
+
+**Fold, `check`** (user-run field build `melonade-gpu2d-shadow-inc1-check-2026-11-09.apk`, which defaults to `check`; read from the app's debug logs `melonade_debug_20261109-113706.txt` and `-115336.txt`):
+- 0 mismatches and 0 failures in every config, with no crashes or GL errors.
+- The settings were harder than the OnePlus runs: "Smooth 2D edges" on, upscaled capture on, threaded 2D on, and the inner screen's wide view (308, or 342 in one run) with `gpu2dwide 0`.
+
+| Scene | Checks (GL 1x / GL 4x / compute 1x / compute 4x) | Drawn |
+|---|---|---|
+| Advance Wars, wide | 195 / 177 / 170 / 163 | 21–25% |
+| Kirby, 256 | 276 / 188 / 214 / 354 | 76–88% |
+| White 2 title and overworld, wide | 413 / 388 / 251 / 465 | 52–53% |
+| Golden Sun, compute 4x | 11 | 1% |
+
+- The recorder averaged 95–153 µs a frame.
+- Phantom Hourglass wasn't run on the Fold; it draws nothing in this increment (OnePlus).
+
+Increment 1 is done. Next is 1b, the page log.
 
 ## Switches
 

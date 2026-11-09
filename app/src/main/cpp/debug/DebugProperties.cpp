@@ -124,12 +124,37 @@ Overrides apply(GPU& gpu)
 
     gpu.GPU3D.SetWideDropLogging(readBool("widedrops") == 1);
 
-    char summary[640];
+    // the GPU 2D shadow renderer: 1 = mode 1, 2 = all; log and check add the GPU2D line, check the readback
+    int gpu2dMode = 0;
+    bool gpu2dLog = false, gpu2dCheck = false;
+    if (read("gpu2d", value))
+    {
+        if (strcmp(value, "1") == 0)
+            gpu2dMode = 1;
+        else if (strcmp(value, "all") == 0)
+            gpu2dMode = 2;
+        else if (strcmp(value, "log") == 0)
+        {
+            gpu2dMode = 1;
+            gpu2dLog = true;
+        }
+        else if (strcmp(value, "check") == 0)
+        {
+            gpu2dMode = 2;
+            gpu2dLog = true;
+            gpu2dCheck = true;
+        }
+    }
+    int gpu2dWide = readBool("gpu2dwide") == 1 ? 1 : 0;
+    gpu.SetShadow2D(gpu2dMode, gpu2dLog, gpu2dCheck, gpu2dWide);
+
+    char summary[768];
     int length = snprintf(summary, sizeof(summary), "Debug switches:");
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
         length += snprintf(summary + length, sizeof(summary) - length, " %s=%d", boolSwitch.name, gpu.*boolSwitch.target ? 1 : 0);
-    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d",
-             gpu.ShadowLogFrames, gpu.CaptureSpinUs, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.filter2d, captureReads ? 1 : 0, gpu2dStats ? 1 : 0, gpu.GPU3D.GetWideDropLogging() ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), gpu.GPU3D.GetHalfCamera());
+    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d",
+             gpu.ShadowLogFrames, gpu.CaptureSpinUs, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.filter2d, captureReads ? 1 : 0, gpu2dStats ? 1 : 0, gpu.GPU3D.GetWideDropLogging() ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), gpu.GPU3D.GetHalfCamera(),
+             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : "0", gpu2dWide);
     LOG_INFO(LOG_TAG_DEBUG, "%s", summary);
     return overrides;
 }
