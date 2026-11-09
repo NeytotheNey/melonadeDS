@@ -28,7 +28,7 @@ How filtered 2D works, in one line: a pre-pass runs MMPX over a key image of the
 - Decide whether the Blit after the readback goes on in release builds. Before that: a plugged-in OnePlus run and a few other capture games.
 - Optional: a long Fold run plugged in, 20–30 min of gameplay with the filter on. The 70 s runs never got hot enough to throttle.
 - The quarter-size second pass (512x768 writing four results, picked by sub-pixel parity) if the GPU gets tight.
-- **Step 3, the shadow renderer**, once filtered 2D is settled. First run the counters over real gameplay, not title screens. Golden Sun Dark Dawn is the case to design for, with lots of rotated layers and mid-frame changes.
+- **Step 3, the shadow renderer:** planned in `docs/plan-gpu-2d-shadow.md` (11-08), not started. It goes on `widemelon` or a branch cut from it. Seven decisions are open (end of that doc). Phase 0, gameplay counters with Golden Sun Dark Dawn first, comes before any renderer code.
 
 ## Testing notes
 

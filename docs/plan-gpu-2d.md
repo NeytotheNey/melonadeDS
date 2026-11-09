@@ -210,6 +210,8 @@ The stutter is gone: frame times on the OnePlus are flat on both builds, with no
 
 ## Step 3: shadow renderer
 
+The detailed plan (11-08) is [plan-gpu-2d-shadow.md](plan-gpu-2d-shadow.md): a gameplay counter run first, then seven increments, with a page log of mid-frame VRAM changes instead of bands or a per-frame fallback. The sketch below is the original outline.
+
 Shaders decode tiles and sprites from VRAM and composite at output resolution. Hi-res comes from evaluating the affine matrix per output pixel. Rough size is 2,500–3,500 lines, against about 4,500 upstream.
 
 - **Per-line state** is recorded on the emulator thread when `LineJob` is built, into a texture read with `texelFetch`. Upstream's 30 KB UBO is over GLES's guaranteed 16 KB.
