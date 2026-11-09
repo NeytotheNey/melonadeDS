@@ -1,6 +1,6 @@
 # GPU 2D step 3: the shadow renderer
 
-Plan for step 3 of [plan-gpu-2d.md](plan-gpu-2d.md), written 11-08. Increment 1 is built and tested on the OnePlus and the Fold, on branch `gpu-2d-shadow` (11-09, results below). CPU 2D stays the real result. The shadow pass redraws lines it can prove it matches, at output resolution, on the GPU, for display only. Nothing in `GPU2D_Soft.cpp` changes, so CPU output, HASH2D, capture and threaded 2D can't change. It has to draw X outside 0..255 from the start for WideMelon steps 4–7 ([plan-widemelon.md](plan-widemelon.md)).
+Plan for step 3 of [plan-gpu-2d.md](plan-gpu-2d.md), written 11-08. Increment 1 is built and tested on the OnePlus and the Fold, on branch `gpu-2d-shadow` (11-09, results below). Increment 5 (blending) was moved up and passes the device-free checks; its phone step is next. CPU 2D stays the real result. The shadow pass redraws lines it can prove it matches, at output resolution, on the GPU, for display only. Nothing in `GPU2D_Soft.cpp` changes, so CPU output, HASH2D, capture and threaded 2D can't change. It has to draw X outside 0..255 from the start for WideMelon steps 4–7 ([plan-widemelon.md](plan-widemelon.md)).
 
 ## What step 1's logs say for this
 
@@ -246,7 +246,61 @@ Branch `gpu-2d-shadow` in both repos, from `widemelon`, uncommitted. The open de
 - The recorder averaged 95–153 µs a frame.
 - Phantom Hourglass wasn't run on the Fold; it draws nothing in this increment (OnePlus).
 
-Increment 1 is done. Next is 1b, the page log.
+Increment 1 is done.
+
+### New order (11-09)
+
+The replay logs above show the page log would gain almost nothing now: `memchanged` held back lines only in SoulSilver's boot (130–258 of 115,200), while blending kept most lines on CPU in nearly every game. So the user moved blending (increment 5) first. Then windows (4) and the rest. 1b waits until a game needs it, most likely Golden Sun with bitmap BGs (increment 7).
+
+### Increment 5 results (11-09, device-free only)
+
+Uncommitted on `gpu-2d-shadow` in the core, about +360/−40 lines: `GPU_OpenGL_shaders.h` (GLSL copies of `ColorComposite`, `ColorBlend4/5`, `ColorBrightnessUp/Down`; the three-entry stack is back; unit A's planes come from `DrawScanline_BGOBJ`'s four branches; unit B is `ColorComposite(top, second)`, 0, 0x07000000), `GPU_Shadow2D.cpp/.h` (the rule below), `Shadow2DReplay.cpp` (mirrors the shader), and a harness `--bnohold` flag. No new programs, so `GPU_OpenGL.cpp` and `dump.cpp` are unchanged. The window mask is a constant `0xFF` in the shader, so increment 4 only has to compute it per pixel.
+
+- **What still stays on CPU for blending:** unit B lines with an alpha blend that has the backdrop as 1st target, when `EngineBNoHold` is off (release builds, and the harness without `--bnohold`). There B's pass starts with whatever unit A left in plane 1, and the CPU blends the backdrop with that. The review found it; reason `bleftover` (old `R_Blend` number). It fired only in Advance Wars' boot (6.6% of lines).
+- **Checks, all pass** (logs in `logs/gpu2d-shadow/inc5/`): host build; shadercheck 75 ok; `wide_check.sh` with the recorder on and off identical; HASH2D on and off identical on the 8 games, plus threaded 2D on Kirby and White 2; replay 0 plane mismatches and 0 stale mem on all 20 scenes, with `EngineBNoHold` both off and on. Deliberate bugs are caught: EVA/EVB swapped (Mario Kart, Contra 4, Phantom Hourglass, DQ9) and EVY+1 on darken (NSMB).
+- **Not covered by any scene:** brighten (effect 2), same code shape as darken; and the review's exact leftover case, which the rule covers anyway.
+
+Eligible lines in the replay, increment 1 → 5 (EngineBNoHold on; Advance Wars is 78% with it off):
+
+| Scene | Inc 1 | Inc 5 | Still CPU |
+|---|---|---|---|
+| Mario Kart state, NSMB state, White 2 state, Kirby states | 0–100% | 100% | – |
+| DQ9, Platinum, SoulSilver boots | 42–65% | 93–96% | dispmode |
+| Advance Wars boot | 20% | 84% | window 8%, bgtype 7% |
+| White 1 boot | 67% | 83% | dispmode 14% |
+| TWEWY boot | 0% | 75% | window 21% |
+| Rune Factory boot | 10% | 72% | bgtype 19%, window 7% |
+| Kirby boot | 67% | 71% | bgtype 21% |
+| Contra 4 boot | 0% | 70% | dispmode 23% |
+| NSMB boot | 0% | 60% | bgtype 39% |
+| Phantom Hourglass boot | 0% | 54% | bgtype 23%, capture 22% |
+| Golden Sun cave | 0% | 50% | bgtype 50% (engine B bitmap) |
+| Animal Crossing boot | 0% | 49% | window 35%, bgtype 14% |
+| Metal Slug 7 boot | 0% | 38% | bgtype 40%, capture 22% |
+| Golden Sun battle | 0% | 0% | bgtype, dispmode |
+
+Reasons are first-match, so window and bgtype now show what blending used to hide. The Mario Kart state is all text BGs with no window, not the rotated race scene from phase 0, so increments 2 and 4 still matter there.
+
+**OnePlus 7 Pro, plugged in** (11-09, `perf_logs/2026-11-09-shadow2d-inc5/oneplus/`, `summary_t5.txt`):
+- **`check`:** 0 mismatches and 0 failures in all 32 runs, with no crashes or GL errors. Each cell is checks / drawn %:
+
+| Scene | GL 4x | Compute 4x | GL 1x | Compute 1x |
+|---|---|---|---|---|
+| NSMB boot, title, cutscene, map | 188 / 78% | 145 / 72% | 201 / 79% | 199 / 79% |
+| NSMB 1-1 gameplay | 193 / 62% | – | – | – |
+| Mario Kart title, menu, fade, attract demo | 71 / 34% | 41 / 28% | 71 / 35% | 71 / 34% |
+| White 2 intro, title, overworld | 236 / 80% | 174 / 74% | 244 / 80% | 244 / 80% |
+| Contra 4 Konami fade, title, intro | 184 / 52% | 176 / 52% | 188 / 51% | 186 / 51% |
+| Advance Wars intro | 188 / 93% | 171 / 92% | 191 / 93% | 191 / 93% |
+| Kirby boot | 131 / 34% | 131 / 34% | 133 / 35% | 131 / 34% |
+| Phantom Hourglass | 8 / 5% | 8 / 6% | 8 / 5% | 8 / 5% |
+
+- **Drawn vs increment 1:** White 2's title went from 27% to 93%, Advance Wars from 65% to 93%, NSMB from 0% to 78%, Contra 4 from 0% to 52%. Still on CPU: Mario Kart bgtype 32% and window 31%; Kirby bgtype 45% and window 19%; Contra 4 dispmode 39% and memchanged 8%.
+- **`all` vs `0` at GL 4x:** no row patterns. The GPU-drawn bottom screen was exact in every White 2 overworld pair (12) and every NSMB file-select pair (8). The other differences were animation or a different fade step.
+- **Cost:** the recorder averages 200–480 µs a frame (the worst second was 730 µs), under the 1 ms line. GL holds 57–60 fps. Compute 4x is GPU-bound as before (about 30 fps on NSMB's map and White 2's overworld).
+- `bleftover` can't fire in debug builds, so the phone doesn't test it. That's covered by the harness replay with `EngineBNoHold` off.
+
+The Fold's run is a user-run field build that defaults to `check` (`melonade-gpu2d-shadow-inc5-check-2026-11-09.apk` in the NAS drop folder). Then commit and move on to windows (increment 4).
 
 ## Switches
 
