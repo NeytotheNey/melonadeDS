@@ -25,6 +25,8 @@ The step 1 runs were title screens and menus. Before any renderer code, run the 
 
 ### Phase 0 results (PC harness, 11-09)
 
+Phase 0 is done. Golden Sun's world map and menus weren't measured (no state for them), and the battle run may not include a Psynergy cast.
+
 Run headless with the new counters (`real`, `log`, `logev`, `realpal`; `logbothev` sums both engines) and harness modes (`--stats2d N`, `--state` on its own, `--tap KEY@FRAME[+N]`, `--touch`, `--sav`). Golden Sun used the user's states (cave, battle start, battle end with the spinning camera); the others used the user's states or button scripts from boot. Data and screenshots are in `logs/gpu2dstats-phase0/`. Harness notes: use `--bios free` for the app's states (the official NTR BIOS hangs Mario Kart on a course load); Kirby's and NSMB's states were made in DSi mode with DSP HLE (config word `0x00010001`) and load with the harness's existing DSi setup.
 
 - **Golden Sun's mid-frame writes are real.** Engine B rewrites the same 2 pages with new bytes on every line: 382 real changes a frame against 382 dirty, in every scene. Distinct pages stay at 2, but the log needs an entry per change, so about 191 KB a frame from engine B alone. Engine A changes almost nothing outside battle effects.
@@ -33,11 +35,14 @@ Run headless with the new counters (`real`, `log`, `logev`, `realpal`; `logbothe
 - **Every other game changes nothing mid-frame in gameplay.** Mario Kart race, Metal Slug 7 mission 1 and Kirby's Spring Breeze had zero changes; Contra 4's stage 1 had 7 frames with any, at most 8 OBJ pages.
 - **Their layers:** Mario Kart B and Metal Slug 7 B rotate two extended BGs with blending on every line, and Metal Slug 7 B has a window on every line (Mario Kart A has a window and OBJ-window sprites on every line). Contra 4 and Kirby are text BGs with blending; no rotated BGs in these stretches. No game used mosaic. At most one rotated sprite on screen.
 
+**Golden Sun's 2 pages (11-09, logs in `logs/gpu2dstats-phase0/gs-pages/`).** They're one 256-byte bitmap row, counted twice because bank H is mirrored at 0x06200000 and 0x06210000. An ARM9 HBlank DMA (64 words, destination reloaded) copies the next row of a 256x192 8-bit picture from main RAM into that row every line, re-armed at VBlank. The visible bitmap BG samples exactly that row on every line (cave: BG3 at row 15; battle: BG2 at row 63), so the per-line versions are what the screen shows. About 250 of the 256 bytes change per line. Its "rotation" is nominal: the matrix is identity (A=256, B=C=0) with a fixed Y, so these are 1:1 pre-rendered pictures streamed through a line buffer, and hi-res gives them nothing. Step 1's `bmprot`/`rotbg` count any affine BG, so they overstate real rotation.
+
 What this changes in the plan:
 
-- **The page log works for everything but Golden Sun's battles,** and Golden Sun is the design case. Before increment 1b, find which 2 pages engine B rewrites each line and what reads them (the rotated bitmap itself, a palette, or something else). If the BG reads them on that line, either raise the cap (1,024 pages is about 512 more `MemTex` rows, still under 2,048) or log per line only the bytes that changed. If nothing on screen reads them mid-frame, those lines don't need the log at all.
+- **Golden Sun isn't the hi-res design case.** Engine B's layers gain nothing from the shadow renderer, so under mode `1` they stay CPU and never touch the page log or its cap. "Gains something" has to mean a real rotation or scale (B or C nonzero, or A or D other than 256), not just an affine BG. Engine A's battle effects (up to about 190 changes) weren't looked at.
+- **The page log:** log by physical bank page, not by mirror, which halves Golden Sun's count. With that, and its 1:1 layers left on CPU, the 512-page cap holds for everything measured. A per-line row log (at most 48 KB a frame) is only worth it if mode `all` has to cover line-buffer games.
 - **Increment order:** blending is on every rotated line in all three rotating games, and windows on Metal Slug 7's, so windows and blending should come right after text BGs, before affine (open decision 2). Mosaic can drop to last or be skipped.
-- **Golden Sun needs increments 1b, 5 and 7** (page log, blending, rotated bitmaps) before it shows anything.
+- **The real hi-res cases are Mario Kart B and Metal Slug 7 B** (rotated extended BGs with blending, plus a window in Metal Slug 7) and Advance Wars. Increment 7 (bitmap BGs) drops in priority unless a game with truly rotated bitmaps turns up.
 
 ## Architecture
 
