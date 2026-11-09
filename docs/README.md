@@ -13,5 +13,6 @@ Notes for working on melonadeDS. The user-facing overview is the [README](../REA
 - [ideas.md](ideas.md): loose feature ideas, not planned.
 - [shelved/frame-interpolation.md](shelved/frame-interpolation.md): smoothing 30 FPS games. Old attempts shelved; a halfway-camera prototype is merged behind a debug switch, compute only.
 - [shelved/widemelon-software.md](shelved/widemelon-software.md): WideMelon on the software renderer. Shelved.
+- [shelved/compute-on-mali.md](shelved/compute-on-mali.md): the Compute renderer on a Pixel 9 Pro Fold. It runs, but the 3D is broken in tile-sized blocks; what was tested and what to try next. Shelved.
 
 `PERF-NOTES.md` (phone measurements) and `HANDOFF.md` (working notes) are the maintainer's local files at the repo root. They are not in git, so where these docs cite `PERF-NOTES.md` the numbers only exist on that PC.
