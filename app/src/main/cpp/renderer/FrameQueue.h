@@ -4,6 +4,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <queue>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -13,7 +14,8 @@
 
 using namespace melonDS;
 
-// 9 frames should allow the emulator to run up 8x speed. This includes 8 frames ready to present, plus one frame currently being rendered to.
+// 9 frames should allow the emulator to run up 8x speed. This includes 8 frames ready to present, plus one frame currently being rendered to. A
+// frame's textures are only created once it's first rendered to, and normal speed only needs about 3 of them (see FrameQueue::takeFreeFrame)
 constexpr std::size_t FRAME_QUEUE_SIZE = 9;
 
 // Rows [start, end) of a texture, empty when start >= end
@@ -43,12 +45,19 @@ struct Frame {
     // Vsync (CLOCK_MONOTONIC, ns) the frame is meant to be presented on when frame pacing is locked to the display, or 0 to present it as soon as
     // possible; only accessed while holding the queue lock
     int64_t presentDueTimeNs{};
+    // The queue's count of frames handed out for rendering as of when this one last became free, which tells how long its textures have gone
+    // unused; only accessed while holding the queue lock
+    u64 freeSinceRenderCount{};
 };
 
 class FrameQueue
 {
 public:
     FrameQueue();
+    /**
+     * Returns the frame to render to next. Emulator thread only, with its GL context current, since this is also where the textures of frames
+     * that have gone unused for a long time are deleted.
+     */
     Frame* getRenderFrame();
     /**
      * Returns the newest frame due on the vsync at [vsyncTimeNs] (within [dueToleranceNs]) or the previous one again, waiting until [deadline] only
@@ -74,15 +83,26 @@ public:
 private:
     static bool isDue(int64_t presentDueTimeNs, int64_t vsyncTimeNs, int64_t dueToleranceNs);
     int findDueFrameIndex(int64_t vsyncTimeNs, int64_t dueToleranceNs);
+    void addFreeFrame(Frame* frame);
+    Frame* takeFreeFrame();
+    bool isPresentFinished(const Frame& frame) const;
+    void releaseIdleFrame();
+    void releaseFrameResources(Frame& frame);
+#ifdef MELONADE_DEBUG_TOOLS
+    void logTextureCount(const char* reason, u32 width, u32 height);
+#endif
 
     std::mutex frameLock;
     std::condition_variable presentFrameReadyCondition;
     std::array<Frame, FRAME_QUEUE_SIZE> frames{};
-    std::queue<Frame*> freeQueue{};
+    // Ordered from the frame released longest ago (front) to the one released last (back)
+    std::deque<Frame*> freeFrames{};
     // Ordered from newest (front) to oldest (back)
     std::deque<Frame*> presentQueue{};
     Frame* previousFrame = nullptr;
     u64 lastFrameSequence = 0;
+    // Frames handed out for rendering so far
+    u64 renderFrameCount = 0;
     bool isPresentWaitAborted = false;
     // Display the frame textures and fences were created on, kept so clear() can destroy the fences on any thread
     EGLDisplay display = EGL_NO_DISPLAY;

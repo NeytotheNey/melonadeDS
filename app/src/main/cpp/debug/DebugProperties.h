@@ -17,6 +17,17 @@ namespace melonDS { class GPU; }
  *   maskdepth      classic OpenGL: DS depth margin for depth-equal shadow masks and shadows (GPU::ShadowMaskDepthTest)
  *   equaldepth     classic OpenGL: DS depth margin for the other depth-equal polygons (GPU::EqualDepthMargin)
  *   computedirect  compute: CPU-sized SortWork and Rasterise dispatches instead of GPU-written indirect ones (GPU::ComputeDirectDispatch)
+ *   computetimers  compute: log a COMPTIME line once a second with the GPU time of each pass and of the compositor, from GL_EXT_disjoint_timer_query,
+ *                  no effect on emulation (GPU::ComputeTimers, GPU3D_ComputeStats.h, default 0)
+ *   computepeaks   compute: log a COMPPEAK line once a second with the most work tiles, spans, variants and polygons a frame used. It reads a count
+ *                  back from the GPU every frame, which slows it down, so not together with computetimers (GPU::ComputePeaks, default 0)
+ *   computesync    compute: log a COMPSYNC line once a second with the same passes timed on the CPU between glFinish calls, for phones whose
+ *                  COMPTIME passes read 0 (Adreno 640). Much slower than normal, and it turns computetimers and computepeaks off
+ *                  (GPU::ComputeSync, default 0)
+ *   computewhy     compute: log a COMPWHY line once a second with how many frames were drawn or left out as identical to the last one, and
+ *                  what kept the drawn ones from being left out: a new polygon list (and whether it was the same scene again), a changed
+ *                  register, a changed texture, written texture VRAM, and so on. Each cause is a/b: renders it applied to, and renders where
+ *                  it was the only one. The fields are with ComputeRenderer::LogWhy. No effect on emulation (GPU::ComputeWhy, default 0)
  *   blitflush      compute: flush right after the line-192 Blit in frames that hold capture lines (GPU::BlitFlushCapture); with blitafterread on,
  *                  only when the Blit stays at line 192
  *   lateblit       threaded 2D, OpenGL/compute: move the frame-end 2D barrier and the Blit from line 192 to line 215 (GPU::LateBlit)
@@ -33,6 +44,25 @@ namespace melonDS { class GPU; }
  * Others:
  *   shadowlog N    classic OpenGL: log SHADOWSTATS and SHADOWLOG lines for the first N frames (1 means 300)
  *   capspin N      compute: poll the capture readback's fence for up to N µs (0 to 20000) before mapping it; 0 sleeps in the map
+ *   computepace N  compute: keep the emulator from queueing 3D renders faster than the GPU finishes them. 0 off (the old behavior), 1 waits
+ *                  before a render (100 ms at most, polling for the first capspin µs of it) until at most one earlier render is unfinished,
+ *                  2 (the default in every build) skips the render instead while two or more are and keeps the last 3D image, and waits like 1
+ *                  when a display capture may read the render, halfcam or Smooth 30 FPS is on and the game swaps every other frame (see
+ *                  computeopt 64) or the last render is half a second old. Setting it also logs a COMPPACE line once a second (GPU::ComputePace)
+ *   computetile N  compute: 8, 16 or 32 forces that tile size at any scale, for A/B runs; anything else is the default (8 px up to 4x, 16 px
+ *                  from 5x). A size that can't work for a target falls back to the default with one log line. It costs a second shader
+ *                  compile at the first frame (GPU::ComputeTileSize)
+ *   computeopt N   compute: which of the changes that cut GPU work without changing a pixel are on, as a sum of bits, for A/B runs and
+ *                  to find the one behind a wrong pixel. 95 (the default in every build) is all but 32, 127 all, 0 the renderer as it was. 1 Rasterise skips
+ *                  the perspective divide on linear spans with z-buffering, 2 Rasterise reads only the polygon and span words the coverage
+ *                  test needs until a pixel is covered, 4 DepthBlend stores the second layer only where the final pass reads it (its color
+ *                  with anti-aliasing, its depth and attributes with fog as well), 8 Rasterise drops a dead branch and a multiply by 1/16,
+ *                  16 a frame with the same polygons is no longer drawn again just because texture or palette VRAM was written, only when
+ *                  that changed a cached texture or the clear bitmap, 32 a frame isn't drawn again either when the game swapped buffers
+ *                  but sent exactly the scene of the swap before, with the same registers (compared value by value, COMPWHY's swapsaved; off by default, it costs frame-time spikes),
+ *                  64 with halfcam or Smooth 30 FPS on, computepace 2 can skip a render as it does without them, except around an
+ *                  in-between frame and while the game swaps every other frame (off: it always waits, as before). Turning any of 1 to 8
+ *                  off costs a second shader compile at the first frame (GPU::ComputeOpt)
  *   hirescap V     0 or 1 forces upscaled display capture off or on over the setting; `log` also logs a HIRESCAP line once a second;
  *                  `check` also compares the hi-res copy with the native capture every 30 passes
  *   filter2d N     over the Smooth 2D edges setting: 0 off, 1 on, 2 on but stop at the 2x map at every scale (to measure the second pass),

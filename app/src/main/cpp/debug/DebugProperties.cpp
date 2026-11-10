@@ -29,6 +29,10 @@ static const BoolSwitch BOOL_SWITCHES[] = {
     { "maskdepth", &GPU::ShadowMaskDepthTest },
     { "equaldepth", &GPU::EqualDepthMargin },
     { "computedirect", &GPU::ComputeDirectDispatch },
+    { "computetimers", &GPU::ComputeTimers },
+    { "computepeaks", &GPU::ComputePeaks },
+    { "computesync", &GPU::ComputeSync },
+    { "computewhy", &GPU::ComputeWhy },
     { "blitflush", &GPU::BlitFlushCapture },
     { "lateblit", &GPU::LateBlit },
     { "blitafterread", &GPU::BlitAfterReadback },
@@ -83,6 +87,23 @@ Overrides apply(GPU& gpu)
     if (read("capspin", value))
         gpu.CaptureSpinUs = std::clamp(atoi(value), 0, 20000);
 
+    // on (2) in the core, so only the log depends on the property being set
+    if (read("computepace", value))
+    {
+        gpu.ComputePace = std::clamp(atoi(value), 0, 2);
+        gpu.ComputePaceLog = true;
+    }
+
+    if (read("computetile", value))
+    {
+        int tileSize = atoi(value);
+        gpu.ComputeTileSize = (tileSize == 8 || tileSize == 16 || tileSize == 32) ? tileSize : 0;
+    }
+
+    // all but 32 are on in the core (95)
+    if (read("computeopt", value))
+        gpu.ComputeOpt = std::clamp(atoi(value), 0, 127);
+
     if (read("vertexid", value))
         gpu.GPU3D.SetVertexIdLogging(std::clamp(atoi(value), 0, 2));
 
@@ -128,8 +149,8 @@ Overrides apply(GPU& gpu)
     int length = snprintf(summary, sizeof(summary), "Debug switches:");
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
         length += snprintf(summary + length, sizeof(summary) - length, " %s=%d", boolSwitch.name, gpu.*boolSwitch.target ? 1 : 0);
-    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d",
-             gpu.ShadowLogFrames, gpu.CaptureSpinUs, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.filter2d, captureReads ? 1 : 0, gpu2dStats ? 1 : 0, gpu.GPU3D.GetWideDropLogging() ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), gpu.GPU3D.GetHalfCamera());
+    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d",
+             gpu.ShadowLogFrames, gpu.CaptureSpinUs, gpu.ComputePace, gpu.ComputeTileSize, gpu.ComputeOpt, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.filter2d, captureReads ? 1 : 0, gpu2dStats ? 1 : 0, gpu.GPU3D.GetWideDropLogging() ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), gpu.GPU3D.GetHalfCamera());
     LOG_INFO(LOG_TAG_DEBUG, "%s", summary);
     return overrides;
 }
