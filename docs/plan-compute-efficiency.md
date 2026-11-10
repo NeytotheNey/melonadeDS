@@ -49,8 +49,7 @@ Read from the code, not measured:
 - **Done on the OnePlus:** step 1 (by a different method), step 2, pacing (not in the original plan), the low-risk half of step 4, and the skip work for step 5.
 - **Open:**
   - Why bit 32 causes long frames; it's the remaining battery win in 30 FPS games with Smooth 30 FPS on.
-  - The Fold: nothing has run there, including graphics memory.
-  - Step 3 (right-size the buffers): held. The OnePlus doesn't seem to charge for untouched pages, so it needs the Fold's number first.
+  - Step 3 (right-size the buffers): done on both phones (11-10), not committed yet. See "Step 3: right-sized buffers" below.
   - Packing attr into color and one tile buffer instead of three (guess: 10–20% of DepthBlend). Not started.
   - Judging pacing's skipped frames by eye on NSMB's map and Mario Kart.
   - A scene with anti-aliasing or fog for `computeopt` bit 4.
@@ -154,6 +153,26 @@ HASH2D on the title matched run 6 on every frame: 1,256 and 1,257 frames with Sm
 **Why bit 32 stutters:** it's the pacing wait. Overworld, Smooth on, `computeopt 127`: 84 waits in 26 s (807 ms, about 9 ms each, in bursts with two renders pending), 72 slow frames, render p95 14.5 ms against 2.5. Slow frames per second correlate 0.91 with `wait_ms`. With `computepace 0` the emulator-thread stutter goes (14 slow frames) but presented drops to 55.8 with 125 skipped display frames, so the GPU really does fall behind when half the renders are skipped. Why it falls behind wasn't measured; a dropped GPU clock is the guess (sysfs is denied on this phone).
 
 A review found the bit 16 skip sound, and three older bugs next to it, fixed in run 6's build: turning the 3D engine off doesn't clear the identical flag (a stale image can linger), `CheckInvalid` reads past the dirty array for texture ranges that wrap, and games that never enable 3D draw an empty frame every frame.
+
+### The Fold (11-10, final build, plugged in, cover screen)
+
+Compute 4x at defaults holds 60.00 FPS with 0 frames over 16.7 ms on White 2's title (render median 0.46 ms), White 2's overworld (0.75) and NSMB's map (0.68). Pacing never skips there. HASH2D on the title matched the OnePlus on every overlapping frame (838–860 per pair, Smooth on and off). No GL errors.
+
+Graphics memory on the title, settled: Compute 4x 477–483 MB (GL mtrack 378 MB), OpenGL 4x 205 MB (GL mtrack 118 MB), down from 696 MB on the old build. Unlike the OnePlus, the Fold commits the work buffers, so step 3 saves real memory there. Peak use matches the OnePlus: 31% of the tile work buffer, 14% of the span buffer.
+
+### Step 3: right-sized buffers (11-10)
+
+Tile memory starts at 6 of its 16 layers and the X spans at a 16th, and both grow before a frame's dispatch from numbers the CPU already has: the bounding-box work-tile bound and the exact span count. So no frame ever loses work, and the shaders didn't change. `debug.melonade.computegrow 0` gives the old sizes.
+
+Fold, Compute 4x, Smooth on, plugged in, graphics memory settled:
+
+| Scene | grow on | grow off | saved |
+|---|---|---|---|
+| White 2 title | 388 MB | 483 MB | 95 MB |
+| White 2 overworld | 428 MB | 510 MB | 82 MB |
+| NSMB map | 312 MB | 466 MB | 154 MB |
+
+FPS is 60.00 in all of them on the Fold and unchanged on the OnePlus (title 32.24 against 32.22, unplugged). HASH2D matched on every overlapping frame on both phones, and `COMPPEAK`'s `pastroom` and `pastbound` read 0 throughout. The OnePlus's meminfo doesn't show these buffers at all, so the saving is only visible on the Fold.
 
 ### Step 2: frame queue
 

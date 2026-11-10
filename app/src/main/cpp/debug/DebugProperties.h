@@ -17,10 +17,14 @@ namespace melonDS { class GPU; }
  *   maskdepth      classic OpenGL: DS depth margin for depth-equal shadow masks and shadows (GPU::ShadowMaskDepthTest)
  *   equaldepth     classic OpenGL: DS depth margin for the other depth-equal polygons (GPU::EqualDepthMargin)
  *   computedirect  compute: CPU-sized SortWork and Rasterise dispatches instead of GPU-written indirect ones (GPU::ComputeDirectDispatch)
+ *   computegrow    compute: the tile memory and X span buffers start small (6 of 16 layers, a 16th of the spans) and grow before a frame whose
+ *                  polygons could need more, a quarter over what it asked, logging a COMPGROW line each time. 0 gives them their full size at the
+ *                  first frame with polygons, the old behavior, for memory A/B runs (GPU::ComputeGrow, default 1)
  *   computetimers  compute: log a COMPTIME line once a second with the GPU time of each pass and of the compositor, from GL_EXT_disjoint_timer_query,
  *                  no effect on emulation (GPU::ComputeTimers, GPU3D_ComputeStats.h, default 0)
- *   computepeaks   compute: log a COMPPEAK line once a second with the most work tiles, spans, variants and polygons a frame used. It reads a count
- *                  back from the GPU every frame, which slows it down, so not together with computetimers (GPU::ComputePeaks, default 0)
+ *   computepeaks   compute: log a COMPPEAK line once a second with the most work tiles, spans, variants and polygons a frame used, and the room
+ *                  the grown buffers have (see computegrow). It reads a count back from the GPU every frame, which slows it down, so not
+ *                  together with computetimers (GPU::ComputePeaks, default 0)
  *   computesync    compute: log a COMPSYNC line once a second with the same passes timed on the CPU between glFinish calls, for phones whose
  *                  COMPTIME passes read 0 (Adreno 640). Much slower than normal, and it turns computetimers and computepeaks off
  *                  (GPU::ComputeSync, default 0)
