@@ -49,8 +49,8 @@ Read from the code, not measured:
 - **Done on the OnePlus:** step 1 (by a different method), step 2, pacing (not in the original plan), the low-risk half of step 4, and the skip work for step 5.
 - **Open:**
   - Why bit 32 causes long frames; it's the remaining battery win in 30 FPS games with Smooth 30 FPS on.
-  - Step 3 (right-size the buffers): done on both phones (11-10), not committed yet. See "Step 3: right-sized buffers" below.
-  - Packing attr into color and one tile buffer instead of three (guess: 10–20% of DepthBlend). Not started.
+  - Step 3 (right-size the buffers): done on both phones (11-10) and committed. See "Step 3: right-sized buffers" below.
+  - Packing attr into color: done (11-10); the confirm run of the default-on build is still owed. `computeopt` bit 128, default on. OnePlus title 32.23 → 33.12 FPS, NSMB map render median 7.26 → 5.87 ms; the Fold saves 27–37 MB. One buffer instead of two (bit 256) measured the same, so it's off. Numbers are in `HANDOFF-compute.md`, step 6.
   - Judging pacing's skipped frames by eye on NSMB's map and Mario Kart.
   - A scene with anti-aliasing or fog for `computeopt` bit 4.
   - Step 6 (program binary cache).

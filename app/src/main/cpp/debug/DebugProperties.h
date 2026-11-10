@@ -57,7 +57,9 @@ namespace melonDS { class GPU; }
  *                  from 5x). A size that can't work for a target falls back to the default with one log line. It costs a second shader
  *                  compile at the first frame (GPU::ComputeTileSize)
  *   computeopt N   compute: which of the changes that cut GPU work without changing a pixel are on, as a sum of bits, for A/B runs and
- *                  to find the one behind a wrong pixel. 95 (the default in every build) is all but 32, 127 all, 0 the renderer as it was. 1 Rasterise skips
+ *                  to find the one behind a wrong pixel. 223 (the default in every build) is all but 32 and 256, 95 that with the tile memory's
+ *                  old three buffers, 479 the default with one tile buffer, 255 and 511 are 223 and 479 with 32 on, 0 the renderer as it
+ *                  was. 1 Rasterise skips
  *                  the perspective divide on linear spans with z-buffering, 2 Rasterise reads only the polygon and span words the coverage
  *                  test needs until a pixel is covered, 4 DepthBlend stores the second layer only where the final pass reads it (its color
  *                  with anti-aliasing, its depth and attributes with fog as well), 8 Rasterise drops a dead branch and a multiply by 1/16,
@@ -65,8 +67,12 @@ namespace melonDS { class GPU; }
  *                  that changed a cached texture or the clear bitmap, 32 a frame isn't drawn again either when the game swapped buffers
  *                  but sent exactly the scene of the swap before, with the same registers (compared value by value, COMPWHY's swapsaved; off by default, it costs frame-time spikes),
  *                  64 with halfcam or Smooth 30 FPS on, computepace 2 can skip a render as it does without them, except around an
- *                  in-between frame and while the game swaps every other frame (off: it always waits, as before). Turning any of 1 to 8
- *                  off costs a second shader compile at the first frame (GPU::ComputeOpt)
+ *                  in-between frame and while the game swaps every other frame (off: it always waits, as before), 128
+ *                  Rasterise stores a pixel's edge flags and coverage in the free bits of its color, so the tile memory is two buffers of
+ *                  4 bytes a pixel and not three, 256 (off by default, it measured no faster; nothing without 128) those two are one buffer
+ *                  with color and depth side by side; where that's bigger than GL_MAX_SHADER_STORAGE_BLOCK_SIZE at a scale it stays two.
+ *                  Debug builds log a COMPTILES line with the buffer count (3, 2 or 1) whenever the targets are built. Turning any of
+ *                  1 to 8 or 128 off, or 256 on where one buffer fits, costs a second shader compile at the first frame (GPU::ComputeOpt)
  *   hirescap V     0 or 1 forces upscaled display capture off or on over the setting; `log` also logs a HIRESCAP line once a second;
  *                  `check` also compares the hi-res copy with the native capture every 30 passes
  *   filter2d N     over the Smooth 2D edges setting: 0 off, 1 on, 2 on but stop at the 2x map at every scale (to measure the second pass),
