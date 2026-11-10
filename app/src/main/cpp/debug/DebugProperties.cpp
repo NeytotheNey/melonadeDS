@@ -29,6 +29,7 @@ static const BoolSwitch BOOL_SWITCHES[] = {
     { "maskdepth", &GPU::ShadowMaskDepthTest },
     { "equaldepth", &GPU::EqualDepthMargin },
     { "computedirect", &GPU::ComputeDirectDispatch },
+    { "computegrow", &GPU::ComputeGrow },
     { "computetimers", &GPU::ComputeTimers },
     { "computepeaks", &GPU::ComputePeaks },
     { "computesync", &GPU::ComputeSync },
