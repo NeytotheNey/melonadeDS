@@ -101,9 +101,9 @@ Overrides apply(GPU& gpu)
         gpu.ComputeTileSize = (tileSize == 8 || tileSize == 16 || tileSize == 32) ? tileSize : 0;
     }
 
-    // all but 32 are on in the core (95)
+    // all but 32 and 256 are on in the core (223)
     if (read("computeopt", value))
-        gpu.ComputeOpt = std::clamp(atoi(value), 0, 127);
+        gpu.ComputeOpt = std::clamp(atoi(value), 0, 511);
 
     if (read("vertexid", value))
         gpu.GPU3D.SetVertexIdLogging(std::clamp(atoi(value), 0, 2));
