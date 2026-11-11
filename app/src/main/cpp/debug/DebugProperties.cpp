@@ -74,8 +74,6 @@ Overrides apply(GPU& gpu)
     gpu.EngineBNoHold = true;
     // the same until it's tested on a phone: OpenGL and compute (Renderer3D::SupportsBlitAfterRender)
     gpu.BlitAfterReadback = true;
-    // an experiment that has to run on phones nobody can set properties on, so it's on unless set to 0
-    gpu.ComputeWarm = true;
 
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
     {
