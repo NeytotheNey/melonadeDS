@@ -55,6 +55,7 @@ How filtered 2D works, in one line: a pre-pass runs MMPX over a key image of the
   - Capture timing: `perf_logs/2026-11-07-filter2d/capreads/` (`capsum.py`).
   - Counter logs: `logs/emulator/gpu2dstats/`. Screenshots and crops: `logs/phone/filter2d/` (Fold in `fold/`).
 - **The AVD** has no GL renderer, so it can only run the counters.
+- **The desktop build** (`desktop/`, see its README) runs the OpenGL and Compute renderers on the PC, so renderer output can be checked there first, with screenshots per renderer. It's a logic check on Nvidia only; Fold runs still decide whether a GL change is fixed.
 
 ## Leftovers
 

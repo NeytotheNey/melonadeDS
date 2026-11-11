@@ -1,0 +1,270 @@
+#include "Presenter.h"
+
+#include <algorithm>
+#include <cstdio>
+
+#include "NDS.h"
+#include "GPU.h"
+#include "OpenGLSupport.h"
+
+using namespace melonDS;
+
+namespace Frontend
+{
+
+namespace
+{
+
+// the output textures hold the top screen in rows 0-191 and the bottom one in 194-385 (times the
+// scale), with two rows of padding between them, as the app's DSRenderer reads them
+constexpr float kTopBottomV = 192.f / 386.f;
+constexpr float kBottomTopV = 194.f / 386.f;
+
+const char* kVS = R"(#version 320 es
+layout(location = 0) in vec2 vPosition;
+layout(location = 1) in vec2 vTexcoord;
+out vec2 fTexcoord;
+void main()
+{
+    fTexcoord = vTexcoord;
+    gl_Position = vec4(vPosition, 0.0, 1.0);
+}
+)";
+
+const char* kFS = R"(#version 320 es
+precision mediump float;
+uniform sampler2D ScreenTex;
+in vec2 fTexcoord;
+out vec4 oColor;
+void main()
+{
+    // the core's frames are BGRA in memory, which the app's and upstream's screen shaders swap too
+    oColor = vec4(texture(ScreenTex, fTexcoord).bgr, 1.0);
+}
+)";
+
+}
+
+bool Presenter::Init()
+{
+    if (!OpenGL::CompileVertexFragmentProgram(Program, kVS, kFS, "PCScreen", {{"vPosition", 0}, {"vTexcoord", 1}}, {{"oColor", 0}}))
+        return false;
+    TexLoc = glGetUniformLocation(Program, "ScreenTex");
+
+    glGenVertexArrays(1, &VertexArray);
+    glGenBuffers(1, &VertexBuffer);
+    glBindVertexArray(VertexArray);
+    glBindBuffer(GL_ARRAY_BUFFER, VertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, 12 * 4 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glBindVertexArray(0);
+
+    // samplers, so the filter doesn't touch the renderer's own texture parameters
+    glGenSamplers(2, Sampler);
+    for (int i = 0; i < 2; i++)
+    {
+        GLint filter = i ? GL_LINEAR : GL_NEAREST;
+        glSamplerParameteri(Sampler[i], GL_TEXTURE_MIN_FILTER, filter);
+        glSamplerParameteri(Sampler[i], GL_TEXTURE_MAG_FILTER, filter);
+        glSamplerParameteri(Sampler[i], GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glSamplerParameteri(Sampler[i], GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+
+    // the software renderer's frames, laid out like the GL output
+    std::vector<u8> zero(256 * 386 * 4, 0);
+    glGenTextures(1, &SoftTexture);
+    glBindTexture(GL_TEXTURE_2D, SoftTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 386, 0, GL_RGBA, GL_UNSIGNED_BYTE, zero.data());
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glGenFramebuffers(1, &ReadFB);
+    return true;
+}
+
+void Presenter::Free()
+{
+    glDeleteProgram(Program);
+    glDeleteVertexArrays(1, &VertexArray);
+    glDeleteBuffers(1, &VertexBuffer);
+    glDeleteSamplers(2, Sampler);
+    glDeleteTextures(1, &SoftTexture);
+    glDeleteFramebuffers(1, &ReadFB);
+}
+
+GLuint Presenter::BindFrame(NDS& nds)
+{
+    int frontbuf = nds.GPU.FrontBuffer;
+    glActiveTexture(GL_TEXTURE0);
+    if (nds.GPU.GetRenderer3D().Accelerated)
+    {
+        nds.GPU.GetRenderer3D().BindOutputTexture(frontbuf);
+        GLint texture = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
+        return (GLuint)texture;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, SoftTexture);
+    if (nds.GPU.Framebuffer[frontbuf][0] && nds.GPU.Framebuffer[frontbuf][1])
+    {
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, nds.GPU.Framebuffer[frontbuf][0].get());
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 194, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, nds.GPU.Framebuffer[frontbuf][1].get());
+    }
+    return SoftTexture;
+}
+
+void Presenter::Draw(NDS& nds, int windowW, int windowH, int topWidth, Layout layout, bool linear)
+{
+    // the core leaves its own state behind, so all of what's drawn here is set first
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_BLEND);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glDisable(GL_CULL_FACE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glViewport(0, 0, windowW, windowH);
+    glClearColor(0, 0, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // the frame in DS pixels: the top screen is topWidth wide, the bottom one 256
+    float topW = (float)topWidth, botW = 256.f, h = 192.f;
+    float boxW, boxH;
+    switch (layout)
+    {
+    case Layout::Horizontal: boxW = topW + botW; boxH = h; break;
+    case Layout::TopOnly: boxW = topW; boxH = h; break;
+    case Layout::BottomOnly: boxW = botW; boxH = h; break;
+    default: boxW = std::max(topW, botW); boxH = h * 2; break;
+    }
+    float scale = std::min(windowW / boxW, windowH / boxH);
+    float x0 = (windowW - boxW * scale) / 2, y0 = (windowH - boxH * scale) / 2;
+
+    Top = Bottom = Rect();
+    switch (layout)
+    {
+    case Layout::Horizontal:
+        Top = {x0, y0, topW * scale, h * scale};
+        Bottom = {x0 + topW * scale, y0, botW * scale, h * scale};
+        break;
+    case Layout::TopOnly:
+        Top = {x0, y0, topW * scale, h * scale};
+        break;
+    case Layout::BottomOnly:
+        Bottom = {x0, y0, botW * scale, h * scale};
+        break;
+    default:
+        Top = {x0 + (boxW - topW) * scale / 2, y0, topW * scale, h * scale};
+        Bottom = {x0 + (boxW - botW) * scale / 2, y0 + h * scale, botW * scale, h * scale};
+        break;
+    }
+
+    // the bottom screen sits in the middle 256 columns of a wider output, between black bars
+    float botU0 = 0.5f - 0.5f * botW / topW, botU1 = 0.5f + 0.5f * botW / topW;
+    float verts[12 * 4];
+    int count = 0;
+    auto quad = [&](const Rect& r, float u0, float u1, float v0, float v1)
+    {
+        if (r.W <= 0)
+            return;
+        // window pixels (y down) to clip space (y up)
+        float l = r.X / windowW * 2 - 1, rr = (r.X + r.W) / windowW * 2 - 1;
+        float t = 1 - r.Y / windowH * 2, b = 1 - (r.Y + r.H) / windowH * 2;
+        float q[6][4] = {
+            {l, t, u0, v0}, {rr, t, u1, v0}, {l, b, u0, v1},
+            {rr, t, u1, v0}, {rr, b, u1, v1}, {l, b, u0, v1},
+        };
+        memcpy(&verts[count * 4], q, sizeof(q));
+        count += 6;
+    };
+    quad(Top, 0, 1, 0, kTopBottomV);
+    quad(Bottom, botU0, botU1, kBottomTopV, 1);
+
+    LastTexture = BindFrame(nds);
+    glBindSampler(0, Sampler[linear ? 1 : 0]);
+    glUseProgram(Program);
+    glUniform1i(TexLoc, 0);
+    glBindVertexArray(VertexArray);
+    glBindBuffer(GL_ARRAY_BUFFER, VertexBuffer);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, count * 4 * sizeof(float), verts);
+    glDrawArrays(GL_TRIANGLES, 0, count);
+    glBindVertexArray(0);
+    glBindSampler(0, 0);
+}
+
+bool Presenter::ReadFrame(std::vector<u8>& pixels, int& width, int& height)
+{
+    if (!LastTexture)
+        return false;
+    // errors the core left behind aren't the readback's
+    while (glGetError() != GL_NO_ERROR) {}
+    glBindTexture(GL_TEXTURE_2D, LastTexture);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
+    if (width <= 0 || height <= 0)
+    {
+        fprintf(stderr, "frame readback: texture %u is %dx%d\n", LastTexture, width, height);
+        return false;
+    }
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, ReadFB);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, LastTexture, 0);
+    pixels.resize((size_t)width * height * 4);
+    // the core's capture readback leaves its pixel buffer bound
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    // the texture holds BGRA, as the screen shader reads it
+    for (size_t i = 0; i < pixels.size(); i += 4)
+        std::swap(pixels[i], pixels[i + 2]);
+    GLenum error = glGetError();
+    if (error != GL_NO_ERROR)
+        fprintf(stderr, "frame readback: GL error 0x%x\n", error);
+    return error == GL_NO_ERROR;
+}
+
+bool WriteBMP(const char* path, const std::vector<u8>& pixels, int width, int height)
+{
+    FILE* f = fopen(path, "wb");
+    if (!f)
+        return false;
+    int rowSize = (width * 3 + 3) & ~3;
+    u32 dataSize = (u32)rowSize * height;
+    u8 header[54] = {'B', 'M'};
+    auto put32 = [&](int at, u32 v) { for (int i = 0; i < 4; i++) header[at + i] = (u8)(v >> (i * 8)); };
+    put32(2, 54 + dataSize);
+    put32(10, 54);
+    put32(14, 40);
+    put32(18, (u32)width);
+    put32(22, (u32)-height); // negative: rows top first
+    header[26] = 1;
+    header[28] = 24;
+    put32(34, dataSize);
+    fwrite(header, 1, sizeof(header), f);
+
+    std::vector<u8> row(rowSize, 0);
+    for (int y = 0; y < height; y++)
+    {
+        const u8* src = &pixels[(size_t)y * width * 4];
+        for (int x = 0; x < width; x++)
+        {
+            row[x * 3 + 0] = src[x * 4 + 2];
+            row[x * 3 + 1] = src[x * 4 + 1];
+            row[x * 3 + 2] = src[x * 4 + 0];
+        }
+        fwrite(row.data(), 1, rowSize, f);
+    }
+    fclose(f);
+    return true;
+}
+
+}
