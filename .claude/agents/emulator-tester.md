@@ -44,7 +44,7 @@ Every image you read stays in your context. So:
 
 ## What the emulator can't tell you
 
-Speed, frame pacing, judder, thermal behaviour and GPU-specific rendering (it uses the PC's GPU through a translation layer). If the checklist asks for any of that, say it needs the phone instead of guessing.
+Speed, frame pacing, judder, thermal behaviour and GPU-specific rendering (it uses the PC's GPU through a translation layer). If the checklist asks for any of that, say it needs the phone instead of guessing. The emulator also has no OpenGL or Compute renderer; for those, the caller can use the desktop build in `desktop/`, which runs both on the PC.
 
 ## Report format
 

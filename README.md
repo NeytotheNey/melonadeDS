@@ -64,6 +64,8 @@ To build the project you will need a JDK (21 or newer), the Android SDK, NDK and
 
 The flavors are `gitHub` or `playStore` (the `gitHub` one also builds for 32 bit ARM) crossed with `prod` or `nightly`. Debug builds install beside the release app as `me.magnum.melonds.dev` (`me.magnum.melonds.nightly.dev` for nightly). Their native code is optimized (RelWithDebInfo) so they can be used for performance tests; add `-PnativeBuildType=Debug` for an unoptimized native build.
 
+For testing the core and its renderers without a phone or the Android emulator, there's also a Windows desktop build in `desktop/` that runs the software, OpenGL and Compute renderers. See `desktop/README.md`.
+
 If you want to create a release build, you will need to modify your `local.properties` file to include the following fields:
 *  `MELONDS_KEYSTORE=<path_to_your_keystore>`
 *  `MELONDS_KEYSTORE_PASSWORD=<keystore_password>`
