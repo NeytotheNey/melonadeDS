@@ -27,12 +27,12 @@ namespace melonDS { class GPU; }
  *                  mid-game. Debug builds log a COMPROOMS line whenever the targets are set up with the key, whether it was found, the rooms
  *                  they start at and the ms of their allocation. 0 starts small as before and doesn't read or write the file
  *                  (GPU::ComputeRooms, default 1)
- *   computewarm    compute, an experiment for the hitch at a game's first heavy 3D frame: at the first frame after the targets are set up,
- *                  write every byte of the work buffers once on the GPU and dispatch each of the 33 programs once with nothing to do,
- *                  waiting for both, and log a COMPWARM line with the ms of each; a grow writes the grown buffers the same way (COMPGROW's
- *                  touch). 0 leaves both out. Whatever it's set to, debug builds log a COMPSLOW line (20 a run at most) for a 3D render
- *                  over 30 ms with its CPU time by phase and how many programs it was the first to dispatch (GPU::ComputeWarm, default 1
- *                  in debug builds)
+ *   computewarm    compute: at the first frame after the targets are set up, write every byte of the work buffers once on the GPU, so the
+ *                  driver commits their memory under the black screen and not at a game's first heavy render; a grow writes the grown
+ *                  buffers the same way. Every build queues it ahead of the render; debug builds also wait for it and log a COMPWARM line
+ *                  with its ms and bytes, and COMPGROW's touch. 0 leaves it out. Whatever it's set to, debug builds log a COMPSLOW line
+ *                  (20 a run at most) for a 3D render over 30 ms with its CPU time by phase and how many programs it was the first to
+ *                  dispatch (GPU::ComputeWarm, default 1)
  *   shadercache    compute: load the 33 programs of a configuration (scale, WideMelon width, computeopt layout) seen before, this run or
  *                  an earlier one, from their binaries in the app's cache dir (compute_programs.bin, 24 MB at most, least recently used
  *                  dropped) instead of compiling them. Debug builds log a COMPSHADER line per batch of compiles with the hits, misses,
