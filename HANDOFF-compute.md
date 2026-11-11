@@ -10,6 +10,14 @@ This is branch `compute-efficiency-wm`: the `compute-efficiency` work (first cut
 
 **Checked buffer grows (11-11):** `WorkBufferData` drains GL errors (logging them as `COMPGLERR` in debug builds), allocates, then checks `glGetError` and `GL_BUFFER_SIZE`. A failed grow retries at the exact need, then at the old size, else the room goes to 0. A render that needs more room than exists is skipped with the previous 3D image kept and `ForceRender` set; retries back off (16 grow-wanting frames, doubling to 512). Logs `COMPGROW ... failed`. Reviewed, no bugs, built; never triggered, and on Adreno or Mali it may never fire, since those drivers often allocate lazily and fail later at dispatch. Known gaps from the review: a frame skipped for room still counts as a render in `COMPWHY` and the stats, and a HalfCamera redraw skipped for room leaves a capture that frame reading the in-between picture.
 
+**Program binary cache (plan step 6, 11-11, committed, not pushed, not phone-tested):** core `a731f707`, app `39995195` on `compute-efficiency`; core `874b5c33`, app `ad9f0ace` on `-wm`. APK `perf_logs/2026-11-09-compute-timers/app-shadercache.apk` (sha1 `0b966710`, `compute-efficiency`). On Android all 33 programs compile in one go on the emulator thread: at game start (`MelonInstance::runFrame` loops `ShaderCompileStep`) and mid-frame in `RenderFrame` on every scale, WideMelon width or tile-layout change.
+- The cache keys each linked binary on an XXH3-128 hash of a format version, the GL vendor/renderer/version/GLSL strings and the full generated source, and loads hits with `glProgramBinary`. A rejected binary recompiles and replaces the entry.
+- The file is `context.cacheDir/compute_programs.bin`, passed Kotlin → JNI → `OpenGL::SetShaderCachePath`. It's checksummed and bounded, written to `.tmp` and renamed, capped at 24 MB with least recently used dropped. It's loaded lazily per batch and freed after the batch's save. A hit more than 64 stamps old marks the file dirty, so the everyday config's stamp stays fresh.
+- The switch is `debug.melonade.shadercache` (default on; 0 compiles as before and never touches the file). Debug builds log `COMPSHADER programs hits misses rejected uncached ms loaded saved cache scale width tile opt` once per batch.
+- Upstream's old disabled cache in `OpenGLSupport.cpp` was replaced (it went through the SAF file handler, not private storage).
+- Reviewed: no correctness bugs. Left alone: no fsync before the rename (a torn file fails the checksum and just means no cache), the static-destruction order at `exit()`, and a header checksum that doesn't cover the count or clock.
+- **Phone test wanted:** Compute 4x, cold start twice (the first should miss 33, the second hit 33), then 4x → 6x → 4x mid-game. Read `COMPSHADER`'s `ms` and `saved=` (real binary sizes, which decide whether 24 MB is right), and check HASH2D on the title against `app-pack2.apk` with the cache warm.
+
 **Desktop build (11-11):** the core with OpenGL on (`BUILD_QT_SDL=OFF`, mingw64 GCC 15.1) compiles with no errors or warnings at `ff155ae7`, which covers the lazy compositor outputs and all the Compute files. The Qt frontend itself isn't built: Qt6, SDL2, libarchive and faad2 aren't installed (MSYS2 `mingw-w64-x86_64-{qt6-base,qt6-multimedia,qt6-svg,SDL2,libarchive,faad2,pkgconf}`, about 1–1.5 GB). From reading, desktop never calls `SetOutputTexture`, so it always takes the lazy path.
 
 ### Step 6 confirm run (11-11)
@@ -109,7 +117,7 @@ All `debug.melonade.<name>`, read at game start, documented in `DebugProperties.
    - Two reviews found no bugs. The one-buffer fallback (buffer over the GPU's block limit) never triggered on either phone, so that path is untested.
    - Files: core `GPU3D_Compute.cpp/.h`, `GPU3D_Compute_shaders.h`, `GPU.h`; app `debug/DebugProperties.cpp/.h` (the prop's clamp went 127 → 511).
    - Logs: `runs/pack_*` (OnePlus), `fold-pack/` (Fold). APKs `app-pack.apk` (sha1 `8ef244aa`, bits off by default) and `app-pack2.apk` (sha1 `c66df8af`, default 223, the working tree).
-7. **Smaller gaps:** a scene with anti-aliasing or fog for bit 4 (Mario Kart's demo isn't frame-deterministic); a long plugged-in run; a real battery number (run 5's 240 mA was one plugged-in pass); the program binary cache (plan step 6).
+7. **Smaller gaps:** a scene with anti-aliasing or fog for bit 4 (Mario Kart's demo isn't frame-deterministic); a long plugged-in run; a real battery number (run 5's 240 mA was one plugged-in pass). The program binary cache (plan step 6) is written; its phone test is under State.
 
 Ruled out, don't retry: 16 px tiles at 4x (title 31.45 → 28.17), tile-grouped DepthBlend, GL timer queries on this Adreno.
 
