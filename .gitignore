@@ -9,3 +9,5 @@
 .externalNativeBuild
 .kotlin
 /logs
+# PC frontend build (desktop/)
+/build-desktop
