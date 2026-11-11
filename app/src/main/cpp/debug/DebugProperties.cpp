@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <utility>
+#include <vector>
 #include <sys/system_properties.h>
 #include "GPU.h"
 #include "MelonLog.h"
@@ -13,6 +16,83 @@ using namespace melonDS;
 
 namespace DebugProperties
 {
+
+// the app's switches (setOverrides) and what read found since, for describeActive. read from the emulator thread and the JNI thread that
+// starts it, so behind a lock
+struct FoundSwitch
+{
+    std::string name, value;
+    bool fromApp;
+    // the property's value when the app's replaced one that was set too, empty otherwise
+    std::string overriddenProperty;
+};
+static std::mutex overridesMutex;
+static std::vector<std::pair<std::string, std::string>> appSwitches;
+static std::vector<FoundSwitch> foundSwitches;
+
+void setOverrides(const std::string& text)
+{
+    std::lock_guard lock(overridesMutex);
+    appSwitches.clear();
+    foundSwitches.clear();
+
+    size_t start = 0;
+    while (start < text.size())
+    {
+        size_t end = text.find('\n', start);
+        if (end == std::string::npos)
+            end = text.size();
+        std::string line = text.substr(start, end - start);
+        start = end + 1;
+
+        size_t equals = line.find('=');
+        if (equals == 0 || equals == std::string::npos || equals + 1 >= line.size())
+            continue;
+        appSwitches.emplace_back(line.substr(0, equals), line.substr(equals + 1));
+    }
+}
+
+static void noteFound(const char* name, const char* value, bool fromApp, const char* overriddenProperty)
+{
+    for (FoundSwitch& found : foundSwitches)
+    {
+        if (found.name == name)
+        {
+            found.value = value;
+            found.fromApp = fromApp;
+            found.overriddenProperty = overriddenProperty;
+            return;
+        }
+    }
+    foundSwitches.push_back({ name, value, fromApp, overriddenProperty });
+}
+
+std::string describeActive()
+{
+    std::lock_guard lock(overridesMutex);
+    std::string text;
+    for (const FoundSwitch& found : foundSwitches)
+    {
+        if (!text.empty())
+            text += ' ';
+        text += found.name + "=" + found.value;
+        if (!found.fromApp)
+            text += "(prop)";
+        else if (!found.overriddenProperty.empty())
+            text += "(app, over prop " + found.overriddenProperty + ")";
+    }
+
+    std::string unused;
+    for (const auto& [name, value] : appSwitches)
+    {
+        bool isFound = std::any_of(foundSwitches.begin(), foundSwitches.end(), [&](const FoundSwitch& found) { return found.name == name; });
+        if (!isFound)
+            unused += " " + name + "=" + value;
+    }
+    if (!unused.empty())
+        text += (text.empty() ? "unread:" : " unread:") + unused;
+    return text;
+}
 
 struct BoolSwitch
 {
@@ -41,6 +121,8 @@ static const BoolSwitch BOOL_SWITCHES[] = {
     { "lateblit", &GPU::LateBlit },
     { "blitafterread", &GPU::BlitAfterReadback },
     { "bnohold", &GPU::EngineBNoHold },
+    { "hash3d", &GPU::Hash3DLogging },
+    { "computedepth", &GPU::ComputeDepthStats },
 };
 
 bool read(const char* name, char* value)
@@ -48,7 +130,24 @@ bool read(const char* name, char* value)
     char property[PROP_NAME_MAX];
     snprintf(property, sizeof(property), "debug.melonade.%s", name);
     value[0] = '\0';
-    return __system_property_get(property, value) > 0 && value[0] != '\0';
+    bool isPropertySet = __system_property_get(property, value) > 0 && value[0] != '\0';
+
+    std::lock_guard lock(overridesMutex);
+    for (const auto& [appName, appValue] : appSwitches)
+    {
+        if (appName == name)
+        {
+            char propertyValue[PROP_VALUE_MAX];
+            snprintf(propertyValue, sizeof(propertyValue), "%s", isPropertySet ? value : "");
+            snprintf(value, PROP_VALUE_MAX, "%s", appValue.c_str());
+            noteFound(name, value, true, propertyValue);
+            return true;
+        }
+    }
+
+    if (isPropertySet)
+        noteFound(name, value, false, "");
+    return isPropertySet;
 }
 
 // -1 when the property isn't 0 or 1
@@ -110,6 +209,12 @@ Overrides apply(GPU& gpu)
 
     if (read("vertexid", value))
         gpu.GPU3D.SetVertexIdLogging(std::clamp(atoi(value), 0, 2));
+
+    // GPU discovery (docs/plan-gpu-discovery.md)
+    if (read("gltimers", value))
+        gpu.GLTimers = std::clamp(atoi(value), 0, 2);
+    if (read("scenestats", value))
+        gpu.SceneStats = std::clamp(atoi(value), 0, 2);
 
     if (read("halfcam", value))
     {
@@ -173,14 +278,17 @@ Overrides apply(GPU& gpu)
     int gpu2dWide = readBool("gpu2dwide") == 1 ? 1 : 0;
     gpu.SetShadow2D(gpu2dMode, gpu2dLog, gpu2dCheck, gpu2dWide);
 
-    char summary[768];
+    char summary[1024];
     int length = snprintf(summary, sizeof(summary), "Debug switches:");
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
         length += snprintf(summary + length, sizeof(summary) - length, " %s=%d", boolSwitch.name, gpu.*boolSwitch.target ? 1 : 0);
-    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d",
+    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d gltimers=%d scenestats=%d",
              gpu.ShadowLogFrames, gpu.CaptureSpinUs, gpu.ComputePace, gpu.ComputeTileSize, gpu.ComputeOpt, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.filter2d, captureReads ? 1 : 0, gpu2dStats ? 1 : 0, gpu.GPU3D.GetWideDropLogging() ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), gpu.GPU3D.GetHalfCamera(),
-             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : "0", gpu2dWide);
+             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : "0", gpu2dWide, gpu.GLTimers, gpu.SceneStats);
     LOG_INFO(LOG_TAG_DEBUG, "%s", summary);
+    // what was set, and where from: the app's Debug switches setting or setprop
+    std::string active = describeActive();
+    LOG_INFO(LOG_TAG_DEBUG, "Debug switches set: %s", active.empty() ? "none" : active.c_str());
     return overrides;
 }
 

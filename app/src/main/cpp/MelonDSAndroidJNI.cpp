@@ -395,6 +395,35 @@ Java_me_magnum_melonds_MelonEmulator_setDebugLogEnabled(JNIEnv* env, jobject thi
     DebugLog::setEnabled(enabled);
 }
 
+JNIEXPORT void JNICALL
+Java_me_magnum_melonds_MelonEmulator_setDebugSwitches(JNIEnv* env, jobject thiz, jstring switches)
+{
+#ifdef MELONADE_DEBUG_TOOLS
+    // the app's Debug switches setting, already split into "name=value" lines (DebugSwitches.kt)
+    std::string text;
+    if (switches != nullptr)
+    {
+        const char* chars = env->GetStringUTFChars(switches, nullptr);
+        if (chars != nullptr)
+        {
+            text = chars;
+            env->ReleaseStringUTFChars(switches, chars);
+        }
+    }
+    DebugProperties::setOverrides(text);
+#endif
+}
+
+JNIEXPORT jstring JNICALL
+Java_me_magnum_melonds_MelonEmulator_getActiveDebugSwitches(JNIEnv* env, jobject thiz)
+{
+#ifdef MELONADE_DEBUG_TOOLS
+    return env->NewStringUTF(DebugProperties::describeActive().c_str());
+#else
+    return env->NewStringUTF("");
+#endif
+}
+
 JNIEXPORT jint JNICALL
 Java_me_magnum_melonds_MelonEmulator_drainPerformanceFrameSamples(JNIEnv* env, jobject thiz, jlongArray buffer)
 {

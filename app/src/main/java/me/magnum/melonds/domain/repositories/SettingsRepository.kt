@@ -28,6 +28,8 @@ interface SettingsRepository {
     fun isPerformanceLoggingEnabled(): Boolean
     fun getPerformanceLogDirectory(): Uri?
     fun isDebugLogEnabled(): Boolean
+    // The raw text of the debug-only "Debug switches" setting (see DebugSwitches)
+    fun getDebugSwitches(): String
 
     fun getRomSearchDirectories(): Array<Uri>
     fun clearRomSearchDirectories()

@@ -30,6 +30,8 @@ object PreferenceKeys {
     const val ENABLE_PERF_LOGGING = "enable_perf_logging"
     const val PERF_LOG_DIR = "perf_log_dir"
     const val ENABLE_DEBUG_LOG = "enable_debug_log"
+    // Debug builds only (hidden and not applied in release builds): debug.melonade.* switches set at game start, see DebugSwitches
+    const val DEBUG_SWITCHES = "debug_switches"
 
     // pref_system.xml
     const val SYNC_RTC_TO_DEVICE = "sync_rtc_to_device"

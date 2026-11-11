@@ -1,14 +1,18 @@
 package me.magnum.melonds.ui.settings.fragments
 
 import android.os.Bundle
+import android.text.InputType
+import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceCategory
 import androidx.preference.SwitchPreference
 import dagger.hilt.android.AndroidEntryPoint
+import me.magnum.melonds.BuildConfig
 import me.magnum.melonds.R
 import me.magnum.melonds.common.DirectoryAccessValidator
 import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.common.UriPermissionManager
 import me.magnum.melonds.extensions.isSustainedPerformanceModeAvailable
+import me.magnum.melonds.impl.diagnostics.DebugSwitches
 import me.magnum.melonds.impl.diagnostics.LogFolder
 import me.magnum.melonds.ui.settings.PreferenceFragmentHelper
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
@@ -41,6 +45,31 @@ class PerformancePreferencesFragment : BasePreferenceFragment(), PreferenceFragm
         updateGroupVisibility(deviceCategory)
 
         setupPerformanceLogDirectoryPreference()
+        setupDebugSwitchesPreference()
+    }
+
+    // Debug builds only: the switches the next game start applies (DebugSwitches), shown as they'll be read
+    private fun setupDebugSwitchesPreference() {
+        val debugSwitchesPreference = findPreference<EditTextPreference>(PreferenceKeys.DEBUG_SWITCHES)!!
+        debugSwitchesPreference.isVisible = BuildConfig.DEBUG
+        if (!BuildConfig.DEBUG) {
+            return
+        }
+
+        debugSwitchesPreference.setOnBindEditTextListener { editText ->
+            editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            editText.isSingleLine = false
+            editText.minLines = 2
+        }
+        debugSwitchesPreference.setSummaryProvider { preference ->
+            val result = DebugSwitches.parse((preference as EditTextPreference).text)
+            val switches = result.describe().ifEmpty { getString(R.string.debug_switches_none) }
+            if (result.errors.isEmpty()) {
+                switches
+            } else {
+                getString(R.string.debug_switches_invalid, switches, result.errors.joinToString(", "))
+            }
+        }
     }
 
     private fun setupPerformanceLogDirectoryPreference() {

@@ -268,6 +268,10 @@ class SharedPreferencesSettingsRepository(
         return preferences.getBoolean(PreferenceKeys.ENABLE_DEBUG_LOG, false)
     }
 
+    override fun getDebugSwitches(): String {
+        return preferences.getString(PreferenceKeys.DEBUG_SWITCHES, "") ?: ""
+    }
+
     override fun getRomSearchDirectories(): Array<Uri> {
         val dirPreference = preferences.getStringSet("rom_search_dirs", emptySet())
         return dirPreference?.map { it.toUri() }?.toTypedArray() ?: emptyArray()

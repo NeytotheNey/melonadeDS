@@ -18,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import me.magnum.melonds.BuildConfig
 import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.extensions.find60HzMode
@@ -146,6 +147,10 @@ class PerformanceLogger(
         private val frameBuffer = LongArray(FRAME_DRAIN_BATCH_SIZE * MelonEmulator.PERF_FRAME_SAMPLE_FIELDS)
         private val displayBuffer = LongArray(DISPLAY_DRAIN_BATCH_SIZE * DisplayPerformanceCapture.FIELDS)
         private val lineBuilder = StringBuilder(64 * 1024)
+        private val threadRowBuilder = StringBuilder(4 * 1024)
+        private val systemRowBuilder = StringBuilder(512)
+        // Per-thread CPU, CPU and GPU clocks, GPU busy and battery, sampled with each memory row
+        val systemSampler = SystemSampler(context)
         private val powerManager = context.getSystemService<PowerManager>()
         private val pageSizeKb = Os.sysconf(OsConstants._SC_PAGESIZE) / 1024
         private val pendingEvents = ConcurrentLinkedQueue<PendingEvent>()
@@ -175,6 +180,10 @@ class PerformanceLogger(
             private set
         var endMemorySnapshot: PssSnapshot? = null
             private set
+        // Debug builds: MelonEmulator.getActiveDebugSwitches(), re-read at each drain while the session runs and never after a stop is requested,
+        // since the next game's start replaces what the native side holds while the final summary is still being written
+        var debugSwitches: String? = null
+            private set
 
         var destination: LogDestination? = null
             private set
@@ -182,6 +191,7 @@ class PerformanceLogger(
         private var displayWriter: BufferedWriter? = null
         private var memoryWriter: BufferedWriter? = null
         private var eventsWriter: BufferedWriter? = null
+        private var threadsWriter: BufferedWriter? = null
 
         fun queueEvent(event: String, detail: String, timestampNs: Long) {
             pendingEvents.add(PendingEvent(timestampNs, event, detail))
@@ -199,10 +209,22 @@ class PerformanceLogger(
             // A full PSS read walks /proc/self/smaps under the mmap lock and can stall the emulator thread (its JIT maps memory), so it only
             // runs before capture starts and after it stops, with its duration logged
             startMemorySnapshot = takePssSnapshot()
+            // Probed before capture (and the headers, since unreadable sources get no columns)
+            val unavailableSystemSources = try {
+                systemSampler.start()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to probe the system stats", e)
+                listOf("probe failed: $e")
+            }
+            if (unavailableSystemSources.isNotEmpty()) {
+                queueEvent("system_stats_unavailable", unavailableSystemSources.joinToString(" | "), startNs)
+            }
 
-            // Start capturing straight away so that start-up frames are kept
+            // Start capturing straight away so that start-up frames are kept, with the CPU and GPU baselines taken at the same moment so the
+            // per-frame values cover the same window as the frames
             MelonEmulator.setPerformanceCaptureEnabled(true)
             DisplayPerformanceCapture.setEnabled(true)
+            systemSampler.takeBaseline(System.nanoTime())
             MelonEmulator.getAudioDiagnosticsTotals(audioTotalsAtStart)
             wasAudioStreamOpenAtStart = MelonEmulator.getAudioStreamInfo() != null
             firstAudioBufferSizeAtOpen = -1L
@@ -224,17 +246,31 @@ class PerformanceLogger(
                 memoryWriter = logDestination.openWriter("${filePrefix}_memory.csv").apply {
                     // The PSS columns are only set on the first and last rows, where the session's two PSS samples were taken
                     write("t_s,rss_kb,native_heap_alloc_kb,java_heap_used_kb,thermal_status,")
-                    write("pss_total_kb,pss_graphics_kb,pss_native_kb,pss_java_kb,pss_private_other_kb,pss_sample_ms\n")
+                    write("pss_total_kb,pss_graphics_kb,pss_native_kb,pss_java_kb,pss_private_other_kb,pss_sample_ms")
+                    write(systemSampler.csvHeader())
+                    write("\n")
                 }
                 eventsWriter = logDestination.openWriter("${filePrefix}_events.csv").apply {
                     write("t_s,event,detail\n")
                 }
+                if (systemSampler.isThreadCpuAvailable) {
+                    threadsWriter = logDestination.openWriter("${filePrefix}_threads.csv").apply {
+                        write("t_s,thread,tid,cpu_ms\n")
+                    }
+                }
+                sampleSystem()
                 sampleMemory(startMemorySnapshot)
 
                 var drainCount = 0
                 var stopRequested = false
                 while (!stopRequested) {
                     stopRequested = withTimeoutOrNull(DRAIN_INTERVAL_MS) { stopSignal.await() } != null
+                    // Before the frames are drained (so the ones that ended before it count towards it) and, for the last one, before
+                    // capture stops and before the PSS snapshot
+                    sampleSystem()
+                    if (BuildConfig.DEBUG && !stopRequested) {
+                        debugSwitches = MelonEmulator.getActiveDebugSwitches()
+                    }
                     if (stopRequested) {
                         // Stop capturing before the final drain so that nothing is left behind in the buffers
                         MelonEmulator.setPerformanceCaptureEnabled(false)
@@ -328,6 +364,7 @@ class PerformanceLogger(
                     lineBuilder.append('\n')
 
                     stats.trackFrame(workDuration, interval, isFastForward, isAfterPause, isPacingLocked, pacingDivisor)
+                    systemSampler.trackFrame(timestamp)
                     stats.trackAudioFrame(audioFill, audioSilence, isAudioBufferFull, audioSkewPpm, isFastForward, isFastForward || isAfterPause)
                     stats.trackAudioFastForwardSpeed(audioFastForwardSpeedMilli, isFastForward && audioFill >= 0)
                 }
@@ -425,9 +462,10 @@ class PerformanceLogger(
             val runtime = Runtime.getRuntime()
             val javaHeapUsed = (runtime.totalMemory() - runtime.freeMemory()) / 1024
             val thermalStatus = getThermalStatus()
+            val nowNs = System.nanoTime()
 
             lineBuilder.setLength(0)
-            lineBuilder.appendSeconds(System.nanoTime() - startNs).append(',')
+            lineBuilder.appendSeconds(nowNs - startNs).append(',')
                 .append(rss).append(',')
                 .append(nativeHeapAllocated).append(',')
                 .append(javaHeapUsed).append(',')
@@ -442,10 +480,22 @@ class PerformanceLogger(
             } else {
                 lineBuilder.append(",,,,,")
             }
+            // Taken just before by sampleSystem()
+            lineBuilder.append(systemRowBuilder)
             lineBuilder.append('\n')
             writer.append(lineBuilder)
+            threadsWriter?.append(threadRowBuilder)
 
             stats.trackMemory(rss, nativeHeapAllocated, thermalStatus)
+        }
+
+        /**
+         * Takes the per-second system sample into [systemRowBuilder] and [threadRowBuilder], for the next memory row.
+         */
+        private fun sampleSystem() {
+            systemRowBuilder.setLength(0)
+            threadRowBuilder.setLength(0)
+            systemSampler.sample(System.nanoTime(), startNs, systemRowBuilder, threadRowBuilder)
         }
 
         private fun readResidentSetSizeKb(): Long {
@@ -490,10 +540,11 @@ class PerformanceLogger(
             displayWriter?.flush()
             memoryWriter?.flush()
             eventsWriter?.flush()
+            threadsWriter?.flush()
         }
 
         private fun closeWriters() {
-            listOf(framesWriter, displayWriter, memoryWriter, eventsWriter).forEach {
+            listOf(framesWriter, displayWriter, memoryWriter, eventsWriter, threadsWriter).forEach {
                 try {
                     it?.close()
                 } catch (e: IOException) {
@@ -504,6 +555,7 @@ class PerformanceLogger(
             displayWriter = null
             memoryWriter = null
             eventsWriter = null
+            threadsWriter = null
         }
 
         private fun writeSummary(isComplete: Boolean) {

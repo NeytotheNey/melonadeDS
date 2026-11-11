@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PreferenceScreen
-        xmlns:android="http://schemas.android.com/apk/res/android">
+        xmlns:android="http://schemas.android.com/apk/res/android"
+        xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <PreferenceCategory android:title="@string/settings_section_emulation">
 
@@ -51,5 +52,13 @@
         <me.magnum.melonds.ui.settings.preferences.StoragePickerPreference
                 android:key="perf_log_dir"
                 android:title="@string/performance_log_directory" />
+
+        <!-- Debug builds only: hidden in release builds by PerformancePreferencesFragment, and never applied there -->
+        <EditTextPreference
+                android:key="debug_switches"
+                android:title="@string/debug_switches"
+                android:dialogMessage="@string/debug_switches_dialog_message"
+                android:defaultValue=""
+                app:isPreferenceVisible="false" />
     </PreferenceCategory>
 </PreferenceScreen>

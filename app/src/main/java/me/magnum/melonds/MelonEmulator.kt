@@ -194,6 +194,18 @@ object MelonEmulator {
     external fun setDebugLogEnabled(enabled: Boolean)
 
     /**
+     * Debug builds only (a no-op in release builds): the debug.melonade.* switches for the next game, as [DebugSwitches.Result.toNativeString]
+     * gives them. Call it before [setupEmulator]; an empty string clears the last ones.
+     */
+    external fun setDebugSwitches(switches: String)
+
+    /**
+     * Debug builds only (empty in release builds): the switches the running game read that had a value, and where each came from (see
+     * DebugProperties::describeActive).
+     */
+    external fun getActiveDebugSwitches(): String
+
+    /**
      * Copies pending frame samples into [buffer] and returns how many, each [PERF_FRAME_SAMPLE_FIELDS] entries in this order:
      * frame end timestamp (ns, CLOCK_MONOTONIC), work duration (ns), sleep duration (ns), interval since the previous frame end (ns), emulated line
      * count, flags ([PERF_FRAME_FLAG_FAST_FORWARD], [PERF_FRAME_FLAG_AFTER_PAUSE], [PERF_FRAME_FLAG_PACING_LOCKED], the refresh divisor at

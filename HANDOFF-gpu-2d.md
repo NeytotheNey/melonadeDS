@@ -28,7 +28,21 @@ How filtered 2D works, in one line: a pre-pass runs MMPX over a key image of the
 - Decide whether the Blit after the readback goes on in release builds. Before that: a plugged-in OnePlus run and a few other capture games.
 - Optional: a long Fold run plugged in, 20–30 min of gameplay with the filter on. The 70 s runs never got hot enough to throttle.
 - The quarter-size second pass (512x768 writing four results, picked by sub-pixel parity) if the GPU gets tight.
-- **Step 3, the shadow renderer:** branch `gpu-2d-shadow` (from `widemelon`). Phase 0 and increment 1 are done (11-09, core `e4b893bb`, app `af44aeb7`); the open decisions went with the defaults, recorded in `docs/plan-gpu-2d-shadow.md` with the results. Blending (increment 5) was moved ahead of 1b and passes the device-free checks, uncommitted in the core. The OnePlus `check` run passed (0 mismatches). The Fold run is next, with the field build in the NAS drop folder.
+- **Step 3, the shadow renderer:** branch `gpu-2d-shadow` (from `widemelon`). Phase 0 and increment 1 are done (11-09, core `e4b893bb`, app `af44aeb7`); the open decisions went with the defaults, recorded in `docs/plan-gpu-2d-shadow.md` with the results. Blending (increment 5) was moved ahead of 1b and passes the device-free checks, uncommitted in the core. `check` passed on both phones (0 mismatches). The cost A/B found the OnePlus display stalling in mode `all` at 4x (NSMB, White 2); the Fold holds 60. Next is finding that stall.
+
+- **OnePlus stall in shadow mode `all` (open, 11-09).** On the OnePlus 7 Pro (Snapdragon 855, Adreno 640, 1440x3120), `debug.melonade.gpu2d all` at 4x keeps emulation near 60 fps on OpenGL, but frames take far longer to reach the screen. Render ms per presented frame, `0` → `all`:
+  - NSMB world map, GL: 1.7 → 321 ms (2.4 presented fps). The stall starts as the map loads.
+  - White 2 overworld, GL: 2.1 → 29 ms (34 presented fps).
+  - On compute both fall to 30–34 emulated fps, with emulator work going from 12–15 to 26–30 ms.
+  - No cost on Kirby's boot (51% drawn) or Mario Kart's demo (0% drawn).
+  - Mode `1` costs nothing: it draws nothing yet at 4x non-wide.
+  - **Fold (SM8850) for comparison:** 60 fps in every mode, render 0.6–1.2 ms, about 1.6 Mclk a frame more GPU.
+  - **Not known yet:** whether it scales with screen size (the composite runs at output resolution), with 3D on screen (NSMB and White 2 have 3D, Kirby doesn't), with sprite instances (NSMB 74 a frame, White 2 0), or comes from a sync point.
+  - The increment 5 `check` runs missed it because their fps is emulation speed. Phone cost runs need to look at presented fps and render ms too.
+  - Both phones were on battery.
+  - Data: `perf_logs/2026-11-09-shadow2d-inc5/oneplus-cost/` (`cost_summary.txt`, `runs/`, `scripts/costsum.py`) and `fold/cost_table.md`.
+  - **Not the shadow:** NSMB's map at compute 4x on the OnePlus already presents only 2.2 fps with the shadow off (render about 600 ms, emulation 53).
+  - Find this before more increments, then windows (increment 4).
 
 ## Testing notes
 

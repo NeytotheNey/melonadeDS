@@ -3,11 +3,17 @@
 
 #ifdef MELONADE_DEBUG_TOOLS
 
+#include <string>
+
 namespace melonDS { class GPU; }
 
 /**
  * Debug builds only: `adb shell setprop debug.melonade.<switch> <value>` before a game starts changes one of the switches below, and an unset or
  * empty value (`adb shell "setprop debug.melonade.<switch> ''"`) means the default.
+ *
+ * Without adb, the "Debug switches" setting (Settings → Performance → Diagnostics, debug builds only, DebugSwitches.kt) sets the same switches
+ * at game start: `name=value` pairs, the name with or without the debug.melonade. prefix. Each one it sets replaces the property of that name
+ * for the game (setOverrides), and the properties it doesn't set are read as before.
  *
  * On/off switches (0 or 1; the default is the core's, see GPU.h):
  *   hash2d         log a checksum of the 2D output every frame (GPU::Hash2DLogging, default 0)
@@ -62,6 +68,14 @@ namespace melonDS { class GPU; }
  *   gpu2dstats     log a GPU2DSTATS line per engine once a second on what a GPU 2D renderer would have to deal with, no effect on emulation (GPU_2DStats.h, default 0)
  *   widedrops      log a WIDEDROPS line once a second on polygons dropped because the polygon or vertex RAM was full, and with WideMelon on, how many of
  *                  those the native view had room for, no effect on emulation (GPU3D::SetWideDropLogging, default 0)
+ *   hash3d         log `HASH3D frame=<n> hash=<hex>` per frame: an FNV-1a of the 3D image at native resolution in GetLine's pixel format, numbered
+ *                  like HASH2D (n is the HASH2D frame that shows the render, which line 215 of frame n-1 started). OpenGL hashes its 256x192
+ *                  downscale, compute the low res image display capture reads, software its color buffer; all three are read late without
+ *                  waiting (OpenGL and compute through a ring of pixel buffers, so a frame the ring had no room for logs `dropped=ringfull`).
+ *                  It costs a blit and a 192 KB readback a frame on the GPU renderers (GPU::Hash3DLogging, GPU3D_Hash3D.h, default 0)
+ *   computedepth   compute: log a COMPDEPTH line once a second on what DepthBlend does per pixel: polygons walked, colored, failing the depth
+ *                  test. DepthBlend is rebuilt with counters (shared-memory atomics, one SSBO add per work group), so it runs slower
+ *                  (GPU::ComputeDepthStats, GPU3D_GLStats.h, default 0)
  *
  * Others:
  *   shadowlog N    classic OpenGL: log SHADOWSTATS and SHADOWLOG lines for the first N frames (1 means 300)
@@ -101,6 +115,15 @@ namespace melonDS { class GPU; }
  *   gpu2dwide N    with gpu2d: 1 lets every 2D layer draw past the edge into WideMelon's wings (a test mode, default 0)
  *   vertexid N     1 logs a VERTEXID line once a second on vertex identity between 3D scenes, 2 a line per scene as well, no effect on emulation (GPU3D_VertexId.h)
  *   halfcam N      experiment: in-between 3D scenes from a halfway camera, 1 camera only, 2 plus characters, 3 same as 2 with a HALFCAM cam line per scene and a diag line per second, 4 same as 3 plus billboards following the camera, 5 same as 4 with a HALFCAM pair line per scene; compute renderer only (GPU3D_HalfCamera.h). When set, it replaces the Smooth 30 FPS setting, so 0 forces it off
+ *   gltimers N     OpenGL: 1 logs a GLTIME line once a second with the GPU µs of each pass per timed render, capture readback and Blit (upload,
+ *                  clear, opaque, clear0, trans, edge, fog, capture, comp, compx), from GL_EXT_disjoint_timer_query read some frames late; it
+ *                  logs once if the extension is missing or every query reads 0. 2 times the same passes on the CPU between glFinish calls
+ *                  instead: much slower, every pass reads longer than it is, so compare its share= list (GPU::GLTimers, GPU3D_GLStats.h)
+ *   scenestats N   1 logs a SCENESTATS line once a second on the scenes line 215 renders, from the CPU's polygons, with any renderer: DISP3DCNT
+ *                  bits, W or Z, polygon counts by kind and textured or not, and their summed screen area over the screen's (rasterized
+ *                  fragments per displayed 3D pixel, the same at any WideMelon width), no effect on emulation (GPU3D_SceneStats.h). 2 also has the OpenGL renderer count with an atomic per fragment
+ *                  what its render passes shade and how many pixels polygons cover (a SCENEFRAGS line), which slows it down; without SSBOs in
+ *                  fragment shaders it logs that and runs as 1 (GPU::SceneStats)
  *   cpusemu L      pin the emulator thread (and the core threads it creates) to the CPUs in the comma-separated list L (MelonDSAndroidJNI.cpp)
  *   cpus2d L       pin the core's 2D render thread to the CPUs in L (MelonDSAndroidJNI.cpp)
  */
@@ -108,9 +131,22 @@ namespace DebugProperties
 {
 
 /**
- * Reads debug.melonade.[name] into [value], which must hold PROP_VALUE_MAX bytes, and returns false if it's unset or empty.
+ * Reads debug.melonade.[name] into [value], which must hold PROP_VALUE_MAX bytes, and returns false if it's unset or empty. A switch the app
+ * set (setOverrides) is read instead of the property. Every switch found is remembered for describeActive.
  */
 bool read(const char* name, char* value);
+
+/**
+ * The app's switches for the next game, as "name=value" lines with the names without the prefix (empty for none). Replaces the last ones and
+ * forgets which switches were found.
+ */
+void setOverrides(const std::string& text);
+
+/**
+ * The switches read since the last setOverrides that had a value, as "name=value" separated by spaces, each marked "(prop)" when it came from a
+ * property, "(app, over prop X)" when the app's replaced a property that was set too, and then the app's switches nothing read (yet) as "unread:".
+ */
+std::string describeActive();
 
 /**
  * The frontend switches, -1 when the property isn't set.

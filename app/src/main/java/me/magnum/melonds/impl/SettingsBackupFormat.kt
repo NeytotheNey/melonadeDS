@@ -42,6 +42,8 @@ internal object SettingsBackupFormat {
         // Debug logging and the process exits it reported are per install, so a restored backup never starts recording
         PreferenceKeys.ENABLE_DEBUG_LOG,
         PreferenceKeys.DEBUG_LAST_REPORTED_EXIT_MS,
+        // The debug-only switches, so a restored backup never turns test instruments on
+        PreferenceKeys.DEBUG_SWITCHES,
         // Tracks the RetroAchievements hash database, which isn't part of the backup
         AndroidRetroAchievementsRepository.RA_HASH_LIBRARY_LAST_UPDATED,
     )

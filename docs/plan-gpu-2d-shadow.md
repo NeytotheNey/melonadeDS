@@ -300,7 +300,16 @@ Reasons are first-match, so window and bgtype now show what blending used to hid
 - **Cost:** the recorder averages 200–480 µs a frame (the worst second was 730 µs), under the 1 ms line. GL holds 57–60 fps. Compute 4x is GPU-bound as before (about 30 fps on NSMB's map and White 2's overworld).
 - `bleftover` can't fire in debug builds, so the phone doesn't test it. That's covered by the harness replay with `EngineBNoHold` off.
 
-The Fold's run is a user-run field build that defaults to `check` (`melonade-gpu2d-shadow-inc5-check-2026-11-09.apk` in the NAS drop folder). Then commit and move on to windows (increment 4).
+**Fold, on battery, cover screen, 256 wide, "Smooth 2D edges" on** (11-09, `perf_logs/2026-11-09-shadow2d-inc5/fold/`, `summary_t5.txt`, `cost_table.md`):
+- **`check`:** 0 mismatches and 0 failures in all 24 runs (NSMB, Mario Kart, White 2, Contra 4, Advance Wars, Kirby at OpenGL and compute, 1x and 4x), with no GL errors or crashes. Drawn % and CPU reasons match the OnePlus. The recorder costs 100–160 µs a frame.
+
+**Cost A/B at 4x, modes `0`, `1`, `all`** (one 30 s pass each, both phones on battery):
+- **Mode `1`** draws nothing yet at 4x non-wide (no rotated layers are eligible). It cost nothing measurable on either phone: work and render moved within noise, even though the recorder logs 0.1–0.4 ms a frame.
+- **Fold, `all`:** 60 fps everywhere, work and p95 unchanged. GPU load rises 88–108 Mclk/s (about 1.5–1.8 Mclk a frame) where 100% of lines are drawn (NSMB map, White 2 overworld, OpenGL and compute), against a base of 128–135 on OpenGL. Kirby (50% drawn) adds 43. White 2's OpenGL render time goes from 0.81 to 1.2 ms.
+- **OnePlus, `all`: the display stalls** (`perf_logs/2026-11-09-shadow2d-inc5/oneplus-cost/`, `cost_summary.txt`). Emulation keeps 57–60 fps on OpenGL, but presented frames drop: NSMB's map to 2.4 a second (about 0.3–0.5 s of render per present) and White 2's overworld to 34 (render 2 → 29 ms). On compute both fall to 30–34 fps with under 2 presented. Kirby at 51% drawn and Mario Kart at 0% cost nothing. The stall is new and OnePlus only so far. The two phones aren't close: the Fold is a Snapdragon 8 Elite Gen 5 (SM8850) and the OnePlus a Snapdragon 855 (Adreno 640) driving a 1440x3120 screen. The shadow composite runs at output resolution, so screen size may matter too (the Fold ran on its cover screen). The increment 5 `check` runs missed it, since their fps is emulation speed.
+- **A separate, older problem:** NSMB's map at compute 4x on the OnePlus already presents only 2.2 fps with the shadow off (render about 600 ms), while emulation runs at 53.
+
+Next: find the OnePlus stall in `all` before more increments. Then windows (increment 4).
 
 ## Switches
 

@@ -1,6 +1,7 @@
 package me.magnum.melonds.impl.diagnostics
 
 import android.content.Context
+import me.magnum.melonds.BuildConfig
 import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.impl.diagnostics.PerfCsv.appendMillis
 import java.text.SimpleDateFormat
@@ -119,6 +120,17 @@ internal fun PerformanceLogger.Session.buildSummary(context: Context, isComplete
         entry("session_start", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(startDate))
         entry("session_duration_s", decimal(durationNs / 1e9))
         entry("log_location", destination?.description)
+        val settingsMap = settingsSnapshot.toMap()
+        entry("active_renderer", settingsMap["video_renderer"], "The renderer the session ran with: the render setting at session start (WatermelonDS's logger samples the native renderer once a second instead)")
+        entry("active_internal_resolution", settingsMap["internal_resolution_scaling"], "Internal resolution multiplier the session ran with")
+        if (BuildConfig.DEBUG) {
+            entry(
+                "debug_switches", debugSwitches?.ifEmpty { "none" },
+                "Debug builds: the debug.melonade.* switches the game read that had a value, from the Debug switches setting unless marked (prop) " +
+                    "for setprop; unread: lists setting entries nothing read (a typo, or a switch read later). As of the last drain before the " +
+                    "session stopped",
+            )
+        }
     }
 
     table.section("Settings (at session start)") {
@@ -322,6 +334,10 @@ internal fun PerformanceLogger.Session.buildSummary(context: Context, isComplete
         )
         entry("thermal_status_final", stats.lastThermalStatus)
         entry("thermal_status_max", stats.maxThermalStatus)
+    }
+
+    table.section("System (CPU, GPU and battery, sampled once a second; sources the app can't read are left out)") {
+        systemSampler.addSummaryEntries(this)
     }
 
     return table.render()

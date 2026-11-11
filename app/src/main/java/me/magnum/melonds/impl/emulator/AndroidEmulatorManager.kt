@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import me.magnum.melonds.BuildConfig
 import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.R
 import me.magnum.melonds.common.PermissionHandler
@@ -45,6 +46,7 @@ import me.magnum.melonds.impl.LuaScriptHeaderParser
 import me.magnum.melonds.impl.LuaScriptStorage
 import me.magnum.melonds.impl.camera.DSiCameraSourceMultiplexer
 import me.magnum.melonds.impl.diagnostics.DebugLog
+import me.magnum.melonds.impl.diagnostics.DebugSwitches
 import me.magnum.melonds.ui.emulator.rewind.model.RewindSaveState
 import me.magnum.melonds.ui.emulator.rewind.model.RewindWindow
 
@@ -413,6 +415,17 @@ class AndroidEmulatorManager(
     }
 
     private fun setupEmulator(emulatorConfiguration: EmulatorConfiguration) {
+        // Debug builds only: the Debug switches setting, applied when the game's core reads its debug.melonade.* switches
+        if (BuildConfig.DEBUG) {
+            val debugSwitches = DebugSwitches.parse(settingsRepository.getDebugSwitches())
+            MelonEmulator.setDebugSwitches(debugSwitches.toNativeString())
+            if (debugSwitches.switches.isNotEmpty() || debugSwitches.errors.isNotEmpty()) {
+                DebugLog.event {
+                    "Debug switches setting: ${debugSwitches.describe().ifEmpty { "none" }}" +
+                        if (debugSwitches.errors.isEmpty()) "" else " (ignored: ${debugSwitches.errors.joinToString(", ")})"
+                }
+            }
+        }
         MelonEmulator.setupEmulator(
             emulatorConfiguration = emulatorConfiguration,
             dsiCameraSource = cameraManager,
