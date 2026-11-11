@@ -24,9 +24,15 @@ class LeakCanaryInitializer : Initializer<Unit> {
         LeakCanary.config = LeakCanary.config.copy(
             // A threshold that is never reached: dumps while the app is visible only happen when the notification is tapped
             retainedVisibleThreshold = Int.MAX_VALUE,
-            // Android framework static that holds one activity and predates our code
-            referenceMatchers = LeakCanary.config.referenceMatchers + IgnoredReferenceMatcher(
-                ReferencePattern.StaticFieldPattern("android.text.method.TextKeyListener", "sInstance"),
+            // Android framework singleton that keeps the first text field's activity and predates our code: through its static
+            // instance, and on newer Android versions also through the show-secrets setting observer it registers
+            referenceMatchers = LeakCanary.config.referenceMatchers + listOf(
+                IgnoredReferenceMatcher(
+                    ReferencePattern.StaticFieldPattern("android.text.method.TextKeyListener", "sInstance"),
+                ),
+                IgnoredReferenceMatcher(
+                    ReferencePattern.InstanceFieldPattern("android.text.method.TextKeyListener", "mShowSecretsUnregisterRunnable"),
+                ),
             ),
         )
         (context.applicationContext as Application).registerActivityLifecycleCallbacks(EmulatorHeapDumpBlocker())
