@@ -19,7 +19,14 @@ namespace melonDS { class GPU; }
  *   computedirect  compute: CPU-sized SortWork and Rasterise dispatches instead of GPU-written indirect ones (GPU::ComputeDirectDispatch)
  *   computegrow    compute: the tile memory and X span buffers start small (6 of 16 layers, a 16th of the spans) and grow before a frame whose
  *                  polygons could need more, a quarter over what it asked, logging a COMPGROW line each time. 0 gives them their full size at the
- *                  first frame with polygons, the old behavior, for memory A/B runs (GPU::ComputeGrow, default 1)
+ *                  first frame with polygons, the old behavior, for memory A/B runs (GPU::ComputeGrow, default 1). COMPGROW has the ms the
+ *                  allocation calls took
+ *   computerooms   compute, with computegrow: start those buffers at the rooms the game (cart game code and header CRC) grew to before at
+ *                  the same scale, width, tile size and layout, kept in the app's cache dir (compute_rooms.bin, 512 entries at most, least
+ *                  recently used dropped, written when a buffer grows), so a grow that always comes happens at the first frame and not
+ *                  mid-game. Debug builds log a COMPROOMS line whenever the targets are set up with the key, whether it was found, the rooms
+ *                  they start at and the ms of their allocation. 0 starts small as before and doesn't read or write the file
+ *                  (GPU::ComputeRooms, default 1)
  *   shadercache    compute: load the 33 programs of a configuration (scale, WideMelon width, computeopt layout) seen before, this run or
  *                  an earlier one, from their binaries in the app's cache dir (compute_programs.bin, 24 MB at most, least recently used
  *                  dropped) instead of compiling them. Debug builds log a COMPSHADER line per batch of compiles with the hits, misses,

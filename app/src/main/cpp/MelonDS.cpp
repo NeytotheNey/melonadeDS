@@ -14,6 +14,7 @@
 #include "GPU3D.h"
 #include "GBACart.h"
 #include "OpenGLSupport.h"
+#include "GPU3D_ComputeRooms.h"
 #include "SPU.h"
 #include "Platform.h"
 #include "Savestate.h"
@@ -56,6 +57,8 @@ namespace MelonDSAndroid
         internalFilesDir = currentConfiguration->internalFilesDir;
         // Read at the compute renderer's first compile, on the emulator thread, which this runs before
         melonDS::OpenGL::SetShaderCachePath(currentConfiguration->cacheDir.empty() ? std::string() : currentConfiguration->cacheDir + "/compute_programs.bin");
+        // The same for the work buffer rooms each game grew to, read when the targets are set up
+        melonDS::ComputeWorkRooms::SetPath(currentConfiguration->cacheDir.empty() ? std::string() : currentConfiguration->cacheDir + "/compute_rooms.bin");
 
         net = std::make_shared<Net>();
         net->SetDriver(std::make_unique<Net_Slirp>([](const u8* data, int len) {
