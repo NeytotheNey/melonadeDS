@@ -4,7 +4,13 @@ The plan and every result so far are in [docs/plan-compute-efficiency.md](docs/p
 
 ## State (11-10)
 
-Branch `compute-efficiency` in the app and in the core, both cut from the `gpu-2d-shadow` tips (app `fa5c5dbf`, core `aa597f11`), because that line already holds WideMelon's changes to Compute. Everything through step 6 (packing attr into color) is committed and pushed: core `ff155ae7`, app `10b817ff` plus the notes commit of 11-11.
+Branch `compute-efficiency` in the app and in the core, both cut from the `gpu-2d-shadow` tips (app `fa5c5dbf`, core `aa597f11`), because that line already holds WideMelon's changes to Compute. Everything through step 6 (packing attr into color) is committed and pushed: core `ff155ae7`, app `10b817ff`. Committed on 11-11, **not pushed**: the notes commit (app `1ed1b375`) and the checked buffer grows (core `56e5841d`, app `b9ce0e7e`).
+
+**`compute-efficiency-wm` (11-11, both repos, not pushed):** the same work rebased onto `widemelon` without the GPU 2D shadow commits, so it can merge on its own. Core `5827f9c5` (on `77a2244d`), app `11b10c4c` (on `4e9fe2d0`), gitlinks mapped to the new core commits. It builds (arm64 debug); not phone-tested. Two conflicts: `GPU_OpenGL.cpp` `RenderFrame` (kept the compute timers, dropped `PrepareShadow2D` and the early `ctrlCopied`) and `DebugProperties.cpp`'s summary line (no `gpu2d` fields). One comment in `GPU3D_ComputeStats.h` was reworded so it no longer mentions the shadow. Its diff otherwise matches `compute-efficiency`'s. The app worktree it was built in is in the session scratchpad (`appwm`), safe to remove with `git worktree remove --force`.
+
+**Checked buffer grows (11-11):** `WorkBufferData` drains GL errors (logging them as `COMPGLERR` in debug builds), allocates, then checks `glGetError` and `GL_BUFFER_SIZE`. A failed grow retries at the exact need, then at the old size, else the room goes to 0. A render that needs more room than exists is skipped with the previous 3D image kept and `ForceRender` set; retries back off (16 grow-wanting frames, doubling to 512). Logs `COMPGROW ... failed`. Reviewed, no bugs, built; never triggered, and on Adreno or Mali it may never fire, since those drivers often allocate lazily and fail later at dispatch. Known gaps from the review: a frame skipped for room still counts as a render in `COMPWHY` and the stats, and a HalfCamera redraw skipped for room leaves a capture that frame reading the in-between picture.
+
+**Desktop build (11-11):** the core with OpenGL on (`BUILD_QT_SDL=OFF`, mingw64 GCC 15.1) compiles with no errors or warnings at `ff155ae7`, which covers the lazy compositor outputs and all the Compute files. The Qt frontend itself isn't built: Qt6, SDL2, libarchive and faad2 aren't installed (MSYS2 `mingw-w64-x86_64-{qt6-base,qt6-multimedia,qt6-svg,SDL2,libarchive,faad2,pkgconf}`, about 1–1.5 GB). From reading, desktop never calls `SetOutputTexture`, so it always takes the lazy path.
 
 ### Step 6 confirm run (11-11)
 
@@ -86,7 +92,7 @@ All `debug.melonade.<name>`, read at game start, documented in `DebugProperties.
 
 ## Next steps
 
-1. **Merging:** the branch sits on top of `gpu-2d-shadow`, so it can't reach `material3` ahead of that line without a rebase. The shadow work touches `GPU3D_Compute.cpp` by two lines, so a rebase onto `widemelon` should be easy.
+1. **Merging:** done as `compute-efficiency-wm` (see State). It still needs a phone sanity run (Compute 4x title and NSMB map, HASH2D against `compute-efficiency`) before it's pushed or merged into `widemelon`.
 2. **The user's eyes on skipped frames.** Pacing leaves the previous 3D image up for about 7 frames a second on NSMB's map (up to 21 in Mario Kart's demo), with 2D still updating. Nobody has judged whether it looks juddery; `screenrecord` is blocked over adb on the OnePlus. If it does, `computepace 1` is the fallback (wait only: 51.6 FPS on the map).
 3. **Why `computeopt` bit 32 stutters.** White 2's overworld, Smooth on: 60 → 30 renders a second and the GPU ends about 9 °C cooler, but FPS drops 59.97 → 58.36 with about 100 long frames per 30 s. The long frames are pacing waits (0.91 correlation with `wait_ms`); with `computepace 0` they become dropped presents instead (55.8 presented). So the GPU falls behind when half the renders are skipped. The guess is its clock drops in the gaps. A perfetto `gpu.counters` trace of `computeopt 127` against 95 would say. It's the remaining battery win for 30 FPS games with Smooth 30 FPS on.
 4. **The Fold: done for this build** (results above). Not done there: a run unplugged, and the main screen (all runs were on the cover screen).
@@ -132,7 +138,7 @@ A lead for the GPU 2D work: `HANDOFF-gpu-2d.md` lists an open OnePlus stall in s
   - A savestate stores `IsShadowMask` and `Attr` separately. If one ever disagreed, packing would render it differently from before (before, it read stale attr tiles).
   - `computeopt 95` now launches with two tile buffers and rebuilds for three at the first frame, so it costs a second shader compile.
   - `TileLayers`' initial value (2) is hard-coded to match `OptMask`'s default.
-  - A buffer grow doesn't check for `GL_OUT_OF_MEMORY`. If one fails, the room is still set and the GPU would write past real storage. The old fixed allocation had no check either, but it could only fail at a settings change; a grow can fail mid-game, and briefly holds old and new storage while earlier renders are in flight.
+  - A buffer grow now checks for `GL_OUT_OF_MEMORY` (see State), but lazy drivers may never report it, and a grow still briefly holds old and new storage while earlier renders are in flight.
   - The POWCNT redraw runs GL inside an IO write handler, on the assumption a context is always current there.
   - Every Compute render now does a `glFenceSync` and a `glFlush`, in all builds.
   - With `computeopt` bit 4 on, layer 2 of the final tile buffer is stale when AA and fog are off. Nothing reads it today.
