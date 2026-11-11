@@ -53,7 +53,7 @@ Read from the code, not measured:
   - Packing attr into color: done (11-10); the confirm run of the default-on build is still owed. `computeopt` bit 128, default on. OnePlus title 32.23 → 33.12 FPS, NSMB map render median 7.26 → 5.87 ms; the Fold saves 27–37 MB. One buffer instead of two (bit 256) measured the same, so it's off. Numbers are in `HANDOFF-compute.md`, step 6.
   - Judging pacing's skipped frames by eye on NSMB's map and Mario Kart.
   - A scene with anti-aliasing or fog for `computeopt` bit 4.
-  - Step 6 (program binary cache).
+  - Step 6 (program binary cache): written and reviewed 11-11, not phone-tested. See `HANDOFF-compute.md`.
 - **The title won't reach 60 at 4x on this phone** without a much bigger change (a depth pre-pass so overdrawn layers aren't shaded). 2x holds 60 there (59.67); 3x wasn't measured on the title.
 
 ## Rules
