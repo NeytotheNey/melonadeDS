@@ -8,7 +8,7 @@ Branch `compute-efficiency` in the app and the core. Phase 0 (instruments) is co
 
 **T1 is committed, not pushed:** core `1ecb3e65`, app `d00aca6c`. App `ac00b98b` makes LeakCanary ignore a second path of the Android framework `TextKeyListener` leak (Android 17 reaches it through the show-secrets setting observer); it compiles, not checked on the phone. Leave `.claude/launch.json` and `gradle/gradle-daemon-jvm.properties` out of commits.
 
-T1 is the `debug.melonade.gltrans` switch (bitmask, read at game start, debug builds only, default 0, settable from the Diagnostics switch field):
+T1 is the `debug.melonade.gltrans` switch (bitmask, read at game start, settable from the Diagnostics switch field in debug builds; default 3 in every build since 11-11, was 0):
 - **Bit 0 (T1a):** when the clear-alpha-0 pass (pass 2) ran, the translucent pass (pass 3) skips its opaque redraw of alpha-31 translucent ("needopaque") polygons. Pass 2 already drew them, so the redraw fails depth everywhere and writes nothing. Not skipped for depth-equal (attr bit 14) polygons, since GL_LEQUAL could pass again.
 - **Bit 1 (T1b):** each needopaque polygon's texture (A3I5/A5I3) is scanned on the CPU once per frame, deduplicated. No texel that reaches alpha 31 → skip the opaque draw; no texel with alpha 1–30 → skip the translucent draw (not for shadows). Texturing off or decal mode count as all alpha 31.
 - **Stats:** a `GLTRANS` line when `scenestats` is on (needopaque counts by class, skips, `scan_us`). At renderer init the debug log lists the three framebuffer-fetch extensions.
@@ -24,8 +24,8 @@ Expected `gltrans=7` vs `3` hash differences, all where the old path disagrees w
 
 ## Next, in order
 
-1. **Make T1 (`gltrans=3`) the default,** including release builds (today the switch is debug-only, default 0). Keep a debug switch to turn it off for A/Bs.
-2. **T1c: commit it as an off-by-default switch** (core then app), and don't make it the default. Ideas if it's picked up again, all untested: use fetch only for frames with few translucent fragments; find out why the fetch pass costs more per fragment on Adreno (blending off with `inout` may serialize fragments per pixel); quantize src alpha to 8 bits if hash-exactness matters. Shadows over alpha-0 pixels could use the fetch program too (software writes them unblended). Mali's ARM variant isn't supported.
+1. **T1 is the default** (`GPU::GLTransSkip = 3` in every build; `gltrans=0` turns it off for A/Bs). T1c is committed (core `4ad60eef`, app `ce4dc189`) and off by default. A Diagnostics switch string that still says `gltrans=1` (the Fold's did on 11-11) overrides the default; clear it.
+2. **T1c, if picked up again,** ideas, all untested: use fetch only for frames with few translucent fragments; find out why the fetch pass costs more per fragment on Adreno (blending off with `inout` may serialize fragments per pixel); quantize src alpha to 8 bits if hash-exactness matters. Shadows over alpha-0 pixels could use the fetch program too (software writes them unblended). Mali's ARM variant isn't supported.
 3. Then the rest of Phase 1 in the plan's order: R2 (W-buffer `gl_FragDepth` only where needed) before R1 (no-`discard` opaque programs), E2 (skip the dead edge pass), K1 (compositor), D1.
 4. Phone leftovers to clean: OnePlus `/data/local/tmp/t1c_title{0,3,7}/`, `t1crun.sh`, `op2d_setcfg.sh`, `op2d_gpuprod`, `gpuprod.log`, `/data/misc/perfetto-traces/t1c_*.pftrace`; Fold `/data/local/tmp/t1cf`. Phone runs go to the `phone-tester` agent (Sonnet) from now on.
 

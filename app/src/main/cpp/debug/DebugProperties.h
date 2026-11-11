@@ -131,7 +131,7 @@ namespace melonDS { class GPU; }
  *                  its translucent draw (not a shadow's) when none is at 1-30, from a CPU scan of the texture each frame. 4 (T1c) with a
  *                  clear alpha of 0 and GL_EXT_shader_framebuffer_fetch, no clear0 pass: pass 3's translucent draws read the color target
  *                  and don't blend where its alpha is 0 (without the extension, or desktop, nothing changes). A/B it as 3 against 7.
- *                  0 (the default) draws as before (GPU::GLTransSkip)
+ *                  3 is the default, in release builds too; 0 draws as before (GPU::GLTransSkip)
  *   cpusemu L      pin the emulator thread (and the core threads it creates) to the CPUs in the comma-separated list L (MelonDSAndroidJNI.cpp)
  *   cpus2d L       pin the core's 2D render thread to the CPUs in L (MelonDSAndroidJNI.cpp)
  */
