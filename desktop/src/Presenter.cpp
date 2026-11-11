@@ -38,7 +38,8 @@ in vec2 fTexcoord;
 out vec4 oColor;
 void main()
 {
-    oColor = vec4(texture(ScreenTex, fTexcoord).rgb, 1.0);
+    // the core's frames are BGRA in memory, which the app's and upstream's screen shaders swap too
+    oColor = vec4(texture(ScreenTex, fTexcoord).bgr, 1.0);
 }
 )";
 
@@ -222,6 +223,9 @@ bool Presenter::ReadFrame(std::vector<u8>& pixels, int& width, int& height)
     glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    // the texture holds BGRA, as the screen shader reads it
+    for (size_t i = 0; i < pixels.size(); i += 4)
+        std::swap(pixels[i], pixels[i + 2]);
     GLenum error = glGetError();
     if (error != GL_NO_ERROR)
         fprintf(stderr, "frame readback: GL error 0x%x\n", error);
