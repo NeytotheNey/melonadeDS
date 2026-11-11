@@ -93,6 +93,7 @@ E1 changes what games look like (it's what real hardware and our software render
 | # | Experiment | Size |
 |---|---|---|
 | T1 | Stop shading translucent polygons twice. Collapse the need-opaque double draw (opaque then translucent, `GPU3D_OpenGL.cpp` ~:1412–1427) and the clear-alpha-0 repeat of the translucent pass (~:1157–1262) into fewer passes, keeping software's output (check with `hash3d` against today's GL and with screenshots against software). Phase 0: 41% of the title frame. | medium |
+| T1c | Remove the clear-alpha-0 pass: with framebuffer fetch (`GL_EXT_shader_framebuffer_fetch`, which the Fold has), the translucent shader reads the destination and skips blending where its alpha is 0, so pass 3 alone gives pass 2's result. Shadows over the clear plane and the stencil marks pass 2 leaves are the hard part. Fallback to today's two passes without the extension. Check with `hash3d` against `gltrans=3`. | medium |
 | R1 | Compile separate opaque programs without `discard` for polygons that can't have transparent texels (untextured, or a texture with no alpha-0 texels and polygon alpha 31) | medium (needs per-texture opacity) |
 | R2 | Write `gl_FragDepth` only where W-buffer interpolation really needs it (WatermelonDS's rule), checked against software with `hash3d` | small to medium |
 | R3 | Per-draw scissor | small |
@@ -113,6 +114,10 @@ E1 changes what games look like (it's what real hardware and our software render
 | K1 | Time the compositor's parts (screen shadow, filter 2D, hi-res capture, wing hold, the capture variant) with `gltimers` and cut what's redundant. Phase 0: 0.8–0.9 Mcycles per frame everywhere, plus 1.3 ms for the capture variant at the title. | small to measure, unknown to fix |
 
 **Outside the two themes, but likely big:** a pre-decoded texture cache for GL (Compute already has `GPU3D_TexcacheOpenGL`). Per-fragment VRAM decoding is shading cost. It was skipped in the blackmagic3 review because the GPU was idling at 160 MHz then. At 8x that's no longer true.
+
+## T1 results (11-11)
+
+T1a and T1b are in as `debug.melonade.gltrans` bits 0 and 1. On the Fold at the White 2 title they're pixel-exact (HASH3D matched every frame) and cut GPU cycles per frame from 5.00 to 4.25 (15%): bit 0 10%, bit 1 5%. Numbers are in PERF-NOTES "GL translucent skips, T1". Next: T1c, since the clear0 pass is now the largest remaining piece (~16%). Not yet tested: the overworld and other games, and the OnePlus.
 
 ## Done looks like
 

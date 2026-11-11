@@ -123,7 +123,13 @@ namespace melonDS { class GPU; }
  *                  bits, W or Z, polygon counts by kind and textured or not, and their summed screen area over the screen's (rasterized
  *                  fragments per displayed 3D pixel, the same at any WideMelon width), no effect on emulation (GPU3D_SceneStats.h). 2 also has the OpenGL renderer count with an atomic per fragment
  *                  what its render passes shade and how many pixels polygons cover (a SCENEFRAGS line), which slows it down; without SSBOs in
- *                  fragment shaders it logs that and runs as 1 (GPU::SceneStats)
+ *                  fragment shaders it logs that and runs as 1 (GPU::SceneStats). On OpenGL either one also logs a GLTRANS line once a
+ *                  second on need-opaque polygons, their texture alpha classes and what gltrans left out (GPU3D_GLStats.h)
+ *   gltrans N      OpenGL, experiment T1 (docs/plan-gpu-discovery.md): leave out translucent draws that can't change a pixel, a sum of
+ *                  bits, meant to keep hash3d the same. 1 with a clear alpha of 0, pass 3 doesn't redraw a need-opaque polygon's opaque part
+ *                  (not depth-equal ones), 2 a need-opaque polygon's opaque draw is left out when its texture has no texel at alpha 31,
+ *                  its translucent draw (not a shadow's) when none is at 1-30, from a CPU scan of the texture each frame. 0 (the default)
+ *                  draws as before (GPU::GLTransSkip)
  *   cpusemu L      pin the emulator thread (and the core threads it creates) to the CPUs in the comma-separated list L (MelonDSAndroidJNI.cpp)
  *   cpus2d L       pin the core's 2D render thread to the CPUs in L (MelonDSAndroidJNI.cpp)
  */

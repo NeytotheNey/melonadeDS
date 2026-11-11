@@ -21,6 +21,14 @@ class DebugSwitchesTest {
     }
 
     @Test
+    fun bitmaskSwitchesKeepTheirValue() {
+        val result = DebugSwitches.parse("debug.melonade.gltrans=3, scenestats=1, hash3d=1")
+
+        assertEquals(listOf("gltrans" to "3", "scenestats" to "1", "hash3d" to "1"), result.switches)
+        assertEquals("gltrans=3\nscenestats=1\nhash3d=1", result.toNativeString())
+    }
+
+    @Test
     fun prefixIsOptionalAndNamesAreLowercased() {
         val result = DebugSwitches.parse("debug.melonade.hash3d=1,DEBUG.MELONADE.GLTimers=1, ComputeTimers = 1")
 
