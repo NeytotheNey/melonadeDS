@@ -186,6 +186,7 @@ class SharedPreferencesSettingsRepository(
             dsiFirmwareUri = dsiDirDocument?.findFile("firmware.bin")?.uri,
             dsiNandUri = dsiDirDocument?.findFile("nand.bin")?.uri,
             internalDirectory = context.filesDir.absolutePath,
+            cacheDirectory = context.cacheDir.absolutePath,
             fastForwardSpeedMultiplier = getFastForwardSpeedMultiplier(),
             framePacingVsyncEnabled = isFramePacingVsyncEnabled(),
             framePacingBufferEnabled = isFramePacingBufferEnabled(),

@@ -2,6 +2,7 @@
 #define CONFIGURATION_H
 
 #include <memory>
+#include <string>
 #include "renderer/Renderer.h"
 
 // Frame rate the emulator runs at without fast-forward; must match EMULATOR_TARGET_FPS in NDS.kt
@@ -85,6 +86,8 @@ typedef struct
     char* dsiFirmwarePath;
     char* dsiNandPath;
     char* internalFilesDir;
+    // The app's cache dir, for files Android may delete (the compute program cache)
+    std::string cacheDir;
     float fastForwardSpeedMultiplier;
     bool framePacingVsync;
     bool framePacingBuffer;

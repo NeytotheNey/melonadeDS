@@ -13,6 +13,7 @@
 #include "GPU.h"
 #include "GPU3D.h"
 #include "GBACart.h"
+#include "OpenGLSupport.h"
 #include "SPU.h"
 #include "Platform.h"
 #include "Savestate.h"
@@ -53,6 +54,8 @@ namespace MelonDSAndroid
     void setConfiguration(EmulatorConfiguration emulatorConfiguration) {
         currentConfiguration = std::make_shared<EmulatorConfiguration>(std::move(emulatorConfiguration));
         internalFilesDir = currentConfiguration->internalFilesDir;
+        // Read at the compute renderer's first compile, on the emulator thread, which this runs before
+        melonDS::OpenGL::SetShaderCachePath(currentConfiguration->cacheDir.empty() ? std::string() : currentConfiguration->cacheDir + "/compute_programs.bin");
 
         net = std::make_shared<Net>();
         net->SetDriver(std::make_unique<Net_Slirp>([](const u8* data, int len) {
