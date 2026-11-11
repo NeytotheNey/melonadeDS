@@ -1,6 +1,6 @@
 # Compute renderer efficiency
 
-Plan written 11-09 on branch `compute-efficiency` (app and core, both cut from `gpu-2d-shadow`). The goal is less GPU time, less graphics memory and less battery from the Compute 3D renderer, mainly for older Adreno phones. The test case is the OnePlus 7 Pro (Adreno 640) at 4x. 60 FPS there is the aim but not a hard target: any gain counts.
+Plan written 11-09 on branch `compute-efficiency` (app and core, both cut from `gpu-2d-shadow`; rebased onto `widemelon` as `compute-efficiency-wm` on 11-11). The goal is less GPU time, less graphics memory and less battery from the Compute 3D renderer, mainly for older Adreno phones. The test case is the OnePlus 7 Pro (Adreno 640) at 4x. 60 FPS there is the aim but not a hard target: any gain counts.
 
 ## Where it stands
 

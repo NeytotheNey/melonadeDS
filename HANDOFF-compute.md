@@ -4,7 +4,7 @@ The plan and every result so far are in [docs/plan-compute-efficiency.md](docs/p
 
 ## State (11-10)
 
-Branch `compute-efficiency` in the app and in the core, both cut from the `gpu-2d-shadow` tips (app `fa5c5dbf`, core `aa597f11`), because that line already holds WideMelon's changes to Compute. Everything through step 6 (packing attr into color) is committed and pushed: core `ff155ae7`, app `10b817ff`. Committed on 11-11, **not pushed**: the notes commit (app `1ed1b375`) and the checked buffer grows (core `56e5841d`, app `b9ce0e7e`).
+This is branch `compute-efficiency-wm`: the `compute-efficiency` work (first cut from the `gpu-2d-shadow` tips, app `fa5c5dbf`, core `aa597f11`) rebased onto `widemelon` on 11-11. Everything through step 6 (packing attr into color) is committed and pushed: core `ff155ae7`, app `10b817ff`. Committed on 11-11, **not pushed**: the notes commit (app `1ed1b375`) and the checked buffer grows (core `56e5841d`, app `b9ce0e7e`).
 
 **`compute-efficiency-wm` (11-11, both repos, not pushed):** the same work rebased onto `widemelon` without the GPU 2D shadow commits, so it can merge on its own. Core `5827f9c5` (on `77a2244d`), app `11b10c4c` (on `4e9fe2d0`), gitlinks mapped to the new core commits. It builds (arm64 debug); not phone-tested. Two conflicts: `GPU_OpenGL.cpp` `RenderFrame` (kept the compute timers, dropped `PrepareShadow2D` and the early `ctrlCopied`) and `DebugProperties.cpp`'s summary line (no `gpu2d` fields). One comment in `GPU3D_ComputeStats.h` was reworded so it no longer mentions the shadow. Its diff otherwise matches `compute-efficiency`'s. The app worktree it was built in is in the session scratchpad (`appwm`), safe to remove with `git worktree remove --force`.
 
