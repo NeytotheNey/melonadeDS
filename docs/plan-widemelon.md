@@ -99,3 +99,10 @@ The config is latched at line 0 and capped (4 BGs, 128 sprites). It's cleared wh
 **Deferred.**
 - **Shadow polygon list:** only if step 3's counter shows drops. If built, reuse HalfCamera's FIFO replay rather than copying `SubmitPolygon`. It doubles geometry work on the emulator thread (the OnePlus's limit), and BoxTest stays visible to the game anyway.
 - **Vertical widening:** needs a Y squeeze, a taller 3D target and compositor, and changes to the wing hold rows and the app's layout rects. Probably 600+ lines.
+
+## Open after the merge (11-11)
+
+Steps 1–3 are merged into `material3` / `melonade` (11-11). Phone data: `perf_logs/2026-11-08-widemelon/`.
+1. The `widedrops` counter found real drops at Shroom Ridge's race start in Mario Kart DS (2,212 dropped, 94% would fit natively). Per the 11-07 decision that's the case for the shadow polygon list above, so building it is the user's call.
+2. Optional: in compmode 4 the wing could take the edge's 3D alpha instead of 31, so wings follow fades of a translucent full-screen quad (Contra 4's fade into "Licensed by Nintendo" stays black in the wings, as before step 1).
+3. Steps 4–7 wait for the GPU 2D renderer (`docs/plan-gpu-2d-shadow.md`).
