@@ -13,6 +13,8 @@ data class EmulatorConfiguration(
         val dsiFirmwareUri: Uri?,
         val dsiNandUri: Uri?,
         val internalDirectory: String,
+        // Private storage Android may clear, for the compute renderer's program cache
+        val cacheDirectory: String,
         val fastForwardSpeedMultiplier: Float,
         val framePacingVsyncEnabled: Boolean,
         val framePacingBufferEnabled: Boolean,

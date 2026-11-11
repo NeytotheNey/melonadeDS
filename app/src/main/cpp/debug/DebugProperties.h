@@ -20,6 +20,11 @@ namespace melonDS { class GPU; }
  *   computegrow    compute: the tile memory and X span buffers start small (6 of 16 layers, a 16th of the spans) and grow before a frame whose
  *                  polygons could need more, a quarter over what it asked, logging a COMPGROW line each time. 0 gives them their full size at the
  *                  first frame with polygons, the old behavior, for memory A/B runs (GPU::ComputeGrow, default 1)
+ *   shadercache    compute: load the 33 programs of a configuration (scale, WideMelon width, computeopt layout) seen before, this run or
+ *                  an earlier one, from their binaries in the app's cache dir (compute_programs.bin, 24 MB at most, least recently used
+ *                  dropped) instead of compiling them. Debug builds log a COMPSHADER line per batch of compiles with the hits, misses,
+ *                  rejected binaries, ms and bytes loaded and saved. 0 compiles as before and doesn't read or write the file
+ *                  (GPU::ShaderCache, default 1)
  *   computetimers  compute: log a COMPTIME line once a second with the GPU time of each pass and of the compositor, from GL_EXT_disjoint_timer_query,
  *                  no effect on emulation (GPU::ComputeTimers, GPU3D_ComputeStats.h, default 0)
  *   computepeaks   compute: log a COMPPEAK line once a second with the most work tiles, spans, variants and polygons a frame used, and the room

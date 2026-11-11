@@ -27,6 +27,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     jobject dsiFirmwareUri = env->GetObjectField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "dsiFirmwareUri", "Landroid/net/Uri;"));
     jobject dsiNandUri = env->GetObjectField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "dsiNandUri", "Landroid/net/Uri;"));
     jstring internalFilesDir = (jstring) env->GetObjectField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "internalDirectory", "Ljava/lang/String;"));
+    jstring cacheDirString = (jstring) env->GetObjectField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "cacheDirectory", "Ljava/lang/String;"));
     jfloat fastForwardMaxSpeed = env->GetFloatField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "fastForwardSpeedMultiplier", "F"));
     jboolean framePacingVsync = env->GetBooleanField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "framePacingVsyncEnabled", "Z"));
     jboolean framePacingBuffer = env->GetBooleanField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "framePacingBufferEnabled", "Z"));
@@ -83,6 +84,12 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     finalEmulatorConfiguration.dsiFirmwarePath = const_cast<char*>(dsiFirmwarePath);
     finalEmulatorConfiguration.dsiNandPath = const_cast<char*>(dsiNandPath);
     finalEmulatorConfiguration.internalFilesDir = const_cast<char*>(internalDir);
+    if (cacheDirString)
+    {
+        const char* cacheDir = env->GetStringUTFChars(cacheDirString, nullptr);
+        finalEmulatorConfiguration.cacheDir = cacheDir;
+        env->ReleaseStringUTFChars(cacheDirString, cacheDir);
+    }
     finalEmulatorConfiguration.fastForwardSpeedMultiplier = fastForwardMaxSpeed;
     finalEmulatorConfiguration.framePacingVsync = framePacingVsync;
     finalEmulatorConfiguration.framePacingBuffer = framePacingBuffer;
