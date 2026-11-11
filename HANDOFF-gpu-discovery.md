@@ -6,11 +6,7 @@ The plan and results are in [docs/plan-gpu-discovery.md](docs/plan-gpu-discovery
 
 Branch `compute-efficiency` in the app and the core. Phase 0 (instruments) is committed: core `3b12e30a`, app `92108551`.
 
-**T1 is done but uncommitted** in both repos:
-- Core: `src/GPU.h`, `src/GPU3D_GLStats.h`, `src/GPU3D_OpenGL.cpp`, `src/GPU3D_OpenGL.h`.
-- App: `app/src/main/cpp/debug/DebugProperties.{cpp,h}`, `DebugSwitchesTest.kt`, `docs/plan-gpu-discovery.md`.
-- Also uncommitted, separate commit: `LeakCanaryInitializer.kt` ignores a second path of the Android framework `TextKeyListener` leak (Android 17 reaches it through the show-secrets setting observer). It compiles; not checked on the phone.
-- Leave `.claude/launch.json` and `gradle/gradle-daemon-jvm.properties` out of commits.
+**T1 is committed, not pushed:** core `1ecb3e65`, app `d00aca6c`. App `ac00b98b` makes LeakCanary ignore a second path of the Android framework `TextKeyListener` leak (Android 17 reaches it through the show-secrets setting observer); it compiles, not checked on the phone. Leave `.claude/launch.json` and `gradle/gradle-daemon-jvm.properties` out of commits.
 
 T1 is the `debug.melonade.gltrans` switch (bitmask, read at game start, debug builds only, default 0, settable from the Diagnostics switch field):
 - **Bit 0 (T1a):** when the clear-alpha-0 pass (pass 2) ran, the translucent pass (pass 3) skips its opaque redraw of alpha-31 translucent ("needopaque") polygons. Pass 2 already drew them, so the redraw fails depth everywhere and writes nothing. Not skipped for depth-equal (attr bit 14) polygons, since GL_LEQUAL could pass again.
@@ -22,7 +18,7 @@ T1 is the `debug.melonade.gltrans` switch (bitmask, read at game start, debug bu
 
 ## Next, in order
 
-1. **Commit T1** (core first, then app; LeakCanary as its own commit), then offer to push.
+1. **Push** core then app, if not done yet (`git log origin/compute-efficiency..compute-efficiency` in each).
 2. **Wider check of T1:** the White 2 overworld (no clear0 pass there, so only bit 1 can matter), one or two other 3D games, and the OnePlus 7 Pro. Same switches: `gltimers=1 scenestats=1 hash3d=1 gltrans=0/3`. If it holds, make `gltrans=3` the default.
 3. **T1c: remove the clear-alpha-0 pass with framebuffer fetch.** It's now the biggest piece left, about 16% of the title frame. With the destination color readable in the shader, pass 3's translucent draw can skip blending where the destination alpha is 0, which is what pass 2 exists for. Then pass 2 goes. Notes:
    - **Needs a runtime check and the old path as fallback.** Use it only when `GL_EXT_shader_framebuffer_fetch` is listed; otherwise keep today's two passes. Adreno (both our phones) has it. Mali drivers have long shipped `GL_ARM_shader_framebuffer_fetch`, and newer ones may also list the EXT version. It's unverified on the Pixel 9 Pro Fold (Mali), which the init log line will show. Desktop NVIDIA/AMD GL doesn't have it, so the desktop build would run the fallback. The ARM variant reads color only, which may be enough here (only dst alpha is needed), but it has its own rules with multiple render targets; check before supporting it.
