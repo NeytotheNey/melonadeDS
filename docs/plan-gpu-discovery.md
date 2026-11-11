@@ -119,6 +119,8 @@ E1 changes what games look like (it's what real hardware and our software render
 
 T1a and T1b are in as `debug.melonade.gltrans` bits 0 and 1. On the Fold at the White 2 title they're pixel-exact (HASH3D matched every frame) and cut GPU cycles per frame from 5.00 to 4.25 (15%): bit 0 10%, bit 1 5%. Numbers are in PERF-NOTES "GL translucent skips, T1". Next: T1c, since the clear0 pass is now the largest remaining piece (~16%). Not yet tested: the overworld and other games, and the OnePlus.
 
+Wider check (PERF-NOTES "T1 wider check and T1c"): T1 is pixel-exact in every scene tried on both phones and saves 4–15%, so it should become the default. T1c (bit 2, `gltrans=7`) works on both phones but doesn't pay off reliably: −7% on Dark Dawn, −1% on the OnePlus title, +8% on the Fold's White 2 title, since the fetch translucent pass costs nearly as much as the clear0 pass it removes. It stays an off-by-default switch.
+
 ## Done looks like
 
 Phase 0's per-pass table for three scenes, the ALU-vs-bandwidth answer if adb is available, and each tried experiment's cycles, battery and `hash3d` result in PERF-NOTES, with the ones that pay off listed for a real implementation.

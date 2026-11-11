@@ -178,6 +178,7 @@ const BoolSwitch kBoolSwitches[] = {
 const IntSwitch kIntSwitches[] = {
     {"CaptureSpinUs", &GPU::CaptureSpinUs},
     {"HiresCaptureDebug", &GPU::HiresCaptureDebug},
+    {"GLTransSkip", &GPU::GLTransSkip},
 };
 
 bool ApplySet(GPU& gpu, const std::string& set)

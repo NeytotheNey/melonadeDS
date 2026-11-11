@@ -216,7 +216,7 @@ Overrides apply(GPU& gpu)
     if (read("scenestats", value))
         gpu.SceneStats = std::clamp(atoi(value), 0, 2);
     if (read("gltrans", value))
-        gpu.GLTransSkip = std::clamp(atoi(value), 0, 3);
+        gpu.GLTransSkip = std::clamp(atoi(value), 0, 7);
 
     if (read("halfcam", value))
     {
