@@ -123,6 +123,7 @@ static const BoolSwitch BOOL_SWITCHES[] = {
     { "bnohold", &GPU::EngineBNoHold },
     { "hash3d", &GPU::Hash3DLogging },
     { "computedepth", &GPU::ComputeDepthStats },
+    { "computessbo", &GPU::ComputeSSBO },
 };
 
 bool read(const char* name, char* value)
@@ -207,6 +208,21 @@ Overrides apply(GPU& gpu)
     if (read("computeopt", value))
         gpu.ComputeOpt = std::clamp(atoi(value), 0, 511);
 
+    // Mali diagnostics (docs/shelved/compute-on-mali.md): computecheck N checks every Nth render
+    // with polygons, 0 is off and anything else that isn't a number over 0 is 1
+    if (read("computecheck", value))
+    {
+        int every = atoi(value);
+        gpu.ComputeCheck = strcmp(value, "0") == 0 ? 0 : every > 0 ? every : 1;
+    }
+    if (read("computebin", value))
+        gpu.ComputeBin = std::clamp(atoi(value), 0, 3);
+    if (read("computecalc", value))
+        gpu.ComputeCalc = std::clamp(atoi(value), 0, 1);
+    // on (1) in the core
+    if (read("computeflat", value))
+        gpu.ComputeFlat = std::clamp(atoi(value), 0, 1);
+
     if (read("vertexid", value))
         gpu.GPU3D.SetVertexIdLogging(std::clamp(atoi(value), 0, 2));
 
@@ -288,9 +304,9 @@ Overrides apply(GPU& gpu)
     int length = snprintf(summary, sizeof(summary), "Debug switches:");
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
         length += snprintf(summary + length, sizeof(summary) - length, " %s=%d", boolSwitch.name, gpu.*boolSwitch.target ? 1 : 0);
-    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d gltimers=%d scenestats=%d gltrans=%d compclear=%d comp1x=%d",
+    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d gltimers=%d scenestats=%d gltrans=%d compclear=%d comp1x=%d computecheck=%d computebin=%d computecalc=%d computeflat=%d",
              gpu.ShadowLogFrames, gpu.CaptureSpinUs, gpu.ComputePace, gpu.ComputeTileSize, gpu.ComputeOpt, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.filter2d, captureReads ? 1 : 0, gpu2dStats ? 1 : 0, gpu.GPU3D.GetWideDropLogging() ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), gpu.GPU3D.GetHalfCamera(),
-             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : "0", gpu2dWide, gpu.GLTimers, gpu.SceneStats, gpu.GLTransSkip, gpu.CompClear, gpu.Comp1x);
+             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : "0", gpu2dWide, gpu.GLTimers, gpu.SceneStats, gpu.GLTransSkip, gpu.CompClear, gpu.Comp1x, gpu.ComputeCheck, gpu.ComputeBin, gpu.ComputeCalc, gpu.ComputeFlat);
     LOG_INFO(LOG_TAG_DEBUG, "%s", summary);
     // what was set, and where from: the app's Debug switches setting or setprop
     std::string active = describeActive();

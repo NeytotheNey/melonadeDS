@@ -179,6 +179,7 @@ const BoolSwitch kBoolSwitches[] = {
     {"BlitAfterReadback", &GPU::BlitAfterReadback},
     {"Filter2DLogging", &GPU::Filter2DLogging},
     {"Hash2DLogging", &GPU::Hash2DLogging},
+    {"ComputeSSBO", &GPU::ComputeSSBO},
 };
 
 const IntSwitch kIntSwitches[] = {
@@ -188,6 +189,10 @@ const IntSwitch kIntSwitches[] = {
     {"CompClear", &GPU::CompClear},
     {"Comp1x", &GPU::Comp1x},
     {"SceneStats", &GPU::SceneStats},
+    {"ComputeCheck", &GPU::ComputeCheck},
+    {"ComputeBin", &GPU::ComputeBin},
+    {"ComputeCalc", &GPU::ComputeCalc},
+    {"ComputeFlat", &GPU::ComputeFlat},
 };
 
 bool ApplySet(GPU& gpu, const std::string& set)

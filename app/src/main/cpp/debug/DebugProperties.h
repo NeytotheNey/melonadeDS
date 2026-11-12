@@ -76,6 +76,9 @@ namespace melonDS { class GPU; }
  *   computedepth   compute: log a COMPDEPTH line once a second on what DepthBlend does per pixel: polygons walked, colored, failing the depth
  *                  test. DepthBlend is rebuilt with counters (shared-memory atomics, one SSBO add per work group), so it runs slower
  *                  (GPU::ComputeDepthStats, GPU3D_GLStats.h, default 0)
+ *   computessbo    compute, Mali diagnostics (docs/shelved/compute-on-mali.md): InterpXSpans reads the setup indices from the same buffer
+ *                  bound as a std430 storage buffer instead of through the RGBA16UI texture buffer. Recompiles at the next render
+ *                  (GPU::ComputeSSBO, default 0)
  *
  * Others:
  *   shadowlog N    classic OpenGL: log SHADOWSTATS and SHADOWLOG lines for the first N frames (1 means 300)
@@ -144,6 +147,26 @@ namespace melonDS { class GPU; }
  *                  differently on fp16 GPUs), 3 checks: the full draw as usual, and every 30 frames a 1x draw compared with it. With
  *                  scenestats or gltimers on (always in 3) a COMP1X line once a second counts the frames per screen at 1x and why the
  *                  others weren't. 0 draws as before; 1 is the default in every build (GPU::Comp1x)
+ *   computecheck N compute, Mali diagnostics (docs/shelved/compute-on-mali.md): every Nth render with polygons waits for the GPU, reads
+ *                  back binning's buffers, the WorkDescs and the X spans, and the setup indices through the texture buffer (a small
+ *                  extra program), and logs a COMPCHECK line with counts of what's inconsistent (work total vs the CPU bound and
+ *                  the mask bits, work tiles off screen, past the polygon count or outside the polygon's box, masks vs WorkDescs,
+ *                  the sorted list, X spans outside their polygon, texture buffer texels vs the CPU's, and countmismatch: one
+ *                  for each of maskbits, realsum and offsetsum that isn't the written total), then up to 3 lines of
+ *                  cases for each count over 0. Slow on the frames it checks. 0 is off (the default), a value that isn't a
+ *                  number over 0 is 1 (GPU::ComputeCheck, ComputeRenderer::RunCheck). Every Compute start also logs one COMPGL
+ *                  line with the GL vendor, renderer, versions and GL_MAX_TEXTURE_BUFFER_SIZE
+ *   computebin N   compute, Mali diagnostics: BinCombined experiments. 1 only the first 32 invocations test a polygon for the shared
+ *                  coarse mask (no shift of 32 or more), 2 no shared mask or barrier: every invocation tests all 32 polygons of
+ *                  its group for its own tile, 3 is 2 with the WorkDescs packed with plain shifts instead of bitfieldInsert. 0 as
+ *                  before, the default. Recompiles at the next render (GPU::ComputeBin)
+ *   computecalc N  compute: 1 brings back CalcOffsets' old atomic sorted offsets (an atomicAdd on VariantWorkCount[1].w that Mali's
+ *                  driver adds to [0].w, doubling the work total), for A/B runs. 0, the default, hands them out as a running sum
+ *                  in one invocation. Recompiles at the next render (GPU::ComputeCalc)
+ *   computeflat N  compute: 0 declares binning's VariantWorkCount counters as uvec4s again, the Mali control: that driver applies an
+ *                  atomic on a uvec4 element's component to element 0, so the per-variant work counts all land in variant 0.
+ *                  1, the default in every build, has them as a flat uint array with the same bytes. Recompiles at the next
+ *                  render (GPU::ComputeFlat)
  *   cpusemu L      pin the emulator thread (and the core threads it creates) to the CPUs in the comma-separated list L (MelonDSAndroidJNI.cpp)
  *   cpus2d L       pin the core's 2D render thread to the CPUs in L (MelonDSAndroidJNI.cpp)
  */

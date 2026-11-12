@@ -1,5 +1,33 @@
 # Compute renderer on Mali
 
+## Found and fixed on the Pixel 8 (2026-11-12, not committed yet)
+
+The cause is a Mali driver bug in atomics. On driver `v1.r54p3` (Pixel 8 and Pixel 9 Pro Fold), an atomic on one component of a `uvec4` array element in a storage buffer always hits element 0, whatever the index. Compute keeps its per-variant counters in `uvec4 VariantWorkCount[]`, so two atomics went wrong:
+
+- `CalcOffsets`: `atomicAdd(VariantWorkCount[1].w, …)` added into `[0].w`. The work total doubled, and every sorted offset was shifted by the real count. SortWork then ran twice the threads over empty entries. At `MaxWorkTiles` 12288 (1x, or `computetile 32` at 4x) the doubled range wrote past the WorkDesc buffer and hung the GPU, which took down SurfaceFlinger and soft-restarted the phone.
+- `BinCombined`: `atomicAdd(VariantWorkCount[variantIdx].z, 1)` gave every count to variant 0. The other variants rasterized from wrong offsets, which made the block noise.
+
+Atomics on plain `uint` arrays work fine on the same driver.
+
+The fix: `VariantWorkCount` is declared as `uint VariantWorkCountFlat[MaxVariants*4]` (same bytes) behind `VariantCountX/Y/Z/W(i)` macros, and `CalcOffsets` hands out the offsets as a running sum in one invocation, with no atomics. On the desktop it's byte-identical at 1x and 4x. On the Pixel 8, Mario Kart at 4x matches OpenGL, and 1x and `computetile 32` run 60 s with no hang. Results are in `perf_logs/mali-pixel8/flat/`.
+
+How it was found: a `computecheck N` debug switch reads the binning and sort buffers back every Nth render and checks them on the CPU (`COMPCHECK` lines). On the Pixel, `total` was exactly 2× `maskbits`, `offsetsum` was 0, and `badvaroffset` was about 33k out of 38k. COMPPEAK's `pastbound` had already hinted at it: it was nonzero every frame on the Pixel and 0 in all 865 Fold lines. The texture buffer, X span setup and binning masks all checked out clean.
+
+Debug switches added for this, all off by default:
+- `computecheck N`: the readback checks.
+- `computeflat 0`: the old uvec4 layout, the Mali control.
+- `computecalc 1`: the old atomic `CalcOffsets`.
+- `computebin 1/2/3`: BinCombined variants. They made no difference.
+- `computessbo 1`: setup indices from an SSBO. It crashes the Mali driver inside the check's dispatch, so don't use it there.
+
+**Adreno check on the OnePlus 7 Pro (Adreno 640, Android 12, plugged in):** Mario Kart at 4x, on the PC copy of the state, which shows the results-screen replay rather than mid-race. With `computecheck 30`, all 55 COMPCHECK lines were 0, with total = maskbits = offsetsum. In one 30 s pass each, the new default ran at 59.97 FPS with 12.77 ms average work (p95 15.42). The old code (`computeflat 0` + `computecalc 1`) ran at 59.92 FPS with 13.18 ms average work (p95 15.70). So there's no slowdown, and the new code may be slightly faster. The 3D was clean in both, with no crashes or device-lost errors. One `COMPGLERR 0x0502` showed up before the tile memory allocation in the check run only, with no visible effect. Results are in `perf_logs/mali-pixel8/oneplus/`.
+
+Still to do before Compute is unlocked on Mali: the Fold (the main Adreno perf phone, skipped for now), more games, and the Pixel 9 Pro Fold. Then replace the `qcom` check in `VideoPreferencesFragment.kt`.
+
+The original notes from the first attempt follow.
+
+## First attempt
+
 Tried on 2026-11-06 and shelved. The goal was to see if the Compute renderer could run on a Pixel 9 Pro Fold, which the app currently doesn't allow. It runs, but the 3D comes out broken, and the cause isn't known yet. Nothing was committed, and Compute is still Qualcomm-only (`VideoPreferencesFragment.kt:54`).
 
 Code at the time: app `1481b16c`, core `4c8a9f46`.
@@ -12,7 +40,7 @@ The settings screen removes Compute unless `Build.HARDWARE` is `qcom`. The Pixel
 
 Pixel 9 Pro Fold, Tensor G4, Mali-G715, Android 17, OpenGL ES 3.2 driver `v1.r54p3-00eac0`. It isn't on hand for ADB, so tests went through APKs on the NAS, with screenshots and the in-app debug log coming back.
 
-**Next test phone (added 11-11, check still to do):** a Pixel 8 (`shiba`, Tensor G3, also Mali-G715, Android 14, driver `v1.r46p0`, older than the 9 Pro Fold's), on USB adb, serial `39071FDJH002W8`. It's set aside for this bug, so the next step here is the first Mali check on it: install a throwaway APK with the Qualcomm check forced on, push a game, and see if the missing blocks show up on this driver too. Until this work starts, it only runs OpenGL tests.
+**Next test phone (added 11-11):** a Pixel 8 (`shiba`, Tensor G3, also Mali-G715). It was forced to update to Android 17 on 11-11 and reports driver `v1.r54p3`, the same as the 9 Pro Fold, not the `v1.r46p0` first noted, on USB adb, serial `39071FDJH002W8`. It's set aside for this bug, so the next step here is the first Mali check on it: install a throwaway APK with the Qualcomm check forced on, push a game, and see if the missing blocks show up on this driver too. Until this work starts, it only runs OpenGL tests.
 
 ## What goes wrong
 
