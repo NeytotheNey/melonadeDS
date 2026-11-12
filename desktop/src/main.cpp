@@ -179,6 +179,7 @@ const IntSwitch kIntSwitches[] = {
     {"CaptureSpinUs", &GPU::CaptureSpinUs},
     {"HiresCaptureDebug", &GPU::HiresCaptureDebug},
     {"GLTransSkip", &GPU::GLTransSkip},
+    {"CompClear", &GPU::CompClear},
 };
 
 bool ApplySet(GPU& gpu, const std::string& set)

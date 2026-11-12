@@ -26,7 +26,7 @@ Expected `gltrans=7` vs `3` hash differences, all where the old path disagrees w
 
 ## Next, in order
 
-0. **K2a** (`glClear` before the compositor's main draw) is the cheap first try, then K2b (skip unchanged halves) and K2c (2D-only screen at 1x); see the plan's compositor table.
+0. **K2a is done and does nothing on the Fold** (`debug.melonade.compclear` 1 = full clear, 2 = invalidate + padding clear; all within 0.5%, PERF-NOTES "K2a"). It stays as an off-by-default switch, worth one try on the Pixel 8's Mali. The main draw is fill and fetch work, so next is drawing fewer pixels: K2c (2D-only screen at 1x, the bigger cut) or K2b (skip unchanged halves); see the plan's compositor table.
 
 1. **T1 is the default** (`GPU::GLTransSkip = 3` in every build; `gltrans=0` turns it off for A/Bs). T1c is committed (core `4ad60eef`, app `ce4dc189`) and off by default. A Diagnostics switch string that still says `gltrans=1` (the Fold's did on 11-11) overrides the default; clear it.
 2. **T1c, if picked up again,** ideas, all untested: use fetch only for frames with few translucent fragments; find out why the fetch pass costs more per fragment on Adreno (blending off with `inout` may serialize fragments per pixel); quantize src alpha to 8 bits if hash-exactness matters. Shadows over alpha-0 pixels could use the fetch program too (software writes them unblended). Mali's ARM variant isn't supported.
