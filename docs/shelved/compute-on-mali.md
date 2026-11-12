@@ -12,6 +12,8 @@ The settings screen removes Compute unless `Build.HARDWARE` is `qcom`. The Pixel
 
 Pixel 9 Pro Fold, Tensor G4, Mali-G715, Android 17, OpenGL ES 3.2 driver `v1.r54p3-00eac0`. It isn't on hand for ADB, so tests went through APKs on the NAS, with screenshots and the in-app debug log coming back.
 
+**Next test phone (added 11-11, check still to do):** a Pixel 8 (`shiba`, Tensor G3, also Mali-G715, Android 14, driver `v1.r46p0`, older than the 9 Pro Fold's), on USB adb, serial `39071FDJH002W8`. It's set aside for this bug, so the next step here is the first Mali check on it: install a throwaway APK with the Qualcomm check forced on, push a game, and see if the missing blocks show up on this driver too. Until this work starts, it only runs OpenGL tests.
+
 ## What goes wrong
 
 Every test used Mario Kart DS (AMCE), mainly the character select screen and the Figure-8 Circuit intro.
