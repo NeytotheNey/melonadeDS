@@ -22,6 +22,13 @@ Debug switches added for this, all off by default:
 
 **Adreno check on the OnePlus 7 Pro (Adreno 640, Android 12, plugged in):** Mario Kart at 4x, on the PC copy of the state, which shows the results-screen replay rather than mid-race. With `computecheck 30`, all 55 COMPCHECK lines were 0, with total = maskbits = offsetsum. In one 30 s pass each, the new default ran at 59.97 FPS with 12.77 ms average work (p95 15.42). The old code (`computeflat 0` + `computecalc 1`) ran at 59.92 FPS with 13.18 ms average work (p95 15.70). So there's no slowdown, and the new code may be slightly faster. The 3D was clean in both, with no crashes or device-lost errors. One `COMPGLERR 0x0502` showed up before the tile memory allocation in the check run only, with no visible effect. Results are in `perf_logs/mali-pixel8/oneplus/`.
 
+**More games (2026-11-12, 4x, intros and title screens with no input).**
+- **Pixel 8:** Phantom Hourglass, New Super Mario Bros, Platinum and SoulSilver had every COMPCHECK count at 0, and the 3D was clean and matched OpenGL. Phantom Hourglass at 1x ran 62 s with no hang. White 2 never left 2D without input. Two of the five check runs crashed inside Mali's driver (`gles_texturep_bind_image_instance_nx`) during RunCheck's extra dispatch. None of the plain Compute runs crashed, so on Mali `computecheck` itself is flaky, not the renderer.
+- **OnePlus:** New Super Mario Bros, Phantom Hourglass, Dark Dawn and White 2 (the 3D title) passed all 212 COMPCHECK lines, and Compute matched OpenGL.
+- Results are in `perf_logs/mali-pixel8/games/`.
+
+**Upstream port:** the same fix on rafaelvcaetano's code fixes the blocks there too, in Phantom Hourglass and New Super Mario Bros on the Pixel 8, and 1x runs with no hang. See [compute-on-mali-upstream.md](compute-on-mali-upstream.md) and `perf_logs/mali-pixel8/upstream/`.
+
 Still to do before Compute is unlocked on Mali: the Fold (the main Adreno perf phone, skipped for now), more games, and the Pixel 9 Pro Fold. Then replace the `qcom` check in `VideoPreferencesFragment.kt`.
 
 The original notes from the first attempt follow.

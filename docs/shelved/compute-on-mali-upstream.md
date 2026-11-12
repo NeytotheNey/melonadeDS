@@ -3,8 +3,8 @@
 Drafts for rafaelvcaetano's repos. Nothing is posted yet. The background is in [compute-on-mali.md](compute-on-mali.md).
 
 Before posting:
-- The results below come from our fork. Upstream has the same three uvec4 atomics, but its CalcOffsets is simpler than ours, so the fix has to be ported onto their code and checked on the Pixel 8 before the PR's claims hold. The PR carries only the fix, without our diagnostic switches.
-- The Mario Kart scene differs by phone. On the Pixel 8 it was the mid-race state, but on the OnePlus it was the results-screen replay. Both scenes draw moving 3D, so the comparison still holds.
+- The fix is ported onto upstream as lib branch `mali-uvec4-fix` (`b2668e3d`, off lib `431ab4bd`, app `aaf263d2`), in a local clone at `C:\Dev\upstream-test`. It changes one file, with 25 lines added and 10 removed, and a review found no issues. Pushing it needs a public fork of melonDS-android-lib, since ours is private.
+- Attach `perf_logs/mali-pixel8/upstream/sheet_nsmb.png` (before | OpenGL | after) to the PR. `sheet_ph.png` is the Phantom Hourglass one.
 
 ---
 
@@ -21,10 +21,9 @@ The compute renderer does this twice on `VariantWorkCount`:
 
 **Fix:** declare the counters as `uint VariantWorkCountFlat[MaxVariants*4]`. The bytes are the same, so the indirect dispatch offsets don't change. CalcOffsets also now uses a running sum in one invocation instead of the atomic.
 
-**Tested** on Mario Kart DS:
-- Pixel 8 (Mali-G715): at 4x it matches the OpenGL renderer, and 1x and 32 px tiles run without hangs. Before: block noise at every scale and a GPU hang at 1x.
-- OnePlus 7 Pro (Adreno 640): same picture and same speed (59.9 fps both, 12.8 vs 13.2 ms of frame work).
-- Desktop (NVIDIA): the output is byte-identical before and after.
+**Tested** this branch in the current app on a Pixel 8 (Mali-G715), Compute at 4x. Before the fix, the Phantom Hourglass intro and the New Super Mario Bros title screen show the blocks. After it, they match OpenGL (screenshots below). At 1x, the game ran 60 s without a hang. Before the fix, 1x hung the GPU and the phone soft-rebooted.
+
+The same fix in our fork also renders cleanly on Mario Kart, Pokemon Platinum and SoulSilver. On an Adreno 640 it runs at the same speed (59.9 fps both). On desktop the output is byte-identical.
 
 **To see it:** remove the `qcom` check in `VideoPreferencesFragment` and pick Compute on a Pixel 8.
 
@@ -36,6 +35,6 @@ The compute renderer does this twice on `VariantWorkCount`:
 
 Compute is hidden on non-Qualcomm devices because it had issues on non-Adreno GPUs (012832e0). On a Pixel 8, the 3D corruption and GPU hangs come from a Mali driver bug: an atomic on a `uvec4` array component in an SSBO always lands in element 0. melonDS-android-lib#N avoids it.
 
-With the fix, Mario Kart DS renders correctly on Compute on the Pixel 8 (driver r54p3). That's one game and one GPU family so far, so the `qcom` check should probably stay until more Mali devices are tested. Happy to help with that.
+With the fix, Compute renders correctly on the Pixel 8 (driver r54p3) in the five games tried so far. That's still one GPU family, so the `qcom` check should probably stay until more Mali devices are tested. Happy to help with that.
 
 **To test on a Mali device:** build with the PR, set `isAdrenoGpu = true` in `VideoPreferencesFragment`, then pick Compute at 4x in any 3D game. Without the fix you get tile-sized holes in the 3D. With it, the picture should match OpenGL.
