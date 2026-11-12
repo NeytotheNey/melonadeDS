@@ -1,0 +1,63 @@
+diff --git a/app/src/main/cpp/debug/DebugProperties.cpp b/app/src/main/cpp/debug/DebugProperties.cpp
+index 6c04fa54..dc0d085a 100644
+--- a/app/src/main/cpp/debug/DebugProperties.cpp
++++ b/app/src/main/cpp/debug/DebugProperties.cpp
+@@ -217,6 +217,8 @@ Overrides apply(GPU& gpu)
+         gpu.SceneStats = std::clamp(atoi(value), 0, 2);
+     if (read("gltrans", value))
+         gpu.GLTransSkip = std::clamp(atoi(value), 0, 7);
++    if (read("gldepth", value))
++        gpu.GLDepth = std::clamp(atoi(value), 0, 2);
+ 
+     if (read("halfcam", value))
+     {
+@@ -284,9 +286,9 @@ Overrides apply(GPU& gpu)
+     int length = snprintf(summary, sizeof(summary), "Debug switches:");
+     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
+         length += snprintf(summary + length, sizeof(summary) - length, " %s=%d", boolSwitch.name, gpu.*boolSwitch.target ? 1 : 0);
+-    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d gltimers=%d scenestats=%d gltrans=%d",
++    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d gltimers=%d scenestats=%d gltrans=%d gldepth=%d",
+              gpu.ShadowLogFrames, gpu.CaptureSpinUs, gpu.ComputePace, gpu.ComputeTileSize, gpu.ComputeOpt, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.filter2d, captureReads ? 1 : 0, gpu2dStats ? 1 : 0, gpu.GPU3D.GetWideDropLogging() ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), gpu.GPU3D.GetHalfCamera(),
+-             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : "0", gpu2dWide, gpu.GLTimers, gpu.SceneStats, gpu.GLTransSkip);
++             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : "0", gpu2dWide, gpu.GLTimers, gpu.SceneStats, gpu.GLTransSkip, gpu.GLDepth);
+     LOG_INFO(LOG_TAG_DEBUG, "%s", summary);
+     // what was set, and where from: the app's Debug switches setting or setprop
+     std::string active = describeActive();
+diff --git a/app/src/main/cpp/debug/DebugProperties.h b/app/src/main/cpp/debug/DebugProperties.h
+index 46819199..91fdf107 100644
+--- a/app/src/main/cpp/debug/DebugProperties.h
++++ b/app/src/main/cpp/debug/DebugProperties.h
+@@ -132,6 +132,11 @@ namespace melonDS { class GPU; }
+  *                  clear alpha of 0 and GL_EXT_shader_framebuffer_fetch, no clear0 pass: pass 3's translucent draws read the color target
+  *                  and don't blend where its alpha is 0 (without the extension, or desktop, nothing changes). A/B it as 3 against 7.
+  *                  3 is the default, in release builds too; 0 draws as before (GPU::GLTransSkip)
++ *   gldepth N      OpenGL, experiment R2 (docs/plan-gpu-discovery.md): in W-buffer frames, opaque draws leave out gl_FragDepth where they
++ *                  can, so the GPU can reject hidden fragments before shading. 1 polygons with one depth at every vertex, drawn at
++ *                  glDepthRangef(d, d), meant to keep hash3d the same; 2 also every other opaque polygon but WatermelonDS's exceptions,
++ *                  with screen-space linear depth (approximate: depth, fog and hash3d can change). 0, the default, draws as before.
++ *                  With scenestats a GLDEPTH line counts the polygons, their area and the draws by path (GPU::GLDepth)
+  *   cpusemu L      pin the emulator thread (and the core threads it creates) to the CPUs in the comma-separated list L (MelonDSAndroidJNI.cpp)
+  *   cpus2d L       pin the core's 2D render thread to the CPUs in L (MelonDSAndroidJNI.cpp)
+  */
+diff --git a/desktop/src/main.cpp b/desktop/src/main.cpp
+index db42a64a..384626b4 100644
+--- a/desktop/src/main.cpp
++++ b/desktop/src/main.cpp
+@@ -179,6 +179,7 @@ const IntSwitch kIntSwitches[] = {
+     {"CaptureSpinUs", &GPU::CaptureSpinUs},
+     {"HiresCaptureDebug", &GPU::HiresCaptureDebug},
+     {"GLTransSkip", &GPU::GLTransSkip},
++    {"GLDepth", &GPU::GLDepth},
+ };
+ 
+ bool ApplySet(GPU& gpu, const std::string& set)
+diff --git a/docs/debug-switches.md b/docs/debug-switches.md
+index b31eb955..33f9cd05 100644
+--- a/docs/debug-switches.md
++++ b/docs/debug-switches.md
+@@ -21,4 +21,5 @@ Set with `adb shell setprop debug.melonade.<name> <value>` before starting a gam
+ - `lateblit` 0: with threaded 2D on OpenGL/compute, the frame-end 2D barrier and the Blit stay at line 192 instead of just before the line-215 3D render.
+ - `capspin` 0 (compute): the capture readback sleeps in its map instead of first polling a fence for up to 6000 µs; another value sets that limit (max 20000).
+ - `gltrans` (OpenGL, experiment T1 in `docs/plan-gpu-discovery.md`), a sum of bits, default 3 in every build (`0` draws as before): `1` skips pass 3's opaque redraw of need-opaque polygons after the clear0 pass, `2` skips need-opaque draws their texture can't pass (CPU scan), `4` (T1c) drops the clear0 pass when the clear alpha is 0 and the GPU has `GL_EXT_shader_framebuffer_fetch`: pass 3's translucent shader reads the color target and doesn't blend over alpha 0. Without the extension (desktop, maybe Mali) `4` changes nothing. A/B it as `gltrans=3` against `7` with `hash3d=1`; with `scenestats=1` the `GLTRANS` line's `fetch_frames` counts the frames drawn that way (out of `clear0_frames`).
++- `gldepth` (OpenGL, experiment R2 in `docs/plan-gpu-discovery.md`), default 0 (draws as before): in W-buffer frames, opaque draws leave out `gl_FragDepth` where they can, so the GPU can reject hidden fragments before shading them. `1` only polygons with the same depth at every vertex, drawn with `glDepthRangef(d, d)`, which gives the depth `gl_FragDepth` did (meant to keep `hash3d` the same). `2` also every other opaque polygon except WatermelonDS's exceptions (textured, modulate, alpha 31, repeat or flip, W not all equal), with depth interpolated linearly in screen space instead of perspective-correctly: approximate, so depth tests, fog and `hash3d` can change; it's the upper bound for an A/B. With `scenestats=1` a `GLDEPTH` line counts the opaque polygons each path could take, their screen area and the draws by path. Desktop: `--set GLDepth=N`.
+ - `shadowfix` 0 (OpenGL): clear the shadow mask over the whole screen for every mask, instead of per line like software. `maskdepth` 0: depth-equal shadow masks and shadows use plain GL_LESS/GL_LEQUAL, without the DS margin. `equaldepth` 0: the same for all other depth-equal polygons. `shadowlog` 1 (or a frame count): for the first 300 frames, `SHADOWSTATS` and `SHADOWLOG` lines listing masks and shadows.

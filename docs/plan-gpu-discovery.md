@@ -121,6 +121,10 @@ T1a and T1b are in as `debug.melonade.gltrans` bits 0 and 1. On the Fold at the 
 
 Wider check (PERF-NOTES "T1 wider check and T1c"): T1 is pixel-exact in every scene tried on both phones and saves 4–15%, so it should become the default. T1c (bit 2, `gltrans=7`) works on both phones but doesn't pay off reliably: −7% on Dark Dawn, −1% on the OnePlus title, +8% on the Fold's White 2 title, since the fetch translucent pass costs nearly as much as the clear0 pass it removes. It stays an off-by-default switch.
 
+## R2 results (11-11)
+
+R2 is exact (`gldepth=1`, constant-depth polygons via `glDepthRangef(d,d)`) but has nothing to work on: 0 qualifying polygons in White 2, and under 2% of opaque area in the other games tried, also under WatermelonDS's looser rule. No GPU change on the Fold. `GL_EXT_conservative_depth` isn't on any of our phones, so W-buffer frames can't get exact early-Z, and R1 only matters for Z-buffer scenes. That moves R1 down and makes K1 (compositor, 17–29% of GL cycles in every scene measured), E2 and D1 the next candidates. Numbers in PERF-NOTES "R2". The code is shelved as a patch: `docs/shelved/r2-fragdepth.md`.
+
 ## Done looks like
 
 Phase 0's per-pass table for three scenes, the ALU-vs-bandwidth answer if adb is available, and each tried experiment's cycles, battery and `hash3d` result in PERF-NOTES, with the ones that pay off listed for a real implementation.

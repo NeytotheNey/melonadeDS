@@ -1,0 +1,613 @@
+diff --git a/src/GPU.h b/src/GPU.h
+index 8941d35f..db8da48e 100644
+--- a/src/GPU.h
++++ b/src/GPU.h
+@@ -834,6 +834,15 @@ public:
+     // destination alpha is 0 (GLRenderer::FetchClear0); off by default, it didn't pay off reliably.
+     // only changed by a debug switch, set before the game runs
+     int GLTransSkip = 3;
++    // OpenGL renderer, experiment R2 (docs/plan-gpu-discovery.md): in W-buffer frames, opaque draws
++    // that can do without gl_FragDepth leave it out, so the GPU can reject hidden fragments before
++    // shading them. 1: polygons with one depth at every vertex, drawn at glDepthRangef(d, d), the
++    // same depth gl_FragDepth gave them; 2: also, approximately, every other opaque polygon but
++    // WatermelonDS's exceptions (textured, modulate, alpha 31, repeat or flip, W not all equal), with
++    // depth interpolated linearly in screen space instead of perspective-correctly, which changes
++    // stored depth. 0, the default, draws as before (GLRenderer::ClassifyDepthPaths). only changed
++    // by a debug switch, set before the game runs
++    int GLDepth = 0;
+     // debug only: the OpenGL renderer logs the masks and shadows of this many frames (that have any)
+     int ShadowLogFrames = 0;
+     // compute renderer: size the SortWork and Rasterise dispatches on the CPU instead of having the
+diff --git a/src/GPU3D_GLStats.h b/src/GPU3D_GLStats.h
+index 2e9989bc..3bf30905 100644
+--- a/src/GPU3D_GLStats.h
++++ b/src/GPU3D_GLStats.h
+@@ -673,6 +673,59 @@ private:
+     s64 LogStartNs = 0;
+ };
+ 
++// debug builds only, OpenGL renderer, GPU::SceneStats: the GLDEPTH log, on experiment R2
++// (GPU::GLDepth, docs/plan-gpu-discovery.md). the opaque polygons of W-buffer frames are sorted
++// whatever the switch is; the draws only show what it did.
++//
++// GLDEPTH, once a second, values per drawn frame (renders with polygons RenderFrame didn't skip):
++//   frames wframes gldepth
++//                      those frames, how many were W-buffered (the rest have nothing to sort), and the switch
++//   opaque             opaque polygons of W-buffer frames
++//   const lin frag     of those, the ones with one depth at every vertex (gldepth 1 and 2 draw them
++//                      without gl_FragDepth, exactly), the others gldepth 2 draws with linear depth
++//                      (WatermelonDS's rule, approximate), and the rest (textured, modulate, alpha 31,
++//                      repeat or flip, W not all equal), which keep gl_FragDepth in every mode
++//   const_area lin_area frag_area
++//                      their summed screen area over the screen's (native pixels, like SCENESTATS' od)
++//   draws_range draws_lin draws_frag
++//                      the opaque pass's draw calls by path, after batching
++struct GLDepthStats
++{
++    struct Counters
++    {
++        u32 Frames = 0, WFrames = 0;
++        u64 Opaque = 0, Const = 0, Lin = 0, Frag = 0;
++        double ConstArea = 0, LinArea = 0, FragArea = 0;
++        u64 DrawsRange = 0, DrawsLin = 0, DrawsFrag = 0;
++    };
++    Counters Sec;
++
++    // at the start of every RenderFrame
++    void FrameStart(s64 now, int mode)
++    {
++        if (LogStartNs == 0)
++            LogStartNs = now;
++        if (now - LogStartNs < 1000000000)
++            return;
++
++        if (Sec.Frames > 0)
++        {
++            double per = 1.0 / Sec.Frames;
++            Platform::Log(Platform::LogLevel::Info, "GLDEPTH frames=%u wframes=%u gldepth=%d opaque=%.1f const=%.1f "
++                "lin=%.1f frag=%.1f const_area=%.3f lin_area=%.3f frag_area=%.3f draws_range=%.1f draws_lin=%.1f "
++                "draws_frag=%.1f\n",
++                Sec.Frames, Sec.WFrames, mode, Sec.Opaque * per, Sec.Const * per, Sec.Lin * per, Sec.Frag * per,
++                Sec.ConstArea * per, Sec.LinArea * per, Sec.FragArea * per, Sec.DrawsRange * per,
++                Sec.DrawsLin * per, Sec.DrawsFrag * per);
++        }
++        Sec = {};
++        LogStartNs = now;
++    }
++
++private:
++    s64 LogStartNs = 0;
++};
++
+ }
+ 
+ #endif
+diff --git a/src/GPU3D_OpenGL.cpp b/src/GPU3D_OpenGL.cpp
+index 019b05c6..4d574a13 100644
+--- a/src/GPU3D_OpenGL.cpp
++++ b/src/GPU3D_OpenGL.cpp
+@@ -44,14 +44,18 @@ namespace melonDS
+ #define TRANS_SKIPPED(field) do {} while (0)
+ #endif
+ 
+-bool GLRenderer::BuildRenderShader(bool wbuffer, bool fragCount, bool fetch)
++bool GLRenderer::BuildRenderShader(bool wbuffer, bool fragCount, bool fetch, bool noFragDepth)
+ {
+-    char shadername[40];
+-    snprintf(shadername, sizeof(shadername), "RenderShader%c%s%s", wbuffer?'W':'Z', fetch ? "Fetch" : "",
+-        fragCount ? "Count" : "");
++    // GPU::GLDepth: only a W-buffer build writes gl_FragDepth, and only opaque draws leave it out
++    if (noFragDepth && (!wbuffer || fetch))
++        return false;
++
++    char shadername[48];
++    snprintf(shadername, sizeof(shadername), "RenderShader%c%s%s%s", wbuffer?'W':'Z', fetch ? "Fetch" : "",
++        noFragDepth ? "NoDepth" : "", fragCount ? "Count" : "");
+ 
+     // kShaderHeader has no newline of its own, the common sources start with one
+-    const char* wbufdef = wbuffer ? "\n#define WBuffer" : "";
++    const char* wbufdef = noFragDepth ? "\n#define WBuffer\n#define NoFragDepth" : wbuffer ? "\n#define WBuffer" : "";
+ 
+     std::string vsbuf;
+     vsbuf += kShaderHeader;
+@@ -102,11 +106,18 @@ bool GLRenderer::BuildRenderShader(bool wbuffer, bool fragCount, bool fetch)
+     uni_id = glGetUniformLocation(prog, "TexPalMem");
+     glUniform1i(uni_id, 1);
+ 
+-    int id = (int)wbuffer + (fetch ? 2 : 0);
++    int id = noFragDepth ? 4 : (int)wbuffer + (fetch ? 2 : 0);
+     DepthBiasLoc[id] = glGetUniformLocation(prog, "uDepthBias");
+     glUniform1f(DepthBiasLoc[id], 0.0f);
+     DepthBias[id] = 0.0f;
+ 
++    if (noFragDepth)
++    {
++        LinearDepthLoc = glGetUniformLocation(prog, "uLinearDepth");
++        glUniform1i(LinearDepthLoc, 0);
++        LinearDepth = 0;
++    }
++
+     RenderShader[id] = prog;
+     RenderModeULoc[id] = glGetUniformLocation(prog, "uRenderMode");
+ #ifdef MELONADE_DEBUG_TOOLS
+@@ -149,9 +160,36 @@ bool GLRenderer::PrepareFetchShaders()
+     return true;
+ }
+ 
+-void GLRenderer::UseRenderShader(bool wbuffer, int mode, bool fetch)
++// GPU::GLDepth: RenderShader[4], built at the first frame with the switch on, as a counting build
++// while SCENEFRAGS counts. false when it doesn't build (logged once), and the frame draws as with
++// the switch off
++bool GLRenderer::PrepareNoDepthShader()
+ {
+-    int id = (int)wbuffer + (fetch ? 2 : 0);
++    if (RenderShader[4])
++        return true;
++    if (NoDepthShaderTried)
++        return false;
++    NoDepthShaderTried = true;
++
++    bool fragCount = false;
++#ifdef MELONADE_DEBUG_TOOLS
++    fragCount = FragCounter != nullptr;
++#endif
++    bool built = BuildRenderShader(true, fragCount, false, true);
++    // BuildRenderShader leaves its program in use
++    CurShaderID = -1;
++    CurRenderMode = -1;
++    if (!built)
++    {
++        Platform::Log(Platform::LogLevel::Warn, "GLDEPTH: the program without gl_FragDepth didn't build, gldepth stays off\n");
++        return false;
++    }
++    return true;
++}
++
++void GLRenderer::UseRenderShader(bool wbuffer, int mode, bool fetch, bool noFragDepth)
++{
++    int id = noFragDepth ? 4 : (int)wbuffer + (fetch ? 2 : 0);
+     if (CurShaderID != id)
+     {
+         glUseProgram(RenderShader[id]);
+@@ -429,7 +467,7 @@ GLRenderer::~GLRenderer()
+ 
+     glDeleteBuffers(1, &ShaderConfigUBO);
+ 
+-    for (int i = 0; i < 4; i++)
++    for (int i = 0; i < 5; i++)
+     {
+         if (!RenderShader[i]) continue;
+         glDeleteProgram(RenderShader[i]);
+@@ -621,6 +659,9 @@ void GLRenderer::KeepColorBuffer() noexcept
+ void GLRenderer::SetupPolygon(GLRenderer::RendererPolygon* rp, Polygon* polygon) const
+ {
+     rp->PolyData = polygon;
++    // GPU::GLDepth: ClassifyDepthPaths changes it for the frames that use it
++    rp->DepthPath = DepthPath_Frag;
++    rp->DepthZ = 0;
+ 
+     // render key: depending on what we're drawing
+     // opaque polygons:
+@@ -983,6 +1024,10 @@ int GLRenderer::RenderPolygonBatch(int i) const
+         const RendererPolygon* cur_rp = &PolygonList[iend];
+         if (cur_rp->PrimType != primtype) break;
+         if (cur_rp->RenderKey != key) break;
++        // GPU::GLDepth: a batch shares the program and, at DepthPath_Range, the depth range.
++        // every polygon is DepthPath_Frag with the switch off
++        if (cur_rp->DepthPath != rp->DepthPath) break;
++        if (rp->DepthPath == DepthPath_Range && cur_rp->DepthZ != rp->DepthZ) break;
+ 
+         numpolys++;
+         numindices += cur_rp->NumIndices;
+@@ -1067,11 +1112,16 @@ void GLRenderer::SetPolygonDepthBias(u32 polyattr)
+     // margin (+-0x200 Z-buffering, +-0xFF W-buffering), so move them forward by it. that covers
+     // the far side, the near side stays open. depth writes store the moved depth, slightly nearer
+     // than the DS would. set right before every draw, for the shader in use
+-    float bias = 0.0f;
+-    if (EqualDepthMargin && (polyattr & (1<<14)))
+-        bias = (CurShaderID & 1) ? -255.0f : -512.0f;
++    // RenderShader[4] (GPU::GLDepth) is a W-buffer build too
++    bool wbuffer = (CurShaderID & 1) || CurShaderID == 4;
++    SetDepthBias(PolygonDepthBias(polyattr, wbuffer));
++}
+ 
+-    SetDepthBias(bias);
++float GLRenderer::PolygonDepthBias(u32 polyattr, bool wbuffer) const
++{
++    if (EqualDepthMargin && (polyattr & (1<<14)))
++        return wbuffer ? -255.0f : -512.0f;
++    return 0.0f;
+ }
+ 
+ // GPU::GLTransSkip bit 1: the AlphaClass_* of each byte of an A3I5 ([0]) or A5I3 ([1]) texel, with
+@@ -1218,6 +1268,113 @@ void GLRenderer::ClassifyTransAlpha(const GPU& gpu)
+ #endif
+ }
+ 
++// GPU::GLDepth (experiment R2), after BuildPolygons: how each opaque polygon of a W-buffer frame
++// gets its depth (RendererPolygon::DepthPath). the W-buffer program writes gl_FragDepth = fZ,
++// fZ = ((z << zshift) + bias) / 2^24 interpolated perspective-correctly, which keeps the GPU from
++// testing depth before the shader runs.
++// * DepthPath_Range (gldepth 1 and 2): every vertex the draw uses has the same z << zshift, so fZ
++//   is one value d at all of them (the same integer, the same float steps, each exact). the draw
++//   keeps today's gl_Position (z 0, so clipping and coverage don't change) and gets
++//   glDepthRangef(d, d), which makes the window depth of every fragment exactly
++//   0 * 0 + (d + d) / 2 = d, what gl_FragDepth = d stores. that holds as long as the GPU's
++//   perspective interpolation of a constant gives the constant back (true for interpolators that
++//   work from vertex differences; not promised by GL) and it converts shader and rasterized
++//   depth to 24 bits the same way. the DS has one depth over such a polygon too (the software
++//   renderer's InterpolateZ returns z0 when both ends are equal)
++// * DepthPath_Linear (gldepth 2 only): the rest, but for WatermelonDS's exceptions
++//   (GPU3D_Vulkan.cpp requiresWBufferFragmentDepth: textured, modulate, alpha 31, repeat or flip,
++//   W not the same at every vertex), which keep gl_FragDepth. fZ is then interpolated linearly in
++//   screen space, which is not what the W-buffer stores wherever W varies across the polygon, so
++//   depth tests, fog and hash3d can change: an upper bound for the A/B, not a candidate as is
++void GLRenderer::ClassifyDepthPaths(const GPU3D& gpu3d)
++{
++    bool stats = false;
++#ifdef MELONADE_DEBUG_TOOLS
++    stats = DepthStats != nullptr;
++#endif
++    bool wbuffer = gpu3d.RenderPolygonRAM[0]->WBuffer;
++#ifdef MELONADE_DEBUG_TOOLS
++    if (stats)
++    {
++        DepthStats->Sec.Frames++;
++        DepthStats->Sec.WFrames += wbuffer;
++    }
++#endif
++    if (!wbuffer || (!GLDepth && !stats))
++        return;
++
++    bool texturing = (gpu3d.RenderDispCnt & (1<<0)) != 0;
++    for (int i = 0; i < NumFinalPolys; i++)
++    {
++        RendererPolygon* rp = &PolygonList[i];
++        const Polygon* polygon = rp->PolyData;
++        if (polygon->IsShadowMask || polygon->Translucent)
++            continue;
++
++        // z << zshift of every vertex the draw uses, as SetupVertex wrote them (BetterPolygons'
++        // centre vertex too)
++        bool samez = rp->NumIndices > 0;
++        u32 z0 = 0;
++        for (u32 k = 0; k < rp->NumIndices; k++)
++        {
++            const u32* vtx = &VertexBuffer[IndexBuffer[rp->IndicesOffset + k] * 7];
++            u32 z = (vtx[1] & 0xFFFF) << ((vtx[4] >> 16) & 0x1F);
++            if (k == 0)
++                z0 = z;
++            else if (z != z0)
++            {
++                samez = false;
++                break;
++            }
++        }
++
++        int kind;
++        if (samez)
++            kind = DepthPath_Range;
++        else
++        {
++            bool samew = true;
++            for (u32 j = 1; j < polygon->NumVertices; j++)
++                samew &= polygon->FinalW[j] == polygon->FinalW[0];
++
++            u32 attr = polygon->Attr;
++            bool keep = texturing && ((polygon->TexParam >> 26) & 0x7) != 0
++                && ((attr >> 4) & 0x3) == 0 && ((attr >> 16) & 0x1F) == 31
++                && (polygon->TexParam & (0xF << 16)) != 0 && !samew;
++            kind = keep ? DepthPath_Frag : DepthPath_Linear;
++        }
++
++        if (kind == DepthPath_Range && GLDepth >= 1)
++        {
++            rp->DepthPath = DepthPath_Range;
++            rp->DepthZ = z0;
++        }
++        else if (kind == DepthPath_Linear && GLDepth >= 2)
++            rp->DepthPath = DepthPath_Linear;
++
++#ifdef MELONADE_DEBUG_TOOLS
++        if (stats)
++        {
++            GLDepthStats::Counters& sec = DepthStats->Sec;
++            s64 sum = 0;
++            u32 n = polygon->NumVertices;
++            for (u32 j = 0; j < n; j++)
++            {
++                const Vertex* a = polygon->Vertices[j];
++                const Vertex* b = polygon->Vertices[(j + 1) < n ? (j + 1) : 0];
++                sum += (s64)a->FinalPosition[0] * b->FinalPosition[1] - (s64)b->FinalPosition[0] * a->FinalPosition[1];
++            }
++            double area = (sum < 0 ? -sum : sum) / (2.0 * 256 * 192);
++
++            sec.Opaque++;
++            if (kind == DepthPath_Range)       { sec.Const++; sec.ConstArea += area; }
++            else if (kind == DepthPath_Linear) { sec.Lin++;   sec.LinArea += area; }
++            else                               { sec.Frag++;  sec.FragArea += area; }
++        }
++#endif
++    }
++}
++
+ void GLRenderer::LogFrameStats(const GPU3D& gpu3d)
+ {
+     // debug: what kinds of polygons the frame has, to find what a game draws its shadows with
+@@ -1336,6 +1493,12 @@ void GLRenderer::RenderSceneChunk(const GPU3D& gpu3d, int y, int h)
+ 
+     glBindVertexArray(VertexArrayID);
+ 
++    // GPU::GLDepth: the path the program in use draws (DepthPath_*), and the depth range set for
++    // DepthPath_Range (back to 0, 1 after the pass; nothing else changes it)
++    int curpath = DepthPath_Frag;
++    bool rangeset = false;
++    float currange = 0.0f;
++
+     for (int i = 0; i < NumFinalPolys; )
+     {
+         RendererPolygon* rp = &PolygonList[i];
+@@ -1355,10 +1518,55 @@ void GLRenderer::RenderSceneChunk(const GPU3D& gpu3d, int y, int h)
+         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+         glStencilMask(0xFF);
+ 
++        // GPU::GLDepth: every polygon is DepthPath_Frag with the switch off or in a Z-buffer frame
++        int path = rp->DepthPath;
++        if (path != curpath)
++        {
++            UseRenderShader(wbuffer, RenderMode_Opaque, false, path != DepthPath_Frag);
++            curpath = path;
++        }
++        if (path != DepthPath_Frag)
++        {
++            int linear = path == DepthPath_Linear ? 1 : 0;
++            if (LinearDepth != linear)
++            {
++                glUniform1i(LinearDepthLoc, linear);
++                LinearDepth = linear;
++            }
++        }
++        if (path == DepthPath_Range)
++        {
++            // the shader's fZ, computed the same way (each step is exact in float): d < 0 is
++            // clamped to 0 by glDepthRangef, as it is for gl_FragDepth
++            float d = ((float)rp->DepthZ + PolygonDepthBias(polyattr, true)) / 16777216.0f;
++            if (!rangeset || currange != d)
++            {
++                glDepthRangef(d, d);
++                rangeset = true;
++                currange = d;
++            }
++        }
++        else if (rangeset)
++        {
++            glDepthRangef(0.0f, 1.0f);
++            rangeset = false;
++        }
++
+         SetPolygonDepthBias(polyattr);
++#ifdef MELONADE_DEBUG_TOOLS
++        if (DepthStats && wbuffer)
++        {
++            if (path == DepthPath_Range)       DepthStats->Sec.DrawsRange++;
++            else if (path == DepthPath_Linear) DepthStats->Sec.DrawsLin++;
++            else                               DepthStats->Sec.DrawsFrag++;
++        }
++#endif
+         i += RenderPolygonBatch(i);
+     }
+ 
++    if (rangeset)
++        glDepthRangef(0.0f, 1.0f);
++
+     // if edge marking is enabled, mark all opaque edges
+     // TODO BETTER EDGE MARKING!!! THIS SUCKS
+     /*if (RenderDispCnt & (1<<5))
+@@ -1895,6 +2103,13 @@ void GLRenderer::RenderFrame(GPU& gpu)
+         TransStats.reset();
+     if (TransStats)
+         TransStats->FrameStart(GLStatsNowNs(), gpu.GLTransSkip);
++    // and GLDEPTH
++    if (gpu.SceneStats && !DepthStats)
++        DepthStats = std::make_unique<GLDepthStats>();
++    else if (!gpu.SceneStats && DepthStats)
++        DepthStats.reset();
++    if (DepthStats)
++        DepthStats->FrameStart(GLStatsNowNs(), gpu.GLDepth);
+ #endif
+     bool keep = KeepRequested;
+     KeepRequested = false;
+@@ -1965,6 +2180,11 @@ void GLRenderer::RenderFrame(GPU& gpu)
+     // GPU::GLTransSkip bit 2: without the extension, or when its programs don't build, the frame
+     // draws as without the bit
+     FetchClear0 = (GLTransSkip & 4) && (gpu.GPU3D.RenderClearAttr1 & 0x001F0000) == 0 && PrepareFetchShaders();
++    // GPU::GLDepth (ClassifyDepthPaths leaves Z-buffer frames alone). without its program the
++    // frame draws as with the switch off
++    GLDepth = std::clamp(gpu.GLDepth, 0, 2);
++    if (GLDepth && !PrepareNoDepthShader())
++        GLDepth = 0;
+ 
+     // debug: log the last frame's masks and shadows, its queries should be done by now
+     if (NumShadowLogEntries) FlushShadowLog();
+@@ -2190,6 +2410,7 @@ void GLRenderer::RenderFrame(GPU& gpu)
+ #endif
+         if (classify)
+             ClassifyTransAlpha(gpu);
++        ClassifyDepthPaths(gpu.GPU3D);
+ 
+ #ifdef MELONADE_DEBUG_TOOLS
+         if (FragCounter)
+@@ -2497,6 +2718,13 @@ void GLRenderer::SetupFragCount()
+     RenderShader[2] = RenderShader[3] = 0;
+     FragPassLoc[2] = FragPassLoc[3] = -1;
+     FetchShadersTried = false;
++    // the same for the one without gl_FragDepth (GPU::GLDepth)
++    glDeleteProgram(RenderShader[4]);
++    RenderShader[4] = 0;
++    FragPassLoc[4] = -1;
++    LinearDepthLoc = -1;
++    LinearDepth = -1;
++    NoDepthShaderTried = false;
+     CurShaderID = -1;
+     CurRenderMode = -1;
+ 
+@@ -2512,7 +2740,7 @@ void GLRenderer::SetupFragCount()
+ // the counter the render programs add to from here on, set in both
+ void GLRenderer::SetFragPass(int pass)
+ {
+-    for (int i = 0; i < 4; i++)
++    for (int i = 0; i < 5; i++)
+     {
+         if (RenderShader[i] && FragPassLoc[i] >= 0)
+             glProgramUniform1i(RenderShader[i], FragPassLoc[i], pass);
+diff --git a/src/GPU3D_OpenGL.h b/src/GPU3D_OpenGL.h
+index 3c957d0a..92162acf 100644
+--- a/src/GPU3D_OpenGL.h
++++ b/src/GPU3D_OpenGL.h
+@@ -102,6 +102,19 @@ private:
+         u32 EdgeIndicesOffset;
+ 
+         u32 RenderKey;
++
++        // GPU::GLDepth (experiment R2), set by ClassifyDepthPaths for opaque polygons of a
++        // W-buffer frame, DepthPath_Frag for everything else. DepthZ: with DepthPath_Range, the
++        // depth every vertex the draw uses has, as the shader's (z << zshift) before the bias
++        u8 DepthPath;
++        u32 DepthZ;
++    };
++
++    enum
++    {
++        DepthPath_Frag = 0,  // the normal program, gl_FragDepth
++        DepthPath_Range,     // RenderShader[4] at glDepthRangef(d, d), exact
++        DepthPath_Linear,    // RenderShader[4] with screen-space linear depth (gldepth 2), approximate
+     };
+ 
+     GLCompositor CurGLCompositor;
+@@ -109,9 +122,12 @@ private:
+ 
+     // fragCount: the debug build that counts fragments (GPU::SceneStats 2, GLFragCounter). fetch: the
+     // framebuffer fetch build (GPU::GLTransSkip bit 2), RenderShader[2 + wbuffer]
+-    bool BuildRenderShader(bool wbuffer, bool fragCount = false, bool fetch = false);
+-    void UseRenderShader(bool wbuffer, int mode, bool fetch = false);
++    // noFragDepth: the W-buffer build without gl_FragDepth (GPU::GLDepth), RenderShader[4]
++    bool BuildRenderShader(bool wbuffer, bool fragCount = false, bool fetch = false, bool noFragDepth = false);
++    void UseRenderShader(bool wbuffer, int mode, bool fetch = false, bool noFragDepth = false);
+     bool PrepareFetchShaders();
++    bool PrepareNoDepthShader();
++    void ClassifyDepthPaths(const GPU3D& gpu3d);
+     void SetupPolygon(RendererPolygon* rp, Polygon* polygon) const;
+     u32* SetupVertex(const Polygon* poly, int vid, const Vertex* vtx, u32 vtxattr, u32* vptr) const;
+     u32 WideVertexX(s32 hiresx) const;
+@@ -128,6 +144,7 @@ private:
+     void ClearShadowMaskLines(const Polygon* polygon, const bool* lastWasMask) const;
+     void SetDepthBias(float bias);
+     void SetPolygonDepthBias(u32 polyattr);
++    float PolygonDepthBias(u32 polyattr, bool wbuffer) const;
+     void ClassifyTransAlpha(const GPU& gpu);
+     u8 TextureAlphaClass(const u8* vram, u32 texparam);
+     void LogFrameStats(const GPU3D& gpu3d);
+@@ -152,13 +169,23 @@ private:
+     // cached per program: GL keeps a program's uniforms across glUseProgram, so the cache
+     // only has to follow what this code set. [2] and [3]: their framebuffer fetch builds
+     // (GPU::GLTransSkip bit 2), only translucent draws use them, made at the first frame that
+-    // wants them (PrepareFetchShaders). bit 0 of an index is always W-buffering
+-    GLuint RenderShader[4] {};
+-    GLint RenderModeULoc[4] {};
+-    GLint DepthBiasLoc[4] {};
+-    float DepthBias[4] {};
++    // wants them (PrepareFetchShaders). bit 0 of indices 0-3 is W-buffering. [4]: the W-buffer
++    // build without gl_FragDepth (GPU::GLDepth), only opaque draws use it, made at the first frame
++    // that wants it (PrepareNoDepthShader)
++    GLuint RenderShader[5] {};
++    GLint RenderModeULoc[5] {};
++    GLint DepthBiasLoc[5] {};
++    float DepthBias[5] {};
+     int CurShaderID = -1;
+     int CurRenderMode = -1;
++    // RenderShader[4]'s uLinearDepth, and what it was last set to (-1 unknown)
++    GLint LinearDepthLoc = -1;
++    int LinearDepth = -1;
++    // a build of RenderShader[4] was tried since it was last dropped
++    bool NoDepthShaderTried = false;
++    // set per frame from GPU::GLDepth: 0 off, 1 the exact path, 2 also the approximate one. 0 when
++    // RenderShader[4] didn't build
++    int GLDepth = 0;
+ 
+     // GL_EXT_shader_framebuffer_fetch is listed (checked at init). FetchShadersTried: a build of
+     // RenderShader[2] and [3] was tried since they were last dropped
+@@ -317,11 +344,13 @@ private:
+     // the covered count when the clear alpha is 0 (kCoverAlphaCS), and its uSize
+     GLuint CoverAlphaShader = 0;
+     GLint CoverAlphaSizeLoc = -1;
+-    GLint FragPassLoc[4] {-1, -1, -1, -1};
++    GLint FragPassLoc[5] {-1, -1, -1, -1, -1};
+     // HASH3D (GPU::Hash3DLogging)
+     std::unique_ptr<Hash3DReadback> Hash3D;
+     // GLTRANS (GPU::SceneStats, with GPU::GLTransSkip)
+     std::unique_ptr<GLTransStats> TransStats;
++    // GLDEPTH (GPU::SceneStats, with GPU::GLDepth)
++    std::unique_ptr<GLDepthStats> DepthStats;
+ 
+     void UpdateDebugStats(const GPU& gpu);
+     void SetupFragCount();
+diff --git a/src/GPU3D_OpenGL_shaders.h b/src/GPU3D_OpenGL_shaders.h
+index 0d1d1f2a..5ab0e0bf 100644
+--- a/src/GPU3D_OpenGL_shaders.h
++++ b/src/GPU3D_OpenGL_shaders.h
+@@ -741,12 +741,21 @@ vec4 FinalColor()
+ 
+ // the render shaders come in a Z-buffer and a W-buffer build (WBuffer defined by
+ // BuildRenderShader); the pass (opaque / translucent / shadow mask) is picked per draw
+-// through uRenderMode, as upstream does, instead of a program per combination
++// through uRenderMode, as upstream does, instead of a program per combination.
++// NoFragDepth (GPU::GLDepth, experiment R2): a W-buffer build without the gl_FragDepth write, so
++// the GPU can test depth before shading. its depth comes from the hardware: with uLinearDepth 0,
++// z stays 0 as in the normal build and GLRenderer sets glDepthRangef(d, d), which puts the
++// polygon's one depth d in every fragment (constant-depth polygons only, see
++// GLRenderer::ClassifyDepthPaths); with 1, z is fZ, interpolated linearly in screen space
++// instead of perspective-correctly (gldepth 2, approximate)
+ const char* kRenderVS = R"(
+ 
+ #ifdef WBuffer
+ smooth out float fZ;
+ #endif
++#ifdef NoFragDepth
++uniform int uLinearDepth;
++#endif
+ 
+ void main()
+ {
+@@ -756,8 +765,13 @@ void main()
+     vec4 fpos;
+     fpos.xy = (((vec2(vPosition.xy) ) * 2.0) / uScreenSize) - 1.0;
+ #ifdef WBuffer
+-    fpos.z = 0.0;
+     fZ = (float(vPosition.z << zshift) + uDepthBias) / 16777216.0;
++#ifdef NoFragDepth
++    // clamped like gl_FragDepth is, so no fragment is clipped against the near or far plane
++    fpos.z = (uLinearDepth != 0) ? clamp(fZ * 2.0 - 1.0, -1.0, 1.0) : 0.0;
++#else
++    fpos.z = 0.0;
++#endif
+ #else
+     fpos.z = ((float(vPosition.z << zshift) + uDepthBias) / 8388608.0) - 1.0;
+ #endif
+@@ -774,7 +788,7 @@ void main()
+ 
+ const char* kRenderFS = R"(
+ 
+-#ifdef WBuffer
++#if defined(WBuffer) && !defined(NoFragDepth)
+ smooth in float fZ;
+ #endif
+ 
+@@ -824,7 +838,7 @@ void main()
+         oColor = col;
+     }
+ 
+-#ifdef WBuffer
++#if defined(WBuffer) && !defined(NoFragDepth)
+     gl_FragDepth = fZ;
+ #endif
+ }
