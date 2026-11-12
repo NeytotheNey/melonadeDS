@@ -1,2 +1,5 @@
 # Shell scripts run under bash, which breaks on CRLF line endings
 *.sh text eol=lf
+
+# Patches must keep their exact bytes, or git apply fails
+*.patch -text
