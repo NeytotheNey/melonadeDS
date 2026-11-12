@@ -26,6 +26,8 @@ class Shader(
     private val uniformTiltShift: Int
     // Only declared by the tilt-shift pre-passes that apply the color boost: the blur's last one and the color-only one
     private val uniformTiltShiftBoost: Int
+    // Only declared by ShaderProgramSource.NoFilterHalvesAt1xShader
+    private val uniformHalvesAt1x: Int
 
     init {
         GLES30.glUseProgram(programId)
@@ -38,6 +40,7 @@ class Shader(
         uniformBottomScreenWide = GLES30.glGetUniformLocation(programId, "bottomScreenWide")
         uniformTiltShift = GLES30.glGetUniformLocation(programId, "tiltShift")
         uniformTiltShiftBoost = GLES30.glGetUniformLocation(programId, "tiltShiftBoost")
+        uniformHalvesAt1x = GLES30.glGetUniformLocation(programId, "halvesAt1x")
         GLES30.glUseProgram(0)
     }
 
@@ -86,6 +89,15 @@ class Shader(
         }
         if (uniformTiltShiftBoost != INVALID_UNIFORM) {
             GLES30.glUniform2f(uniformTiltShiftBoost, tiltShift.appliedSaturation, tiltShift.appliedContrast)
+        }
+    }
+
+    /**
+     * Sets which screens the frame has at 1x and its internal scale (PresentFrameWrapper.halvesAt1x and scaleAt1x); call after [use].
+     */
+    fun setHalvesAt1x(halvesAt1x: Int, scale: Int) {
+        if (uniformHalvesAt1x != INVALID_UNIFORM) {
+            GLES30.glUniform2i(uniformHalvesAt1x, halvesAt1x, scale)
         }
     }
 

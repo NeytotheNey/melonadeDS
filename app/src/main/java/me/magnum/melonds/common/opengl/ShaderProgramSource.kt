@@ -163,6 +163,93 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             DEFAULT_FRAG_SHADER
         )
 
+        // debug.melonade.comp1x: where a texel of the full frame is in a frame with screens the compositor drew at 1x (PresentFrameWrapper.halvesAt1x):
+        // a texel in the rows of such a screen is its DS pixel in the 1x image at the start of those rows, any other one (the other screen, the
+        // gap) is where it is. Needs texSize (the frame's size) declared first, and highp ints
+        private const val HALVES_AT_1X_FUNCTIONS = "// x: the screens at 1x (bit 0 the top one), y: the frame's internal scale\n" +
+                "uniform ivec2 halvesAt1x;\n" +
+                "bool isInScreenAt1x(ivec2 texel) {\n" +
+                "    int scale = halvesAt1x.y;\n" +
+                "    int screen = texel.y >= ${SCREEN_HEIGHT + SCREEN_GAP} * scale ? 1 : 0;\n" +
+                "    return texel.y - screen * ${SCREEN_HEIGHT + SCREEN_GAP} * scale < ${SCREEN_HEIGHT} * scale && (halvesAt1x.x & (1 << screen)) != 0;\n" +
+                "}\n" +
+                "ivec2 sourceAt1x(ivec2 texel) {\n" +
+                "    int scale = halvesAt1x.y;\n" +
+                "    int screen = texel.y >= ${SCREEN_HEIGHT + SCREEN_GAP} * scale ? 1 : 0;\n" +
+                "    int start = screen * ${SCREEN_HEIGHT + SCREEN_GAP} * scale;\n" +
+                "    return ivec2(min(texel.x / scale, int(texSize.x) / scale - 1), start + (texel.y - start) / scale);\n" +
+                "}\n"
+
+        // GLSL ES 3.00 versions of DEFAULT_VERT_SHADER and PRE_PASS_VERT_SHADER, for the 1x shaders below (texelFetch())
+        private const val DEFAULT_VERT_SHADER_300 = "#version 300 es\n" +
+                "in vec2 vUV;\n" +
+                "in vec2 vPos;\n" +
+                "in float vAlpha;\n" +
+                "out vec2 uv;\n" +
+                "out float alpha;\n" +
+                "void main()\n" +
+                "{\n" +
+                "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
+                "    uv = vUV;\n" +
+                "    alpha = vAlpha;\n" +
+                "}"
+
+        private const val PRE_PASS_VERT_SHADER_300 = "#version 300 es\n" +
+                "in vec2 vPos;\n" +
+                "in vec2 vUV;\n" +
+                "out vec2 uv;\n" +
+                "void main()\n" +
+                "{\n" +
+                "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
+                "    uv = vUV;\n" +
+                "}"
+
+        // debug.melonade.comp1x: the no-filter shader for a frame with screens the compositor drew at 1x. A pixel takes the texel the default
+        // shader's nearest sample at uv picks (floor, clamped to the edge), worked out at highp, as the default shader hands uv to the sampler as
+        // it is and mediump math on it would round it to fp16; in a screen at 1x it reads that texel's DS pixel from the 1x image instead, and
+        // anywhere else it samples as the default shader does
+        val NoFilterHalvesAt1xShader = ShaderProgramSource(
+            TextureFiltering.NEAREST,
+            DEFAULT_VERT_SHADER_300,
+            "#version 300 es\n" +
+                    "precision mediump float;\n" +
+                    "precision highp int;\n" +
+                    "uniform sampler2D tex;\n" +
+                    "uniform highp vec2 texSize;\n" +
+                    HALVES_AT_1X_FUNCTIONS +
+                    "in highp vec2 uv;\n" +
+                    "in float alpha;\n" +
+                    "out vec4 fragColor;\n" +
+                    COLOR_FUNCTIONS +
+                    "void main()\n" +
+                    "{\n" +
+                    "    ivec2 texel = clamp(ivec2(floor(uv * texSize)), ivec2(0), ivec2(texSize) - 1);\n" +
+                    "    vec4 color = isInScreenAt1x(texel) ? texelFetch(tex, sourceAt1x(texel), 0) : texture(tex, uv);\n" +
+                    "    fragColor = vec4(finishColor(color.bgr), alpha);\n" +
+                    "}"
+        )
+
+        // debug.melonade.comp1x: pre-pass that turns a frame with screens at 1x into the full frame the compositor would have drawn, texel for
+        // texel, so any filter and pre-pass can take it as it is. Its target is the frame's size, and the pre-pass quad puts uv on the target's
+        // texel centers, so floor(uv * texSize) is each texel's own coordinate
+        val ExpandHalvesAt1xPrePassShader = ShaderProgramSource(
+            TextureFiltering.NEAREST,
+            PRE_PASS_VERT_SHADER_300,
+            "#version 300 es\n" +
+                    "precision highp float;\n" +
+                    "precision highp int;\n" +
+                    "uniform sampler2D tex;\n" +
+                    "uniform vec2 texSize;\n" +
+                    HALVES_AT_1X_FUNCTIONS +
+                    "in vec2 uv;\n" +
+                    "out vec4 fragColor;\n" +
+                    "void main()\n" +
+                    "{\n" +
+                    "    ivec2 texel = ivec2(floor(uv * texSize));\n" +
+                    "    fragColor = texelFetch(tex, isInScreenAt1x(texel) ? sourceAt1x(texel) : texel, 0);\n" +
+                    "}"
+        )
+
         // The default shader with bilinear filtering, which blends in the next texel, so it's kept off the black bars of a wide frame
         val LinearShader = ShaderProgramSource(
             TextureFiltering.LINEAR,

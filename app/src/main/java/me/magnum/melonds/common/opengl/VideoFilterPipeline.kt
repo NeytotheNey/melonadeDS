@@ -30,7 +30,7 @@ class FilterOutput {
 /**
  * The GL objects of a [VideoFilter] (screen shader, pre-pass shaders and textures), created, used and deleted on the GL context's thread.
  */
-class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false) {
+class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Boolean = false) {
 
     private companion object {
         const val TAG = "VideoFilterPipeline"
@@ -41,6 +41,102 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
     val screenShader: Shader = ShaderFactory.createScreenShaderProgram(filter.screenShader, colorCorrection)
     private val prePasses = filter.prePasses.mapNotNull { prePass ->
         ShaderFactory.createShaderProgramOrNull(prePass.source)?.let { PrePass(it, prePass.scale, prePass.nativeResolutionOnly) }
+    }
+
+    // debug.melonade.comp1x: frames with screens the compositor drew at 1x (PresentFrameWrapper.halvesAt1x). This pipeline draws them with the 1x
+    // shader when it's only the no-filter shader (see canDrawHalvesAt1x); otherwise renderPrePasses() first expands them into the full frame with
+    // the expand pass. Both are built the first time such a frame needs them, so nothing is built while there are none, and stay null if they
+    // don't build
+    private val isNoFilter = filter.screenShader === ShaderProgramSource.NoFilterShader && prePasses.isEmpty()
+    private var halvesAt1xShader: Shader? = null
+    private var isHalvesAt1xShaderBuilt = false
+    private var expandPass: PrePass? = null
+    private var isExpandPassBuilt = false
+    // The frame the expand pass's target holds, as frame pacing presents the same frame more than once (and again and again while paused)
+    private var expandedFrameTextureId = 0
+    private var expandedFrameSequence = 0L
+    private var expandedHalvesAt1x = 0
+    private var expandedWidth = 0
+    private var expandedHeight = 0
+
+    /**
+     * Whether a frame with screens at 1x drawn through [getHalvesAt1xShader] looks the same as the full frame through this pipeline: only the
+     * no-filter shader with no pre-pass, as long as the 1x shader didn't fail to build. A Lua tilt-shift adds passes of its own, which the caller
+     * checks. Only looks at state, so it's free to ask on every frame.
+     */
+    val canDrawHalvesAt1x: Boolean
+        get() = isNoFilter && !(isHalvesAt1xShaderBuilt && halvesAt1xShader == null)
+
+    /**
+     * The shader that draws a frame with screens at 1x, nearest and without any pre-pass, with this pipeline's color correction, built the first
+     * time it's asked for; null if it couldn't be built (then renderPrePasses() expands the frame and the screen shader draws that).
+     */
+    fun getHalvesAt1xShader(): Shader? {
+        if (!isHalvesAt1xShaderBuilt) {
+            isHalvesAt1xShaderBuilt = true
+            halvesAt1xShader = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.NoFilterHalvesAt1xShader, colorCorrection)
+            if (halvesAt1xShader == null) {
+                Log.e(TAG, "The 1x screen shader failed to build")
+            }
+        }
+        return halvesAt1xShader
+    }
+
+    private fun getExpandPass(): PrePass? {
+        if (!isExpandPassBuilt) {
+            isExpandPassBuilt = true
+            expandPass = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.ExpandHalvesAt1xPrePassShader)?.let { PrePass(it, 1, false) }
+            if (expandPass == null) {
+                Log.e(TAG, "The 1x expand shader failed to build")
+            }
+        }
+        return expandPass
+    }
+
+    /**
+     * debug.melonade.comp1x: [frame]'s texture with its screens at 1x expanded, texel for texel, into the full frame the compositor would have
+     * drawn, in the expand pass's target (the frame's size); the frame's own texture if that can't be done. Saves and restores the GL state it
+     * changes, like the other passes.
+     */
+    private fun expandHalvesAt1x(frame: PresentFrameWrapper): Int {
+        val width = frame.textureWidth
+        val height = frame.textureHeight
+        val pass = getExpandPass()
+        if (pass == null || width <= 0 || height <= 0) {
+            return frame.textureId
+        }
+
+        val isExpanded = frame.frameSequence != 0L && frame.frameSequence == expandedFrameSequence && frame.textureId == expandedFrameTextureId &&
+                frame.halvesAt1x == expandedHalvesAt1x && width == expandedWidth && height == expandedHeight
+        if (isExpanded) {
+            return pass.texture
+        }
+
+        saveState()
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        if (quadVao == 0) {
+            createQuad()
+        }
+        GLES30.glBindVertexArray(quadVao)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
+        val isReady = pass.prepareTarget(width, height)
+        if (isReady) {
+            GLES30.glViewport(0, 0, width, height)
+            pass.render(frame.textureId, width, height, frame.topScreenWidth, false, null, frame.halvesAt1x, frame.scaleAt1x)
+        }
+        restoreState()
+
+        if (!isReady) {
+            expandedFrameSequence = 0L
+            return frame.textureId
+        }
+        expandedFrameTextureId = frame.textureId
+        expandedFrameSequence = frame.frameSequence
+        expandedHalvesAt1x = frame.halvesAt1x
+        expandedWidth = width
+        expandedHeight = height
+        return pass.texture
     }
 
     // Built the first time a script asks for the blur, so that everyone else pays nothing for it; stays null if it can't be built
@@ -95,8 +191,14 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         if (!frame.isValidFrame) {
             // Cleared on the invalid frame between sessions, since a new session restarts the frame sequence and can reuse texture names
             lastFrameSequence = 0L
+            expandedFrameSequence = 0L
             return output
         }
+
+        // debug.melonade.comp1x: a frame with screens at 1x that comes here (any filter but the no-filter shader alone, a Lua tilt-shift, or the
+        // 1x shader didn't build) becomes the full frame first, which then goes through everything below exactly as the full frame would
+        val frameTextureId = if (frame.halvesAt1x != 0) expandHalvesAt1x(frame) else frame.textureId
+        output.set(frameTextureId, frame.textureWidth, frame.textureHeight)
 
         // Without a blur, or if its passes can't be built, only the color boost is left to apply, in one pass that takes one sample per texel. So the
         // boost doesn't jump as the bands reach or leave 0 even then. Each is only tried once
@@ -123,7 +225,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
 
         // The width can't tell, since widescreen makes the frame wider without upscaling it
         val isUpscaled = height > FRAME_TEXTURE_HEIGHT
-        inputTexture = frame.textureId
+        inputTexture = frameTextureId
         inputWidth = width
         inputHeight = height
         isStateSaved = false
@@ -233,6 +335,10 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
 
     fun delete() {
         screenShader.delete()
+        halvesAt1xShader?.delete()
+        halvesAt1xShader = null
+        expandPass?.delete()
+        expandPass = null
         prePasses.forEach { it.delete() }
         tiltShiftPasses?.horizontal?.delete()
         tiltShiftPasses?.vertical?.delete()
@@ -343,7 +449,16 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
         /**
          * Draws the input texture through this pass's shader into the target; the caller binds the quad and sets the viewport and blending.
          */
-        fun render(inputTexture: Int, inputWidth: Int, inputHeight: Int, topScreenWidth: Int, isBottomScreenWide: Boolean, tiltShift: TiltShift?) {
+        fun render(
+            inputTexture: Int,
+            inputWidth: Int,
+            inputHeight: Int,
+            topScreenWidth: Int,
+            isBottomScreenWide: Boolean,
+            tiltShift: TiltShift?,
+            halvesAt1x: Int = 0,
+            scaleAt1x: Int = 1,
+        ) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
             // The quad covers every texel, so the old contents never have to be loaded
             GLES30.glInvalidateFramebuffer(GLES30.GL_FRAMEBUFFER, 1, COLOR_ATTACHMENTS, 0)
@@ -361,6 +476,7 @@ class VideoFilterPipeline(filter: VideoFilter, colorCorrection: Boolean = false)
             if (tiltShift != null) {
                 shader.setTiltShift(tiltShift)
             }
+            shader.setHalvesAt1x(halvesAt1x, scaleAt1x)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         }
 

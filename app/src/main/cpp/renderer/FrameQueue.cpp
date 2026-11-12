@@ -206,6 +206,8 @@ void FrameQueue::validateRenderFrame(Frame* frame, int requiredWidth, int requir
 #endif
         frame->width = requiredWidth;
         frame->height = requiredHeight;
+        // The new storage is the whole (cleared) image
+        frame->halvesAt1x = 0;
 #ifdef MELONADE_DEBUG_TOOLS
         logTextureCount(isResize ? "resize" : "alloc", frame->width, frame->height);
 #endif

@@ -137,6 +137,13 @@ namespace melonDS { class GPU; }
  *                  output's old contents, so a tiled GPU needn't load them first. 1 clears the whole output to 0, 2 invalidates it and
  *                  clears only the padding rows between the screens. Both keep the output the same. 0, the default, draws as before
  *                  (GPU::CompClear)
+ *   comp1x N       OpenGL and compute, experiment K2c (docs/plan-gpu-discovery.md): a screen with no 3D, 3D or held wings or hi-res capture
+ *                  lines is composited at 1x into a corner of its half of the frame, which the screen shader shows nearest-upscaled. Only
+ *                  with the "None" filter, no deband and no Lua tilt-shift on every surface (otherwise both screens are drawn in full), not
+ *                  with filtered 2D or GPU 2D lines. 1 in a wide view only (pixel-exact), 2 the 256 view too (its mediump full draw rounds
+ *                  differently on fp16 GPUs), 3 checks: the full draw as usual, and every 30 frames a 1x draw compared with it. With
+ *                  scenestats or gltimers on (always in 3) a COMP1X line once a second counts the frames per screen at 1x and why the
+ *                  others weren't. 0 draws as before; 1 is the default in every build (GPU::Comp1x)
  *   cpusemu L      pin the emulator thread (and the core threads it creates) to the CPUs in the comma-separated list L (MelonDSAndroidJNI.cpp)
  *   cpus2d L       pin the core's 2D render thread to the CPUs in L (MelonDSAndroidJNI.cpp)
  */

@@ -12,7 +12,22 @@ fun interface FrameRenderCallback {
      * @param topScreenWidth Width of the top screen in DS pixels, more than SCREEN_WIDTH when widescreen widens its 3D view.
      * @param overlayTextureId This queue slot's Lua drawing texture at 2x, or 0 if the slot never had drawings.
      * @param overlayScreens Which screens have Lua drawings in this frame, as [OVERLAY_SCREEN_TOP] and [OVERLAY_SCREEN_BOTTOM] bits.
+     * @param halvesAt1x Which screens the compositor drew at 1x (debug.melonade.comp1x), as the same bits: such a screen's image is in the first
+     * topScreenWidth x SCREEN_HEIGHT texels of its own rows, to be shown nearest-upscaled by [scaleAt1x].
+     * @param scaleAt1x The frame's internal scale, for [halvesAt1x].
      * @param frameSequence Sequence number of the presented emulator frame, increasing by 1 for every frame the emulator produces.
+     * @return Whether every surface can draw a frame with screens at 1x, which the emulator only produces while this is true.
      */
-    fun renderFrame(isValidFrame: Boolean, frameTextureId: Int, frameTextureWidth: Int, frameTextureHeight: Int, topScreenWidth: Int, overlayTextureId: Int, overlayScreens: Int, frameSequence: Long)
+    fun renderFrame(
+        isValidFrame: Boolean,
+        frameTextureId: Int,
+        frameTextureWidth: Int,
+        frameTextureHeight: Int,
+        topScreenWidth: Int,
+        overlayTextureId: Int,
+        overlayScreens: Int,
+        halvesAt1x: Int,
+        scaleAt1x: Int,
+        frameSequence: Long,
+    ): Boolean
 }

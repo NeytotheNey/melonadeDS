@@ -71,6 +71,7 @@ struct Options
     std::string SavePath;      // the ROM's path with .sav by default
     std::string ScreenshotPath;
     std::string WindowShotPath;
+    bool WindowShotLinear = false; // the window shot drawn with linear filtering, whatever --linear says
     std::string LogPath;
     std::string CacheDir;      // the Compute program cache, next to the exe by default
     RendererType Renderer = RendererType::Compute;
@@ -85,10 +86,12 @@ struct Options
     bool ColorDither = false;
     bool HiresCapture = false;
     bool Filter2D = false;
+    int Gpu2D = 0;             // the GPU 2D shadow renderer (GPU::SetShadow2D): 0 off, 1, 2 all
     bool Threaded2D = true;
     bool ThreadedSoft3D = true;
     bool HalfCamera = false;
     bool BootScreen = false;
+    bool FixedTime = false;    // the RTC starts at 2026-01-01 12:00 instead of now
     bool VSync = false;
     bool Unthrottled = false;
     bool Audio = true;
@@ -114,6 +117,7 @@ void Usage()
         "  --dither                    Compute: smooth gradients (color dithering)\n"
         "  --hires-capture             upscaled display capture (gl/compute)\n"
         "  --filter2d                  MMPX-filtered 2D (gl/compute, scale 2+)\n"
+        "  --gpu2d N                   GPU 2D shadow renderer: 0 off, 1 lines that gain, 2 all (gl/compute)\n"
         "  --smooth30                  Compute: in-between frames for 30 fps games (half camera)\n"
         "  --no-threaded2d             2D on the emulator thread\n"
         "  --no-threaded-soft          software 3D on the emulator thread\n"
@@ -123,6 +127,7 @@ void Usage()
         "  --gba ROM                   GBA ROM for slot 2\n"
         "  --sav FILE                  save file (default: the ROM's path with .sav)\n"
         "  --boot-screen               boot through the firmware instead of directly\n"
+        "  --fixed-time                the RTC starts at 2026-01-01 12:00, for runs to compare\n"
         "  --set NAME=VALUE            a core debug switch, e.g. --set LateBlit=0 (see --list-sets)\n"
         "  --list-sets                 list the switches --set knows\n"
         "\n"
@@ -134,7 +139,8 @@ void Usage()
         "  --no-audio\n"
         "  --frames N                  quit after N frames (prints timing stats)\n"
         "  --screenshot FILE.bmp       save the last frame at the internal resolution when quitting\n"
-        "  --hidden                    no visible window (with --frames)\n"
+        "  --window-shot-linear        draw the window shot with linear filtering (the run keeps --linear's)\n"
+        "  --hidden                  no visible window (with --frames)\n"
         "  --log FILE                  core log file (default melonade.log next to the exe)\n"
         "  --cache-dir DIR             Compute program cache directory\n"
         "  --verbose                   debug log lines on the console too\n"
@@ -180,6 +186,8 @@ const IntSwitch kIntSwitches[] = {
     {"HiresCaptureDebug", &GPU::HiresCaptureDebug},
     {"GLTransSkip", &GPU::GLTransSkip},
     {"CompClear", &GPU::CompClear},
+    {"Comp1x", &GPU::Comp1x},
+    {"SceneStats", &GPU::SceneStats},
 };
 
 bool ApplySet(GPU& gpu, const std::string& set)
@@ -260,6 +268,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--dither") opts.ColorDither = true;
         else if (arg == "--hires-capture") opts.HiresCapture = true;
         else if (arg == "--filter2d") opts.Filter2D = true;
+        else if (arg == "--gpu2d") opts.Gpu2D = std::clamp(atoi(next().c_str()), 0, 2);
         else if (arg == "--smooth30") opts.HalfCamera = true;
         else if (arg == "--no-threaded2d") opts.Threaded2D = false;
         else if (arg == "--no-threaded-soft") opts.ThreadedSoft3D = false;
@@ -270,6 +279,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--gba") opts.GbaRomPath = next();
         else if (arg == "--sav") opts.SavePath = next();
         else if (arg == "--boot-screen") opts.BootScreen = true;
+        else if (arg == "--fixed-time") opts.FixedTime = true;
         else if (arg == "--set") opts.Sets.push_back(next());
         else if (arg == "--list-sets")
         {
@@ -294,6 +304,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--frames") opts.Frames = strtoul(next().c_str(), nullptr, 0);
         else if (arg == "--screenshot") opts.ScreenshotPath = next();
         else if (arg == "--window-shot") opts.WindowShotPath = next();
+        else if (arg == "--window-shot-linear") opts.WindowShotLinear = true;
         else if (arg == "--hidden") opts.Hidden = true;
         else if (arg == "--gpu-sync") opts.GpuSync = true;
         else if (arg == "--log") opts.LogPath = next();
@@ -457,6 +468,12 @@ public:
 
     void SetDateTime()
     {
+        // the same start every run, so two runs can be compared byte for byte
+        if (Opts.FixedTime)
+        {
+            Nds->RTC.SetDateTime(2026, 1, 1, 12, 0, 0);
+            return;
+        }
         time_t now = time(nullptr);
         tm local {};
         localtime_s(&local, &now);
@@ -483,6 +500,7 @@ public:
             }
             Current = Requested;
             Nds->GPU.SetRenderer3D(std::move(renderer));
+            Present.ResetLayouts();
         }
 
         switch (Current)
@@ -510,6 +528,7 @@ public:
         Nds->GPU.SetThreaded2D(Opts.Threaded2D);
         Nds->GPU.SetHiresCapture(Opts.HiresCapture);
         Nds->GPU.Filter2D = Opts.Filter2D ? 1 : 0;
+        Nds->GPU.SetShadow2D(Opts.Gpu2D, false, false, 0);
         Nds->GPU.GPU3D.SetHalfCameraSmoothing(Opts.HalfCamera && Current == RendererType::Compute);
 
         printf("renderer: %s, scale %d, width %d\n", RendererName(Current), Current == RendererType::Software ? 1 : Opts.Scale, Opts.WideWidth);
@@ -537,6 +556,9 @@ public:
             printf("shaders compiled in %.0f ms\n", ms);
         }
 
+        // GPU::Comp1x: the presenter shows a half at 1x nearest-upscaled, so with linear filtering
+        // every half is drawn in full, as the app does with any filter but none
+        Nds->GPU.Comp1xFrontend = !Opts.Linear;
         return Nds->RunFrame();
     }
 
@@ -898,7 +920,7 @@ int main(int argc, char** argv)
             if (!opts.WindowShotPath.empty())
             {
                 // the frame drawn again and read from the back buffer, before any swap
-                emu.Present.Draw(*emu.Nds, dw, dh, emu.TopWidth(), opts.Layout, opts.Linear);
+                emu.Present.Draw(*emu.Nds, dw, dh, emu.TopWidth(), opts.Layout, opts.Linear || opts.WindowShotLinear);
                 std::vector<u8> pixels((size_t)dw * dh * 4), flipped(pixels.size());
                 glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
                 glPixelStorei(GL_PACK_ALIGNMENT, 4);

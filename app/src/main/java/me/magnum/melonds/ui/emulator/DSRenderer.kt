@@ -463,8 +463,19 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             }
         }
 
+        // debug.melonade.comp1x: a frame with screens the compositor drew at 1x goes through the 1x shader when the full frame would only go
+        // through the no-filter shader. Any other way (another filter or a pre-pass, in frames made before the emulator learnt of it, or a paused
+        // frame presented again after the filter changed), renderPrePasses() expands it into the full frame first
+        val currentTiltShift = tiltShift
+        val filter = screenFilter
+        val halvesAt1xShader = if (presentFrameWrapper.isValidFrame && presentFrameWrapper.halvesAt1x != 0 && currentTiltShift == null && filter?.canDrawHalvesAt1x == true) {
+            filter.getHalvesAt1xShader()
+        } else {
+            null
+        }
+
         // Pre-passes must run before anything is drawn to the surface; also called for invalid frames to clear the cache
-        val screenTexture = screenFilter?.renderPrePasses(presentFrameWrapper, isBottomScreenWideInQuads, tiltShift)
+        val screenTexture = if (halvesAt1xShader == null) filter?.renderPrePasses(presentFrameWrapper, isBottomScreenWideInQuads, currentTiltShift) else null
 
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         if (!presentFrameWrapper.isValidFrame) {
@@ -480,7 +491,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             renderScreenShadows()
         }
 
-        screenFilter?.screenShader?.let { shader ->
+        (halvesAt1xShader ?: filter?.screenShader)?.let { shader ->
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
             GLES30.glEnable(GLES30.GL_BLEND)
             GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
@@ -495,13 +506,13 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             val overlayScreens = if (presentFrameWrapper.overlayTextureId != 0) presentFrameWrapper.overlayScreens else 0
 
             if (overlayScreens == 0) {
-                useScreenShader(shader, screenTextureId, screenTextureWidth, screenTextureHeight, presentFrameWrapper.topScreenWidth)
+                useScreenShader(shader, screenTextureId, screenTextureWidth, screenTextureHeight, presentFrameWrapper)
                 GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, screenIndices)
             } else {
                 // Each screen, then its Lua drawings, so that a screen drawn over the other one also covers the other one's drawings
                 screenQuadScreens.forEachIndexed { index, screen ->
                     val firstVertex = index * VERTICES_PER_SCREEN
-                    useScreenShader(shader, screenTextureId, screenTextureWidth, screenTextureHeight, presentFrameWrapper.topScreenWidth)
+                    useScreenShader(shader, screenTextureId, screenTextureWidth, screenTextureHeight, presentFrameWrapper)
                     GLES30.glDrawArrays(GLES30.GL_TRIANGLES, firstVertex, VERTICES_PER_SCREEN)
 
                     if (overlayScreens and screen != 0) {
@@ -519,11 +530,18 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         }
     }
 
-    private fun useScreenShader(shader: Shader, textureId: Int, textureWidth: Int, textureHeight: Int, topScreenWidth: Int) {
+    private fun useScreenShader(shader: Shader, textureId: Int, textureWidth: Int, textureHeight: Int, frame: PresentFrameWrapper) {
         useScreenQuadShader(shader, textureId)
         shader.setTextureSize(textureWidth, textureHeight)
-        shader.setTopScreenWidth(topScreenWidth)
+        shader.setTopScreenWidth(frame.topScreenWidth)
         shader.setBottomScreenWide(isBottomScreenWideInQuads)
+        shader.setHalvesAt1x(frame.halvesAt1x, frame.scaleAt1x)
+    }
+
+    // debug.melonade.comp1x: only the no-filter shader without deband or a Lua tilt-shift draws a screen at 1x straight from the 1x image; any
+    // other way the frame has to be expanded first, which costs more than the 1x draw saves. A check of state only, asked on every frame
+    override fun canDrawHalvesAt1x(): Boolean {
+        return tiltShift == null && screenFilter?.canDrawHalvesAt1x == true
     }
 
     /**

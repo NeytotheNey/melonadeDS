@@ -27,6 +27,9 @@ class ColorRenderer(private val color: Int) : EmulatorRenderer {
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
     }
 
+    // The frame isn't drawn at all
+    override fun canDrawHalvesAt1x(): Boolean = true
+
     override fun release() {
     }
 }

@@ -413,16 +413,19 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     }
 
     bool isRendererAccelerated = nds->GPU.GetRenderer3D().Accelerated;
+    // The compositor buffer the frame's texture is given to
+    int outputBuffer = nds->GPU.FrontBuffer ? 0 : 1;
     if (isRendererAccelerated)
     {
-        int backBuffer = nds->GPU.FrontBuffer ? 0 : 1;
-        nds->GPU.GetRenderer3D().SetOutputTexture(backBuffer, renderFrame->frameTexture);
+        nds->GPU.GetRenderer3D().SetOutputTexture(outputBuffer, renderFrame->frameTexture);
     }
 
     bool hasLuaFrameRun = false;
     if (luaEngine.isActive() || isLuaInputActive) [[unlikely]]
         hasLuaFrameRun = runLuaFrame();
 
+    // GPU::Comp1x: the compositor only draws a screen at 1x when every surface can show it (the render thread's last word on it)
+    nds->GPU.Comp1xFrontend = MelonDSAndroid::areHalvesAt1xSupported();
     u32 nLines = nds->RunFrame();
     retroAchievementsManager->FrameUpdate();
 
@@ -435,11 +438,19 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, nds->GPU.Framebuffer[frontbuf][0].get());
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 192 + 2, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, nds->GPU.Framebuffer[frontbuf][1].get());
             glBindTexture(GL_TEXTURE_2D, 0);
+            renderFrame->halvesAt1x = 0;
         }
     }
     else
     {
-        // Do nothing. Emulator already renders into the texture, which was set-up above
+        // The emulator already rendered into the texture, which was set up above. What the compositor drew there, if it drew this frame (otherwise
+        // the texture and its layout stay as they were)
+        OutputLayout outputLayout;
+        if (nds->GPU.GetRenderer3D().TakeOutputLayout(outputBuffer, outputLayout))
+        {
+            renderFrame->halvesAt1x = outputLayout.HalvesAt1x;
+            renderFrame->scaleAt1x = outputLayout.Scale;
+        }
     }
 
     // on_frame_end(), which also draws the frame's Lua drawings (endFrame() leaves a stopping script's drawings out, so the overlay is empty once

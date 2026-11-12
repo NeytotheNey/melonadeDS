@@ -353,6 +353,18 @@ namespace MelonDSAndroid
         return instance->isSleeping();
     }
 
+    static std::atomic_bool halvesAt1xSupported = false;
+
+    void setHalvesAt1xSupported(bool supported)
+    {
+        halvesAt1xSupported.store(supported, std::memory_order_relaxed);
+    }
+
+    bool areHalvesAt1xSupported()
+    {
+        return halvesAt1xSupported.load(std::memory_order_relaxed);
+    }
+
     void pause()
     {
         pauseAudio();

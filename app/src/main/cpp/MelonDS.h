@@ -132,6 +132,12 @@ namespace MelonDSAndroid {
     extern int getAudioOutputBufferFill();
     extern Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs);
     extern bool isSleeping();
+    /**
+     * GPU::Comp1x: whether every surface presenting frames can draw a screen the compositor drew at 1x (Frame::halvesAt1x), as the render thread
+     * last found after presenting; read by the emulator thread before each frame (GPU::Comp1xFrontend). Off until a presentation says so
+     */
+    extern void setHalvesAt1xSupported(bool supported);
+    extern bool areHalvesAt1xSupported();
     extern void pause();
     extern void resume();
     extern void syncDateTimeToDevice();

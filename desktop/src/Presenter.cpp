@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 #include "NDS.h"
 #include "GPU.h"
@@ -40,6 +41,63 @@ void main()
 {
     // the core's frames are BGRA in memory, which the app's and upstream's screen shaders swap too
     oColor = vec4(texture(ScreenTex, fTexcoord).bgr, 1.0);
+}
+)";
+
+// GPU::Comp1x: kFS for a frame with a half at 1x (OutputLayout). a pixel takes the texel a nearest
+// sample at its coordinate picks (floor, clamped to the edge), at highp: kFS hands the coordinate to
+// the sampler as it is, where math on it at mediump would round it to fp16. a texel in the rows of a
+// half at 1x reads its native pixel in the 1x image at the start of those rows instead, and any other
+// one (the other half, the padding) is sampled as kFS does
+const char* kHalvesAt1xFS = R"(#version 320 es
+precision highp float;
+precision highp int;
+uniform sampler2D ScreenTex;
+// x: the halves at 1x (bit 0 the top one), y: the frame's scale
+uniform ivec2 uHalvesAt1x;
+in vec2 fTexcoord;
+out vec4 oColor;
+void main()
+{
+    ivec2 size = textureSize(ScreenTex, 0);
+    ivec2 texel = clamp(ivec2(floor(fTexcoord * vec2(size))), ivec2(0), size - 1);
+    int scale = uHalvesAt1x.y;
+    int screenHalf = texel.y >= 194 * scale ? 1 : 0;
+    int row = texel.y - screenHalf * 194 * scale;
+    vec4 color;
+    if (row < 192 * scale && (uHalvesAt1x.x & (1 << screenHalf)) != 0)
+        color = texelFetch(ScreenTex, ivec2(min(texel.x / scale, size.x / scale - 1), screenHalf * 194 * scale + row / scale), 0);
+    else
+        color = texture(ScreenTex, fTexcoord);
+    oColor = vec4(color.bgr, 1.0);
+}
+)";
+
+// GPU::Comp1x: turns a frame with a half at 1x into the full frame, texel for texel, for linear
+// filtering. one triangle over a target the frame's size, so gl_FragCoord is each texel's center
+const char* kExpandVS = R"(#version 320 es
+void main()
+{
+    gl_Position = vec4(float((gl_VertexID & 1) * 4 - 1), float((gl_VertexID >> 1) * 4 - 1), 0.0, 1.0);
+}
+)";
+
+const char* kExpandFS = R"(#version 320 es
+precision highp float;
+precision highp int;
+uniform sampler2D ScreenTex;
+uniform ivec2 uHalvesAt1x;
+out vec4 oColor;
+void main()
+{
+    ivec2 size = textureSize(ScreenTex, 0);
+    ivec2 texel = ivec2(gl_FragCoord.xy);
+    int scale = uHalvesAt1x.y;
+    int screenHalf = texel.y >= 194 * scale ? 1 : 0;
+    int row = texel.y - screenHalf * 194 * scale;
+    if (row < 192 * scale && (uHalvesAt1x.x & (1 << screenHalf)) != 0)
+        texel = ivec2(min(texel.x / scale, size.x / scale - 1), screenHalf * 194 * scale + row / scale);
+    oColor = texelFetch(ScreenTex, texel, 0);
 }
 )";
 
@@ -87,6 +145,10 @@ bool Presenter::Init()
 void Presenter::Free()
 {
     glDeleteProgram(Program);
+    glDeleteProgram(HalvesAt1xProgram);
+    glDeleteProgram(ExpandProgram);
+    glDeleteTextures(1, &ExpandTexture);
+    glDeleteFramebuffers(1, &ExpandFB);
     glDeleteVertexArrays(1, &VertexArray);
     glDeleteBuffers(1, &VertexBuffer);
     glDeleteSamplers(2, Sampler);
@@ -94,18 +156,89 @@ void Presenter::Free()
     glDeleteFramebuffers(1, &ReadFB);
 }
 
+bool Presenter::PrepareHalvesAt1x()
+{
+    if (HalvesAt1xProgram || HalvesAt1xFailed)
+        return HalvesAt1xProgram != 0;
+
+    if (!OpenGL::CompileVertexFragmentProgram(HalvesAt1xProgram, kVS, kHalvesAt1xFS, "PCScreenHalvesAt1x",
+            {{"vPosition", 0}, {"vTexcoord", 1}}, {{"oColor", 0}})
+        || !OpenGL::CompileVertexFragmentProgram(ExpandProgram, kExpandVS, kExpandFS, "PCExpandHalvesAt1x", {}, {{"oColor", 0}}))
+    {
+        fprintf(stderr, "the 1x screen programs didn't build\n");
+        glDeleteProgram(HalvesAt1xProgram);
+        HalvesAt1xProgram = 0;
+        HalvesAt1xFailed = true;
+        return false;
+    }
+    HalvesAt1xTexLoc = glGetUniformLocation(HalvesAt1xProgram, "ScreenTex");
+    HalvesAt1xLoc = glGetUniformLocation(HalvesAt1xProgram, "uHalvesAt1x");
+    ExpandTexLoc = glGetUniformLocation(ExpandProgram, "ScreenTex");
+    ExpandHalvesLoc = glGetUniformLocation(ExpandProgram, "uHalvesAt1x");
+    glGenFramebuffers(1, &ExpandFB);
+    return true;
+}
+
+GLuint Presenter::ExpandHalvesAt1x(GLuint texture)
+{
+    GLint width = 0, height = 0;
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
+    if (width <= 0 || height <= 0)
+        return texture;
+
+    if (width != ExpandW || height != ExpandH)
+    {
+        if (!ExpandTexture)
+            glGenTextures(1, &ExpandTexture);
+        glBindTexture(GL_TEXTURE_2D, ExpandTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glBindFramebuffer(GL_FRAMEBUFFER, ExpandFB);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ExpandTexture, 0);
+        ExpandW = width;
+        ExpandH = height;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, ExpandFB);
+    glViewport(0, 0, width, height);
+    glUseProgram(ExpandProgram);
+    glUniform1i(ExpandTexLoc, 0);
+    glUniform2i(ExpandHalvesLoc, LastLayout.HalvesAt1x, LastLayout.Scale);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glBindSampler(0, Sampler[0]);
+    glBindVertexArray(VertexArray);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return ExpandTexture;
+}
+
+void Presenter::ResetLayouts()
+{
+    Layouts[0] = Layouts[1] = LastLayout = OutputLayout();
+}
+
 GLuint Presenter::BindFrame(NDS& nds)
 {
     int frontbuf = nds.GPU.FrontBuffer;
     glActiveTexture(GL_TEXTURE0);
-    if (nds.GPU.GetRenderer3D().Accelerated)
+    Renderer3D& renderer = nds.GPU.GetRenderer3D();
+    if (renderer.Accelerated)
     {
-        nds.GPU.GetRenderer3D().BindOutputTexture(frontbuf);
+        OutputLayout layout;
+        if (renderer.TakeOutputLayout(frontbuf, layout))
+            Layouts[frontbuf] = layout;
+        LastLayout = Layouts[frontbuf];
+
+        renderer.BindOutputTexture(frontbuf);
         GLint texture = 0;
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
         return (GLuint)texture;
     }
 
+    LastLayout = OutputLayout();
     glBindTexture(GL_TEXTURE_2D, SoftTexture);
     if (nds.GPU.Framebuffer[frontbuf][0] && nds.GPU.Framebuffer[frontbuf][1])
     {
@@ -187,9 +320,30 @@ void Presenter::Draw(NDS& nds, int windowW, int windowH, int topWidth, Layout la
     quad(Bottom, botU0, botU1, kBottomTopV, 1);
 
     LastTexture = BindFrame(nds);
-    glBindSampler(0, Sampler[linear ? 1 : 0]);
-    glUseProgram(Program);
-    glUniform1i(TexLoc, 0);
+    // GPU::Comp1x: a frame with a half at 1x is drawn nearest straight from the 1x image, and expanded
+    // into the full frame first for linear filtering (the core only draws such frames without it, but
+    // the last one can be drawn again after F8)
+    bool halvesAt1x = LastLayout.HalvesAt1x != 0 && PrepareHalvesAt1x();
+    if (halvesAt1x && !linear)
+    {
+        glBindSampler(0, Sampler[0]);
+        glUseProgram(HalvesAt1xProgram);
+        glUniform1i(HalvesAt1xTexLoc, 0);
+        glUniform2i(HalvesAt1xLoc, LastLayout.HalvesAt1x, LastLayout.Scale);
+    }
+    else
+    {
+        if (halvesAt1x)
+        {
+            GLuint expanded = ExpandHalvesAt1x(LastTexture);
+            glViewport(0, 0, windowW, windowH);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, expanded);
+        }
+        glBindSampler(0, Sampler[linear ? 1 : 0]);
+        glUseProgram(Program);
+        glUniform1i(TexLoc, 0);
+    }
     glBindVertexArray(VertexArray);
     glBindBuffer(GL_ARRAY_BUFFER, VertexBuffer);
     glBufferSubData(GL_ARRAY_BUFFER, 0, count * 4 * sizeof(float), verts);
@@ -226,6 +380,26 @@ bool Presenter::ReadFrame(std::vector<u8>& pixels, int& width, int& height)
     // the texture holds BGRA, as the screen shader reads it
     for (size_t i = 0; i < pixels.size(); i += 4)
         std::swap(pixels[i], pixels[i + 2]);
+
+    // GPU::Comp1x: a half at 1x, upscaled over its rows from the image at their start, as Draw shows it
+    for (int half = 0; half < 2; half++)
+    {
+        if (!(LastLayout.HalvesAt1x & (1 << half)))
+            continue;
+        int scale = LastLayout.Scale, viewW = width / scale, y0 = half * 194 * scale;
+        if (scale < 1 || y0 + 192 * scale > height)
+            continue;
+        std::vector<u8> small((size_t)viewW * 192 * 4);
+        for (int y = 0; y < 192; y++)
+            memcpy(&small[(size_t)y * viewW * 4], &pixels[(size_t)(y0 + y) * width * 4], (size_t)viewW * 4);
+        for (int y = 0; y < 192 * scale; y++)
+        {
+            u8* row = &pixels[(size_t)(y0 + y) * width * 4];
+            const u8* nativeRow = &small[(size_t)(y / scale) * viewW * 4];
+            for (int x = 0; x < width; x++)
+                memcpy(&row[x * 4], &nativeRow[std::min(x / scale, viewW - 1) * 4], 4);
+        }
+    }
     GLenum error = glGetError();
     if (error != GL_NO_ERROR)
         fprintf(stderr, "frame readback: GL error 0x%x\n", error);

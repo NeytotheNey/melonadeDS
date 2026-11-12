@@ -122,7 +122,18 @@ class FrameRenderCoordinator {
         private var renderingVsyncPeriodNanos = 0L
 
         private val frameRenderCallback = object : FrameRenderCallback {
-            override fun renderFrame(isValidFrame: Boolean, frameTextureId: Int, frameTextureWidth: Int, frameTextureHeight: Int, topScreenWidth: Int, overlayTextureId: Int, overlayScreens: Int, frameSequence: Long) {
+            override fun renderFrame(
+                isValidFrame: Boolean,
+                frameTextureId: Int,
+                frameTextureWidth: Int,
+                frameTextureHeight: Int,
+                topScreenWidth: Int,
+                overlayTextureId: Int,
+                overlayScreens: Int,
+                halvesAt1x: Int,
+                scaleAt1x: Int,
+                frameSequence: Long,
+            ): Boolean {
                 val renderStart = System.nanoTime()
 
                 presentFrameWrapper.apply {
@@ -133,11 +144,16 @@ class FrameRenderCoordinator {
                     this.topScreenWidth = topScreenWidth
                     this.overlayTextureId = overlayTextureId
                     this.overlayScreens = overlayScreens
+                    this.halvesAt1x = halvesAt1x
+                    this.scaleAt1x = scaleAt1x
                     this.frameSequence = frameSequence
                 }
 
+                // debug.melonade.comp1x: the emulator only draws screens at 1x while every surface can show them
+                var canDrawHalvesAt1x = true
                 managedSurfaces.forEach {
                     it.doFrame(glContext, presentFrameWrapper)
+                    canDrawHalvesAt1x = canDrawHalvesAt1x && it.canDrawHalvesAt1x()
                 }
 
                 val renderDuration = System.nanoTime() - renderStart
@@ -156,6 +172,8 @@ class FrameRenderCoordinator {
                         refreshPeriodNs = renderingVsyncPeriodNanos,
                     )
                 }
+
+                return canDrawHalvesAt1x
             }
         }
 

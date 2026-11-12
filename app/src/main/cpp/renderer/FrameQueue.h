@@ -38,6 +38,12 @@ struct Frame {
     GLuint overlayTexture{};
     // Rows of the overlay texture with drawings, for the top and the bottom screen (no rows means no drawings on that screen this frame)
     TextureRows overlayRows[2]{};
+    // GPU::Comp1x (melonDS::OutputLayout): bit 0 (top screen) and bit 1 (bottom screen) are screens the compositor drew at 1x into the first
+    // topScreenWidth x 192 texels of their own rows (from row screen * 194 * scaleAt1x), which are shown nearest-upscaled from there, while the
+    // rest of their rows hold older frames. Set only when the compositor draws into this frame's texture, so a frame pushed without a draw keeps
+    // the layout of what the texture still holds; emulator thread only until the frame is pushed
+    int halvesAt1x = 0;
+    int scaleAt1x = 1;
     EGLSyncKHR renderFence{};
     EGLSyncKHR presentFence{};
     // Increases every time a frame is pushed for presentation, so the presenter can tell new frames from repeated ones and detect skipped frames

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "PlatformOGL.h"
+#include "GPU3D.h"
 #include "types.h"
 
 namespace melonDS { class NDS; }
@@ -28,14 +29,38 @@ public:
     // topWidth is the top screen's width in DS pixels (wider than 256 with WideMelon)
     void Draw(melonDS::NDS& nds, int windowW, int windowH, int topWidth, Layout layout, bool linear);
 
+    // GPU::Comp1x: forgets the output layouts, when a new renderer (with textures of its own, which it
+    // draws into before they're shown) replaces the old one
+    void ResetLayouts();
+
     // where the bottom screen was last drawn, in window pixels, for touch
     const Rect& BottomRect() const { return Bottom; }
 
-    // the last drawn frame as RGBA rows, top row first, at the renderer's internal size
+    // the last drawn frame as RGBA rows, top row first, at the renderer's internal size. a half the
+    // compositor drew at 1x (GPU::Comp1x) is upscaled into its rows, as Draw shows it
     bool ReadFrame(std::vector<melonDS::u8>& pixels, int& width, int& height);
 
 private:
     GLuint BindFrame(melonDS::NDS& nds);
+
+    // GPU::Comp1x: what the renderer last drew into each of its output buffers (OutputLayout), kept
+    // until it draws into that one again (or ResetLayouts), and the drawn frame's
+    melonDS::OutputLayout Layouts[2] {};
+    melonDS::OutputLayout LastLayout {};
+    // draws a frame with a half at 1x without linear filtering, and expands one into the full frame
+    // (ExpandTexture, the frame's size) for it. made the first time such a frame is drawn
+    bool PrepareHalvesAt1x();
+    GLuint ExpandHalvesAt1x(GLuint texture);
+    GLuint HalvesAt1xProgram = 0;
+    GLint HalvesAt1xTexLoc = -1;
+    GLint HalvesAt1xLoc = -1;
+    GLuint ExpandProgram = 0;
+    GLint ExpandTexLoc = -1;
+    GLint ExpandHalvesLoc = -1;
+    GLuint ExpandTexture = 0;
+    GLuint ExpandFB = 0;
+    int ExpandW = 0, ExpandH = 0;
+    bool HalvesAt1xFailed = false;
 
     GLuint Program = 0;
     GLuint VertexArray = 0;

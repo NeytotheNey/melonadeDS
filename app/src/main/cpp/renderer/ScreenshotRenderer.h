@@ -50,6 +50,10 @@ private:
     void setupOverlayShader();
     // Renders the screenshot, reading the GL renderers' image into screenshotBuffer, or queueing it into pixelPackBuffer if [intoPixelBuffer]
     void drawScreenshot(GPU* gpu, Renderer renderer, Frame* renderFrame, const LuaOverlay* overlay, bool intoPixelBuffer);
+    // GPU::Comp1x: copies the screens the compositor drew at 1x (Frame::halvesAt1x) into the screenshot, over what the quads drew there
+    void copyHalvesAt1x(Frame* renderFrame);
+    // Reads a frame's texture for copyHalvesAt1x(), made the first time it's needed
+    GLuint frameReadBuffer = 0;
     void renderOverlay(GLuint overlayTexture);
     void blendOverlay(const LuaOverlay& overlay);
     void notifyScreenshotReady();

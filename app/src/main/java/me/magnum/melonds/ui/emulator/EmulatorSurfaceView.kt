@@ -101,6 +101,14 @@ class EmulatorSurfaceView(context: Context, attrs: AttributeSet? = null) : Surfa
         }
     }
 
+    /**
+     * Whether this surface's renderer can draw a frame with screens at 1x (see [EmulatorRenderer.canDrawHalvesAt1x]); one without a renderer
+     * draws nothing. Render thread only, after [doFrame].
+     */
+    fun canDrawHalvesAt1x(): Boolean {
+        return renderer?.canDrawHalvesAt1x() ?: true
+    }
+
     fun doFrame(glContext: GlContext, presentFrameWrapper: PresentFrameWrapper) {
         synchronized(surfaceLock) {
             surfaceRenderer?.doFrame(
