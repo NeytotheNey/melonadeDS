@@ -450,6 +450,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         {
             renderFrame->halvesAt1x = outputLayout.HalvesAt1x;
             renderFrame->scaleAt1x = outputLayout.Scale;
+            renderFrame->halfScaleAt1x = outputLayout.HalfScale;
         }
     }
 

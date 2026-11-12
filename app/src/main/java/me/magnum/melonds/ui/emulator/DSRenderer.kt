@@ -491,6 +491,11 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             renderScreenShadows()
         }
 
+        // The 1x shader reads which texel the frame's sample picks from these (see VideoFilterPipeline.bindHalvesAt1xCoordinates)
+        if (halvesAt1xShader != null) {
+            filter?.bindHalvesAt1xCoordinates(presentFrameWrapper.textureWidth, presentFrameWrapper.textureHeight)
+        }
+
         (halvesAt1xShader ?: filter?.screenShader)?.let { shader ->
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
             GLES30.glEnable(GLES30.GL_BLEND)
@@ -535,7 +540,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         shader.setTextureSize(textureWidth, textureHeight)
         shader.setTopScreenWidth(frame.topScreenWidth)
         shader.setBottomScreenWide(isBottomScreenWideInQuads)
-        shader.setHalvesAt1x(frame.halvesAt1x, frame.scaleAt1x)
+        shader.setHalvesAt1x(frame.halvesAt1x, frame.scaleAt1x, frame.halfScaleAt1x)
     }
 
     // debug.melonade.comp1x: only the no-filter shader without deband or a Lua tilt-shift draws a screen at 1x straight from the 1x image; any

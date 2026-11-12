@@ -143,21 +143,24 @@ void ScreenshotRenderer::drawScreenshot(GPU* gpu, Renderer renderer, Frame* rend
 void ScreenshotRenderer::copyHalvesAt1x(Frame* renderFrame)
 {
     // The screenshot is at 1x, so such a screen's image is copied over what the quads drew from the old frames in the rest of its rows: its middle
-    // 256 columns, from the first row of its rows. The frame's rows go down from the top screen's first one, as the screenshot's do
+    // 256 columns, from the first row of its rows. The frame's rows go down from the top screen's first one, as the screenshot's do. A screen drawn
+    // with filtered 2D at the filter map's scale (halfScaleAt1x) is scaled down to 1x on the way, nearest
     if (!frameReadBuffer)
         glGenFramebuffers(1, &frameReadBuffer);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, frameReadBuffer);
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderFrame->frameTexture, 0);
     glReadBuffer(GL_COLOR_ATTACHMENT0);
 
-    int left = ((int) renderFrame->topScreenWidth - 256) / 2;
+    int halfScale = std::max(renderFrame->halfScaleAt1x, 1);
+    int left = ((int) renderFrame->topScreenWidth - 256) / 2 * halfScale;
     for (int screen = 0; screen < 2; screen++)
     {
         if (!(renderFrame->halvesAt1x & (1 << screen)))
             continue;
 
         int sourceRow = screen * (192 + 2) * renderFrame->scaleAt1x;
-        glBlitFramebuffer(left, sourceRow, left + 256, sourceRow + 192, 0, screen * 192, 256, screen * 192 + 192, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBlitFramebuffer(left, sourceRow, left + 256 * halfScale, sourceRow + 192 * halfScale, 0, screen * 192, 256, screen * 192 + 192, GL_COLOR_BUFFER_BIT,
+                          GL_NEAREST);
     }
 
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);

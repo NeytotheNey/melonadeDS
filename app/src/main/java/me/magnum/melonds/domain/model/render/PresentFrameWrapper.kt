@@ -16,9 +16,11 @@ data class PresentFrameWrapper(
     var overlayTextureId: Int = 0,
     var overlayScreens: Int = 0,
     // debug.melonade.comp1x: the OVERLAY_SCREEN_* bits of the screens the compositor drew at 1x, each in the first topScreenWidth x SCREEN_HEIGHT
-    // texels of its own rows (from row screen * (SCREEN_HEIGHT + SCREEN_GAP) * scaleAt1x), and the frame's internal scale
+    // texels of its own rows (from row screen * (SCREEN_HEIGHT + SCREEN_GAP) * scaleAt1x), and the frame's internal scale. halfScaleAt1x is the
+    // scale those screens were drawn at: 1, or with filtered 2D the filter map's, so their image is that many times bigger
     var halvesAt1x: Int = 0,
     var scaleAt1x: Int = 1,
+    var halfScaleAt1x: Int = 1,
     // Emulator frame sequence number, 0 when the frame is invalid
     var frameSequence: Long = 0,
 )

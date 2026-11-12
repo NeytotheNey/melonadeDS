@@ -146,7 +146,13 @@ namespace melonDS { class GPU; }
  *                  with filtered 2D or GPU 2D lines. 1 in a wide view only (pixel-exact), 2 the 256 view too (its mediump full draw rounds
  *                  differently on fp16 GPUs), 3 checks: the full draw as usual, and every 30 frames a 1x draw compared with it. With
  *                  scenestats or gltimers on (always in 3) a COMP1X line once a second counts the frames per screen at 1x and why the
- *                  others weren't. 0 draws as before; 1 is the default in every build (GPU::Comp1x)
+ *                  others weren't. 0 draws as before; 1 is the default in every build (GPU::Comp1x). With filtered 2D (K3) such a screen
+ *                  is drawn at the filter map's scale instead of 1x (4x at 8x, 12x and 16x; 2x at 4x and 6x with filter2d 2), in either
+ *                  view in mode 1 too; at other scales, and in filter2d 3's 256 view, both screens are drawn in full
+ *   filter2drows N OpenGL and compute, experiment K3 (docs/plan-gpu-discovery.md): with filtered 2D, a frame whose keys changed on some
+ *                  lines only redraws the map rows those lines can reach. 0 redraws the whole map as before, 2 checks: every 30th partial
+ *                  redraw is read back and compared with a full one (the FILTER2D line's rowchecks and rowmismatches). 1 is the default in
+ *                  every build (GPU::Filter2DRows)
  *   computecheck N compute, Mali diagnostics (docs/shelved/compute-on-mali.md): every Nth render with polygons waits for the GPU, reads
  *                  back binning's buffers, the WorkDescs and the X spans, and the setup indices through the texture buffer (a small
  *                  extra program), and logs a COMPCHECK line with counts of what's inconsistent (work total vs the CPU bound and

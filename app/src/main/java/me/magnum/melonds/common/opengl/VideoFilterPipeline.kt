@@ -56,8 +56,61 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
     private var expandedFrameTextureId = 0
     private var expandedFrameSequence = 0L
     private var expandedHalvesAt1x = 0
+    private var expandedHalfScaleAt1x = 1
     private var expandedWidth = 0
     private var expandedHeight = 0
+    // The 1x shader's coordinate textures (R16UI, see bindHalvesAt1xCoordinates), for frames of coordinatesWidth x coordinatesHeight
+    private val coordinateTextures = IntArray(2)
+    private var coordinatesWidth = 0
+    private var coordinatesHeight = 0
+
+    /**
+     * debug.melonade.comp1x: binds the 1x shader's coordinate textures for a frame of [width] x [height] texels on units 1 (the frame's width x 1,
+     * texel x holding x) and 2 (1 x its height, texel y holding y), made again when the size changes, and leaves unit 0 active. Sampled nearest at
+     * uv, they give the texel the frame's nearest sample there picks (see ShaderProgramSource.NoFilterHalvesAt1xShader).
+     */
+    fun bindHalvesAt1xCoordinates(width: Int, height: Int) {
+        if (coordinateTextures[0] == 0) {
+            GLES30.glGenTextures(2, coordinateTextures, 0)
+        }
+        val isResized = width != coordinatesWidth || height != coordinatesHeight
+        val coordinates = if (isResized) {
+            val count = maxOf(width, height, 1)
+            ByteBuffer.allocateDirect(count * Short.SIZE_BYTES).order(ByteOrder.nativeOrder()).asShortBuffer().apply {
+                for (i in 0 until count) {
+                    put(i.toShort())
+                }
+                position(0)
+            }
+        } else {
+            null
+        }
+        val savedAlignment = IntArray(1)
+        if (coordinates != null) {
+            GLES30.glGetIntegerv(GLES30.GL_UNPACK_ALIGNMENT, savedAlignment, 0)
+            GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 2)
+        }
+        for (axis in 0..1) {
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE1 + axis)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, coordinateTextures[axis])
+            if (coordinates != null) {
+                GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+                GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+                GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+                GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+                GLES30.glTexImage2D(
+                    GLES30.GL_TEXTURE_2D, 0, GLES30.GL_R16UI, if (axis == 0) width else 1, if (axis == 0) 1 else height, 0, GLES30.GL_RED_INTEGER,
+                    GLES30.GL_UNSIGNED_SHORT, coordinates,
+                )
+            }
+        }
+        if (coordinates != null) {
+            GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, savedAlignment[0])
+            coordinatesWidth = width
+            coordinatesHeight = height
+        }
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+    }
 
     /**
      * Whether a frame with screens at 1x drawn through [getHalvesAt1xShader] looks the same as the full frame through this pipeline: only the
@@ -107,7 +160,7 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
         }
 
         val isExpanded = frame.frameSequence != 0L && frame.frameSequence == expandedFrameSequence && frame.textureId == expandedFrameTextureId &&
-                frame.halvesAt1x == expandedHalvesAt1x && width == expandedWidth && height == expandedHeight
+                frame.halvesAt1x == expandedHalvesAt1x && frame.halfScaleAt1x == expandedHalfScaleAt1x && width == expandedWidth && height == expandedHeight
         if (isExpanded) {
             return pass.texture
         }
@@ -123,7 +176,7 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
         val isReady = pass.prepareTarget(width, height)
         if (isReady) {
             GLES30.glViewport(0, 0, width, height)
-            pass.render(frame.textureId, width, height, frame.topScreenWidth, false, null, frame.halvesAt1x, frame.scaleAt1x)
+            pass.render(frame.textureId, width, height, frame.topScreenWidth, false, null, frame.halvesAt1x, frame.scaleAt1x, frame.halfScaleAt1x)
         }
         restoreState()
 
@@ -134,6 +187,7 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
         expandedFrameTextureId = frame.textureId
         expandedFrameSequence = frame.frameSequence
         expandedHalvesAt1x = frame.halvesAt1x
+        expandedHalfScaleAt1x = frame.halfScaleAt1x
         expandedWidth = width
         expandedHeight = height
         return pass.texture
@@ -337,6 +391,12 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
         screenShader.delete()
         halvesAt1xShader?.delete()
         halvesAt1xShader = null
+        if (coordinateTextures[0] != 0) {
+            GLES30.glDeleteTextures(2, coordinateTextures, 0)
+            coordinateTextures.fill(0)
+            coordinatesWidth = 0
+            coordinatesHeight = 0
+        }
         expandPass?.delete()
         expandPass = null
         prePasses.forEach { it.delete() }
@@ -458,6 +518,7 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
             tiltShift: TiltShift?,
             halvesAt1x: Int = 0,
             scaleAt1x: Int = 1,
+            halfScaleAt1x: Int = 1,
         ) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
             // The quad covers every texel, so the old contents never have to be loaded
@@ -476,7 +537,7 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
             if (tiltShift != null) {
                 shader.setTiltShift(tiltShift)
             }
-            shader.setHalvesAt1x(halvesAt1x, scaleAt1x)
+            shader.setHalvesAt1x(halvesAt1x, scaleAt1x, halfScaleAt1x)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
         }
 

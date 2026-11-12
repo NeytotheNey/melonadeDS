@@ -61,6 +61,11 @@ private:
     GLuint ExpandFB = 0;
     int ExpandW = 0, ExpandH = 0;
     bool HalvesAt1xFailed = false;
+    // the 1x program's coordinate textures (see kHalvesAt1xFS) on units 1 and 2, for [texture]'s size,
+    // made again when it changes; leaves [texture] bound on unit 0, which is active
+    void BindCoordTextures(GLuint texture);
+    GLuint CoordTex[2] {};
+    int CoordW = 0, CoordH = 0;
 
     GLuint Program = 0;
     GLuint VertexArray = 0;

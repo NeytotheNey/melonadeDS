@@ -15,6 +15,8 @@ fun interface FrameRenderCallback {
      * @param halvesAt1x Which screens the compositor drew at 1x (debug.melonade.comp1x), as the same bits: such a screen's image is in the first
      * topScreenWidth x SCREEN_HEIGHT texels of its own rows, to be shown nearest-upscaled by [scaleAt1x].
      * @param scaleAt1x The frame's internal scale, for [halvesAt1x].
+     * @param halfScaleAt1x The scale the screens in [halvesAt1x] were drawn at: 1, or with filtered 2D the filter map's, so their image is that many
+     * times bigger and is upscaled by [scaleAt1x] / [halfScaleAt1x].
      * @param frameSequence Sequence number of the presented emulator frame, increasing by 1 for every frame the emulator produces.
      * @return Whether every surface can draw a frame with screens at 1x, which the emulator only produces while this is true.
      */
@@ -28,6 +30,7 @@ fun interface FrameRenderCallback {
         overlayScreens: Int,
         halvesAt1x: Int,
         scaleAt1x: Int,
+        halfScaleAt1x: Int,
         frameSequence: Long,
     ): Boolean
 }

@@ -85,7 +85,7 @@ struct Options
     bool HighResCoordinates = true;
     bool ColorDither = false;
     bool HiresCapture = false;
-    bool Filter2D = false;
+    int Filter2D = 0;          // GPU::Filter2D: 0 off, 1 on, 2 the 2x map only, 3 identity
     int Gpu2D = 0;             // the GPU 2D shadow renderer (GPU::SetShadow2D): 0 off, 1, 2 all
     bool Threaded2D = true;
     bool ThreadedSoft3D = true;
@@ -117,6 +117,7 @@ void Usage()
         "  --dither                    Compute: smooth gradients (color dithering)\n"
         "  --hires-capture             upscaled display capture (gl/compute)\n"
         "  --filter2d                  MMPX-filtered 2D (gl/compute, scale 2+)\n"
+        "  --filter2d-mode N           filtered 2D as debug.melonade.filter2d: 2 the 2x map only, 3 identity\n"
         "  --gpu2d N                   GPU 2D shadow renderer: 0 off, 1 lines that gain, 2 all (gl/compute)\n"
         "  --smooth30                  Compute: in-between frames for 30 fps games (half camera)\n"
         "  --no-threaded2d             2D on the emulator thread\n"
@@ -188,6 +189,7 @@ const IntSwitch kIntSwitches[] = {
     {"GLTransSkip", &GPU::GLTransSkip},
     {"CompClear", &GPU::CompClear},
     {"Comp1x", &GPU::Comp1x},
+    {"Filter2DRows", &GPU::Filter2DRows},
     {"SceneStats", &GPU::SceneStats},
     {"ComputeCheck", &GPU::ComputeCheck},
     {"ComputeBin", &GPU::ComputeBin},
@@ -272,7 +274,8 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--no-high-res-coords") opts.HighResCoordinates = false;
         else if (arg == "--dither") opts.ColorDither = true;
         else if (arg == "--hires-capture") opts.HiresCapture = true;
-        else if (arg == "--filter2d") opts.Filter2D = true;
+        else if (arg == "--filter2d") opts.Filter2D = 1;
+        else if (arg == "--filter2d-mode") opts.Filter2D = std::clamp(atoi(next().c_str()), 0, 3);
         else if (arg == "--gpu2d") opts.Gpu2D = std::clamp(atoi(next().c_str()), 0, 2);
         else if (arg == "--smooth30") opts.HalfCamera = true;
         else if (arg == "--no-threaded2d") opts.Threaded2D = false;
@@ -532,7 +535,7 @@ public:
 
         Nds->GPU.SetThreaded2D(Opts.Threaded2D);
         Nds->GPU.SetHiresCapture(Opts.HiresCapture);
-        Nds->GPU.Filter2D = Opts.Filter2D ? 1 : 0;
+        Nds->GPU.Filter2D = Opts.Filter2D;
         Nds->GPU.SetShadow2D(Opts.Gpu2D, false, false, 0);
         Nds->GPU.GPU3D.SetHalfCameraSmoothing(Opts.HalfCamera && Current == RendererType::Compute);
 

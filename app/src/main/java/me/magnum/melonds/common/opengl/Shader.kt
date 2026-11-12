@@ -26,8 +26,10 @@ class Shader(
     private val uniformTiltShift: Int
     // Only declared by the tilt-shift pre-passes that apply the color boost: the blur's last one and the color-only one
     private val uniformTiltShiftBoost: Int
-    // Only declared by ShaderProgramSource.NoFilterHalvesAt1xShader
+    // Only declared by ShaderProgramSource.NoFilterHalvesAt1xShader, with its coordinate textures (VideoFilterPipeline.bindHalvesAt1xCoordinates)
     private val uniformHalvesAt1x: Int
+    private val uniformCoordXTex: Int
+    private val uniformCoordYTex: Int
 
     init {
         GLES30.glUseProgram(programId)
@@ -41,6 +43,8 @@ class Shader(
         uniformTiltShift = GLES30.glGetUniformLocation(programId, "tiltShift")
         uniformTiltShiftBoost = GLES30.glGetUniformLocation(programId, "tiltShiftBoost")
         uniformHalvesAt1x = GLES30.glGetUniformLocation(programId, "halvesAt1x")
+        uniformCoordXTex = GLES30.glGetUniformLocation(programId, "coordXTex")
+        uniformCoordYTex = GLES30.glGetUniformLocation(programId, "coordYTex")
         GLES30.glUseProgram(0)
     }
 
@@ -93,11 +97,19 @@ class Shader(
     }
 
     /**
-     * Sets which screens the frame has at 1x and its internal scale (PresentFrameWrapper.halvesAt1x and scaleAt1x); call after [use].
+     * Sets which screens the frame has at 1x, its internal scale and the scale those screens were drawn at (PresentFrameWrapper.halvesAt1x,
+     * scaleAt1x and halfScaleAt1x), and that the coordinate textures are on units 1 and 2 (VideoFilterPipeline.bindHalvesAt1xCoordinates); call
+     * after [use].
      */
-    fun setHalvesAt1x(halvesAt1x: Int, scale: Int) {
+    fun setHalvesAt1x(halvesAt1x: Int, scale: Int, halfScale: Int) {
         if (uniformHalvesAt1x != INVALID_UNIFORM) {
-            GLES30.glUniform2i(uniformHalvesAt1x, halvesAt1x, scale)
+            GLES30.glUniform3i(uniformHalvesAt1x, halvesAt1x, scale, halfScale)
+        }
+        if (uniformCoordXTex != INVALID_UNIFORM) {
+            GLES30.glUniform1i(uniformCoordXTex, 1)
+        }
+        if (uniformCoordYTex != INVALID_UNIFORM) {
+            GLES30.glUniform1i(uniformCoordYTex, 2)
         }
     }
 

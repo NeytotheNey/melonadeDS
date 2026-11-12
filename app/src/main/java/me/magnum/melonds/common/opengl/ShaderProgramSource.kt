@@ -165,9 +165,11 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
 
         // debug.melonade.comp1x: where a texel of the full frame is in a frame with screens the compositor drew at 1x (PresentFrameWrapper.halvesAt1x):
         // a texel in the rows of such a screen is its DS pixel in the 1x image at the start of those rows, any other one (the other screen, the
-        // gap) is where it is. Needs texSize (the frame's size) declared first, and highp ints
-        private const val HALVES_AT_1X_FUNCTIONS = "// x: the screens at 1x (bit 0 the top one), y: the frame's internal scale\n" +
-                "uniform ivec2 halvesAt1x;\n" +
+        // gap) is where it is. With filtered 2D those screens are drawn at the filter map's scale (halfScaleAt1x) instead, so the image is that
+        // many times bigger and a texel is its pixel there, scale / halfScale times smaller. Needs texSize (the frame's size) declared first, and
+        // highp ints
+        private const val HALVES_AT_1X_FUNCTIONS = "// x: the screens at 1x (bit 0 the top one), y: the frame's internal scale, z: the scale they were drawn at\n" +
+                "uniform ivec3 halvesAt1x;\n" +
                 "bool isInScreenAt1x(ivec2 texel) {\n" +
                 "    int scale = halvesAt1x.y;\n" +
                 "    int screen = texel.y >= ${SCREEN_HEIGHT + SCREEN_GAP} * scale ? 1 : 0;\n" +
@@ -175,9 +177,10 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "}\n" +
                 "ivec2 sourceAt1x(ivec2 texel) {\n" +
                 "    int scale = halvesAt1x.y;\n" +
+                "    int up = scale / max(halvesAt1x.z, 1);\n" +
                 "    int screen = texel.y >= ${SCREEN_HEIGHT + SCREEN_GAP} * scale ? 1 : 0;\n" +
                 "    int start = screen * ${SCREEN_HEIGHT + SCREEN_GAP} * scale;\n" +
-                "    return ivec2(min(texel.x / scale, int(texSize.x) / scale - 1), start + (texel.y - start) / scale);\n" +
+                "    return ivec2(min(texel.x / up, int(texSize.x) / up - 1), start + (texel.y - start) / up);\n" +
                 "}\n"
 
         // GLSL ES 3.00 versions of DEFAULT_VERT_SHADER and PRE_PASS_VERT_SHADER, for the 1x shaders below (texelFetch())
@@ -205,9 +208,11 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "}"
 
         // debug.melonade.comp1x: the no-filter shader for a frame with screens the compositor drew at 1x. A pixel takes the texel the default
-        // shader's nearest sample at uv picks (floor, clamped to the edge), worked out at highp, as the default shader hands uv to the sampler as
-        // it is and mediump math on it would round it to fp16; in a screen at 1x it reads that texel's DS pixel from the 1x image instead, and
-        // anywhere else it samples as the default shader does
+        // shader's nearest sample at uv picks: the sampler's own pick, read from coordXTex (the frame's width x 1, texel x holding x) and
+        // coordYTex (1 x its height) with uv as the default shader declares and samples it (VideoFilterPipeline.bindHalvesAt1xCoordinates). Working
+        // it out with floor(uv * texSize) isn't exact: on the edge between two texels (an integer ratio between the screen and the frame puts
+        // samples there) it can choose the other one, which a screen drawn at the filter map's scale can show. In a screen at 1x it reads that
+        // texel's DS pixel from the 1x image instead, and anywhere else it samples as the default shader does
         val NoFilterHalvesAt1xShader = ShaderProgramSource(
             TextureFiltering.NEAREST,
             DEFAULT_VERT_SHADER_300,
@@ -216,14 +221,17 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "precision highp int;\n" +
                     "uniform sampler2D tex;\n" +
                     "uniform highp vec2 texSize;\n" +
+                    "uniform highp usampler2D coordXTex;\n" +
+                    "uniform highp usampler2D coordYTex;\n" +
                     HALVES_AT_1X_FUNCTIONS +
-                    "in highp vec2 uv;\n" +
+                    "// mediump, as the default shader's\n" +
+                    "in vec2 uv;\n" +
                     "in float alpha;\n" +
                     "out vec4 fragColor;\n" +
                     COLOR_FUNCTIONS +
                     "void main()\n" +
                     "{\n" +
-                    "    ivec2 texel = clamp(ivec2(floor(uv * texSize)), ivec2(0), ivec2(texSize) - 1);\n" +
+                    "    ivec2 texel = ivec2(int(texture(coordXTex, uv).r), int(texture(coordYTex, uv).r));\n" +
                     "    vec4 color = isInScreenAt1x(texel) ? texelFetch(tex, sourceAt1x(texel), 0) : texture(tex, uv);\n" +
                     "    fragColor = vec4(finishColor(color.bgr), alpha);\n" +
                     "}"

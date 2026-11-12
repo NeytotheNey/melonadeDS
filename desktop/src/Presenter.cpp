@@ -44,29 +44,37 @@ void main()
 }
 )";
 
-// GPU::Comp1x: kFS for a frame with a half at 1x (OutputLayout). a pixel takes the texel a nearest
-// sample at its coordinate picks (floor, clamped to the edge), at highp: kFS hands the coordinate to
-// the sampler as it is, where math on it at mediump would round it to fp16. a texel in the rows of a
-// half at 1x reads its native pixel in the 1x image at the start of those rows instead, and any other
-// one (the other half, the padding) is sampled as kFS does
+// GPU::Comp1x: kFS for a frame with a half at 1x (OutputLayout). a pixel takes the texel kFS's
+// nearest sample picks: the sampler's own pick, from CoordTex (a texture the frame's width x 1 whose
+// texel x holds x) and CoordYTex (1 x its height, y), sampled with the same varying as kFS declares
+// it, as it is. working it out in the shader isn't exact: where a sample lands on the edge between
+// two texels (a 2:1 window does it at every pixel), floor() and the sampler's fixed point can choose
+// differently, and with filtered 2D the two can differ. a texel in the rows of a half at 1x reads its
+// native pixel in the 1x image at the start of those rows instead, and any other one (the other
+// half, the padding) is sampled as kFS does. a half drawn with filtered 2D at the filter map's scale
+// (OutputLayout::HalfScale) has an image that many times bigger, upscaled by Scale / HalfScale
 const char* kHalvesAt1xFS = R"(#version 320 es
 precision highp float;
 precision highp int;
 uniform sampler2D ScreenTex;
-// x: the halves at 1x (bit 0 the top one), y: the frame's scale
-uniform ivec2 uHalvesAt1x;
-in vec2 fTexcoord;
+uniform highp usampler2D CoordXTex;
+uniform highp usampler2D CoordYTex;
+// x: the halves at 1x (bit 0 the top one), y: the frame's scale, z: the scale they were drawn at
+uniform ivec3 uHalvesAt1x;
+// as kFS has it
+in mediump vec2 fTexcoord;
 out vec4 oColor;
 void main()
 {
     ivec2 size = textureSize(ScreenTex, 0);
-    ivec2 texel = clamp(ivec2(floor(fTexcoord * vec2(size))), ivec2(0), size - 1);
+    ivec2 texel = ivec2(int(texture(CoordXTex, fTexcoord).r), int(texture(CoordYTex, fTexcoord).r));
     int scale = uHalvesAt1x.y;
+    int up = scale / max(uHalvesAt1x.z, 1);
     int screenHalf = texel.y >= 194 * scale ? 1 : 0;
     int row = texel.y - screenHalf * 194 * scale;
     vec4 color;
     if (row < 192 * scale && (uHalvesAt1x.x & (1 << screenHalf)) != 0)
-        color = texelFetch(ScreenTex, ivec2(min(texel.x / scale, size.x / scale - 1), screenHalf * 194 * scale + row / scale), 0);
+        color = texelFetch(ScreenTex, ivec2(min(texel.x / up, size.x / up - 1), screenHalf * 194 * scale + row / up), 0);
     else
         color = texture(ScreenTex, fTexcoord);
     oColor = vec4(color.bgr, 1.0);
@@ -86,17 +94,18 @@ const char* kExpandFS = R"(#version 320 es
 precision highp float;
 precision highp int;
 uniform sampler2D ScreenTex;
-uniform ivec2 uHalvesAt1x;
+uniform ivec3 uHalvesAt1x;
 out vec4 oColor;
 void main()
 {
     ivec2 size = textureSize(ScreenTex, 0);
     ivec2 texel = ivec2(gl_FragCoord.xy);
     int scale = uHalvesAt1x.y;
+    int up = scale / max(uHalvesAt1x.z, 1);
     int screenHalf = texel.y >= 194 * scale ? 1 : 0;
     int row = texel.y - screenHalf * 194 * scale;
     if (row < 192 * scale && (uHalvesAt1x.x & (1 << screenHalf)) != 0)
-        texel = ivec2(min(texel.x / scale, size.x / scale - 1), screenHalf * 194 * scale + row / scale);
+        texel = ivec2(min(texel.x / up, size.x / up - 1), screenHalf * 194 * scale + row / up);
     oColor = texelFetch(ScreenTex, texel, 0);
 }
 )";
@@ -148,6 +157,7 @@ void Presenter::Free()
     glDeleteProgram(HalvesAt1xProgram);
     glDeleteProgram(ExpandProgram);
     glDeleteTextures(1, &ExpandTexture);
+    glDeleteTextures(2, CoordTex);
     glDeleteFramebuffers(1, &ExpandFB);
     glDeleteVertexArrays(1, &VertexArray);
     glDeleteBuffers(1, &VertexBuffer);
@@ -173,6 +183,10 @@ bool Presenter::PrepareHalvesAt1x()
     }
     HalvesAt1xTexLoc = glGetUniformLocation(HalvesAt1xProgram, "ScreenTex");
     HalvesAt1xLoc = glGetUniformLocation(HalvesAt1xProgram, "uHalvesAt1x");
+    glUseProgram(HalvesAt1xProgram);
+    glUniform1i(glGetUniformLocation(HalvesAt1xProgram, "CoordXTex"), 1);
+    glUniform1i(glGetUniformLocation(HalvesAt1xProgram, "CoordYTex"), 2);
+    glGenTextures(2, CoordTex);
     ExpandTexLoc = glGetUniformLocation(ExpandProgram, "ScreenTex");
     ExpandHalvesLoc = glGetUniformLocation(ExpandProgram, "uHalvesAt1x");
     glGenFramebuffers(1, &ExpandFB);
@@ -205,7 +219,7 @@ GLuint Presenter::ExpandHalvesAt1x(GLuint texture)
     glViewport(0, 0, width, height);
     glUseProgram(ExpandProgram);
     glUniform1i(ExpandTexLoc, 0);
-    glUniform2i(ExpandHalvesLoc, LastLayout.HalvesAt1x, LastLayout.Scale);
+    glUniform3i(ExpandHalvesLoc, LastLayout.HalvesAt1x, LastLayout.Scale, LastLayout.HalfScale);
     glBindTexture(GL_TEXTURE_2D, texture);
     glBindSampler(0, Sampler[0]);
     glBindVertexArray(VertexArray);
@@ -213,6 +227,43 @@ GLuint Presenter::ExpandHalvesAt1x(GLuint texture)
     glBindVertexArray(0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     return ExpandTexture;
+}
+
+void Presenter::BindCoordTextures(GLuint texture)
+{
+    GLint width = 0, height = 0;
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
+    if (width != CoordW || height != CoordH)
+    {
+        std::vector<u16> coords((size_t)std::max(width, height));
+        for (size_t i = 0; i < coords.size(); i++)
+            coords[i] = (u16)i;
+        for (int axis = 0; axis < 2; axis++)
+        {
+            glBindTexture(GL_TEXTURE_2D, CoordTex[axis]);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_R16UI, axis == 0 ? width : 1, axis == 0 ? 1 : height, 0, GL_RED_INTEGER,
+                         GL_UNSIGNED_SHORT, coords.data());
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        }
+        CoordW = width;
+        CoordH = height;
+    }
+    for (int axis = 0; axis < 2; axis++)
+    {
+        glActiveTexture(GL_TEXTURE1 + axis);
+        glBindSampler(1 + axis, 0);
+        glBindTexture(GL_TEXTURE_2D, CoordTex[axis]);
+    }
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
 }
 
 void Presenter::ResetLayouts()
@@ -326,10 +377,11 @@ void Presenter::Draw(NDS& nds, int windowW, int windowH, int topWidth, Layout la
     bool halvesAt1x = LastLayout.HalvesAt1x != 0 && PrepareHalvesAt1x();
     if (halvesAt1x && !linear)
     {
+        BindCoordTextures(LastTexture);
         glBindSampler(0, Sampler[0]);
         glUseProgram(HalvesAt1xProgram);
         glUniform1i(HalvesAt1xTexLoc, 0);
-        glUniform2i(HalvesAt1xLoc, LastLayout.HalvesAt1x, LastLayout.Scale);
+        glUniform3i(HalvesAt1xLoc, LastLayout.HalvesAt1x, LastLayout.Scale, LastLayout.HalfScale);
     }
     else
     {
@@ -381,23 +433,25 @@ bool Presenter::ReadFrame(std::vector<u8>& pixels, int& width, int& height)
     for (size_t i = 0; i < pixels.size(); i += 4)
         std::swap(pixels[i], pixels[i + 2]);
 
-    // GPU::Comp1x: a half at 1x, upscaled over its rows from the image at their start, as Draw shows it
+    // GPU::Comp1x: a half at 1x (or at the filter map's scale), upscaled over its rows from the image at
+    // their start, as Draw shows it
     for (int half = 0; half < 2; half++)
     {
         if (!(LastLayout.HalvesAt1x & (1 << half)))
             continue;
-        int scale = LastLayout.Scale, viewW = width / scale, y0 = half * 194 * scale;
-        if (scale < 1 || y0 + 192 * scale > height)
+        int scale = LastLayout.Scale, halfScale = std::max(LastLayout.HalfScale, 1), y0 = half * 194 * scale;
+        if (scale < 1 || scale % halfScale != 0 || y0 + 192 * scale > height)
             continue;
-        std::vector<u8> small((size_t)viewW * 192 * 4);
-        for (int y = 0; y < 192; y++)
-            memcpy(&small[(size_t)y * viewW * 4], &pixels[(size_t)(y0 + y) * width * 4], (size_t)viewW * 4);
+        int up = scale / halfScale, smallW = width / up, smallH = 192 * halfScale;
+        std::vector<u8> small((size_t)smallW * smallH * 4);
+        for (int y = 0; y < smallH; y++)
+            memcpy(&small[(size_t)y * smallW * 4], &pixels[(size_t)(y0 + y) * width * 4], (size_t)smallW * 4);
         for (int y = 0; y < 192 * scale; y++)
         {
             u8* row = &pixels[(size_t)(y0 + y) * width * 4];
-            const u8* nativeRow = &small[(size_t)(y / scale) * viewW * 4];
+            const u8* smallRow = &small[(size_t)(y / up) * smallW * 4];
             for (int x = 0; x < width; x++)
-                memcpy(&row[x * 4], &nativeRow[std::min(x / scale, viewW - 1) * 4], 4);
+                memcpy(&row[x * 4], &smallRow[std::min(x / up, smallW - 1) * 4], 4);
         }
     }
     GLenum error = glGetError();

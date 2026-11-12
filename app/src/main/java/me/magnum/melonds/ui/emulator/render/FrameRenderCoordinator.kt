@@ -132,6 +132,7 @@ class FrameRenderCoordinator {
                 overlayScreens: Int,
                 halvesAt1x: Int,
                 scaleAt1x: Int,
+                halfScaleAt1x: Int,
                 frameSequence: Long,
             ): Boolean {
                 val renderStart = System.nanoTime()
@@ -146,6 +147,7 @@ class FrameRenderCoordinator {
                     this.overlayScreens = overlayScreens
                     this.halvesAt1x = halvesAt1x
                     this.scaleAt1x = scaleAt1x
+                    this.halfScaleAt1x = halfScaleAt1x
                     this.frameSequence = frameSequence
                 }
 
