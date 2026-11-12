@@ -111,7 +111,10 @@ E1 changes what games look like (it's what real hardware and our software render
 
 | # | Experiment | Size |
 |---|---|---|
-| K1 | Time the compositor's parts (screen shadow, filter 2D, hi-res capture, wing hold, the capture variant) with `gltimers` and cut what's redundant. Phase 0: 0.8–0.9 Mcycles per frame everywhere, plus 1.3 ms for the capture variant at the title. | small to measure, unknown to fix |
+| K1 | Time the compositor's parts (screen shadow, filter 2D, hi-res capture, wing hold, the capture variant) with `gltimers` and cut what's redundant. Phase 0: 0.8–0.9 Mcycles per frame everywhere, plus 1.3 ms for the capture variant at the title. **Done 11-11:** the main draw is a fixed 0.84 Mcycles (19–26%), hi-res capture 0.41 at the title, the filter ~4%, the rest ~0. | done |
+| K2a | `glClear` (or invalidate) the compositor's output before the main draw, so Adreno doesn't reload ~30 MB of tiles a frame. Redo the padding rows in the same clear. Exact by construction. | small |
+| K2b | Skip a screen half whose back buffer (frame N−2) already has the right image: hash that half's planes, control words, hi-res capture and bank state, wing hold and shadow lines, plus Scale and ViewWidth, and only for halves with no 3D or no 3D re-render. A still touch screen would skip most frames. | medium |
+| K2c | Draw the 2D-only screen at 1x and let the frontend upscale it with nearest (bit-identical, since the middle is exactly Scale pixels per DS pixel). Only when that screen has no hi-res lines, 3D or wing lines, filter or shadow2D. Needs frontend changes; a blit inside the compositor would still pay the fill. Up to half the main draw. | medium to large |
 
 **Outside the two themes, but likely big:** a pre-decoded texture cache for GL (Compute already has `GPU3D_TexcacheOpenGL`). Per-fragment VRAM decoding is shading cost. It was skipped in the blackmagic3 review because the GPU was idling at 160 MHz then. At 8x that's no longer true.
 

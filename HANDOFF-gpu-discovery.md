@@ -22,7 +22,11 @@ Expected `gltrans=7` vs `3` hash differences, all where the old path disagrees w
 
 **Phone results (11-11, PERF-NOTES "T1 wider check and T1c"):** T1 is pixel-exact on the W2 title, W2 overworld and Dark Dawn title (Fold) and the W2 title (OnePlus), saving 4–15%; on the OnePlus it lifts the title from 54 to 60 fps at 8x. T1c ran on both phones (EXT listed, fetch on every clear0 frame) but is mixed: Dark Dawn −7%, OnePlus title −1%, Fold W2 title +8%, because the fetch translucent pass costs nearly as much as the clear0 pass it replaces. Its hash differences are blend rounding (1–2 steps, 0.5% of pixels in a held frame), not logic.
 
+**K1 is measured, not committed** (11-11, PERF-NOTES "K1: compositor parts"). GLTIME now splits `compx` into `cx_*` parts with `_n` run counts (core: `GPU3D_GLStats.h`, `GPU3D_ComputeStats.h`, `GPU3D_OpenGL.cpp`, `GPU_OpenGL.{h,cpp}`; app: `DebugProperties.h`), reviewed clean. On the Fold the main composite draw is a fixed 0.84 Mcycles per frame (19% of the title, 26% of the overworld), hi-res capture 0.41 at the title, the filter ~4%, wings/shadow/uploads ~0. The Fold's Diagnostics switch string is now `gltimers=1 scenestats=1`.
+
 ## Next, in order
+
+0. **K2a** (`glClear` before the compositor's main draw) is the cheap first try, then K2b (skip unchanged halves) and K2c (2D-only screen at 1x); see the plan's compositor table.
 
 1. **T1 is the default** (`GPU::GLTransSkip = 3` in every build; `gltrans=0` turns it off for A/Bs). T1c is committed (core `4ad60eef`, app `ce4dc189`) and off by default. A Diagnostics switch string that still says `gltrans=1` (the Fold's did on 11-11) overrides the default; clear it.
 2. **T1c, if picked up again,** ideas, all untested: use fetch only for frames with few translucent fragments; find out why the fetch pass costs more per fragment on Adreno (blending off with `inout` may serialize fragments per pixel); quantize src alpha to 8 bits if hash-exactness matters. Shadows over alpha-0 pixels could use the fetch program too (software writes them unblended). Mali's ARM variant isn't supported.

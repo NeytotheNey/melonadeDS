@@ -116,7 +116,8 @@ namespace melonDS { class GPU; }
  *   vertexid N     1 logs a VERTEXID line once a second on vertex identity between 3D scenes, 2 a line per scene as well, no effect on emulation (GPU3D_VertexId.h)
  *   halfcam N      experiment: in-between 3D scenes from a halfway camera, 1 camera only, 2 plus characters, 3 same as 2 with a HALFCAM cam line per scene and a diag line per second, 4 same as 3 plus billboards following the camera, 5 same as 4 with a HALFCAM pair line per scene; compute renderer only (GPU3D_HalfCamera.h). When set, it replaces the Smooth 30 FPS setting, so 0 forces it off
  *   gltimers N     OpenGL: 1 logs a GLTIME line once a second with the GPU µs of each pass per timed render, capture readback and Blit (upload,
- *                  clear, opaque, clear0, trans, edge, fog, capture, comp, compx), from GL_EXT_disjoint_timer_query read some frames late; it
+ *                  clear, opaque, clear0, trans, edge, fog, capture, comp, compx, then the compositor's parts comp_hd and cx_*, each with an
+ *                  _n of the Blits it ran in), from GL_EXT_disjoint_timer_query read some frames late; it
  *                  logs once if the extension is missing or every query reads 0. 2 times the same passes on the CPU between glFinish calls
  *                  instead: much slower, every pass reads longer than it is, so compare its share= list (GPU::GLTimers, GPU3D_GLStats.h)
  *   scenestats N   1 logs a SCENESTATS line once a second on the scenes line 215 renders, from the CPU's polygons, with any renderer: DISP3DCNT
