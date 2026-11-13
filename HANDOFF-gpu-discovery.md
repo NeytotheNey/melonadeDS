@@ -4,9 +4,9 @@ The plan and results are in [docs/plan-gpu-discovery.md](docs/plan-gpu-discovery
 
 ## State (11-13)
 
-Branch `compute-efficiency` in the app and the core, pushed. Latest: core `dc22e247` (E2, D1, 12x/16x) and the app commit after it.
+Branch `compute-efficiency` in the app and the core. Latest: core `3efacbb9` and app `15506188` (K4, the output cap), not pushed as of 11-13; everything before them is pushed.
 
-**Defaults in every build:** T1 (`gltrans=3`), K2c (`comp1x=1`), K3 (`filter2drows=1`), E2 (`gledgeskip=1`), D1 (`glclear=3`). Off-by-default switches: T1c (`gltrans` bit 2), K2a (`compclear`), R2 is shelved.
+**Defaults in every build:** T1 (`gltrans=3`), K2c (`comp1x=1`), K3 (`filter2drows=1`), E2 (`gledgeskip=1`), D1 (`glclear=3`), K4 (`outcap=1`, `outcap3d=3`). Off-by-default switches: T1c (`gltrans` bit 2), K2a (`compclear`), R2 is shelved.
 
 **E2 and D1** (PERF-NOTES "E2 and D1" through "Fold at 12x and 16x"). `gledgeskip=1` skips the final-pass edge draw (the edge FS returns 0 unless attr G is set, and every attr writer writes 0 or masks G) and the whole final pass when fog is off; once E1 lands, it must key on whether any polygon this frame can set the flag. `glclear` bit 0 = `glClearBuffer` instead of the plain clear quad (color `{b,g,r,a}/31`, attr `{id/63,0,fog,1}`, depth `z/2^24`, same stencil ref, so T1c's 0xBF and `CountCoveredPixels`' 0xFF still hold), bit 1 = invalidate attr and depth/stencil after the frame. Reviewed clean, hash3d-exact on every aligned frame (desktop, Fold, Pixel). `gledgeskip=1 glclear=3` saves 4–7% GPU cycles at 12x/16x on both phones and 4% at 8x on the Pixel; at 8x on the Fold it's noise. **`gledgeskip=1 glclear=3` is the default since 11-12**; `gledgeskip=0 glclear=0` for A/Bs.
 
@@ -16,7 +16,43 @@ Branch `compute-efficiency` in the app and the core, pushed. Latest: core `dc22e
 
 ## Next, in order
 
-0. **K4 done for the 256 view, WideMelon and hi-res capture, on by default, uncommitted** (`outcap=1`, `outcap3d=3`; PERF-NOTES "K4" and "K4 second pass", design in docs/plan-k4-output-cap.md). The compositor, frame queue and frontend run at the screen's scale (need from the DS screen rects, 30-frame debounce, integer ratio 1–4) while 3D renders at full scale. Mode 3 = edge-aware bilinear (exact on mixed-alpha blocks and saturating blends). At 16x: Fold graphics PSS 1252 → ~500 MB, compositor 3.1 → 1.6 ms; Pixel −14% GPU cycles. Runtime rescale (size change, rotation) checked on the Pixel. `OUTCAP:` log lines (change-only, also in release) say what was picked and why not. **Not committed yet; the user decides.** Leave the `MALI-TEST` line out of any commit. Left for K4: (a) port Smooth 2D (Filter2D), still excluded, so players with it on get no cap; (b) gpu2d shadow stays excluded (debug-only); (c) check mode `outcap=2`; (d) relax `ScaleFits` when capped; (e) clear new frame textures on the GPU instead of the zeroed CPU vector (`FrameQueue.cpp:200`), which now runs on each fold/unfold; (f) comment drift: Kotlin comments in DSRenderer, FrameRenderCoordinator and MelonEmulator still call it `debug.melonade.outcap` only; (g) a capped rescale drops the hi-res banks, so a held captured image shows native until the next capture. Open: the Fold's GLTIME total stays ~11 ms while the compositor gets 1.5 ms cheaper. Before pushing any app file to a phone (rom_data.json, prefs), force-stop the app, or it writes its own copy back.
+0. **K4 phase 3: Smooth 2D under the output cap. Start here.**
+
+   **Where K4 stands.** It's committed and on by default (`outcap=1`, `outcap3d=3`). Background is in PERF-NOTES "K4" and "K4 second pass"; the design, switches and "Remaining steps" are in [docs/plan-k4-output-cap.md](docs/plan-k4-output-cap.md).
+   - The compositor, frame queue and frontend run at the screen's scale, Sout = S3D/r with r a whole number from 1 to 4. The 3D still renders at full scale.
+   - The need comes from the DS screen rects in `DSRenderer`, takes the max over surfaces in `FrameRenderCoordinator`, and is held for 30 frames in `MelonInstance::runFrame`.
+   - Capped compositing works in the 256 view, the WideMelon wide view and hi-res capture.
+   - Mode 3 is an edge-aware bilinear: `textureGather` reads each block's alphas. It takes the exact per-sub-sample path on mixed-alpha blocks and on saturating compmode-1 blends (EVA+EVB > 16).
+   - At 16x: Fold graphics PSS 1252 → ~500 MB, compositor 3.1 → 1.6 ms; Pixel −14% GPU cycles. Runtime rescale (size change, rotation) was checked on the Pixel.
+   - `OUTCAP:` log lines (change-only, also in release) say which scale was picked, and why when it isn't capped.
+   - Still excluded: Smooth 2D (`Filter2D`, pref `video_filter_2d`) and the gpu2d shadow, in `GLCompositor::OutputNeed`. So players with Smooth 2D on get no cap.
+
+   **This phase, in order:**
+   1. Port Smooth 2D to the capped (DOWN3D) compositor for all `outcap3d` modes, then remove its exclusion. Notes:
+      - `FilterFetch3D` builds its sub-sample positions from `subPixel*r + (i,j)`.
+      - The filter map's texel is the same for all r² sub-pixels when Sout is a multiple of the map scale.
+      - The identity mode (`Filter2D 3`, mediump) stays uncapped.
+      - Check comp1x's filtered halves at Sout=4. On the cover screen they fall back to a full draw.
+   2. Leftovers:
+      - (d) relax `ScaleFits` when capped: only `192*S3D` and `(384+2)*Sout` need to fit, so 4096-limit GPUs could run 16x 3D;
+      - (e) clear new frame textures on the GPU instead of with the zeroed CPU vector (`FrameQueue.cpp:200`), which now runs on every fold/unfold;
+      - (f) the Kotlin comments in `DSRenderer`, `FrameRenderCoordinator` and `MelonEmulator` still call the cap only `debug.melonade.outcap`;
+      - (g) a capped rescale drops the hi-res banks, so a held captured image shows native until the next capture. Decide if that matters.
+      - Skip the `outcap=2` check mode unless it's cheap. gpu2d stays excluded (debug-only).
+   3. Validate on the desktop first. The earlier scripts lived in a session scratchpad and are gone, so rebuild what's needed:
+      - capped vs a box filter of uncapped screenshots, each screen half separately (padding rows: half 1 starts at row 194·S);
+      - HASH3D identical (needs a desktop build with `MELONADE_DEBUG_TOOLS`);
+      - mode 0 bit-exact, r=1 byte-identical to `OutputCap=0`;
+      - modes 1 and 3 differing only on pixels that show 3D.
+      
+      Use `--fixed-time`, the same frame count, and `--set OutputCap=1 --set OutputCapNeed=8` (the desktop has no frontend need, so it never caps on its own).
+   4. Phone A/B at 16x with Smooth 2D on, `outcap=0` vs the default, Fold (inner screen) and Pixel 8: White 2 overworld, plus the NSMB title, which is on both phones. Use the phone-tester agent and the quick recipe, and put the logs in `perf_logs/`.
+
+   **Done looks like:** Smooth 2D runs under the cap on both phones with numbers in PERF-NOTES; the leftovers are handled or deferred with a reason; a clean fresh review; this file and the plan doc updated.
+
+   **Open, not this phase:** the Fold's GLTIME total stays ~11 ms while the compositor gets 1.5 ms cheaper.
+
+   **Caution:** before pushing any app file to a phone (rom_data.json, prefs), force-stop the app, or it writes its own copy back. A K4 run lost White 2's `wideViewWidth` 342 on the Fold that way; it has been restored.
 1. **Check the highp compositor on Adreno.** The Fold's cover screen downsamples too much to judge 12x/16x. Use the inner screen or a native-resolution capture and compare the right side of the top screen at 8x/12x/16x. The coder also suspected an old fp16 issue: on fp16 GPUs the lower part of the bottom screen's 3D may show only 4x vertical detail at 5–8x. Unconfirmed.
 2. **R1 for Z-buffer scenes** (plan table). R2 showed no phone has `GL_EXT_conservative_depth`, so W-buffer frames can't get exact early-Z.
 3. **Later: memory and GPU work vs Vulkan** (plan "Later: memory" and "WatermelonDS at 16x"). At 16x on the Fold we use 1932 MB PSS / 1047 MB graphics, about the same as WatermelonDS's Vulkan 16x. The bigger gap is GPU work: W2 title 8x ~3.6 vs 2.5 Mcyc (was 4.9 on 11-11), 16x ~12.7 vs 5.0. After K4, the next suspects are their per-pixel 3D (T2, a texture cache decoded once instead of per fragment; NoAttr/color-only pipelines, D2) and D3 (one edge+fog pass, no mid-frame depth detach). Big memory items: the frame queue (up to 9 × ~101 MB at 16x), the GL 3D targets (~250 MB), Compute's work buffers.
