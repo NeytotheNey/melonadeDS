@@ -38,6 +38,8 @@ namespace MelonDSAndroid
 
 const int REWIND_BUFFER_SIZE = 1024 * 1024 * 20; // Use 20MB per savestate
 const int REWIND_SCREENSHOT_SIZE = 256 * 384 * 4;
+// GPU::OutputCap: the frames a new need from the frontend has to hold for before the renderer gets it (MelonInstance::runFrame)
+const int OUTPUT_NEED_STABLE_FRAMES = 30;
 
 // The player's touch in one word (MelonInstance::userTouch): a down flag, x and y
 struct PackedTouch
@@ -352,6 +354,21 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     if (hasPendingRewindSettings.load(std::memory_order_acquire)) [[unlikely]]
         applyRewindSettings();
 
+    // GPU::OutputCap: the screens' size only counts once it held for a while, so a fold, a rotation or a layout change resizes the frame once
+    int frontendOutputNeed = MelonDSAndroid::getOutputScaleNeed();
+    // Each change logs a line (debug), so a frontend that flips between two values shows up as a run of them with no "accepted"
+    if (frontendOutputNeed != pendingOutputScaleNeed)
+    {
+        LOG_INFO(LOG_TAG_DEBUG, "OUTCAP: frontend need %d pending (was %d, accepted %d)", frontendOutputNeed, pendingOutputScaleNeed, outputScaleNeed);
+        pendingOutputScaleNeed = frontendOutputNeed;
+        pendingOutputScaleNeedFrames = 0;
+    }
+    else if (pendingOutputScaleNeed != outputScaleNeed && ++pendingOutputScaleNeedFrames >= OUTPUT_NEED_STABLE_FRAMES)
+    {
+        LOG_INFO(LOG_TAG_DEBUG, "OUTCAP: frontend need %d accepted after %d frames (was %d)", pendingOutputScaleNeed, pendingOutputScaleNeedFrames, outputScaleNeed);
+        outputScaleNeed = pendingOutputScaleNeed;
+    }
+
     int screenWidth;
     int screenHeight;
     // In DS pixels, with the 256 wide bottom screen centered under it between black bars when this is wider
@@ -359,7 +376,10 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     if (currentRenderer == Renderer::OpenGl)
     {
         auto& glRenderer = static_cast<GLRenderer &>(nds->GPU.GetRenderer3D());
-        int scale = glRenderer.GetScaleFactor();
+        // After updateRenderer(), which sets what the cap depends on; only a change reaches the compositor, and the 3D keeps its scale
+        glRenderer.SetOutputNeed(nds->GPU, outputScaleNeed);
+        // The compositor's, which the frame is drawn at: below the 3D's while GPU::OutputCap caps it
+        int scale = glRenderer.GetOutputScale();
         // The width the compositor draws this frame at, which can lag behind the requested one
         topScreenWidth = glRenderer.GetOutputWidth();
         screenWidth = topScreenWidth * scale;
@@ -368,8 +388,10 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     else if (currentRenderer == Renderer::Compute)
     {
         auto& computeRenderer = static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D());
-        // The renderer's, not the setting's, as it drops to the largest scale that fits the GPU's limits, as OpenGL does
-        int scale = computeRenderer.GetScaleFactor();
+        computeRenderer.SetOutputNeed(nds->GPU, outputScaleNeed);
+        // The renderer's, not the setting's, as it drops to the largest scale that fits the GPU's limits, as OpenGL does, and the compositor's
+        // like OpenGL's, which is below the 3D's while GPU::OutputCap caps it
+        int scale = computeRenderer.GetOutputScale();
         // Same as OpenGL, the compositor's width can lag behind the requested one
         topScreenWidth = computeRenderer.GetOutputWidth();
         screenWidth = topScreenWidth * scale;

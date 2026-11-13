@@ -109,6 +109,14 @@ class EmulatorSurfaceView(context: Context, attrs: AttributeSet? = null) : Surfa
         return renderer?.canDrawHalvesAt1x() ?: true
     }
 
+    /**
+     * How big this surface's renderer shows the screens (see [EmulatorRenderer.outputScaleNeed]); 0 without a renderer, which draws nothing.
+     * Render thread only, after [doFrame].
+     */
+    fun outputScaleNeed(): Int {
+        return renderer?.outputScaleNeed() ?: 0
+    }
+
     fun doFrame(glContext: GlContext, presentFrameWrapper: PresentFrameWrapper) {
         synchronized(surfaceLock) {
             surfaceRenderer?.doFrame(

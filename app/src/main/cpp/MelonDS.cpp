@@ -365,6 +365,18 @@ namespace MelonDSAndroid
         return halvesAt1xSupported.load(std::memory_order_relaxed);
     }
 
+    static std::atomic_int outputScaleNeed = 0;
+
+    void setOutputScaleNeed(int need)
+    {
+        outputScaleNeed.store(need, std::memory_order_relaxed);
+    }
+
+    int getOutputScaleNeed()
+    {
+        return outputScaleNeed.load(std::memory_order_relaxed);
+    }
+
     void pause()
     {
         pauseAudio();

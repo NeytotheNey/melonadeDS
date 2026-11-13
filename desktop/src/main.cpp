@@ -180,6 +180,7 @@ const BoolSwitch kBoolSwitches[] = {
     {"BlitAfterReadback", &GPU::BlitAfterReadback},
     {"Filter2DLogging", &GPU::Filter2DLogging},
     {"Hash2DLogging", &GPU::Hash2DLogging},
+    {"Hash3DLogging", &GPU::Hash3DLogging},
     {"ComputeSSBO", &GPU::ComputeSSBO},
 };
 
@@ -192,6 +193,10 @@ const IntSwitch kIntSwitches[] = {
     {"CompClear", &GPU::CompClear},
     {"Comp1x", &GPU::Comp1x},
     {"Filter2DRows", &GPU::Filter2DRows},
+    {"OutputCap", &GPU::OutputCap},
+    {"OutputCapNeed", &GPU::OutputCapNeed},
+    {"OutputCap3D", &GPU::OutputCap3D},
+    {"GLTimers", &GPU::GLTimers},
     {"SceneStats", &GPU::SceneStats},
     {"ComputeCheck", &GPU::ComputeCheck},
     {"ComputeBin", &GPU::ComputeBin},
@@ -562,6 +567,12 @@ public:
             RendererDirty = false;
             UpdateRenderer();
         }
+
+        // GPU::OutputCap: the window has no need of its own, so only --set OutputCapNeed caps the output
+        if (Current == RendererType::OpenGL)
+            static_cast<GLRenderer&>(Nds->GPU.GetRenderer3D()).SetOutputNeed(Nds->GPU, 0);
+        else if (Current == RendererType::Compute)
+            static_cast<ComputeRenderer&>(Nds->GPU.GetRenderer3D()).SetOutputNeed(Nds->GPU, 0);
 
         Renderer3D& renderer = Nds->GPU.GetRenderer3D();
         if (renderer.NeedsShaderCompile())

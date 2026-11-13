@@ -300,4 +300,10 @@ object MelonEmulator {
      * Sets the top screen's 3D view width before the next frame (like EmulatorConfiguration.wideViewWidth, 0 for the normal width).
      */
     external fun setWideViewWidth(width: Int)
+
+    /**
+     * Sets how many times the native size the screens are shown at, at most, over every surface (0 when unknown), for debug.melonade.outcap
+     * (GPU::OutputCap), which caps the frame's scale by it. Only call it when the value changes; the emulator applies it once it holds for a while.
+     */
+    external fun setOutputScaleNeed(need: Int)
 }

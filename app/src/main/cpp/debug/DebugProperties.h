@@ -160,6 +160,31 @@ namespace melonDS { class GPU; }
  *                  lines only redraws the map rows those lines can reach. 0 redraws the whole map as before, 2 checks: every 30th partial
  *                  redraw is read back and compared with a full one (the FILTER2D line's rowchecks and rowmismatches). 1 is the default in
  *                  every build (GPU::Filter2DRows)
+ *   outcap N       OpenGL and compute, experiment K4 (docs/plan-gpu-discovery.md): 1 caps the compositor's output, and so the frame,
+ *                  at the scale the screens are shown at, while the 3D keeps rendering at the internal resolution: the output is the
+ *                  internal scale over d (d = 2-4 dividing it, so 12x gives 6x, 4x or 3x), and each output pixel is made from the
+ *                  d x d 3D pixels under it (see outcap3d), in the 256 view and in a WideMelon one. Hi-res capture's copies are at the
+ *                  output's scale too, made from the 3D at the full scale the same way. The need is the largest ceil(screen size /
+ *                  native size) over the screens of every surface, applied once it holds for 30 frames. Not with filtered 2D or the
+ *                  GPU 2D shadow yet (those keep the full scale). 1 is the default in every build, 0 as before (GPU::OutputCap). A
+ *                  need of 0 (unknown, as in the desktop build) is no cap. OUTCAP lines, only on a change: each surface's need and
+ *                  the max sent (melonade-debug, DSRenderer and FrameRenderCoordinator), the need pending and accepted after the 30 frames (melonade-debug), and the
+ *                  output scale with why it isn't capped (melonade, GLCompositor::LogOutputCap)
+ *   outcapneed N   with outcap 1: cap by this need (1-16) instead of the screens' sizes, for A/Bs. 0, the default, uses the screens'
+ *                  (GPU::OutputCapNeed)
+ *   outcap3d N     with outcap 1 capping: how an output pixel is made from the 3D pixels under it. 0 is the exact supersample, a
+ *                  composite per 3D pixel, averaged: exactly a box filter of the full-scale frame. 1 and 2 are cheaper and inexact
+ *                  (a few levels off on 3D pixels only), one composite per output pixel: 1 on the plain average of their color and
+ *                  alpha from bilinear taps (where the alphas differ, a 3D edge over 2D, transparent pixels' color mixes in), 2 on
+ *                  their alpha-weighted color and averaged alpha from a texelFetch each. Both are also off, by more, where a 2D
+ *                  layer blends additively over textured 3D (3D on bottom with EVA + EVB above 16): the blend clamps, and clamping
+ *                  the average isn't averaging the clamped sub-pixels. 3, the default, reads the alphas first (one textureGather
+ *                  at a ratio of 2, four at 3 and 4) and does 1 where they're all the same and 0 where they differ or the blend
+ *                  can clamp, so edges and those blends are exact and only same-alpha blocks are off by a color average's
+ *                  rounding. Hi-res capture follows the same mode: in 0 each 3D pixel is captured and the colors averaged, with the
+ *                  alpha bit set where at least half have it, in 1 and 2 one capture on the averaged 3D, in 3 either by the alphas
+ *                  and the blend. The 2D,
+ *                  brightness and what's excluded stay as in 0 (GPU::OutputCap3D)
  *   computecheck N compute, Mali diagnostics (docs/shelved/compute-on-mali.md): every Nth render with polygons waits for the GPU, reads
  *                  back binning's buffers, the WorkDescs and the X spans, and the setup indices through the texture buffer (a small
  *                  extra program), and logs a COMPCHECK line with counts of what's inconsistent (work total vs the CPU bound and

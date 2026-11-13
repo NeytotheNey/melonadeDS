@@ -138,6 +138,12 @@ namespace MelonDSAndroid {
      */
     extern void setHalvesAt1xSupported(bool supported);
     extern bool areHalvesAt1xSupported();
+    /**
+     * GPU::OutputCap: how many times the native size the screens are shown at, at most, over every surface presenting frames (0 for unknown),
+     * as the render thread last worked it out (FrameRenderCoordinator); read by the emulator thread before each frame (MelonInstance::runFrame)
+     */
+    extern void setOutputScaleNeed(int need);
+    extern int getOutputScaleNeed();
     extern void pause();
     extern void resume();
     extern void syncDateTimeToDevice();

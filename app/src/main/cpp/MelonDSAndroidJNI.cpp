@@ -758,6 +758,12 @@ Java_me_magnum_melonds_MelonEmulator_setWideViewWidth(JNIEnv* env, jobject thiz,
     MelonDSAndroid::setWideViewWidth(width);
 }
 
+JNIEXPORT void JNICALL
+Java_me_magnum_melonds_MelonEmulator_setOutputScaleNeed(JNIEnv* env, jobject thiz, jint need)
+{
+    MelonDSAndroid::setOutputScaleNeed(need);
+}
+
 JNIEXPORT jboolean JNICALL
 Java_me_magnum_melonds_MelonEmulator_takeScreenshot(JNIEnv* env, jobject thiz)
 {

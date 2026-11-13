@@ -161,6 +161,11 @@ private:
     int wideViewWidth;
     // The width setWideViewWidth() asked for, from any thread, picked up by the emulator thread before the next frame
     std::atomic_int requestedWideViewWidth;
+    // GPU::OutputCap, emulator thread only: the frontend's need (MelonDSAndroid::getOutputScaleNeed) the renderer is given, and the last one
+    // seen with the frames it has held for, as a new one only replaces it once it held for OUTPUT_NEED_STABLE_FRAMES frames
+    int outputScaleNeed = 0;
+    int pendingOutputScaleNeed = 0;
+    int pendingOutputScaleNeedFrames = 0;
 
     // Replaced by updateConfiguration() from other threads, so only used through std::atomic_load and std::atomic_store
     std::shared_ptr<EmulatorConfiguration> currentConfiguration;

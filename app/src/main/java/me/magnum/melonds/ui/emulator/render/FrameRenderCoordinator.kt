@@ -3,10 +3,12 @@ package me.magnum.melonds.ui.emulator.render
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Message
+import android.util.Log
 import me.magnum.melonds.MelonDSAndroidInterface
 import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import me.magnum.melonds.impl.diagnostics.DisplayPerformanceCapture
+import me.magnum.melonds.impl.diagnostics.LogTags
 import me.magnum.melonds.ui.emulator.EmulatorSurfaceView
 
 class FrameRenderCoordinator {
@@ -120,6 +122,13 @@ class FrameRenderCoordinator {
         private var pendingVsyncPeriodNanos = 0L
         // Vsync period of the request being rendered, for the display samples
         private var renderingVsyncPeriodNanos = 0L
+        // debug.melonade.outcap: the need last passed to MelonEmulator.setOutputScaleNeed(), -1 so the first frame passes its own over whatever
+        // an earlier session left there
+        private var lastOutputScaleNeed = -1
+        // debug.melonade.outcap: each managed surface's need this frame and the ones last logged, in managedSurfaces' order, so a change in
+        // any of them (a second surface showing up, say) logs a line without allocating every frame
+        private var surfaceOutputScaleNeeds = IntArray(4)
+        private var loggedSurfaceOutputScaleNeeds = IntArray(0)
 
         private val frameRenderCallback = object : FrameRenderCallback {
             override fun renderFrame(
@@ -151,11 +160,24 @@ class FrameRenderCoordinator {
                     this.frameSequence = frameSequence
                 }
 
-                // debug.melonade.comp1x: the emulator only draws screens at 1x while every surface can show them
+                // debug.melonade.comp1x: the emulator only draws screens at 1x while every surface can show them. debug.melonade.outcap: the
+                // frame's scale is capped by the biggest any surface shows a screen at
                 var canDrawHalvesAt1x = true
-                managedSurfaces.forEach {
-                    it.doFrame(glContext, presentFrameWrapper)
-                    canDrawHalvesAt1x = canDrawHalvesAt1x && it.canDrawHalvesAt1x()
+                var outputScaleNeed = 0
+                if (surfaceOutputScaleNeeds.size < managedSurfaces.size) {
+                    surfaceOutputScaleNeeds = IntArray(managedSurfaces.size)
+                }
+                managedSurfaces.forEachIndexed { index, surface ->
+                    surface.doFrame(glContext, presentFrameWrapper)
+                    canDrawHalvesAt1x = canDrawHalvesAt1x && surface.canDrawHalvesAt1x()
+                    val surfaceNeed = surface.outputScaleNeed()
+                    surfaceOutputScaleNeeds[index] = surfaceNeed
+                    outputScaleNeed = maxOf(outputScaleNeed, surfaceNeed)
+                }
+                logSurfaceOutputScaleNeeds(managedSurfaces.size, outputScaleNeed)
+                if (outputScaleNeed != lastOutputScaleNeed) {
+                    lastOutputScaleNeed = outputScaleNeed
+                    MelonEmulator.setOutputScaleNeed(outputScaleNeed)
                 }
 
                 val renderDuration = System.nanoTime() - renderStart
@@ -177,6 +199,25 @@ class FrameRenderCoordinator {
 
                 return canDrawHalvesAt1x
             }
+        }
+
+        /**
+         * debug.melonade.outcap: logs the [count] surfaces' needs and the [sent] one, their max, when any of them changed since the last line.
+         */
+        private fun logSurfaceOutputScaleNeeds(count: Int, sent: Int) {
+            val logged = loggedSurfaceOutputScaleNeeds
+            var changed = logged.size != count
+            var index = 0
+            while (!changed && index < count) {
+                changed = logged[index] != surfaceOutputScaleNeeds[index]
+                index++
+            }
+            if (!changed) {
+                return
+            }
+
+            loggedSurfaceOutputScaleNeeds = surfaceOutputScaleNeeds.copyOf(count)
+            Log.i(LogTags.DEBUG, "OUTCAP: frontend sends need $sent, max over $count surfaces: ${loggedSurfaceOutputScaleNeeds.joinToString()}")
         }
 
         override fun onLooperPrepared() {

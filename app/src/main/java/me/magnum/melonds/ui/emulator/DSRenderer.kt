@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.opengl.GLES30
 import android.opengl.GLUtils
+import android.util.Log
 import me.magnum.melonds.common.opengl.Shader
 import me.magnum.melonds.common.opengl.ShaderFactory
 import me.magnum.melonds.common.opengl.ShaderProgramSource
@@ -14,6 +15,7 @@ import me.magnum.melonds.common.opengl.VideoFilterShaderProvider
 import me.magnum.melonds.domain.model.FRAME_TEXTURE_HEIGHT
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.RuntimeBackground
+import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.VideoFiltering
 import me.magnum.melonds.domain.model.layout.BackgroundMode
@@ -22,6 +24,7 @@ import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_BOTTOM
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_TOP
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import me.magnum.melonds.domain.model.render.TiltShift
+import me.magnum.melonds.impl.diagnostics.LogTags
 import me.magnum.melonds.impl.diagnostics.SvgTimingLog
 import me.magnum.melonds.ui.emulator.model.RuntimeRendererConfiguration
 import me.magnum.melonds.ui.emulator.render.EmulatorRenderer
@@ -30,6 +33,7 @@ import me.magnum.melonds.utils.BitmapUtils
 import me.magnum.melonds.utils.SvgBackground
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 // Screen shadow: radius as a share of the screen's shorter side with a minimum in surface pixels, and alpha at the screen's edge
@@ -72,6 +76,8 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var screenIndices = 0
     // The DS screen (OVERLAY_SCREEN_TOP or OVERLAY_SCREEN_BOTTOM) of each quad in screensVbo in draw order, so its Lua drawings can go right after it
     private var screenQuadScreens = IntArray(0)
+    // debug.melonade.outcap: the largest need of the screens the quads were built for (see outputScaleNeed); GL thread only
+    private var screensOutputScaleNeed = 0
     // Top-screen width of the frame the quads were built for; GL thread writes, touch input reads
     @Volatile
     var frameTopScreenWidth = SCREEN_WIDTH
@@ -281,6 +287,17 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         isBottomScreenWideInQuads = areScreensSwapped
         val topScreen = drawing.topScreen
         val bottomScreen = drawing.bottomScreen
+        // debug.melonade.outcap: each screen's middle columns are shown at nativeRect's size, which the frame has to be at least as big as
+        val outputScaleNeed = listOfNotNull(topScreen, bottomScreen).maxOfOrNull { screen ->
+            val rect = screen.nativeRect
+            ceil(maxOf(rect.width / SCREEN_WIDTH.toDouble(), rect.height / SCREEN_HEIGHT.toDouble()) - 1e-3).toInt().coerceAtLeast(1)
+        } ?: 0
+        if (outputScaleNeed != screensOutputScaleNeed) {
+            Log.i(LogTags.DEBUG, "OUTCAP: surface ${width.toInt()}x${height.toInt()} need $outputScaleNeed (was $screensOutputScaleNeed): " +
+                "top ${topScreen?.nativeRect?.let { "${it.width}x${it.height}" } ?: "none"}, " +
+                "bottom ${bottomScreen?.nativeRect?.let { "${it.width}x${it.height}" } ?: "none"}, frame width $frameTopScreenWidth")
+            screensOutputScaleNeed = outputScaleNeed
+        }
         val topScreenVertexData = topScreen?.let { buildScreenVertexData(it.drawRect, buildScreenUvs(it.leftU, it.rightU, 0f, topScreenBottomV), topAlpha) }
         val bottomScreenVertexData = bottomScreen?.let { buildScreenVertexData(it.drawRect, buildScreenUvs(it.leftU, it.rightU, bottomScreenTopV, 1f), bottomAlpha) }
         val topOverlayVertexData = topScreen?.let { buildScreenVertexData(it.nativeRect, buildScreenUvs(0f, 1f, 0f, topScreenBottomV), topAlpha) }
@@ -548,6 +565,8 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     override fun canDrawHalvesAt1x(): Boolean {
         return tiltShift == null && screenFilter?.canDrawHalvesAt1x == true
     }
+
+    override fun outputScaleNeed(): Int = screensOutputScaleNeed
 
     /**
      * Uses [shader] to draw the screen quads with [textureId] bound to its tex uniform, filtered the way the shader asks.

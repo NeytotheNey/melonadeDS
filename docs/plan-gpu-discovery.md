@@ -143,7 +143,7 @@ Their 3D frame is otherwise close to ours: RGBA8 color and attr, D24S8, no MSAA,
 
 | | Change | Est. saving at 16x | Notes |
 |---|---|---|---|
-| K4 | Cap the output (compositor, hi-res capture, frame queue, frontend texture) at the screen's scale; downscale the 3D once (2:1 `glBlitFramebuffer` linear, or one bilinear tap per 2x2 block in the compositor, an exact average) | ~3.5–4 of 12.7 Mcyc (~30%), ~75 MB per frame texture | WideMelon and `comp1x` must follow the cap; a linear blit isn't alpha-weighted like their box filter; hi-res capture of 3D must still read the full 3D where a game captures it |
+| K4 | Cap the output (compositor, hi-res capture, frame queue, frontend texture) at the screen's scale; downscale the 3D once (2:1 `glBlitFramebuffer` linear, or one bilinear tap per 2x2 block in the compositor, an exact average) | ~3.5–4 of 12.7 Mcyc (~30%), ~75 MB per frame texture | WideMelon and `comp1x` must follow the cap; a linear blit isn't alpha-weighted like their box filter; hi-res capture of 3D must still read the full 3D where a game captures it. **First pass 11-13 (`outcap`, off by default):** 256 view only (off in a wide view, with hi-res capture, Smooth 2D or gpu2d). Exact mode (`outcap3d=0`, per-sub-sample composite) −9% Pixel GPU at 16x, −740 MB graphics on the Fold; bilinear mode (`outcap3d=1`, inexact) −15% Pixel, Fold compositor 3.03 → 1.29 ms. PERF-NOTES "K4". **Second pass 11-13:** wide view and hi-res capture ported, edge-aware `outcap3d=3`, both on by default; Fold 16x compositor 3.1 → 1.6 ms, graphics −750 MB; Pixel −14%. PERF-NOTES "K4 second pass". |
 | T2 | Texture cache: decode DS textures once into GL textures instead of per fragment | unknown, likely the biggest 3D item | large |
 
 ## Later: memory
