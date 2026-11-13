@@ -238,7 +238,7 @@ Overrides apply(GPU& gpu)
     if (read("glclear", value))
         gpu.GLClearFast = std::clamp(atoi(value), 0, 3);
     if (read("glnodiscard", value))
-        gpu.GLNoDiscard = std::clamp(atoi(value), 0, 1);
+        gpu.GLNoDiscard = std::clamp(atoi(value), 0, 7);
     if (read("compclear", value))
         gpu.CompClear = std::clamp(atoi(value), 0, 2);
     if (read("comp1x", value))

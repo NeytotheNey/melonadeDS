@@ -149,7 +149,11 @@ namespace melonDS { class GPU; }
  *                  fragment (polygon alpha 31, not a shadow, and untextured, decal, or a palette texture without a transparent color 0)
  *                  with a program built without discard, so the GPU can test depth early. Z-buffer frames only. Exact, so hash3d stays
  *                  the same; with scenestats the GLOPAQUE line counts those polygons and the extra draws and program switches.
- *                  1 is the default since 11-13, in release builds too; 0 draws as before (GPU::GLNoDiscard)
+ *                  0 draws as before (GPU::GLNoDiscard). A sum of bits, default 3 since 11-13, in release builds too:
+ *                  2 (step 2) adds the textures that need a scan (direct, 4x4, palettes with color 0 transparent)
+ *                  when none of their texels comes out under alpha 31, cached until texture VRAM under them changes, so
+ *                  3 is steps 1 and 2; 4 is a check that drops that cache every frame (7 vs 3 must hash the same). any
+ *                  nonzero value turns step 1 on, so 2 acts as 3
  *   compclear N    OpenGL and compute, experiment K2a (docs/plan-gpu-discovery.md): the compositor's main draw starts without the
  *                  output's old contents, so a tiled GPU needn't load them first. 1 clears the whole output to 0, 2 invalidates it and
  *                  clears only the padding rows between the screens. Both keep the output the same. 0, the default, draws as before
