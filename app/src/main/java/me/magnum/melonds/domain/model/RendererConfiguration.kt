@@ -22,6 +22,16 @@ data class RendererConfiguration(
     val resolutionScaling get() = when (renderer) {
         VideoRenderer.SOFTWARE -> 1
         VideoRenderer.OPENGL -> internalResolutionScaling
-        VideoRenderer.COMPUTE -> internalResolutionScaling
+        VideoRenderer.COMPUTE -> internalResolutionScaling.coerceAtMost(MAX_COMPUTE_RESOLUTION_SCALING)
+    }
+
+    companion object {
+        /**
+         * The 12x and 16x settings run Compute at 8x. Its work buffers grow with the pixel count: on the PC build (White 2's title) it took
+         * 0.6 GB of graphics memory at 8x, 1.1 GB at 12x and 1.9 GB at 16x, and the Fold already used about 0.86 GB at 8x, which phones take
+         * from their shared RAM. Its GPU time should grow about as the pixels do (2.25x and 4x of 8x's), and 8x already costs twice OpenGL's. OpenGL goes to 16x.
+         * The core also drops any scale that doesn't fit the GPU's limits on its own, for both renderers.
+         */
+        const val MAX_COMPUTE_RESOLUTION_SCALING = 8
     }
 }

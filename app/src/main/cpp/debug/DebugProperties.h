@@ -136,6 +136,13 @@ namespace melonDS { class GPU; }
  *                  clear alpha of 0 and GL_EXT_shader_framebuffer_fetch, no clear0 pass: pass 3's translucent draws read the color target
  *                  and don't blend where its alpha is 0 (without the extension, or desktop, nothing changes). A/B it as 3 against 7.
  *                  3 is the default, in release builds too; 0 draws as before (GPU::GLTransSkip)
+ *   gledgeskip N   OpenGL, experiment E2 (docs/plan-gpu-discovery.md): 1 leaves out the final pass's edge-marking draw, and the whole
+ *                  pass with its depth detach when fog is off too. Exact while nothing writes the edge flag (edge marking, E1, is
+ *                  open), so hash3d stays the same. 0, the default for now, draws as before (GPU::GLEdgeSkip)
+ *   glclear N      OpenGL, experiment D1 (docs/plan-gpu-discovery.md), a sum of bits: 1 the plain clear (not the clear bitmap) is a
+ *                  glClearBuffer per target instead of a full-screen quad, same values; 2 the attr and depth/stencil targets are
+ *                  invalidated after the frame, as nothing reads them before the next clear. 0, the default for now, draws as before
+ *                  (GPU::GLClearFast)
  *   compclear N    OpenGL and compute, experiment K2a (docs/plan-gpu-discovery.md): the compositor's main draw starts without the
  *                  output's old contents, so a tiled GPU needn't load them first. 1 clears the whole output to 0, 2 invalidates it and
  *                  clears only the padding rows between the screens. Both keep the output the same. 0, the default, draws as before

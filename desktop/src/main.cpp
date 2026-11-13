@@ -187,6 +187,8 @@ const IntSwitch kIntSwitches[] = {
     {"CaptureSpinUs", &GPU::CaptureSpinUs},
     {"HiresCaptureDebug", &GPU::HiresCaptureDebug},
     {"GLTransSkip", &GPU::GLTransSkip},
+    {"GLEdgeSkip", &GPU::GLEdgeSkip},
+    {"GLClearFast", &GPU::GLClearFast},
     {"CompClear", &GPU::CompClear},
     {"Comp1x", &GPU::Comp1x},
     {"Filter2DRows", &GPU::Filter2DRows},
@@ -539,7 +541,18 @@ public:
         Nds->GPU.SetShadow2D(Opts.Gpu2D, false, false, 0);
         Nds->GPU.GPU3D.SetHalfCameraSmoothing(Opts.HalfCamera && Current == RendererType::Compute);
 
-        printf("renderer: %s, scale %d, width %d\n", RendererName(Current), Current == RendererType::Software ? 1 : Opts.Scale, Opts.WideWidth);
+        printf("renderer: %s, scale %d, width %d\n", RendererName(Current), ActiveScale(), Opts.WideWidth);
+    }
+
+    // the renderer's scale, which drops below --scale when that doesn't fit the GPU's limits
+    int ActiveScale()
+    {
+        switch (Current)
+        {
+        case RendererType::OpenGL: return static_cast<GLRenderer&>(Nds->GPU.GetRenderer3D()).GetScaleFactor();
+        case RendererType::Compute: return static_cast<ComputeRenderer&>(Nds->GPU.GetRenderer3D()).GetScaleFactor();
+        default: return 1;
+        }
     }
 
     u32 RunFrame()
@@ -915,7 +928,7 @@ int main(int argc, char** argv)
         {
             char title[256];
             snprintf(title, sizeof(title), "melonadeDS - %s %dx - %.1f fps - %.2f ms%s", RendererName(emu.Current),
-                emu.Current == RendererType::Software ? 1 : opts.Scale, second.WorkMs.size() / secs,
+                emu.ActiveScale(), second.WorkMs.size() / secs,
                 second.WorkMs.empty() ? 0.0 : [&] { double s = 0; for (double ms : second.WorkMs) s += ms; return s / second.WorkMs.size(); }(),
                 paused ? " (paused)" : "");
             SDL_SetWindowTitle(window, title);

@@ -129,6 +129,14 @@ Wider check (PERF-NOTES "T1 wider check and T1c"): T1 is pixel-exact in every sc
 
 R2 is exact (`gldepth=1`, constant-depth polygons via `glDepthRangef(d,d)`) but has nothing to work on: 0 qualifying polygons in White 2, and under 2% of opaque area in the other games tried, also under WatermelonDS's looser rule. No GPU change on the Fold. `GL_EXT_conservative_depth` isn't on any of our phones, so W-buffer frames can't get exact early-Z, and R1 only matters for Z-buffer scenes. That moves R1 down and makes K1 (compositor, 17–29% of GL cycles in every scene measured), E2 and D1 the next candidates. Numbers in PERF-NOTES "R2". The code is shelved as a patch: `docs/shelved/r2-fragdepth.md`.
 
+## E2 and D1 results (11-12)
+
+Both are exact on the Fold (hash3d on every aligned frame in the White 2 title, overworld and Dark Dawn's fog title) and on the desktop, but close to free on Adreno: E2 removes the 0.6 ms edge pass in the overworld, D1's clear gets 5x cheaper while the opaque pass absorbs the difference, and the invalidate's −2 to −3% is at noise level. The Pixel 8 (Mali) is also exact but can't show a difference: everything holds 60 fps at 4x and 8x, and the phone has no GPU counters. Both stay off-by-default switches (`gledgeskip`, `glclear`) for now. Numbers in PERF-NOTES "E2 and D1" and "E2 and D1 on the Pixel 8".
+
+## Later: memory
+
+The plan's goal is efficiency, and that includes memory. WatermelonDS's Vulkan runs 16x, which is the bar to beat. On the Fold (11-11, PERF-NOTES "WatermelonDS Vulkan vs ours", graphics / total PSS at the end of the run) their VK 8x used 620 / 1441 MB and VK 16x 1072 / 1887 MB, against our OpenGL 8x 396 / 1280 MB and Compute 8x 864 / 1750 MB. Our 16x hasn't been measured on a phone yet (desktop, 11-12: OpenGL 675 MB, Compute 1882 MB). Known big items once 12x/16x exist: the app's frame queue (up to 9 frame textures, ~101 MB each at 16x, plus a 101 MB zeroed CPU vector on each resize, `FrameQueue.cpp:200`), the GL 3D targets (~250 MB at 16x), and Compute's work buffers (805 MB at 16x, why Compute is capped at 8x in the app). Not started.
+
 ## Done looks like
 
 Phase 0's per-pass table for three scenes, the ALU-vs-bandwidth answer if adb is available, and each tried experiment's cycles, battery and `hash3d` result in PERF-NOTES, with the ones that pay off listed for a real implementation.

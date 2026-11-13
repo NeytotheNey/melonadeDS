@@ -367,10 +367,11 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     }
     else if (currentRenderer == Renderer::Compute)
     {
-        auto computeRenderSettings = static_cast<ComputeRenderSettings&>(*std::atomic_load(&currentConfiguration)->renderSettings);
-        int scale = computeRenderSettings.scale;
+        auto& computeRenderer = static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D());
+        // The renderer's, not the setting's, as it drops to the largest scale that fits the GPU's limits, as OpenGL does
+        int scale = computeRenderer.GetScaleFactor();
         // Same as OpenGL, the compositor's width can lag behind the requested one
-        topScreenWidth = static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D()).GetOutputWidth();
+        topScreenWidth = computeRenderer.GetOutputWidth();
         screenWidth = topScreenWidth * scale;
         screenHeight = (192 + 1) * scale;
     }
