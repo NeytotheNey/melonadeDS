@@ -131,7 +131,7 @@ R2 is exact (`gldepth=1`, constant-depth polygons via `glDepthRangef(d,d)`) but 
 
 ## E2 and D1 results (11-12)
 
-Both are exact on the Fold (hash3d on every aligned frame in the White 2 title, overworld and Dark Dawn's fog title) and on the desktop, but close to free on Adreno: E2 removes the 0.6 ms edge pass in the overworld, D1's clear gets 5x cheaper while the opaque pass absorbs the difference, and the invalidate's −2 to −3% is at noise level. The Pixel 8 (Mali) is also exact but can't show a difference: everything holds 60 fps at 4x and 8x, and the phone has no GPU counters. Both stay off-by-default switches (`gledgeskip`, `glclear`) for now. Numbers in PERF-NOTES "E2 and D1" and "E2 and D1 on the Pixel 8".
+Both are exact on the Fold (hash3d on every aligned frame in the White 2 title, overworld and Dark Dawn's fog title) and on the desktop, but close to free on Adreno: E2 removes the 0.6 ms edge pass in the overworld, D1's clear gets 5x cheaper while the opaque pass absorbs the difference, and the invalidate's −2 to −3% is at noise level. The Pixel 8 (Mali) is also exact; its fps holds 60 either way, but its GPU counters (found later through the vendor counter producer) show the cost. After the 12x/16x runs (−4 to −7% GPU on both phones, −4% at 8x on the Pixel) both became the default. Numbers in PERF-NOTES "E2 and D1" and "E2 and D1 on the Pixel 8".
 
 ## Later: memory
 
