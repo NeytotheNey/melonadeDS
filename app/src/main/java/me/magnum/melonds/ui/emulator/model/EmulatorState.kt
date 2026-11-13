@@ -13,6 +13,8 @@ sealed class EmulatorState {
     data class RunningRom(val rom: Rom) : EmulatorState()
     data class RunningFirmware(val console: ConsoleType) : EmulatorState()
     data object RomLoadError : EmulatorState()
+    // The game's save folder can't be read right, which Android does for a few minutes when it hides a folder
+    data object RomFolderUnreadableError : EmulatorState()
     data class FirmwareLoadError(val reason: MelonEmulator.FirmwareLoadResult) : EmulatorState()
     data class RomNotFoundError(val romPath: String) : EmulatorState()
 

@@ -39,6 +39,7 @@
     <string name="error_rom_not_found_info">The ROM you have selected has not been found. Make sure the selected ROM can be found in the current ROM search directory.\n%1$s</string>
     <string name="error_load_rom">Could not load ROM</string>
     <string name="error_load_rom_message">There was a problem loading the ROM. Make sure it\'s not corrupted and try again.</string>
+    <string name="error_rom_folder_unreadable_message">Can\'t read the game\'s folder, so the game wasn\'t started to keep its save safe. Restart your phone and try again.</string>
     <string name="error_load_firmware">Could not load the firmware</string>
     <string name="error_load_firmware_message">There was a problem loading the firmware (%1$s). Make sure the BIOS and firmware dump is not corrupted, that the firmware is bootable and try again.</string>
     <string name="title_emulator_running">Emulator running</string>

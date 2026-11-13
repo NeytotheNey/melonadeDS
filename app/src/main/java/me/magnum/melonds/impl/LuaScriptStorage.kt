@@ -189,10 +189,13 @@ class LuaScriptStorage(private val context: Context) {
     }
 
     /**
-     * Reads the given scripts in order from [folderUri], listing it once; with no folder every result is [ReadResult.FolderNotFound].
+     * Reads the given scripts in order from [folderUri], listing it once; with no folder every result is [ReadResult.FolderNotFound], and so
+     * with an empty listing, which is taken as a hidden folder (see [LuaScriptFolderSync.sync]).
      */
     fun readScripts(folderUri: Uri?, fileNames: List<String>): List<Pair<String, ReadResult>> {
-        val scriptFiles = folderUri?.let { listScripts(it) }?.associateBy { it.name }
+        val scriptFiles = folderUri?.let { listScripts(it) }
+            ?.takeUnless { listed -> LuaScriptFolderSync.isSuspiciouslyEmpty(fileNames.size, listed.map { it.name }) }
+            ?.associateBy { it.name }
         return fileNames.map { fileName ->
             val result = if (scriptFiles == null) {
                 ReadResult.FolderNotFound

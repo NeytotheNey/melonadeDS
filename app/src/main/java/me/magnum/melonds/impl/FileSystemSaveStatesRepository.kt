@@ -58,7 +58,13 @@ class FileSystemSaveStatesRepository(
         val uri = if (saveStateFile != null) {
             saveStateFile.uri
         } else {
-            saveStateDirectoryDocument.createFile("*/*", saveStateName)?.uri ?: throw SaveSlotLoadException("Could not create save state file")
+            val creation = ExactNameFileCreation.create(saveStateName, { saveStateDirectoryDocument.createFile("*/*", saveStateName) }, { it.name }, { it.delete() })
+            when (creation) {
+                is ExactNameFileCreation.Result.Created -> creation.file.uri
+                // The provider still sees a state of that name that the listing left out, so it's failed rather than saved as a copy
+                is ExactNameFileCreation.Result.Renamed -> throw SaveSlotLoadException("The new save state was named ${creation.createdName} instead of $saveStateName")
+                ExactNameFileCreation.Result.Failed -> throw SaveSlotLoadException("Could not create save state file")
+            }
         }
 
         return uri

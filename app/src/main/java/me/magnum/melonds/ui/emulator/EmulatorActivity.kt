@@ -22,6 +22,7 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.LaunchedEffect
@@ -774,7 +775,13 @@ class EmulatorActivity : AppCompatActivity() {
                             binding.viewLayoutControls.isInvisible = true
                             binding.textFps.isGone = true
                             binding.textLoading.isGone = true
-                            showRomLoadErrorDialog()
+                            showRomLoadErrorDialog(R.string.error_load_rom_message)
+                        }
+                        is EmulatorState.RomFolderUnreadableError -> {
+                            binding.viewLayoutControls.isInvisible = true
+                            binding.textFps.isGone = true
+                            binding.textLoading.isGone = true
+                            showRomLoadErrorDialog(R.string.error_rom_folder_unreadable_message)
                         }
                         is EmulatorState.FirmwareLoadError -> {
                             binding.viewLayoutControls.isInvisible = true
@@ -1249,12 +1256,12 @@ class EmulatorActivity : AppCompatActivity() {
         viewModel.resumeEmulator()
     }
 
-    private fun showRomLoadErrorDialog() {
+    private fun showRomLoadErrorDialog(@StringRes message: Int) {
         activeOverlays.addActiveOverlay(EmulatorOverlay.ROM_LOAD_ERROR_DIALOG)
         MaterialAlertDialogBuilder(this)
             .setCancelable(false)
             .setTitle(R.string.error_load_rom)
-            .setMessage(R.string.error_load_rom_message)
+            .setMessage(message)
             .setPositiveButton(R.string.ok) { dialog, _ ->
                 dialog.dismiss()
                 finish()

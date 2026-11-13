@@ -2,6 +2,7 @@ package me.magnum.melonds.impl.emulator
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -182,6 +183,9 @@ class AndroidEmulatorManager(
 
             val sram = try {
                 sramProvider.getSramForRom(rom)
+            } catch (exception: RomFolderUnreadableException) {
+                Log.w(DebugLog.TAG, "Not starting the game", exception)
+                return@withContext RomLaunchResult.LaunchFailedRomFolderUnreadable
             } catch (exception: SramLoadException) {
                 return@withContext RomLaunchResult.LaunchFailedSramProblem(exception)
             }

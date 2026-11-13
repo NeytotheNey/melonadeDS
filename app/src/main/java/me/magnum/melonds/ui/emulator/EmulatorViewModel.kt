@@ -1,6 +1,7 @@
 package me.magnum.melonds.ui.emulator
 
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -76,6 +77,7 @@ import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.domain.services.EmulatorManager
 import me.magnum.melonds.impl.LuaScriptFolderSync
 import me.magnum.melonds.impl.LuaScriptStorage
+import me.magnum.melonds.impl.diagnostics.DebugLog
 import me.magnum.melonds.impl.diagnostics.PerformanceLogger
 import me.magnum.melonds.impl.emulator.EmulatorSession
 import me.magnum.melonds.impl.layout.UILayoutProvider
@@ -321,6 +323,9 @@ class EmulatorViewModel @Inject constructor(
             is RomLaunchResult.LaunchFailedSramProblem,
             is RomLaunchResult.LaunchFailed -> {
                 _emulatorState.value = EmulatorState.RomLoadError
+            }
+            is RomLaunchResult.LaunchFailedRomFolderUnreadable -> {
+                _emulatorState.value = EmulatorState.RomFolderUnreadableError
             }
             is RomLaunchResult.LaunchSuccessful -> {
                 if (!result.isGbaLoadSuccessful) {
@@ -607,29 +612,30 @@ class EmulatorViewModel @Inject constructor(
         }
     }
 
+    // The slot picker closes with dismiss(), not cancel, so these resume the game on every outcome or it stays paused with no menu
     fun saveStateToSlot(slot: SaveStateSlot) {
         sessionCoroutineScope.launch {
             (_emulatorState.value as? EmulatorState.RunningRom)?.let {
                 if (!saveRomState(it.rom, slot)) {
                     _toastEvent.emit(ToastEvent.StateSaveFailed)
                 }
-                emulatorManager.resumeEmulator()
             }
+            emulatorManager.resumeEmulator()
         }
     }
 
     fun loadStateFromSlot(slot: SaveStateSlot) {
-        if (!slot.exists) {
-            _toastEvent.tryEmit(ToastEvent.StateStateDoesNotExist)
-        } else {
-            sessionCoroutineScope.launch {
+        sessionCoroutineScope.launch {
+            if (!slot.exists) {
+                _toastEvent.emit(ToastEvent.StateStateDoesNotExist)
+            } else {
                 (_emulatorState.value as? EmulatorState.RunningRom)?.let {
                     if (!loadRomState(it.rom, slot)) {
                         _toastEvent.emit(ToastEvent.StateLoadFailed)
                     }
-                    emulatorManager.resumeEmulator()
                 }
             }
+            emulatorManager.resumeEmulator()
         }
     }
 
@@ -642,6 +648,8 @@ class EmulatorViewModel @Inject constructor(
                     val quickSlot = saveStatesRepository.getRomQuickSaveStateSlot(currentState.rom)
                     if (saveRomState(currentState.rom, quickSlot)) {
                         _toastEvent.emit(ToastEvent.QuickSaveSuccessful)
+                    } else {
+                        _toastEvent.emit(ToastEvent.StateSaveFailed)
                     }
                     emulatorManager.resumeEmulator()
                 }
@@ -691,7 +699,7 @@ class EmulatorViewModel @Inject constructor(
     }
 
     private suspend fun saveRomState(rom: Rom, slot: SaveStateSlot): Boolean {
-        val slotUri = saveStatesRepository.getRomSaveStateUri(rom, slot)
+        val slotUri = getRomSaveStateUriOrNull(rom, slot) ?: return false
         if (!emulatorManager.saveState(slotUri)) {
             return false
         }
@@ -716,13 +724,26 @@ class EmulatorViewModel @Inject constructor(
             return false
         }
 
-        val slotUri = saveStatesRepository.getRomSaveStateUri(rom, slot)
+        val slotUri = getRomSaveStateUriOrNull(rom, slot) ?: return false
         val success = emulatorManager.loadState(slotUri)
         if (success) {
             _achievementsEvent.emit(RAEventUi.Reset)
         }
 
         return success
+    }
+
+    /**
+     * The slot's file, or null when its folder can't be reached or the file can't be made (the repository throws for those), so a failed
+     * save or load shows its toast and resumes the game instead of crashing the session coroutine.
+     */
+    private fun getRomSaveStateUriOrNull(rom: Rom, slot: SaveStateSlot): Uri? {
+        return try {
+            saveStatesRepository.getRomSaveStateUri(rom, slot)
+        } catch (e: Exception) {
+            Log.w(DebugLog.TAG, "Could not get the file of save state slot ${slot.slot}", e)
+            null
+        }
     }
 
     private fun startObservingRuntimeInputLayoutConfiguration() {
