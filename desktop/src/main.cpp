@@ -26,6 +26,7 @@
 #include "GPU3D_Compute.h"
 #include "OpenGLSupport.h"
 #include "Platform.h"
+#include "Savestate.h"
 
 #include "Frontend.h"
 #include "Presenter.h"
@@ -102,7 +103,43 @@ struct Options
     int WindowScale = 2;
     u32 Frames = 0;            // 0 runs until the window is closed
     std::vector<std::string> Sets;
+    std::string StatePath;     // a savestate (.mln/.ml1...) loaded after the reset
+    struct Press { u32 From, To, Mask; };
+    std::vector<Press> Presses; // --press: keys held over frame ranges, for scripted runs
 };
+
+// --press FRAME[-LAST]:key[+key...], keys a b x y l r start select up down left right; held for
+// FRAME..LAST, or 6 frames without a LAST. frames count from 0 after the reset (or --state)
+bool ParsePress(const std::string& spec, Options::Press& press)
+{
+    static const struct { const char* Name; u32 Bit; } kKeys[] = {
+        {"a", 0}, {"b", 1}, {"select", 2}, {"start", 3}, {"right", 4}, {"left", 5}, {"up", 6},
+        {"down", 7}, {"r", 8}, {"l", 9}, {"x", 10}, {"y", 11},
+    };
+    size_t colon = spec.find(':');
+    if (colon == std::string::npos) return false;
+    std::string range = spec.substr(0, colon);
+    size_t dash = range.find('-');
+    press.From = strtoul(range.c_str(), nullptr, 10);
+    press.To = dash == std::string::npos ? press.From + 5 : strtoul(range.c_str() + dash + 1, nullptr, 10);
+    press.Mask = 0;
+    std::string keys = spec.substr(colon + 1);
+    size_t pos = 0;
+    for (;;)
+    {
+        size_t plus = keys.find('+', pos);
+        std::string key = keys.substr(pos, plus == std::string::npos ? std::string::npos : plus - pos);
+        bool found = false;
+        for (const auto& k : kKeys)
+        {
+            if (key == k.Name) { press.Mask |= 1u << k.Bit; found = true; }
+        }
+        if (!found) return false;
+        if (plus == std::string::npos) break;
+        pos = plus + 1;
+    }
+    return press.To >= press.From;
+}
 
 void Usage()
 {
@@ -127,6 +164,10 @@ void Usage()
         "  --bios DIR                  official bios9.bin, bios7.bin (and firmware.bin) in DIR\n"
         "  --gba ROM                   GBA ROM for slot 2\n"
         "  --sav FILE                  save file (default: the ROM's path with .sav)\n"
+        "  --state FILE                load a savestate after the reset; it replaces the save in\n"
+        "                              memory, which gets flushed to --sav, so point that at a copy\n"
+        "  --press F[-L]:KEYS          hold keys (a b x y l r start select up down left right, joined\n"
+        "                              by +) over frames F..L (6 frames without L), for scripted runs\n"
         "  --boot-screen               boot through the firmware instead of directly\n"
         "  --fixed-time                the RTC starts at 2026-01-01 12:00, for runs to compare\n"
         "  --set NAME=VALUE            a core debug switch, e.g. --set LateBlit=0 (see --list-sets)\n"
@@ -190,6 +231,7 @@ const IntSwitch kIntSwitches[] = {
     {"GLTransSkip", &GPU::GLTransSkip},
     {"GLEdgeSkip", &GPU::GLEdgeSkip},
     {"GLClearFast", &GPU::GLClearFast},
+    {"GLNoDiscard", &GPU::GLNoDiscard},
     {"CompClear", &GPU::CompClear},
     {"Comp1x", &GPU::Comp1x},
     {"Filter2DRows", &GPU::Filter2DRows},
@@ -293,6 +335,14 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--bios") opts.BiosDir = next();
         else if (arg == "--gba") opts.GbaRomPath = next();
         else if (arg == "--sav") opts.SavePath = next();
+        else if (arg == "--state") opts.StatePath = next();
+        else if (arg == "--press")
+        {
+            Options::Press press;
+            std::string spec = next();
+            if (!ParsePress(spec, press)) { fprintf(stderr, "bad --press %s\n", spec.c_str()); return false; }
+            opts.Presses.push_back(press);
+        }
         else if (arg == "--boot-screen") opts.BootScreen = true;
         else if (arg == "--fixed-time") opts.FixedTime = true;
         else if (arg == "--set") opts.Sets.push_back(next());
@@ -404,6 +454,26 @@ public:
             return false;
         Requested = Opts.Renderer;
         Reset();
+        if (!Opts.StatePath.empty() && !LoadState(Opts.StatePath))
+            return false;
+        return true;
+    }
+
+    bool LoadState(const std::string& path)
+    {
+        std::vector<u8> data;
+        if (!ReadFile(path, data) || data.empty())
+        {
+            fprintf(stderr, "can't read savestate %s\n", path.c_str());
+            return false;
+        }
+        Savestate state(data.data(), (u32)data.size(), false);
+        if (state.Error || !Nds->DoSavestate(&state))
+        {
+            fprintf(stderr, "savestate %s didn't load\n", path.c_str());
+            return false;
+        }
+        printf("state: %s\n", path.c_str());
         return true;
     }
 
@@ -905,7 +975,13 @@ int main(int argc, char** argv)
 
         if (!paused)
         {
-            emu.Nds->SetKeyMask(~(keyMask | padMask | stickMask) & 0xFFF);
+            u32 scriptMask = 0;
+            for (const Options::Press& press : opts.Presses)
+            {
+                if (frame >= press.From && frame <= press.To)
+                    scriptMask |= press.Mask;
+            }
+            emu.Nds->SetKeyMask(~(keyMask | padMask | stickMask | scriptMask) & 0xFFF);
 
             auto workStart = std::chrono::steady_clock::now();
             emu.RunFrame();

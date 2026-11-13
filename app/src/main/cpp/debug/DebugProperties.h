@@ -128,7 +128,9 @@ namespace melonDS { class GPU; }
  *                  fragments per displayed 3D pixel, the same at any WideMelon width), no effect on emulation (GPU3D_SceneStats.h). 2 also has the OpenGL renderer count with an atomic per fragment
  *                  what its render passes shade and how many pixels polygons cover (a SCENEFRAGS line), which slows it down; without SSBOs in
  *                  fragment shaders it logs that and runs as 1 (GPU::SceneStats). On OpenGL either one also logs a GLTRANS line once a
- *                  second on need-opaque polygons, their texture alpha classes and what gltrans left out (GPU3D_GLStats.h)
+ *                  second on need-opaque polygons, their texture alpha classes and what gltrans left out, and a GLOPAQUE line (the R1
+ *                  count): Z- and W-buffer frames and, in Z frames, the opaque shader's polygons and area by whether its discard can fire
+ *                  (GPU3D_GLStats.h)
  *   gltrans N      OpenGL, experiment T1 (docs/plan-gpu-discovery.md): leave out translucent draws that can't change a pixel, a sum of
  *                  bits, meant to keep hash3d the same. 1 with a clear alpha of 0, pass 3 doesn't redraw a need-opaque polygon's opaque part
  *                  (not depth-equal ones), 2 a need-opaque polygon's opaque draw is left out when its texture has no texel at alpha 31,
@@ -143,6 +145,11 @@ namespace melonDS { class GPU; }
  *                  glClearBuffer per target instead of a full-screen quad, same values; 2 the attr and depth/stencil targets are
  *                  invalidated after the frame, as nothing reads them before the next clear. 3 is the default since 11-12, in release
  *                  builds too; 0 draws as before (GPU::GLClearFast)
+ *   glnodiscard N  OpenGL, experiment R1 step 1 (docs/plan-gpu-discovery.md): 1 draws the opaque pass's polygons that can't discard a
+ *                  fragment (polygon alpha 31, not a shadow, and untextured, decal, or a palette texture without a transparent color 0)
+ *                  with a program built without discard, so the GPU can test depth early. Z-buffer frames only. Exact, so hash3d stays
+ *                  the same; with scenestats the GLOPAQUE line counts those polygons and the extra draws and program switches.
+ *                  1 is the default since 11-13, in release builds too; 0 draws as before (GPU::GLNoDiscard)
  *   compclear N    OpenGL and compute, experiment K2a (docs/plan-gpu-discovery.md): the compositor's main draw starts without the
  *                  output's old contents, so a tiled GPU needn't load them first. 1 clears the whole output to 0, 2 invalidates it and
  *                  clears only the padding rows between the screens. Both keep the output the same. 0, the default, draws as before

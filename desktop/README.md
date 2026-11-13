@@ -43,6 +43,8 @@ main ones:
 | `--frames N` | quit after N frames and print frame time stats |
 | `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window when quitting |
 | `--unthrottled`, `--hidden`, `--no-audio`, `--gpu-sync` | for benchmarks and scripted runs |
+| `--state F` | load a savestate after the reset (DS-mode states only; point `--sav` at a copy, the state replaces the save) |
+| `--press F[-L]:KEYS` | hold keys (`a`, `start`, `up`, ... joined by `+`) over frames F..L, for scripted runs |
 
 Keys: arrows = D-pad, X = A, Z = B, S = X, A = Y, Q = L, W = R, Enter = Start, Right Shift = Select,
 mouse on the bottom screen = touch, Tab (hold) = fast forward, P = pause, Ctrl+R = reset,
