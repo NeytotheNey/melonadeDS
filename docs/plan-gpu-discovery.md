@@ -76,7 +76,7 @@ Each is a debug switch, A/B'd with `gpu_mcycles_per_frame`, battery and `hash3d`
 | # | Change | Size |
 |---|---|---|
 | E1 | Make edge marking work. Write an edge flag into attr G on opaque polygon outlines, either by bringing the line pass back (an edge mode in the render shader writing G=1, depth LEQUAL instead of ALWAYS, lines about ScaleFactor wide) or with a per-fragment outline test (needs each polygon's outer edges, since its triangles' inner diagonals mustn't count). Pass the neighbor offset as a uniform equal to the scale factor (screen width ÷ 256 is wrong with WideMelon). Check against software with `hash3d` on a game that uses edge marking (find one with `scenestats`' `edge=` field), and time it with `gltimers`. | medium |
-| E2 | While E1 is open, or for frames whose polygons have no edge flags: skip the edge pass and its depth detach. Folds into D3 if that lands first. | small |
+| E2 | While E1 is open, or for frames whose polygons have no edge flags: skip the edge pass and its depth detach. Folds into D3 if that lands first. **Done 11-12 (`gledgeskip`, default 1):** exact; removes the 0.6 ms edge pass in the W2 overworld. | done |
 
 E1 changes what games look like (it's what real hardware and our software renderer draw), so it ships as a fix behind a debug switch first, then a phone check of the edge-marking game and the White 2 title for cost.
 
@@ -84,9 +84,9 @@ E1 changes what games look like (it's what real hardware and our software render
 
 | # | Experiment | Size |
 |---|---|---|
-| D1 | `glClear` instead of the clear quad (bitmap clear stays a draw), and `glInvalidateFramebuffer` on attr and depth when nothing reads them after the frame | small |
+| D1 | `glClear` instead of the clear quad (bitmap clear stays a draw), and `glInvalidateFramebuffer` on attr and depth when nothing reads them after the frame. **Done 11-12 (`glclear`, default 3):** exact; −4 to −7% GPU at 12x/16x on the Fold and Pixel, −4% at 8x on the Pixel, noise at 8x on the Fold. | done |
 | D2 | NoAttr: a program variant that doesn't write attr when no edge, fog or capture pass needs it | small |
-| D3 | One combined edge+fog pass, scissored to the drawn area, skipped when unused, with no mid-frame depth detach | medium |
+| D3 | One combined edge+fog pass, scissored to the drawn area, skipped when unused, with no mid-frame depth detach (what WatermelonDS does, see "WatermelonDS at 16x") | medium |
 
 **Redundant shading (GL)**
 
@@ -132,6 +132,19 @@ R2 is exact (`gldepth=1`, constant-depth polygons via `glDepthRangef(d,d)`) but 
 ## E2 and D1 results (11-12)
 
 Both are exact on the Fold (hash3d on every aligned frame in the White 2 title, overworld and Dark Dawn's fog title) and on the desktop, but close to free on Adreno: E2 removes the 0.6 ms edge pass in the overworld, D1's clear gets 5x cheaper while the opaque pass absorbs the difference, and the invalidate's −2 to −3% is at noise level. The Pixel 8 (Mali) is also exact; its fps holds 60 either way, but its GPU counters (found later through the vendor counter producer) show the cost. After the 12x/16x runs (−4 to −7% GPU on both phones, −4% at 8x on the Pixel) both became the default. Numbers in PERF-NOTES "E2 and D1" and "E2 and D1 on the Pixel 8".
+
+## WatermelonDS at 16x: what they do differently (11-12, code reading)
+
+Read from `C:\Dev\WatermelonDS`, not measured. Their "16x" really rasterizes 3D at 4096x3072, but **everything after the 3D pass runs at the screen's size**: the app caps the output scale at min(ceil(surfaceW/256), ceil(surfaceH/192)), halving while above it (their `MelonInstance.cpp:3256-3284`). On the Fold the output is 8x for both 8x and 16x (on the cover screen, 4x). The 3D is linear-blitted once to an output-size snapshot (`VulkanOutput.cpp:9651-9722`), then 2D, compositing, hi-res capture and the frame image all run at the output size. That's why their cost only doubles from 8x to 16x.
+
+Ours at 16x runs the compositor's main draw at the full 4096x6176 (25 Mpx), hi-res capture at 16x, 101 MB frame textures, and the frontend samples a 4096-wide texture with `GL_LINEAR` and no mipmaps onto a ~1–2k px screen (which also aliases).
+
+Their 3D frame is otherwise close to ours: RGBA8 color and attr, D24S8, no MSAA, no transient attachments, one render pass with CLEAR loads and DONT_CARE stores for attr/depth when nothing reads them (what D1 does now), edge+fog in one scissored pass only when needed. Left over on our side: the fog pass's depth detach and the per-mask stencil clears, maybe a few percent. Their per-pixel 3D may also be cheaper (pre-decoded texture cache vs our per-fragment VRAM decode, NoAttr/color-only pipelines); that's a guess.
+
+| | Change | Est. saving at 16x | Notes |
+|---|---|---|---|
+| K4 | Cap the output (compositor, hi-res capture, frame queue, frontend texture) at the screen's scale; downscale the 3D once (2:1 `glBlitFramebuffer` linear, or one bilinear tap per 2x2 block in the compositor, an exact average) | ~3.5–4 of 12.7 Mcyc (~30%), ~75 MB per frame texture | WideMelon and `comp1x` must follow the cap; a linear blit isn't alpha-weighted like their box filter; hi-res capture of 3D must still read the full 3D where a game captures it |
+| T2 | Texture cache: decode DS textures once into GL textures instead of per fragment | unknown, likely the biggest 3D item | large |
 
 ## Later: memory
 
