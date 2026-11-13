@@ -4,7 +4,7 @@ The plan and results are in [docs/plan-gpu-discovery.md](docs/plan-gpu-discovery
 
 ## State (11-13)
 
-Branch `compute-efficiency` in the app and the core. Latest: core `3f7d5201` and app `9942c685` (K4 phase 3, Smooth 2D under the cap). Not pushed as of 11-13; everything before them (K4 included) is pushed.
+Branch `compute-efficiency` in the app and the core, everything pushed. Latest: core `3f7d5201` (K4 phase 3, Smooth 2D under the cap), app `9942c685` plus doc commits. The working tree only has the three local-only items above.
 
 **Defaults in every build:** T1 (`gltrans=3`), K2c (`comp1x=1`), K3 (`filter2drows=1`), E2 (`gledgeskip=1`), D1 (`glclear=3`), K4 (`outcap=1`, `outcap3d=3`). Off-by-default switches: T1c (`gltrans` bit 2), K2a (`compclear`), R2 is shelved.
 
@@ -20,7 +20,7 @@ Branch `compute-efficiency` in the app and the core. Latest: core `3f7d5201` and
 
 0. **Check the highp compositor on Adreno.** The Fold's cover screen downsamples too much to judge 12x/16x. Use the inner screen or a native-resolution capture and compare the right side of the top screen at 8x/12x/16x. The coder also suspected an old fp16 issue: on fp16 GPUs the lower part of the bottom screen's 3D may show only 4x vertical detail at 5–8x. Unconfirmed.
 1. **R1 for Z-buffer scenes** (plan table). R2 showed no phone has `GL_EXT_conservative_depth`, so W-buffer frames can't get exact early-Z.
-2. **Later: memory and GPU work vs Vulkan** (plan "Later: memory" and "WatermelonDS at 16x"). At 16x on the Fold we use 1932 MB PSS / 1047 MB graphics, about the same as WatermelonDS's Vulkan 16x. The bigger gap is GPU work: W2 title 8x ~3.6 vs 2.5 Mcyc (was 4.9 on 11-11), 16x ~12.7 vs 5.0. After K4, the next suspects are their per-pixel 3D (T2, a texture cache decoded once instead of per fragment; NoAttr/color-only pipelines, D2) and D3 (one edge+fog pass, no mid-frame depth detach). Big memory items: the frame queue (up to 9 × ~101 MB at 16x), the GL 3D targets (~250 MB), Compute's work buffers.
+2. **Later: GPU work vs Vulkan** (plan "Later: memory" and "WatermelonDS at 16x"). Memory is no longer the gap: before K4 we used ~1.9 GB PSS / ~1.0 GB graphics at 16x on the Fold, about the same as WatermelonDS's Vulkan 16x; with the cap, White 2 at 16x is ~1.3 GB / ~0.5 GB (Smooth 2D on: ~2.1 / ~1.2). GPU work still is: before K4, W2 title 8x ~3.6 vs their 2.5 Mcyc, 16x ~12.7 vs 5.0; K4 took ~15–17% off at 16x on the Pixel. Next suspects are their per-pixel 3D (T2, a texture cache decoded once instead of per fragment; NoAttr/color-only pipelines, D2) and D3 (one edge+fog pass, no mid-frame depth detach). Remaining big memory items: the GL 3D targets (~250 MB at 16x) and Compute's work buffers.
 3. **Circle back: NSMB title flowers flicker in the unfolded view** (user, 11-13, deferred). On the Fold's inner screen (WideMelon view 426, 16x, Smooth 2D on, capped) the blue and pink flowers on the NSMB title come and go. Folded (cover screen, 256 view) they're always there, and folding and unfolding switches it live. Not known yet whether it's the cap, Smooth 2D or WideMelon itself: try `outcap=0`, Smooth 2D off, and the 256 view on the inner screen. The phone-tester's ~2 shots/s bursts missed it, and the desktop runs were 256 view only.
 4. **K4 leftovers, deferred:**
    - (d) relaxing `ScaleFits` when capped: not done. A 4096-limit GPU at 16x would need the cap forced on through the start-up need 0, `outcap=0`, Smooth 2D identity, gpu2d and a failed DOWN3D build, and falling back would mean reallocating the 3D targets from `SetOutputNeed`. Those GPUs can't really run 16x 3D anyway.
@@ -28,11 +28,14 @@ Branch `compute-efficiency` in the app and the core. Latest: core `3f7d5201` and
    - Fold/unfold with logs: the user folded and unfolded live with Smooth 2D on and the picture came back each time, but nobody read the `OUTCAP:` lines or looked for GL errors then. That path covers the GPU clear of new frame textures and the Smooth 2D map kept across Sout changes.
    - With Sout below the map scale (e.g. 4x 3D shown at 2x) every pixel takes the exact per-sub-pixel Smooth 2D path, about the uncapped cost.
    - The `outcap=2` check mode. gpu2d stays excluded (debug-only).
-5. **Leftovers:** the Pixel's app logs have a CRASH_NATIVE exit report from 05:43 on 11-12, from before the benchmark runs, not looked into. The Pixel's `gpu_counter_producer` was left running (pkill refused; a reboot clears it). Phone files to clean: OnePlus `/data/local/tmp/t1c_title{0,3,7}/`, `t1crun.sh`, `op2d_setcfg.sh`, `op2d_gpuprod`, `gpuprod.log`, `/data/misc/perfetto-traces/t1c_*.pftrace`; Fold `/data/local/tmp/t1cf`, `k2c`, `k4`, `ctf`, `chain_fold.sh`, `chain_fold_ns.sh`, `foldchain.sh`, `foldchain2.sh`, `shots_fold.sh`. PC: duplicate `pl_*` folders in `perf_logs/2026-11-12-pixel8-*`, empty `backup${n}_w2.*` files in `perf_logs/2026-11-13-k4-outcap5/`. Phone runs go to the `phone-tester` agent.
+5. **Leftovers:** the Pixel's app logs have a CRASH_NATIVE exit report from 05:43 on 11-12, from before the benchmark runs, not looked into. The Pixel's `gpu_counter_producer` was left running (pkill refused; a reboot clears it). Phone files to clean: OnePlus `/data/local/tmp/t1c_title{0,3,7}/`, `t1crun.sh`, `op2d_setcfg.sh`, `op2d_gpuprod`, `gpuprod.log`, `/data/misc/perfetto-traces/t1c_*.pftrace`; Fold `/data/local/tmp/t1cf`, `k2c`, `k4`, `ctf`, `chain_fold.sh`, `chain_fold_ns.sh`, `foldchain.sh`, `foldchain2.sh`, `shots_fold.sh`. PC: duplicate `pl_*` folders in `perf_logs/2026-11-12-pixel8-*`, empty `backup${n}_w2.*` files in `perf_logs/2026-11-13-k4-outcap5/`. 6. **Open question:** the Fold's GLTIME total stays ~11 ms in White 2 at 16x while the compositor gets 1.5 ms cheaper with the cap.
 
-   **Cautions:** before pushing any app file to a phone (rom_data.json, prefs), force-stop the app, or it writes its own copy back. Never use `cmd device_state` on the Fold: an override that wasn't reset on 11-13 left the inner screen black until the user folded and unfolded it by hand.
+## Phone test cautions
 
-   **Open:** the Fold's GLTIME total stays ~11 ms while the compositor gets 1.5 ms cheaper.
+- Phone runs go to the `phone-tester` agent (quick recipe by default).
+- Before pushing any app file to a phone (rom_data.json, prefs), force-stop the app, or it writes its own copy back. A K4 run once lost White 2's `wideViewWidth` 342 on the Fold that way.
+- Loading a state overwrites the real `.sav`: back it up and restore it around every run.
+- Never use `cmd device_state` on the Fold: an override that wasn't reset on 11-13 left the inner screen black until the user folded and unfolded it by hand. If a run needs a fold or unfold, ask the user to do it.
 
 ## Done earlier (details in PERF-NOTES and the plan)
 
