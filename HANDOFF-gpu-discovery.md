@@ -4,7 +4,7 @@ The plan and results are in [docs/plan-gpu-discovery.md](docs/plan-gpu-discovery
 
 ## State (11-13)
 
-Branch `compute-efficiency` in the app and the core. Latest: core `3efacbb9` and app `15506188` (K4, the output cap), not pushed as of 11-13; everything before them is pushed.
+Branch `compute-efficiency` in the app and the core. Latest: core `3f7d5201` and app `9942c685` (K4 phase 3, Smooth 2D under the cap). Not pushed as of 11-13; everything before them (K4 included) is pushed.
 
 **Defaults in every build:** T1 (`gltrans=3`), K2c (`comp1x=1`), K3 (`filter2drows=1`), E2 (`gledgeskip=1`), D1 (`glclear=3`), K4 (`outcap=1`, `outcap3d=3`). Off-by-default switches: T1c (`gltrans` bit 2), K2a (`compclear`), R2 is shelved.
 
