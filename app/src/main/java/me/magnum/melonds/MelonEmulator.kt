@@ -302,8 +302,9 @@ object MelonEmulator {
     external fun setWideViewWidth(width: Int)
 
     /**
-     * Sets how many times the native size the screens are shown at, at most, over every surface (0 when unknown), for debug.melonade.outcap
-     * (GPU::OutputCap), which caps the frame's scale by it. Only call it when the value changes; the emulator applies it once it holds for a while.
+     * Sets how many times the native size the screens are shown at, at most, over every surface (0 when unknown), for the output cap
+     * (GPU::OutputCap, on by default, debug.melonade.outcap=0 turns it off), which caps the frame's scale by it. Only call it when the value
+     * changes; the emulator applies it once it holds for a while.
      */
     external fun setOutputScaleNeed(need: Int)
 }

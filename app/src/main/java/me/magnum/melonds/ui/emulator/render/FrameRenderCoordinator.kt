@@ -122,10 +122,10 @@ class FrameRenderCoordinator {
         private var pendingVsyncPeriodNanos = 0L
         // Vsync period of the request being rendered, for the display samples
         private var renderingVsyncPeriodNanos = 0L
-        // debug.melonade.outcap: the need last passed to MelonEmulator.setOutputScaleNeed(), -1 so the first frame passes its own over whatever
-        // an earlier session left there
+        // The output cap (GPU::OutputCap, on by default): the need last passed to MelonEmulator.setOutputScaleNeed(), -1 so the first frame
+        // passes its own over whatever an earlier session left there
         private var lastOutputScaleNeed = -1
-        // debug.melonade.outcap: each managed surface's need this frame and the ones last logged, in managedSurfaces' order, so a change in
+        // The output cap: each managed surface's need this frame and the ones last logged, in managedSurfaces' order, so a change in
         // any of them (a second surface showing up, say) logs a line without allocating every frame
         private var surfaceOutputScaleNeeds = IntArray(4)
         private var loggedSurfaceOutputScaleNeeds = IntArray(0)
@@ -160,8 +160,8 @@ class FrameRenderCoordinator {
                     this.frameSequence = frameSequence
                 }
 
-                // debug.melonade.comp1x: the emulator only draws screens at 1x while every surface can show them. debug.melonade.outcap: the
-                // frame's scale is capped by the biggest any surface shows a screen at
+                // debug.melonade.comp1x: the emulator only draws screens at 1x while every surface can show them. The output cap (on by
+                // default): the frame's scale is capped by the biggest any surface shows a screen at
                 var canDrawHalvesAt1x = true
                 var outputScaleNeed = 0
                 if (surfaceOutputScaleNeeds.size < managedSurfaces.size) {
@@ -202,7 +202,7 @@ class FrameRenderCoordinator {
         }
 
         /**
-         * debug.melonade.outcap: logs the [count] surfaces' needs and the [sent] one, their max, when any of them changed since the last line.
+         * The output cap: logs the [count] surfaces' needs and the [sent] one, their max, when any of them changed since the last line.
          */
         private fun logSurfaceOutputScaleNeeds(count: Int, sent: Int) {
             val logged = loggedSurfaceOutputScaleNeeds

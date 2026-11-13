@@ -174,6 +174,39 @@ int FrameQueue::findDueFrameIndex(int64_t vsyncTimeNs, int64_t dueToleranceNs)
     return -1;
 }
 
+// Clears all of [texture] to 0 (transparent black) with a draw-framebuffer clear, on the emulator thread with its GL context current. That's
+// the context the frame is then rendered in, after the present fence wait in MelonInstance::runFrame, so the clear comes after the last present's
+// reads and before the frame's own draws and its render fence, which the presenter waits on before it reads the texture. The framebuffer is
+// made and deleted here (framebuffers aren't shared between contexts and this only runs on a new size), and the draw framebuffer, scissor
+// test and color mask are put back. False when the framebuffer isn't complete, so the caller uploads zeros instead
+static bool clearTexture(GLuint texture)
+{
+    GLint previousFramebuffer = 0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previousFramebuffer);
+    GLuint framebuffer = 0;
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+    bool complete = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    if (complete)
+    {
+        GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
+        GLboolean colorMask[4] {};
+        glGetBooleanv(GL_COLOR_WRITEMASK, colorMask);
+        if (scissor)
+            glDisable(GL_SCISSOR_TEST);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        const GLfloat zero[4] {};
+        glClearBufferfv(GL_COLOR, 0, zero);
+        glColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
+        if (scissor)
+            glEnable(GL_SCISSOR_TEST);
+    }
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint) previousFramebuffer);
+    glDeleteFramebuffers(1, &framebuffer);
+    return complete;
+}
+
 void FrameQueue::validateRenderFrame(Frame* frame, int requiredWidth, int requiredHeight)
 {
     if (frame->width != requiredWidth || frame->height != requiredHeight)
@@ -195,10 +228,16 @@ void FrameQueue::validateRenderFrame(Frame* frame, int requiredWidth, int requir
         }
         // New storage starts out cleared, as it isn't guaranteed to be and frames get theirs at any point of a session. The padding lines between
         // the two screens are never drawn but filtering reads them at the screens' edges, and a frame can be pushed without the compositor having
-        // drawn it (one that resumes from sleep past line 192, say), which would show whatever the driver handed back. Only on a new size, so
-        // this costs nothing per frame
-        std::vector<u8> clearPixels((size_t) requiredWidth * requiredHeight * 4);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, requiredWidth, requiredHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, clearPixels.data());
+        // drawn it (one that resumes from sleep past line 192, say), which would show whatever the driver handed back. Only on a new size, which
+        // the output cap (GPU::OutputCap) makes on every fold and unfold, so it's cleared on the GPU (clearTexture) instead of uploading a
+        // zeroed image of the whole frame (100 MB at 16x); the upload is only the fallback
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, requiredWidth, requiredHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        if (!clearTexture(frame->frameTexture))
+        {
+            glBindTexture(GL_TEXTURE_2D, frame->frameTexture);
+            std::vector<u8> clearPixels((size_t) requiredWidth * requiredHeight * 4);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, requiredWidth, requiredHeight, GL_RGBA, GL_UNSIGNED_BYTE, clearPixels.data());
+        }
         glBindTexture(GL_TEXTURE_2D, 0);
 
 #ifdef MELONADE_DEBUG_TOOLS

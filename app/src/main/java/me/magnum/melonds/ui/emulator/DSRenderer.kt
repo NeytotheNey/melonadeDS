@@ -76,7 +76,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var screenIndices = 0
     // The DS screen (OVERLAY_SCREEN_TOP or OVERLAY_SCREEN_BOTTOM) of each quad in screensVbo in draw order, so its Lua drawings can go right after it
     private var screenQuadScreens = IntArray(0)
-    // debug.melonade.outcap: the largest need of the screens the quads were built for (see outputScaleNeed); GL thread only
+    // The output cap (GPU::OutputCap, on by default): the largest need of the screens the quads were built for (see outputScaleNeed); GL thread only
     private var screensOutputScaleNeed = 0
     // Top-screen width of the frame the quads were built for; GL thread writes, touch input reads
     @Volatile
@@ -287,7 +287,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         isBottomScreenWideInQuads = areScreensSwapped
         val topScreen = drawing.topScreen
         val bottomScreen = drawing.bottomScreen
-        // debug.melonade.outcap: each screen's middle columns are shown at nativeRect's size, which the frame has to be at least as big as
+        // The output cap (GPU::OutputCap): each screen's middle columns are shown at nativeRect's size, which the frame has to be at least as big as
         val outputScaleNeed = listOfNotNull(topScreen, bottomScreen).maxOfOrNull { screen ->
             val rect = screen.nativeRect
             ceil(maxOf(rect.width / SCREEN_WIDTH.toDouble(), rect.height / SCREEN_HEIGHT.toDouble()) - 1e-3).toInt().coerceAtLeast(1)
