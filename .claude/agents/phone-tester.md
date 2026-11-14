@@ -31,6 +31,7 @@ adb isn't on PATH: `C:\Tools\android-sdk\platform-tools\adb.exe` (fallback `%LOC
 - Build and install commands are in `HANDOFF.md`. Install the APK the caller names; build only if asked (arm64). Build logs go in the git-ignored `logs/` folder.
 - Debug switches are `debug.melonade.*` props set with `adb shell setprop` before the game starts. They're read at game start, so start the game fresh for each config; never change switches live in a session. The full list is `docs/debug-switches.md`. The log says `(prop)` when a switch was picked up; check it.
 - The perf logger and debug log write to `/sdcard/Android/data/me.magnum.melonds.dev/files/perf_logs`. Pull into `C:\Dev\melonDS-android\perf_logs\<date>-<name>\` (git-ignored).
+- After every pull, write a one-line `NOTE.txt` in the run folder (what the run compares, e.g. "T2 step 2: gltexcache 0 vs 1, White 2 title, 4x") and run `python perf_logs/make_runs_csv.py`. That rebuilds `perf_logs/runs.csv`, one row per session across all runs, which the caller opens in Excel. Never edit `runs.csv` by hand; it's regenerated. If the script says the file is locked, say so in the report.
 
 ## Recipe
 
