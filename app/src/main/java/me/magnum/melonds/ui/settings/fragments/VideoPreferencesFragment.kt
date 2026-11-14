@@ -1,7 +1,6 @@
 package me.magnum.melonds.ui.settings.fragments
 
 import android.app.ActivityManager
-import android.os.Build
 import android.os.Bundle
 import androidx.core.content.getSystemService
 import androidx.preference.ListPreference
@@ -52,18 +51,8 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         rendererPreference.apply {
             val deviceGlesVersion = activityManager?.deviceConfigurationInfo?.reqGlEsVersion ?: 0
             if (deviceGlesVersion >= GLES_3_2) {
-                // Check if the device has a Qualcomm chipset. Only Adreno GPUs are supported for now
-                val isAdrenoGpu = Build.HARDWARE.lowercase() == "qcom"
-                if (!isAdrenoGpu) {
-                    val computeRenderOptionIndex = rendererPreference.entryValues.indexOfFirst { it == VideoRenderer.COMPUTE.name.lowercase() }
-                    rendererPreference.entries = rendererPreference.entries.filterIndexed { index, _ ->
-                        index != computeRenderOptionIndex
-                    }.toTypedArray()
-                    rendererPreference.entryValues = rendererPreference.entryValues.filterIndexed { index, _ ->
-                        index != computeRenderOptionIndex
-                    }.toTypedArray()
-                }
-
+                // Compute runs on any GLES 3.2 GPU. It used to be Qualcomm-only, until the Mali
+                // uvec4 atomic workaround (core 4b58305d) fixed the missing blocks on Mali
                 setOnPreferenceChangeListener { _, newValue ->
                     onRendererPreferenceChanged(newValue as String)
                     true
