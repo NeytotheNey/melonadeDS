@@ -154,6 +154,22 @@ namespace melonDS { class GPU; }
  *                  when none of their texels comes out under alpha 31, cached until texture VRAM under them changes, so
  *                  3 is steps 1 and 2; 4 is a check that drops that cache every frame (7 vs 3 must hash the same). any
  *                  nonzero value turns step 1 on, so 2 acts as 3
+ *   gltexprobe N   OpenGL, a measurement probe for experiment T2 (docs/plan-gpu-discovery.md) that RENDERS WRONG on purpose: 1 makes
+ *                  the render programs' texture lookup one texelFetch from the palette texture at the texcoord, alpha 1 (no wrap, no
+ *                  decode), 2 a constant 1.0 with no fetch, to bound what a decoded texture cache could save in GPU time. Passes and
+ *                  draws stay as they are. 3 and 4 are more measurement modes: 3 is 1 after the old path's texcoord wrap (1 vs 3
+ *                  is the wrap), 4 the wrap and two dependent fetches like T2's (a texture VRAM byte at I8's address, then the
+ *                  palette entry it indexes, alpha 1). 0, the default, draws as before (GPU::GLTexProbe)
+ *   gltexcache N   OpenGL, experiment T2 steps 1 and 2 (docs/plan-t2-texcache.md): textures are decoded once on the CPU into a
+ *                  texel heap (a 16 MB texture, kept until texture VRAM under them changes) and the render programs read that
+ *                  instead of decoding VRAM per fragment, with the same float math, so the image should stay the same (hash3d).
+ *                  Step 2: the programs most polygons draw with are built without the old decode path, and the polygons the heap
+ *                  doesn't serve draw with twins that have it (a render key bit, so batches split there). A sum of bits: 1 on
+ *                  (any nonzero value is), 2 a check that decodes every used texture again every frame, 4 a tiny budget and
+ *                  heap so the old and new paths mix in a frame, 8 no decode budget and no volatile rule, 16 step 1 instead
+ *                  (one program with both paths, for A/Bs against step 2), 32 (debug builds) makes the twins fail to build, to
+ *                  test the fallback (the cache turns off until the value changes). gltexprobe wins while it's nonzero. With scenestats=1 a GLTEXCACHE line once a second. 1 is the default since 11-13,
+ *                  in release builds too; 0 draws as before and makes no GL objects (GPU::GLTexCache)
  *   compclear N    OpenGL and compute, experiment K2a (docs/plan-gpu-discovery.md): the compositor's main draw starts without the
  *                  output's old contents, so a tiled GPU needn't load them first. 1 clears the whole output to 0, 2 invalidates it and
  *                  clears only the padding rows between the screens. Both keep the output the same. 0, the default, draws as before

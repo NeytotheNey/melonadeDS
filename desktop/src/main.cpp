@@ -106,6 +106,8 @@ struct Options
     std::string StatePath;     // a savestate (.mln/.ml1...) loaded after the reset
     struct Press { u32 From, To, Mask; };
     std::vector<Press> Presses; // --press: keys held over frame ranges, for scripted runs
+    struct At { u32 Frame; std::string Action; };
+    std::vector<At> Ats;       // --at: a reset, a state load or a switch change before a frame
 };
 
 // --press FRAME[-LAST]:key[+key...], keys a b x y l r start select up down left right; held for
@@ -171,6 +173,8 @@ void Usage()
         "  --boot-screen               boot through the firmware instead of directly\n"
         "  --fixed-time                the RTC starts at 2026-01-01 12:00, for runs to compare\n"
         "  --set NAME=VALUE            a core debug switch, e.g. --set LateBlit=0 (see --list-sets)\n"
+        "  --at F:reset|state|NAME=VALUE\n"
+        "                              before frame F: a reset, the --state loaded again, or a --set\n"
         "  --list-sets                 list the switches --set knows\n"
         "\n"
         "  --layout vertical|horizontal|top|bottom\n"
@@ -232,6 +236,8 @@ const IntSwitch kIntSwitches[] = {
     {"GLEdgeSkip", &GPU::GLEdgeSkip},
     {"GLClearFast", &GPU::GLClearFast},
     {"GLNoDiscard", &GPU::GLNoDiscard},
+    {"GLTexProbe", &GPU::GLTexProbe},
+    {"GLTexCache", &GPU::GLTexCache},
     {"CompClear", &GPU::CompClear},
     {"Comp1x", &GPU::Comp1x},
     {"Filter2DRows", &GPU::Filter2DRows},
@@ -346,6 +352,13 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--boot-screen") opts.BootScreen = true;
         else if (arg == "--fixed-time") opts.FixedTime = true;
         else if (arg == "--set") opts.Sets.push_back(next());
+        else if (arg == "--at")
+        {
+            std::string spec = next();
+            size_t colon = spec.find(':');
+            if (colon == std::string::npos || colon == 0) { fprintf(stderr, "bad --at %s\n", spec.c_str()); return false; }
+            opts.Ats.push_back({(u32)strtoul(spec.c_str(), nullptr, 10), spec.substr(colon + 1)});
+        }
         else if (arg == "--list-sets")
         {
             for (const BoolSwitch& s : kBoolSwitches) printf("%s (0/1)\n", s.Name);
@@ -982,6 +995,22 @@ int main(int argc, char** argv)
                     scriptMask |= press.Mask;
             }
             emu.Nds->SetKeyMask(~(keyMask | padMask | stickMask | scriptMask) & 0xFFF);
+
+            for (const Options::At& at : opts.Ats)
+            {
+                if (at.Frame != frame)
+                    continue;
+                if (at.Action == "reset")
+                    emu.Reset();
+                else if (at.Action == "state")
+                {
+                    if (opts.StatePath.empty() || !emu.LoadState(opts.StatePath))
+                        fprintf(stderr, "--at %u:state: no state to load\n", at.Frame);
+                }
+                else if (!ApplySet(emu.Nds->GPU, at.Action))
+                    fprintf(stderr, "unknown --at %u:%s (see --list-sets)\n", at.Frame, at.Action.c_str());
+                printf("at frame %u: %s\n", at.Frame, at.Action.c_str());
+            }
 
             auto workStart = std::chrono::steady_clock::now();
             emu.RunFrame();

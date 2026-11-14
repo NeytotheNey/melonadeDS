@@ -27,6 +27,8 @@ Debug switches added for this, all off by default:
 - **OnePlus:** New Super Mario Bros, Phantom Hourglass, Dark Dawn and White 2 (the 3D title) passed all 212 COMPCHECK lines, and Compute matched OpenGL.
 - Results are in `perf_logs/mali-pixel8/games/`.
 
+**Pixel 9 Pro Fold (user, 2026-11-13):** Compute works with the fix. No numbers taken.
+
 **Upstream port:** the same fix on rafaelvcaetano's code fixes the blocks there too, in Phantom Hourglass and New Super Mario Bros on the Pixel 8, and 1x runs with no hang. See [compute-on-mali-upstream.md](compute-on-mali-upstream.md) and `perf_logs/mali-pixel8/upstream/`.
 
 Still to do before Compute is unlocked on Mali: the Fold (the main Adreno perf phone, skipped for now), more games, and the Pixel 9 Pro Fold. Then replace the `qcom` check in `VideoPreferencesFragment.kt`.
