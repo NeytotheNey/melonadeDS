@@ -244,7 +244,7 @@ Overrides apply(GPU& gpu)
         gpu.GLTexProbe = std::clamp(atoi(value), 0, 4);
     // the decoded texel heap (T2 step 1), off by default until the phones have checked it
     if (read("gltexcache", value))
-        gpu.GLTexCache = std::clamp(atoi(value), 0, 127);
+        gpu.GLTexCache = std::clamp(atoi(value), 0, 511);
     if (read("compclear", value))
         gpu.CompClear = std::clamp(atoi(value), 0, 2);
     if (read("comp1x", value))

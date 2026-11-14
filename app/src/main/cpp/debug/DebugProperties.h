@@ -169,7 +169,10 @@ namespace melonDS { class GPU; }
  *                  heap so the old and new paths mix in a frame, 8 no decode budget and no volatile rule, 16 step 1 instead
  *                  (one program with both paths, for A/Bs against step 2), 32 (debug builds) makes the twins fail to build, to
  *                  test the fallback (the cache turns off until the value changes), 64 step 3 (the heap lookup's wrap constants
- *                  made in the vertex shader, a branchless wrap in the fragment shader; 65 = step 2 with it, 81 = step 1 with it).
+ *                  made in the vertex shader, a branchless wrap in the fragment shader; 65 = step 2 with it, 81 = step 1 with it),
+ *                  128 step 4a, measurement only (a color plane resolved at decode, palette changes not tracked, so palette
+ *                  animation draws stale colors; 193 = steps 2 + 3 + 4a, 129 without step 3), 256 with 128 and step 2 builds
+ *                  the cache-only programs without the record path (4x4 and direct draw with the twins).
  *                  gltexprobe wins while it's nonzero. With scenestats=1 a GLTEXCACHE line once a second. 1 is the default since 11-13,
  *                  in release builds too; 0 draws as before and makes no GL objects (GPU::GLTexCache)
  *   compclear N    OpenGL and compute, experiment K2a (docs/plan-gpu-discovery.md): the compositor's main draw starts without the

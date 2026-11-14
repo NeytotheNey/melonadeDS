@@ -149,3 +149,24 @@ Codegen/precision difference between the two paths (hash mismatch; switch stays 
 - Switch wiring: `app/src/main/cpp/debug/DebugProperties.cpp/.h`, `desktop/src/main.cpp`, `docs/debug-switches.md`.
 - Debug stats: `src/GPU3D_GLStats.h` (~80).
 - Step 1 ~850–950 lines; step 2 ~+100; step 3 ~+60. Memory: 16 MB heap + 96 KB palette texture on the GPU, ~450 KB on the CPU, all freed when off.
+
+## 13. Step 4 (design B): a color plane next to the records
+
+What's left after step 3 is the record path itself: a 4-byte record fetch, int conversions, the kind and alpha code, and the record → `TexPalLinear` dependency. In W2 every served polygon is I2/I4/I8 (kind 0) or A3I5/A5I3 (kind 1), so the kind branches are uniform per polygon; the cost is the fetch chain.
+
+**4a, as built (11-13, `gltexcache` bit 128, measurement only, never a default).**
+- `TexColor`: RGB5_A1, the heap's size (1024 x 4096, 8 MB; 4 MB at 2048 rows, 256 KB in the tiny mode), the same block offsets as the records, made and deleted with the heap, on unit 4 (bound every frame like units 2 and 3). Same internal format, format and type as `TexPalLinear`.
+- The decoder writes, next to each record of an I2/I4/I8/A3I5/A5I3 entry, the texel's palette word as `TexPalConvBuffer` holds it (entry R + 256 G), with A (bit 0) set to kind 0's alpha, `B != 0`. 4x4 and direct stay records only. Uploads are 6 bytes a texel instead of 4.
+- `TexWord` flags (offsets are below 2^22, bits 22–29 were free): bit 22 the polygon has a color plane, bit 23 its alpha comes from the record (A3I5, A5I3).
+- Shader (`#define TexColorPlane`), after the address: with bit 22, `color = texelFetch(TexColor, ta, 0)`, and with bit 23 `return vec4(color.rgb, float(rec.b)/31.0)` with the record fetched at the same address (independent, not dependent), else `return color`. Exactness: rgb is the same 16-bit word in the same format fetched with the same default precision as the record path's `TexPalLinear` fetch; A is 0 or 1 exactly, as kind 0 returns; kind 1's alpha is the same expression on the same record. The direct and 4x4 tails are untouched (a unorm fetch and `float(i)/31.0` aren't interchangeable).
+- **No palette tracking:** the plane is resolved at decode and goes stale when palette RAM changes (a texture whose bytes hash the same keeps its plane). The check mode (bit 2) decodes every used texture every frame, so `195` vs `67` is exact everywhere and `193` vs `65` mismatches only where palettes animate. A state load clears the heap while 128 is on (otherwise rehashing would keep a plane from the old palette); reset and any switch change clear it as before.
+- **Bit 256 (debug, measurement):** with 128 and step 2, the cache-only programs are built without the record path (`#define TexColorOnly`, the color fetch plus the bit-23 record fetch only). Served textures without a color plane (4x4, direct) get `RenderKey_TexFull` and draw with the twins, whose heap lookup still has the record path, so the frame stays exact; in W2 there are none. `449` = 256 + 193, `385` = 256 + 129. Ignored without 128 or with step 1 (bit 16).
+- Desktop check (11-13, `logs/t2-step4a/`): `193`/`449` vs `65`, `129`/`385` vs `1` and `197` vs `69` match in W2 title, W2 town, Platinum, Contra 4 and MKDS, plus `glnodiscard=0`, SCENEFRAGS builds, state loads, resets and live toggles. SoulSilver (247 of 4799 frames from 1958; `197` matches, as the tiny heap re-decodes often) and Dark Dawn (frames 397–399) differ, and `195` vs `67` matches in all 7, so those are palette changes the plane doesn't see.
+- Stats: `GLTEXCACHE` adds `color` (served polygons/area that read the plane) and `color_full` (served ones that 256 sent to the twins).
+
+**4b, to do (makes it exact without the check mode):**
+- Per entry, the palette range its decode read (first and last palette entry, from the records' coordinates or the format's bound) and its 512 B TexPal chunks (256 entries a chunk, one `TexPalLinear` row).
+- Each frame, a prefix over `texPalDirty` like `TexDirtyPrefix`; an entry whose palette chunks changed goes palette-stale.
+- At its next use: rehash the palette words it covers (the 16-bit words from `TexPalConvBuffer`, or the raw palette VRAM); unchanged keeps the plane, changed re-resolves the color plane only (records stay, no texture decode, 2 bytes a texel upload).
+- A volatile rule for palette-animating entries (like the texture one: palette-changed in ≥3 of the last 8 frames used) that drops their color bit, so they take the record path (exact, `TexPalLinear` follows the palette) instead of re-resolving every frame.
+- The check mode keeps re-resolving every used entry every frame.
