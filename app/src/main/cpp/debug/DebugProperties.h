@@ -170,11 +170,13 @@ namespace melonDS { class GPU; }
  *                  (one program with both paths, for A/Bs against step 2), 32 (debug builds) makes the twins fail to build, to
  *                  test the fallback (the cache turns off until the value changes), 64 step 3 (the heap lookup's wrap constants
  *                  made in the vertex shader, a branchless wrap in the fragment shader; 65 = step 2 with it, 81 = step 1 with it),
- *                  128 step 4a, measurement only (a color plane resolved at decode, palette changes not tracked, so palette
- *                  animation draws stale colors; 193 = steps 2 + 3 + 4a, 129 without step 3), 256 with 128 and step 2 builds
- *                  the cache-only programs without the record path (4x4 and direct draw with the twins).
- *                  gltexprobe wins while it's nonzero. With scenestats=1 a GLTEXCACHE line once a second. 1 is the default since 11-13,
- *                  in release builds too; 0 draws as before and makes no GL objects (GPU::GLTexCache)
+ *                  128 step 4 (a color plane resolved at decode; 4b re-resolves it when the palette words under it change,
+ *                  and textures whose palette keeps changing read their records for a while; 193 = steps 2 + 3 + 4, 129
+ *                  without step 3), 256 with 128 and step 2 builds the cache-only programs without the record path (4x4,
+ *                  direct and palette-volatile textures draw with the twins).
+ *                  gltexprobe wins while it's nonzero. With scenestats=1 a GLTEXCACHE line once a second. 449 (= 256 + 193) is
+ *                  the default since 11-14, in release builds too (1 was from 11-13, use 1 for A/Bs against it); 0 draws as
+ *                  before and makes no GL objects (GPU::GLTexCache)
  *   compclear N    OpenGL and compute, experiment K2a (docs/plan-gpu-discovery.md): the compositor's main draw starts without the
  *                  output's old contents, so a tiled GPU needn't load them first. 1 clears the whole output to 0, 2 invalidates it and
  *                  clears only the padding rows between the screens. Both keep the output the same. 0, the default, draws as before
