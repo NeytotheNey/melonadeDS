@@ -10,6 +10,7 @@ Notes for working on melonadeDS. The user-facing overview is the [README](../REA
 - [plan-compute-efficiency.md](plan-compute-efficiency.md): less GPU time, memory and battery from the Compute renderer, aimed at the OnePlus 7 Pro at 4x. Timers, frame queue trim and render pacing built and OnePlus-tested (NSMB's map at 4x went from 2 to 60 FPS shown); shader work and the Fold check open.
 - [plan-widemelon.md](plan-widemelon.md): improving WideMelon, mainly 2D in the wings, from PokeDaisy's widescreen notes. Steps 1 to 3 merged; wide 2D waits for the GPU 2D renderer.
 - [plan-gpu-discovery.md](plan-gpu-discovery.md): where the GPU's cycles go on OpenGL and Compute, and cheap experiments behind debug switches. Phase 0 and T1 (translucent draw skips, -15% at White 2's title) done; T1c next.
+- [plan-shield.md](plan-shield.md): the NVIDIA Shield TV (Tegra X1+, ARMv8.0), the slowest CPU we've tested. First runs done; the armv8.2 rollback is tentative, measurements and fixes open.
 - [hires-capture.md](hires-capture.md): upscaled display capture. Phase 1 done, Phase 2 (bitmap BGs) open.
 - [blackmagic3.md](blackmagic3.md): what we borrowed from upstream's blackmagic3 instead of porting it. Done, with a few follow-ups.
 - [polish.md](polish.md): the cleanup and polish pass over `material3`, with its leftovers and two device-free check recipes. Done.
