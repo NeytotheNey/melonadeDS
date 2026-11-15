@@ -150,6 +150,10 @@ namespace melonDS { class GPU; }
  *                  which also leaves Compute's edge marking out; -1 in the summary when unset): 0 none (as before E1), 1 (the default) opaque
  *                  fragments within one DS pixel of their polygon's outline set the edge flag (program builds only in edge frames),
  *                  2 every opaque fragment sets the flag; both compare depth-equal polygons at their own depth (GPU::GLEdgeMark)
+ *   gledgefast N   OpenGL, E1 speedups, a sum of bits, exact: 1 the edge pass discards unflagged pixels early and is scissored to the
+ *                  opaque polygons' box (no gain measured on Adreno or Mali, 11-15); 2 (with gledgemark 1) outlines of polygons with up
+ *                  to 4 edges as flat varyings, not texel fetches, falling back to them if its programs don't build; 4 makes those
+ *                  programs fail on purpose. 2 is the default since 11-15 (GPU::GLEdgeFast)
  *   glclear N      OpenGL, experiment D1 (docs/plan-gpu-discovery.md), a sum of bits: 1 the plain clear (not the clear bitmap) is a
  *                  glClearBuffer per target instead of a full-screen quad, same values; 2 the attr and depth/stencil targets are
  *                  invalidated after the frame, as nothing reads them before the next clear. 3 is the default since 11-12, in release

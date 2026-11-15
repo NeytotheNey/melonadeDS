@@ -243,6 +243,7 @@ const IntSwitch kIntSwitches[] = {
     {"GLTransSkip", &GPU::GLTransSkip},
     {"GLEdgeSkip", &GPU::GLEdgeSkip},
     {"GLEdgeMark", &GPU::GLEdgeMark},
+    {"GLEdgeFast", &GPU::GLEdgeFast},
     {"GLClearFast", &GPU::GLClearFast},
     {"GLNoDiscard", &GPU::GLNoDiscard},
     {"GLTexProbe", &GPU::GLTexProbe},

@@ -86,7 +86,7 @@ E1 changes what games look like (it's what real hardware and our software render
 |---|---|---|
 | D1 | `glClear` instead of the clear quad (bitmap clear stays a draw), and `glInvalidateFramebuffer` on attr and depth when nothing reads them after the frame. **Done 11-12 (`glclear`, default 3):** exact; −4 to −7% GPU at 12x/16x on the Fold and Pixel, −4% at 8x on the Pixel, noise at 8x on the Fold. | done |
 | D2 | NoAttr: a program variant that doesn't write attr when no edge, fog or capture pass needs it | small |
-| D3 | One combined edge+fog pass, scissored to the drawn area, skipped when unused, with no mid-frame depth detach (what WatermelonDS does, see "WatermelonDS at 16x") | medium |
+| D3 | One combined edge+fog pass, scissored to the drawn area, skipped when unused, with no mid-frame depth detach (what WatermelonDS does, see "WatermelonDS at 16x"). **Next (11-15):** with E1 on, the edge pass costs ~1.5 ms on the OnePlus in the W2 town, and discarding unflagged pixels didn't reduce it, so the pass itself is the cost (PERF-NOTES "E1 speedups"). | medium |
 
 **Redundant shading (GL)**
 
