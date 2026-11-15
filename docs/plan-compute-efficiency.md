@@ -56,6 +56,102 @@ Read from the code, not measured:
   - Step 6 (program binary cache): written and reviewed 11-11, not phone-tested. See `HANDOFF-compute.md`.
 - **The title won't reach 60 at 4x on this phone** without a much bigger change (a depth pre-pass so overdrawn layers aren't shaded). 2x holds 60 there (59.67); 3x wasn't measured on the title.
 
+## Phase 2: a visibility pass (planned 11-15)
+
+### Why
+
+Fold inner, White 2 title, deband off, 256 view, Mcyc per frame (PERF-NOTES "Progress vs WatermelonDS"): Compute 8x 7.68, our OpenGL 8x 2.43, WatermelonDS Vulkan 4.52. Graphics memory 935 MB vs GL's 474. At the 426 view Compute 8x is 15.9 Mcyc and throttles (thermal 2, 54–56 fps). Compute is capped at 8x because tile memory reaches ~805 MB per buffer at 16x. OpenGL is now ahead of Vulkan; Compute is still 1.7x Vulkan and 3x GL.
+
+The cost is the design, not tuning. Rasterise shades every pixel of every (polygon, tile) work tile, texture sample included, before any depth test; DepthBlend then walks every polygon binned to the tile, per pixel, reading the stored colors back. On the Fold at 8x the title has 3.95 visits per pixel, 27% failing depth and only ~39% contributing (overworld 4.26, 38% failing). Rasterise and DepthBlend are 70–77% of compute time, about equal, and DepthBlend is nearly all memory access. Rough estimate: ~50 B per screen pixel through L2/DRAM, ~160 MB a frame at 8x, since compute passes don't get the tiled GPU's on-chip memory. That probably explains part of Compute's 2.3x battery cost.
+
+### The idea
+
+DepthBlend's whole state machine (depth tests, AA push-down, the translucent ID rule, stencil) never looks at a fragment's color, only its alpha class (opaque, translucent, discarded) and the polygon's attributes. So the opaque part can track polygon indices instead of colors and shade only the winners, and stay exact.
+
+- **Visibility pass (V):** per tile, walk the opaque polygons in DS order, compute coverage, edge attr and depth with Rasterise's own functions, run DepthBlend's opaque rules on indices, and keep two layers of {polygon, depth, attr} per pixel. No texturing, except texture alpha for cut-out polygons.
+- **Shade the winners:** only the winning polygon of each layer gets its color computed. Shading drops from ~2.6 colored visits per pixel to ~1–1.2 plus translucency.
+- **Translucent polygons** keep today's in-order path, starting from the state V leaves, until the later stages fold them in.
+
+What it can't avoid: in W-buffer frames (the title) depth needs the per-pixel divide, so V still does one divide per covered fragment, and the per-pixel walk stays (~4 visits a pixel at the title). The saving is the texture sample, interpolation and color traffic of every non-winning visit.
+
+### Exactness
+
+The bar is today's Compute, bit for bit, not the software renderer. Compute already differs from Soft in places and the new code must copy those, not fix them in the same step: no front-facing `<=` rule over back-facing opaque pixels, the AA push-down not gated by DISP3DCNT bit 4, the second-layer fallback testing `attr & 0x3` (Soft `0xF`), DISP3DCNT bit 3 (alpha blend enable) ignored, the stencil reset per pixel per fragment, and W vs Z picked per frame from polygon 0.
+
+| Rule | How it stays exact |
+|---|---|
+| Opaque before translucent | The CPU finds the opaque prefix: the longest run from polygon 0 that isn't translucent or mode 3 (shadow and mask polygons with alpha 31 are filed as opaque and can sit among them, so the prefix ends at the first one). Everything after it goes through today's code. |
+| Alpha in the prefix | With polygon alpha 31 and texture formats other than 1/6, a fragment is opaque or discarded: discarded only by a cut-out texel or AlphaRef = 31 (a frame flag). A must-be-0 counter checks for alpha 1–30 in the prefix. |
+| Depth test, equal test | V runs DepthBlend's comparisons in the same order, so equal-test polygons (±0x200 Z, ±0xFF W) see the depth as it was at their turn. Atomics can't do this (no equal test, no push-down, doesn't fit 32 bits), so V is a sequential walk per pixel, like DepthBlend. |
+| Two layers (AA, edge, fog) | Always kept (Compute doesn't gate it by AA): two layers of color, depth and attr, never more. FinalPass is unchanged; V always writes all six Result words. |
+| Translucent ID rule, fog AND, depth write, blending | Unchanged code, run in order from V's opaque state. |
+| Shadow masks and shadows | All in the translucent group, unchanged. Trap: `prevIsShadowMask` is set by any covered non-mask fragment before its depth test, so skipping a failing fragment must keep that side effect (stage 3's sentinel). Masks are never skipped. |
+| Wireframe, lines, clear, bitmap clear, color mask | Coverage shared from Rasterise as one function; clear init copied from DepthBlend with CLEAR and EMPTY index sentinels; winners write `color & TileColorMask` under PackAttr. |
+| What the compositor and capture read | Only FinalPass's RGBA8 image and the 1x capture image, unchanged. |
+
+**The check:** today's HASH3D only hashes Compute's 1x capture image (1 pixel in 64 at 8x), so stage 0 adds a full-resolution hash, `HASH3DF`. Every stage: a desktop sweep with `--set ComputeVis=N` against 0 (full-res screenshots and hashes, at 1x, 4x, 8x and 12x so 8, 16 and 32 px tiles are covered, over the PC harness's 21 games), then the Fold, OnePlus and Pixel.
+
+### Stages
+
+All behind a new switch `debug.melonade.computevis` (bits, like `computeopt`), default 0 until all three phones pass.
+
+| Stage | Change | Lines | Expected win |
+|---|---|---|---|
+| **0. Instruments** | (a) `hash3dfull`: full-res hash pass, logged as `HASH3DF`. (b) `COMPVIS` census once a second: prefix length and share of tile work, cut-out polygons, counts of equal-test, shadow, mask, wireframe, bitmap clear, AlphaRef. (c) COMPDEPTH split by group: prefix visits, colored, failed, winners; translucent fragments behind the final opaque depth (stage 3's yield); the alpha 1–30 counter. (d) `computeprobe` bits (inexact, cost split only): Rasterise without the texture sample, without color/uv interpolation, without the divide. | core ~215, app ~15 | none; decides the order below |
+| **1a. Opaque visibility, no textures** | The prefix also ends at the first cut-out polygon. New `OpaqueVis` pass per tile writes Result depth/attr for both layers and a `Winner` buffer (two u16 per pixel). Rasterise gets a shade mode for prefix polygons: non-winners exit before any work. DepthBlend becomes Resolve: starts from Result, skips prefix bits, and doesn't run for tiles with no translucent polygons. Two new programs (Z and W), so 33 → 35; update the hard-coded 33 in `NeedsShaderCompile` and the MetaUniform `static_assert`. | shaders ~220, Compute.cpp/.h ~200 | Removes DepthBlend's prefix visits and prefix shading except winners. Guess −5 to −25% of GPU cycles; Z frames gain more than W frames (the divide). Less bandwidth, no memory change yet. |
+| **1b. Cut-outs** | An alpha-only Rasterise mode for prefix cut-out variants, run before V with the real texture and sampler (exact by construction), sets one bit per passing texel in `CutoutBits` (1/32 of a tile layer). The prefix then runs to the first translucent or mode-3 polygon. | shaders ~40, Compute.cpp ~60 | Extends 1a to scenes full of color-0 cut-outs (most of what's left in Pokémon overworlds per R1). |
+| **1c. Span depth-bound skip** | In V, skip a fragment's depth (and the W divide) when its row's nearest depth can't beat the pixel's current layers and the polygon isn't equal-test. Exact: in the prefix a failing fragment has no effect. | shaders ~15 | Up to the 27–38% of visits that fail depth. |
+| **2. Translucent-only tile memory** | Binning keeps opaque and translucent work in separate regions; only translucent work gets tile memory, sized by the CPU's translucent bound. Room keys get a layout field. | shaders ~50, Compute.cpp ~85 | Memory falls by the prefix share of tile memory; estimate 100–200 MB at the 8x title, from census (b). Less DRAM traffic. |
+| **3. Translucent early reject** | Translucent Rasterise reads the final opaque depth bound from V. A fragment behind it (not equal-test, before the first equal-test translucent polygon, not a shadow mask) writes a sentinel instead of shading; Resolve treats it as a failed fragment, side effects included. | shaders ~40, Compute.cpp ~20 | Skips shading translucent fragments hidden behind opaque ones (census (c)). |
+| **4. Textures without bindings** | Decoded textures also go into one SSBO (not a texture buffer: Mali can wrap those at 65,536 texels), fetched with integer wrap/mirror/clamp. V reads cut-out alpha from it (drops 1b's pre-pass); a per-pixel Shade pass replaces opaque work tiles, so binning only makes work for translucent polygons. **Gate first:** today's Rasterise sampling through the SSBO instead of `texture()` must be bit-identical on the desktop and all three phones. | Texcache.h ~150, Compute.cpp ~120, shaders ~120 | Removes the 256-thread launches per opaque work tile, the cut-out pre-pass and most sort work. |
+| **5. Fused translucent** | Resolve shades translucent fragments inline (all threads of a tile walk the same polygon, so blend-mode branches are uniform). No Rasterise, sort or tile memory left; binning only builds masks. | shaders ~150, Compute.cpp ~120 | Memory becomes per pixel (Result 24 B + Winner 4 B + bins + spans), ~350 MB plus spans at 16x, under the OnePlus's 512 MB per-buffer limit. Removes the reason for the 8x cap (raising it in the app is a separate change). |
+
+Phone steps: stage 0 is ~3 sessions (Fold 8x title, overworld, a fog area and NSMB's map with probes under `computesync`; OnePlus 4x title; Pixel title). Stages 1a–1c ~3 sessions (Fold 4 scenes × 2 arms, OnePlus title, Pixel title and town). Stage 2 ~2 (Fold memory: title, overworld, map; OnePlus). Stage 3 ~1. Stages 4 and 5 ~2 each, plus 16x memory runs for 5.
+
+### Scenes
+
+| Scene | Covers |
+|---|---|
+| White 2 title (cold boot, deterministic) | W-buffer, AA, blending, clear alpha 0, capture, 3D on both screens |
+| White 2 overworld | Z-buffer, edge marking every frame |
+| A White 2 fog area or Dark Dawn's fog title | fog + edge, fog's second-layer reads |
+| NSMB's map | many polygons and variants, pacing |
+| Mario Kart DS (desktop results-replay state) | shadow volumes (expected; confirm with the census), translucency, equal-depth decals |
+| Phantom Hourglass | toon + edge (expected; confirm) |
+| Platinum / SoulSilver overworld, Contra 4 intro | color-0 cut-outs, the Z path |
+| White 2 title at the 426 view | the 4096-polygon wide list |
+
+Wireframe, bitmap clear, AlphaRef and opaque A5I3 texels: find them with census (b) on the desktop sweep; list any no game uses as uncovered.
+
+### GPU constraints
+
+- No atomics in the visibility state; the only new ones are a translucent counter and the cut-out `atomicOr`, on flat `uint` arrays. Never a component of a `uvec4` element (the Mali bug fixed in `4b58305d`). 64-bit atomics aren't available.
+- No `barrier()` inside the polygon loop (GLSL ES forbids it in control flow), so V doesn't stage span rows in shared memory; a tile row shares one `XSpanSetup`, so the cache handles it.
+- No GPU-written indirect dispatches (Adreno stalls the CPU on them): fixed sizes or the CPU's bound with the existing leftover loop.
+- Register pressure: V runs 256 threads at 8x and 1024 above; stage 5 is an uber-shader. Watch compile failures and spills on the Adreno 640 and Mali (Mali's offline compiler reports both on the PC).
+- Timers: compute timer queries read zero on the 640 and the Fold, so use `computesync` shares and Fold `gpu_mcycles_per_frame`; on the Pixel, the Mali vendor counters.
+- Risky: stage 4's integer wrap/mirror/clamp matching `texture()` for nearest-filtered integer textures. It holds by spec but is only proven per driver by the gate A/B; everything before stage 4 keeps `texture()`.
+
+### Cheaper wins, ranked
+
+1. **`computetile 8` at 8x on the Fold.** No code, one phone step. 8x uses 16 px tiles and wastes about a third of its 256 threads (3.95 visits vs ~2.6 colored); fits the work-tile limits at the 256 view.
+2. **Stage 0's probes and census**, which decide whether 1a pays in W frames and whether 1a or 1b comes first. If most opaque work comes before the first cut-out polygon, 1a alone is most of the win at ~60% of the lines.
+3. **1c**, ~15 lines on top of V.
+4. **Stage 3**, ~60 lines, needs V.
+5. **Whole-tile occlusion at bin time.** Shortens every later walk, but the exact conditions are tricky (no edge pixels of the occluder in the tile, no equal-test polygon between, no cut-outs). Only if the census shows long walks behind full-tile occluders.
+
+Not worth it: splitting texture sampling out of Rasterise (Compute already samples a pre-decoded cache in one fetch); reading depth before color (about neutral in Phase 0); narrowing Result (color, attr and depth need 70 bits a layer).
+
+### Measure first, then decide
+
+1. Rasterise's cost split (divide, interpolation, texture, stores) in a W scene (title) and a Z scene (overworld). If the divide dominates, V costs nearly what Rasterise does in W frames and 1a pays mainly in Z frames.
+2. The census: prefix share of visits and work tiles, cut-out share, winners per pixel, translucent fragments behind the opaque bound, and the alpha 1–30 counter (must be 0).
+3. `computetile 8` at 8x.
+4. On Mali: `GL_MAX_TEXTURE_BUFFER_SIZE`, and whether a DepthBlend-sized shader spills.
+5. How much of the 935 MB is tile memory at the 8x title (`COMPROOMS`, `COMPGROW` lines), before stage 2.
+
+**Open:** whether any game puts alpha-31 shadow polygons early in the opaque group (it would shorten the prefix); whether V's per-visit cost on Adreno comes in under DepthBlend's memory-bound visit. **Other risks:** particle-heavy translucent scenes gain little before stage 5; `prevIsShadowMask` is easy to break (stage 3, Mario Kart's shadows); 3–8 more programs and the hard-coded counts and keys; the grow-and-skip safety valve stays inexact when it triggers, as today. Code map: `GPU3D_Compute_shaders.h` (Rasterise ~:1240–1561, DepthBlend ~:1563–1837, BinCombined ~:954–1149, FinalPass ~:1839), `GPU3D_Compute.cpp` (RenderFrame ~:2244–3100, ResizeTargets/BuffersFit ~:766–1025, QueueHash3D ~:1731), `GPU3D_Soft.cpp` and `GPU3D.cpp` for the rules and the opaque-first sort.
+
 ## Rules
 
 - HASH2D and exact-frame matches must stay identical after every step; hi-res capture, WideMelon, halfcam and dither must keep working.
