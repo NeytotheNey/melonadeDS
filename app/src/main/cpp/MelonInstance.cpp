@@ -355,19 +355,28 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         applyRewindSettings();
 
     // GPU::OutputCap: the screens' size only counts once it held for a while, so a fold, a rotation or a layout change resizes the frame once
+    // Whether the frontend debands holds along with it (GPU::OutputCapDeband lets the cap take a ratio that isn't whole)
     int frontendOutputNeed = MelonDSAndroid::getOutputScaleNeed();
+    bool frontendDeband = MelonDSAndroid::getOutputDeband();
     // Each change logs a line (debug), so a frontend that flips between two values shows up as a run of them with no "accepted"
-    if (frontendOutputNeed != pendingOutputScaleNeed)
+    if (frontendOutputNeed != pendingOutputScaleNeed || frontendDeband != pendingOutputDeband)
     {
-        LOG_INFO(LOG_TAG_DEBUG, "OUTCAP: frontend need %d pending (was %d, accepted %d)", frontendOutputNeed, pendingOutputScaleNeed, outputScaleNeed);
+        LOG_INFO(LOG_TAG_DEBUG, "OUTCAP: frontend need %d deband %d pending (was %d deband %d, accepted %d deband %d)", frontendOutputNeed,
+                 frontendDeband, pendingOutputScaleNeed, pendingOutputDeband, outputScaleNeed, outputDeband);
         pendingOutputScaleNeed = frontendOutputNeed;
+        pendingOutputDeband = frontendDeband;
         pendingOutputScaleNeedFrames = 0;
     }
-    else if (pendingOutputScaleNeed != outputScaleNeed && ++pendingOutputScaleNeedFrames >= OUTPUT_NEED_STABLE_FRAMES)
+    else if ((pendingOutputScaleNeed != outputScaleNeed || pendingOutputDeband != outputDeband)
+             && ++pendingOutputScaleNeedFrames >= OUTPUT_NEED_STABLE_FRAMES)
     {
-        LOG_INFO(LOG_TAG_DEBUG, "OUTCAP: frontend need %d accepted after %d frames (was %d)", pendingOutputScaleNeed, pendingOutputScaleNeedFrames, outputScaleNeed);
+        LOG_INFO(LOG_TAG_DEBUG, "OUTCAP: frontend need %d deband %d accepted after %d frames (was %d deband %d)", pendingOutputScaleNeed,
+                 pendingOutputDeband, pendingOutputScaleNeedFrames, outputScaleNeed, outputDeband);
         outputScaleNeed = pendingOutputScaleNeed;
+        outputDeband = pendingOutputDeband;
     }
+    // Before the renderers' SetOutputNeed, which re-asks the scale when it changes what the cap may pick
+    nds->GPU.OutputCapDeband = outputDeband;
 
     int screenWidth;
     int screenHeight;

@@ -25,6 +25,7 @@ class PreferenceKeysTest {
         PreferenceKeys.LAYOUT_EDITOR_GRID_SIZE,
         PreferenceKeys.LAYOUT_EDITOR_ITEM_PANEL_EXPANDED,
         PreferenceKeys.LAYOUT_EDITOR_MENU_BUTTON_PREFIX,
+        PreferenceKeys.VIDEO_COLOR_DITHERING,
     )
 
     // Constant name to key

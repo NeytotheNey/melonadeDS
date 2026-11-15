@@ -25,6 +25,12 @@ interface EmulatorRenderer {
     fun outputScaleNeed(): Int = 0
 
     /**
+     * Whether this renderer debands the frame it shows (its screen filter has deband on), for the output cap: while any surface does, the
+     * frame's scale may also be capped to one that doesn't divide the internal scale (GPU::OutputCapDeband). Render thread only.
+     */
+    fun debandsOutput(): Boolean = false
+
+    /**
      * Frees the renderer's GL objects when it won't draw again; called on the render thread with the GL context current.
      */
     fun release()

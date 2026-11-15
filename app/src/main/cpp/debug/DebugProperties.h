@@ -207,7 +207,14 @@ namespace melonDS { class GPU; }
  *                  GPU 2D shadow yet (those keep the full scale). 1 is the default in every build, 0 as before (GPU::OutputCap). A
  *                  need of 0 (unknown, as in the desktop build) is no cap. OUTCAP lines, only on a change: each surface's need and
  *                  the max sent (melonade-debug, DSRenderer and FrameRenderCoordinator), the need pending and accepted after the 30 frames (melonade-debug), and the
- *                  output scale with why it isn't capped (melonade, GLCompositor::LogOutputCap)
+ *                  output scale with why it isn't capped (melonade, GLCompositor::LogOutputCap). A sum of bits since part B of
+ *                  docs/plan-deband-outcap.md: while deband is on (any surface's screen filter), the cap also takes output scales that
+ *                  don't divide the internal one, above half of it: the output is the smallest whole scale at least the need, so 8x
+ *                  goes to 6x for a need of 6 (5x-7x), 12x to 7x-11x, 16x to 9x-15x, and each output pixel weighs the 2 or 3 3D pixels
+ *                  a side under it by how much of each it covers (an area resample of the full-scale frame, exact in outcap3d 0).
+ *                  Bit 2 (3) takes those scales whatever deband does, bit 4 (5) never does, which is the output before part B; bit 2
+ *                  wins over bit 4. The OUTCAP line says "ratio 4/3" and why ("ratios any (deband on)", "whole (forced, outcap bit
+ *                  4)", ...). 1, the default, follows deband
  *   outcapneed N   with outcap 1: cap by this need (1-16) instead of the screens' sizes, for A/Bs. 0, the default, uses the screens'
  *                  (GPU::OutputCapNeed)
  *   outcap3d N     with outcap 1 capping: how an output pixel is made from the 3D pixels under it. 0 is the exact supersample, a
@@ -217,7 +224,7 @@ namespace melonDS { class GPU; }
  *                  their alpha-weighted color and averaged alpha from a texelFetch each. Both are also off, by more, where a 2D
  *                  layer blends additively over textured 3D (3D on bottom with EVA + EVB above 16): the blend clamps, and clamping
  *                  the average isn't averaging the clamped sub-pixels. 3, the default, reads the alphas first (one textureGather
- *                  at a ratio of 2, four at 3 and 4) and does 1 where they're all the same and 0 where they differ or the blend
+ *                  at a ratio of 2, four at 3 and 4, one to four at outcap 3's other ratios) and does 1 where they're all the same and 0 where they differ or the blend
  *                  can clamp, so edges and those blends are exact and only same-alpha blocks are off by a color average's
  *                  rounding. Hi-res capture follows the same mode: in 0 each 3D pixel is captured and the colors averaged, with the
  *                  alpha bit set where at least half have it, in 1 and 2 one capture on the averaged 3D, in 3 either by the alphas

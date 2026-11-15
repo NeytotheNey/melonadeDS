@@ -9,19 +9,34 @@ class RendererConfigurationTest {
     // Gradle runs unit tests from the module directory; the fallback is for a runner started from the project root
     private val moduleDir = listOf(File("."), File("app")).first { File(it, "src/main/res/xml").isDirectory }
 
-    private fun configuration(renderer: VideoRenderer, scaling: Int) = RendererConfiguration(
+    private fun configuration(renderer: VideoRenderer, scaling: Int, deband: Boolean = false) = RendererConfiguration(
         renderer = renderer,
         videoFiltering = VideoFiltering.NONE,
-        deband = false,
+        deband = deband,
         dsScreenColors = false,
         screenShadow = false,
         threadedRendering = false,
         threaded2dRendering = false,
         hiresCapture = false,
         filter2d = false,
-        colorDithering = false,
         internalResolutionScaling = scaling,
     )
+
+    // "Smooth gradients" is one switch: deband on every renderer, and compute's color dithering with it
+    @Test
+    fun colorDitheringFollowsDebandOnComputeOnly() {
+        assertEquals(true, configuration(VideoRenderer.COMPUTE, 4, deband = true).colorDithering)
+        assertEquals(false, configuration(VideoRenderer.COMPUTE, 4, deband = false).colorDithering)
+        assertEquals(false, configuration(VideoRenderer.OPENGL, 4, deband = true).colorDithering)
+        assertEquals(false, configuration(VideoRenderer.SOFTWARE, 1, deband = true).colorDithering)
+    }
+
+    // The native side reads colorDithering as a boolean field by name, so it has to stay a field, not just a getter
+    @Test
+    fun colorDitheringIsABooleanField() {
+        val field = RendererConfiguration::class.java.getDeclaredField("colorDithering")
+        assertEquals(Boolean::class.javaPrimitiveType, field.type)
+    }
 
     @Test
     fun openGlKeepsEveryScale() {

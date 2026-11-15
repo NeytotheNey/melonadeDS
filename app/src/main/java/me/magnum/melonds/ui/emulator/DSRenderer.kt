@@ -613,6 +613,9 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
 
     override fun outputScaleNeed(): Int = screensOutputScaleNeed
 
+    // The deband the screen filter was last built with (updateScreenFilter), so it follows an in-game toggle
+    override fun debandsOutput(): Boolean = screenFilterDeband
+
     /**
      * Uses [shader] to draw the screen quads with [textureId] bound to its tex uniform, filtered the way the shader asks.
      */

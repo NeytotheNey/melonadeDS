@@ -100,9 +100,10 @@ class SharedPreferencesSettingsRepository(
         preferences.registerOnSharedPreferenceChangeListener(this)
         setDefaultThemeIfRequired()
         setDefaultMacAddressIfRequired()
+        moveColorDitheringIntoDeband()
 
         // combine() takes at most 5 typed flows, so the 4 look settings (filter, deband, colors and shadow), the 2 threading ones and the 2
-        // upscaling extras (hi-res capture and dithering) are grouped first
+        // upscaling extras (hi-res capture and filtered 2D) are grouped first. Compute's dithering follows deband (RendererConfiguration)
         val lookSettingsFlow = combine(
             getVideoFiltering(),
             isDebandEnabled(),
@@ -120,9 +121,8 @@ class SharedPreferencesSettingsRepository(
         val gpuExtrasFlow = combine(
             isHiresCaptureEnabled(),
             isFilter2dEnabled(),
-            isColorDitheringEnabled(),
-        ) { hiresCaptureEnabled, filter2dEnabled, colorDitheringEnabled ->
-            Triple(hiresCaptureEnabled, filter2dEnabled, colorDitheringEnabled)
+        ) { hiresCaptureEnabled, filter2dEnabled ->
+            Pair(hiresCaptureEnabled, filter2dEnabled)
         }
         renderConfigurationFlow = combine(
             getVideoRenderer(),
@@ -130,10 +130,10 @@ class SharedPreferencesSettingsRepository(
             threadingSettingsFlow,
             gpuExtrasFlow,
             getVideoInternalResolutionScaling(),
-        ) { renderer, look, (threadedRenderingEnabled, threaded2dRenderingEnabled), (hiresCaptureEnabled, filter2dEnabled, colorDitheringEnabled), resolutionScaling ->
+        ) { renderer, look, (threadedRenderingEnabled, threaded2dRenderingEnabled), (hiresCaptureEnabled, filter2dEnabled), resolutionScaling ->
             RendererConfiguration(
                 renderer, look.filtering, look.deband, look.dsScreenColors, look.screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled,
-                hiresCaptureEnabled, filter2dEnabled, colorDitheringEnabled, resolutionScaling,
+                hiresCaptureEnabled, filter2dEnabled, resolutionScaling,
             )
         }.conflate().shareIn(preferencesCoroutineScope, SharingStarted.Lazily, replay = 1)
     }
@@ -144,6 +144,25 @@ class SharedPreferencesSettingsRepository(
 
         preferences.edit {
             putString("theme", DEFAULT_THEME)
+        }
+    }
+
+    // "Smooth gradients" (compute's color dithering) was merged into deband: someone on Compute who had it on and deband off gets deband on,
+    // so their dithering stays on. On the other renderers it did nothing, so deband stays as it was there. The old key is removed either way,
+    // so this only does something once, also for a restored backup that still has it
+    private fun moveColorDitheringIntoDeband() {
+        if (!preferences.contains(PreferenceKeys.VIDEO_COLOR_DITHERING)) {
+            return
+        }
+
+        val colorDithering = preferences.getBoolean(PreferenceKeys.VIDEO_COLOR_DITHERING, false)
+        // As getVideoRenderer() reads it
+        val isCompute = preferences.getString("video_renderer", "software") == "compute"
+        preferences.edit {
+            if (colorDithering && isCompute && !preferences.getBoolean(PreferenceKeys.VIDEO_DEBAND, false)) {
+                putBoolean(PreferenceKeys.VIDEO_DEBAND, true)
+            }
+            remove(PreferenceKeys.VIDEO_COLOR_DITHERING)
         }
     }
 
@@ -422,12 +441,6 @@ class SharedPreferencesSettingsRepository(
     override fun isFilter2dEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_FILTER_2D) {
             preferences.getBoolean(PreferenceKeys.VIDEO_FILTER_2D, false)
-        }
-    }
-
-    override fun isColorDitheringEnabled(): Flow<Boolean> {
-        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_COLOR_DITHERING) {
-            preferences.getBoolean(PreferenceKeys.VIDEO_COLOR_DITHERING, false)
         }
     }
 

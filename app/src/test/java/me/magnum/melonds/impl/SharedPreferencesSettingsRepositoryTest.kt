@@ -42,6 +42,51 @@ class SharedPreferencesSettingsRepositoryTest {
         return SharedPreferencesSettingsRepository(ContextWrapper(null), preferences, controllerConfigurationFactory, Json, uriHandler, scope)
     }
 
+    // "Smooth gradients" (compute's dithering) was merged into deband: an old "on" with Compute turns deband on, once, and the old key goes
+    @Test
+    fun colorDitheringOnWithComputeTurnsDebandOn() {
+        val preferences = FakeSharedPreferences(
+            mapOf("video_renderer" to "compute", PreferenceKeys.VIDEO_COLOR_DITHERING to true, PreferenceKeys.VIDEO_DEBAND to false)
+        )
+        repository(preferences)
+
+        assertTrue(preferences.getBoolean(PreferenceKeys.VIDEO_DEBAND, false))
+        assertFalse(preferences.contains(PreferenceKeys.VIDEO_COLOR_DITHERING))
+    }
+
+    // Dithering did nothing on the other renderers, so their deband stays as it was; the old key still goes
+    @Test
+    fun colorDitheringOnWithOtherRenderersLeavesDebandAlone() {
+        val openGl = FakeSharedPreferences(
+            mapOf("video_renderer" to "opengl", PreferenceKeys.VIDEO_COLOR_DITHERING to true, PreferenceKeys.VIDEO_DEBAND to false)
+        )
+        repository(openGl)
+        assertFalse(openGl.getBoolean(PreferenceKeys.VIDEO_DEBAND, true))
+        assertFalse(openGl.contains(PreferenceKeys.VIDEO_COLOR_DITHERING))
+
+        // No renderer stored is software, the default
+        val noRenderer = FakeSharedPreferences(mapOf(PreferenceKeys.VIDEO_COLOR_DITHERING to true))
+        repository(noRenderer)
+        assertFalse(noRenderer.contains(PreferenceKeys.VIDEO_DEBAND))
+        assertFalse(noRenderer.contains(PreferenceKeys.VIDEO_COLOR_DITHERING))
+    }
+
+    @Test
+    fun colorDitheringOffLeavesDebandAlone() {
+        val off = FakeSharedPreferences(mapOf(PreferenceKeys.VIDEO_COLOR_DITHERING to false, PreferenceKeys.VIDEO_DEBAND to false))
+        repository(off)
+        assertFalse(off.getBoolean(PreferenceKeys.VIDEO_DEBAND, false))
+        assertFalse(off.contains(PreferenceKeys.VIDEO_COLOR_DITHERING))
+
+        val debandOn = FakeSharedPreferences(mapOf(PreferenceKeys.VIDEO_COLOR_DITHERING to false, PreferenceKeys.VIDEO_DEBAND to true))
+        repository(debandOn)
+        assertTrue(debandOn.getBoolean(PreferenceKeys.VIDEO_DEBAND, false))
+
+        val never = FakeSharedPreferences()
+        repository(never)
+        assertFalse(never.contains(PreferenceKeys.VIDEO_DEBAND))
+    }
+
     @Test
     fun smooth30FpsIsOffByDefault() {
         assertFalse(repository(FakeSharedPreferences()).isFramePacingSmooth30FpsEnabled())

@@ -144,6 +144,12 @@ namespace MelonDSAndroid {
      */
     extern void setOutputScaleNeed(int need);
     extern int getOutputScaleNeed();
+    /**
+     * GPU::OutputCapDeband: whether any surface presenting frames debands them (its renderer configuration's deband), as the render thread
+     * last saw it (FrameRenderCoordinator); read by the emulator thread before each frame along with the need (MelonInstance::runFrame)
+     */
+    extern void setOutputDeband(bool deband);
+    extern bool getOutputDeband();
     extern void pause();
     extern void resume();
     extern void syncDateTimeToDevice();

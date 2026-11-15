@@ -253,7 +253,7 @@ Overrides apply(GPU& gpu)
     if (read("filter2drows", value))
         gpu.Filter2DRows = std::clamp(atoi(value), 0, 2);
     if (read("outcap", value))
-        gpu.OutputCap = std::clamp(atoi(value), 0, 1);
+        gpu.OutputCap = std::clamp(atoi(value), 0, 7);
     if (read("outcapneed", value))
         gpu.OutputCapNeed = std::clamp(atoi(value), 0, 16);
     if (read("outcap3d", value))

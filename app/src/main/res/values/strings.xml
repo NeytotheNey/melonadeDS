@@ -366,10 +366,8 @@
     <string name="hires_capture">Upscaled display capture</string>
     <string name="filter_2d">Smooth 2D edges</string>
     <string name="filter_2d_summary">Rounds off the jagged edges of 2D graphics while 3D stays sharp. Needs an internal resolution of 2x or higher, and costs some GPU time</string>
-    <string name="deband">Deband</string>
-    <string name="deband_summary">Blends the hard steps in gradients, including textures and 2D backgrounds, before the filter. Costs some GPU time at high internal resolutions</string>
-    <string name="color_dithering">Smooth gradients</string>
-    <string name="color_dithering_summary">Dithers 3D lighting and color gradients instead of showing hard bands. Not how the DS draws them</string>
+    <string name="deband">Smooth gradients</string>
+    <string name="deband_summary">Smooths the hard steps in gradients, textures and 2D backgrounds, on every renderer. With Compute it also dithers 3D lighting. Not how the DS draws them. Costs some GPU time at high internal resolutions</string>
     <string name="hires_capture_summary">Redraws screens that games copy and show again (like the Pokémon Black 2 and White 2 title) at the internal resolution, so they stay sharp</string>
     <string name="renderer">Renderer</string>
     <string name="dsi_camera_source">DSi camera source</string>

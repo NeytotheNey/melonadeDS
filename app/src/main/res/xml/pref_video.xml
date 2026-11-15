@@ -35,13 +35,6 @@
                 android:title="@string/filter_2d"
                 android:summary="@string/filter_2d_summary"
                 android:defaultValue="false" />
-
-        <!-- Compute only, so it's hidden for the others (set up in VideoPreferencesFragment) -->
-        <SwitchPreference
-                android:key="video_color_dithering"
-                android:title="@string/color_dithering"
-                android:summary="@string/color_dithering_summary"
-                android:defaultValue="false" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/settings_section_threading">
@@ -70,6 +63,7 @@
                 android:entryValues="@array/video_filtering_values"
                 android:defaultValue="none"/>
 
+        <!-- Also turns on the compute renderer's dithering (RendererConfiguration.colorDithering), which had its own switch before -->
         <SwitchPreference
                 android:key="video_deband"
                 android:title="@string/deband"

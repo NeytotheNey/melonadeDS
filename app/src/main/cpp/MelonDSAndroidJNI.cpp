@@ -764,6 +764,12 @@ Java_me_magnum_melonds_MelonEmulator_setOutputScaleNeed(JNIEnv* env, jobject thi
     MelonDSAndroid::setOutputScaleNeed(need);
 }
 
+JNIEXPORT void JNICALL
+Java_me_magnum_melonds_MelonEmulator_setOutputDeband(JNIEnv* env, jobject thiz, jboolean deband)
+{
+    MelonDSAndroid::setOutputDeband(deband);
+}
+
 JNIEXPORT jboolean JNICALL
 Java_me_magnum_melonds_MelonEmulator_takeScreenshot(JNIEnv* env, jobject thiz)
 {

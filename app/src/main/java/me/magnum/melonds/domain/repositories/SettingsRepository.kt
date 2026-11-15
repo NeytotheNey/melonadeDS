@@ -54,7 +54,6 @@ interface SettingsRepository {
     fun isThreaded2dRenderingEnabled(): Flow<Boolean>
     fun isHiresCaptureEnabled(): Flow<Boolean>
     fun isFilter2dEnabled(): Flow<Boolean>
-    fun isColorDitheringEnabled(): Flow<Boolean>
     fun getFpsCounterPosition(): FpsCounterPosition
     fun showStatusBar(): Boolean
     fun getDSiCameraSource(): DSiCameraSourceType

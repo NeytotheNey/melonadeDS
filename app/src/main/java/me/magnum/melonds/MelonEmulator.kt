@@ -307,4 +307,11 @@ object MelonEmulator {
      * changes; the emulator applies it once it holds for a while.
      */
     external fun setOutputScaleNeed(need: Int)
+
+    /**
+     * Sets whether any surface debands the frame (its renderer configuration's deband), for the output cap: with deband on it may also cap
+     * at a scale that doesn't divide the internal one (8x to 6x, GPU::OutputCapDeband; debug.melonade.outcap=3 always does, 5 never). Only
+     * call it when the value changes; the emulator applies it along with the need, once both hold for a while.
+     */
+    external fun setOutputDeband(deband: Boolean)
 }

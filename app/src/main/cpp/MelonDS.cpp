@@ -377,6 +377,18 @@ namespace MelonDSAndroid
         return outputScaleNeed.load(std::memory_order_relaxed);
     }
 
+    static std::atomic_bool outputDeband = false;
+
+    void setOutputDeband(bool deband)
+    {
+        outputDeband.store(deband, std::memory_order_relaxed);
+    }
+
+    bool getOutputDeband()
+    {
+        return outputDeband.load(std::memory_order_relaxed);
+    }
+
     void pause()
     {
         pauseAudio();

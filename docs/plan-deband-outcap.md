@@ -83,6 +83,8 @@ Unaffected: the 30-frame hold, the frontend need, `FrameQueue`, the banks (256·
 3. Fold: `OUTCAP: capped, output 6x, 3D 8x, ratio 4/3`; interleaved Mcyc vs uncapped; look at 3D edges for ripple.
 4. Pixel and OnePlus: one quick pass each (their needs differ; the OnePlus is the CPU limit).
 
+**Status 11-15:** built behind `outcap=3` (default stays 1). Desktop checks pass (mode 0 exact against an area resample). Fold inner 8x → 6x: 6.31 → 5.71 Mcyc with deband on, flat with deband off (3.50 vs 3.59); Pixel 8x → 5x: 6.36 → 5.58. Shaders build on Adreno and Mali, no ripple seen. Numbers in PERF-NOTES. Then (11-15): on by default while deband is on. The frontend sends a deband flag with the need (any surface debanding, follows in-game toggles, same 30-frame hold) and `outcap=1` takes non-whole ratios only with it; bit 2 (`outcap=3`) forces them on, bit 4 (`outcap=5`) off, and the `OUTCAP` line ends with `ratios any (deband on)` and the like. Needs a phone pass to confirm the toggle path. Fold check 11-15: deband off 8x 3.50 Mcyc, deband on 6x 5.71, in-game toggle switches after the hold, no GL errors. Deband's setting is now "Smooth gradients" and also turns on Compute's dithering (the separate switch is gone).
+
 ## Order
 
 1. A, behind `debandfold`; Fold A/B and screenshots; default on if it holds up.

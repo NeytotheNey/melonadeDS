@@ -25,8 +25,6 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
     private lateinit var internalResolutionPreference: Preference
     private lateinit var hiresCapturePreference: Preference
     private lateinit var filter2dPreference: Preference
-    // Only the compute renderer dithers color gradients
-    private lateinit var colorDitheringPreference: Preference
     private lateinit var renderingCategory: PreferenceCategory
     // Threaded 3D rendering is only used by the software renderer
     private lateinit var threadedRenderingPreference: SwitchPreference
@@ -40,7 +38,6 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         internalResolutionPreference = findPreference("video_internal_resolution")!!
         hiresCapturePreference = findPreference(PreferenceKeys.VIDEO_HIRES_CAPTURE)!!
         filter2dPreference = findPreference(PreferenceKeys.VIDEO_FILTER_2D)!!
-        colorDitheringPreference = findPreference(PreferenceKeys.VIDEO_COLOR_DITHERING)!!
         threadedRenderingPreference = findPreference("enable_threaded_rendering")!!
         smooth30FpsPreference = findPreference(PreferenceKeys.FRAME_PACING_SMOOTH_30FPS)!!
 
@@ -72,7 +69,6 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         internalResolutionPreference.isVisible = !isSoftwareRenderer
         hiresCapturePreference.isVisible = !isSoftwareRenderer
         filter2dPreference.isVisible = !isSoftwareRenderer
-        colorDitheringPreference.isVisible = newRenderer == VideoRenderer.COMPUTE
         smooth30FpsPreference.isEnabled = newRenderer == VideoRenderer.COMPUTE
         threadedRenderingPreference.isEnabled = isSoftwareRenderer
         threadedRenderingPreference.setSummary(

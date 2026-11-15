@@ -9,7 +9,6 @@ object PreferenceKeys {
     const val VIDEO_THREADED_2D = "video_threaded_2d"
     const val VIDEO_HIRES_CAPTURE = "video_hires_capture"
     const val VIDEO_FILTER_2D = "video_filter_2d"
-    const val VIDEO_COLOR_DITHERING = "video_color_dithering"
     const val VIDEO_DS_SCREEN_COLORS = "video_ds_screen_colors"
     const val VIDEO_DEBAND = "video_deband"
     const val VIDEO_SCREEN_SHADOW = "video_screen_shadow"
@@ -19,6 +18,8 @@ object PreferenceKeys {
     const val FRAME_PACING_LOCK_60HZ = "frame_pacing_lock_60hz"
     const val FRAME_PACING_BUFFER = "frame_pacing_buffer"
     const val FRAME_PACING_SMOOTH_30FPS = "frame_pacing_smooth_30fps"
+    // No screen since it was merged into VIDEO_DEBAND: only read once, to carry an old "on" over (SharedPreferencesSettingsRepository)
+    const val VIDEO_COLOR_DITHERING = "video_color_dithering"
 
     // pref_input.xml
     const val INPUT_CONTROLLER_STYLE = "input_controller_style"

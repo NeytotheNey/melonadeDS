@@ -3,7 +3,7 @@ package me.magnum.melonds.domain.model
 data class RendererConfiguration(
     val renderer: VideoRenderer,
     val videoFiltering: VideoFiltering,
-    // Deband pre-pass in front of the filter (any renderer)
+    // Deband in front of or inside the filter (any renderer); the "Smooth gradients" switch, which also turns on colorDithering
     val deband: Boolean,
     val dsScreenColors: Boolean,
     val screenShadow: Boolean,
@@ -14,10 +14,12 @@ data class RendererConfiguration(
     val hiresCapture: Boolean,
     // Smooth 2D edges in the compositor (OpenGL/compute at 2x and up, read natively)
     val filter2d: Boolean,
-    // Dither polygon color gradients instead of banding them (compute only, read natively)
-    val colorDithering: Boolean,
     private val internalResolutionScaling: Int,
 ) {
+
+    // Dither polygon color gradients instead of banding them: compute only, with deband, which took over its switch. A field, as it's read
+    // natively by name (MelonDSAndroidConfiguration::buildRenderSettings)
+    val colorDithering: Boolean = deband && renderer == VideoRenderer.COMPUTE
 
     val resolutionScaling get() = when (renderer) {
         VideoRenderer.SOFTWARE -> 1

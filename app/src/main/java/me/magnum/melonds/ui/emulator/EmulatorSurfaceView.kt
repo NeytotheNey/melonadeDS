@@ -117,6 +117,14 @@ class EmulatorSurfaceView(context: Context, attrs: AttributeSet? = null) : Surfa
         return renderer?.outputScaleNeed() ?: 0
     }
 
+    /**
+     * Whether this surface's renderer debands what it shows (see [EmulatorRenderer.debandsOutput]); false without a renderer. Render thread
+     * only, after [doFrame].
+     */
+    fun debandsOutput(): Boolean {
+        return renderer?.debandsOutput() ?: false
+    }
+
     fun doFrame(glContext: GlContext, presentFrameWrapper: PresentFrameWrapper) {
         synchronized(surfaceLock) {
             surfaceRenderer?.doFrame(

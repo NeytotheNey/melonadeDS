@@ -231,6 +231,8 @@ const BoolSwitch kBoolSwitches[] = {
     {"Hash3DLogging", &GPU::Hash3DLogging},
     {"ComputeSSBO", &GPU::ComputeSSBO},
     {"WidePolys", &GPU::WidePolys},
+    // the frontend's deband flag (GPU::OutputCap): the window doesn't deband, so this stands in for the app's
+    {"OutputCapDeband", &GPU::OutputCapDeband},
 };
 
 const IntSwitch kIntSwitches[] = {

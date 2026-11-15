@@ -125,6 +125,9 @@ class FrameRenderCoordinator {
         // The output cap (GPU::OutputCap, on by default): the need last passed to MelonEmulator.setOutputScaleNeed(), -1 so the first frame
         // passes its own over whatever an earlier session left there
         private var lastOutputScaleNeed = -1
+        // The output cap: whether any surface debanded last frame, as last passed to MelonEmulator.setOutputDeband(); null so the first frame
+        // passes its own
+        private var lastOutputDeband: Boolean? = null
         // The output cap: each managed surface's need this frame and the ones last logged, in managedSurfaces' order, so a change in
         // any of them (a second surface showing up, say) logs a line without allocating every frame
         private var surfaceOutputScaleNeeds = IntArray(4)
@@ -164,6 +167,7 @@ class FrameRenderCoordinator {
                 // default): the frame's scale is capped by the biggest any surface shows a screen at
                 var canDrawHalvesAt1x = true
                 var outputScaleNeed = 0
+                var outputDeband = false
                 if (surfaceOutputScaleNeeds.size < managedSurfaces.size) {
                     surfaceOutputScaleNeeds = IntArray(managedSurfaces.size)
                 }
@@ -173,11 +177,19 @@ class FrameRenderCoordinator {
                     val surfaceNeed = surface.outputScaleNeed()
                     surfaceOutputScaleNeeds[index] = surfaceNeed
                     outputScaleNeed = maxOf(outputScaleNeed, surfaceNeed)
+                    outputDeband = outputDeband || surface.debandsOutput()
                 }
                 logSurfaceOutputScaleNeeds(managedSurfaces.size, outputScaleNeed)
                 if (outputScaleNeed != lastOutputScaleNeed) {
                     lastOutputScaleNeed = outputScaleNeed
                     MelonEmulator.setOutputScaleNeed(outputScaleNeed)
+                }
+                // Deband lets the cap take a scale that doesn't divide the internal one (GPU::OutputCapDeband); every surface shows the same
+                // frame, so any one debanding counts
+                if (outputDeband != lastOutputDeband) {
+                    Log.i(LogTags.DEBUG, "OUTCAP: frontend sends deband $outputDeband (was $lastOutputDeband)")
+                    lastOutputDeband = outputDeband
+                    MelonEmulator.setOutputDeband(outputDeband)
                 }
 
                 val renderDuration = System.nanoTime() - renderStart
