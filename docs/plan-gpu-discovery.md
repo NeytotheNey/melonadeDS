@@ -150,6 +150,20 @@ Their 3D frame is otherwise close to ours: RGBA8 color and attr, D24S8, no MSAA,
 | K4 | Cap the output (compositor, hi-res capture, frame queue, frontend texture) at the screen's scale; downscale the 3D once (2:1 `glBlitFramebuffer` linear, or one bilinear tap per 2x2 block in the compositor, an exact average) **Done 11-13 (`outcap=1`, `outcap3d=3`), phases 1–3** incl. wide view, hi-res capture and Smooth 2D; leftovers are in the handoff. | ~3.5–4 of 12.7 Mcyc (~30%), ~75 MB per frame texture | WideMelon and `comp1x` must follow the cap; a linear blit isn't alpha-weighted like their box filter; hi-res capture of 3D must still read the full 3D where a game captures it. **First pass 11-13 (`outcap`, off by default):** 256 view only (off in a wide view, with hi-res capture, Smooth 2D or gpu2d). Exact mode (`outcap3d=0`, per-sub-sample composite) −9% Pixel GPU at 16x, −740 MB graphics on the Fold; bilinear mode (`outcap3d=1`, inexact) −15% Pixel, Fold compositor 3.03 → 1.29 ms. PERF-NOTES "K4". **Second pass 11-13:** wide view and hi-res capture ported, edge-aware `outcap3d=3`, both on by default; Fold 16x compositor 3.1 → 1.6 ms, graphics −750 MB; Pixel −14%. PERF-NOTES "K4 second pass". **Phase 3 11-13:** Smooth 2D runs under the cap too (only its identity mode and gpu2d turn it off); at 16x with Smooth 2D, Pixel −17% GPU cycles in White 2, Fold compositor −41%. PERF-NOTES "K4 phase 3". |
 | T2 | Texture cache: decode DS textures once into GL textures instead of per fragment | **Bounded 11-13 (`gltexprobe`):** dropping the decode takes −45% / −26% GPU cycles off W2 title / town on the Fold, −16% / −20% on the Pixel; the fetch itself is 1–8% (PERF-NOTES "T2 probe"). Mali counters: the shader is CVT-bound (integer work, 75–83% of core cycles). **Step 1 built 11-13 (`gltexcache`, default 0, `docs/plan-t2-texcache.md`):** exact on desktop and phones but only −2 to −5% (PERF-NOTES "T2 step 1"). **Step 2 built 11-13, default since 11-13 (`gltexcache=1`):** cache-only programs with exact fallback twins, Fold −19% / −10%, Pixel −5.5% core-active (PERF-NOTES "T2 step 2"). | large |
 
+## GPU gap, again (11-14, Fold inner, W2 title, 8x)
+
+We were at 9.8 Mcyc a frame against WatermelonDS Vulkan's 4.5, with our timed passes down to ~2.9 since 11-11, so ~6.9 Mcyc of our process's GPU work sat outside GLTIME (the frontend draws in its own EGL context on FrameRenderThread). It was the frontend Deband pre-pass, run over the whole 3408x3088 frame texture every new frame:
+
+| Fold 8x, 426 view | Mcyc |
+|---|---|
+| default (deband on, Sharp) | 9.75 |
+| `outcapneed=4` (frame texture 1704x1544) | 4.11 |
+| deband off, Sharp | 3.53 |
+| deband off, filter None (COMP1X on) | 3.30 |
+| WatermelonDS VK 8x | 4.53 |
+
+Deband is 64% of our cycles; the 3D passes cost the same cycles at either clock. Ruled out on the way: widepolys, scenestats, SurfaceFlinger/HWC, the UI layer, the tilt-shift mod. The 8x output isn't capped because the inner screen needs 6x and the cap only divides by whole numbers. The fixes are planned in [plan-deband-outcap.md](plan-deband-outcap.md): A, deband in the screen shader (screen pixels instead of frame texels); B, a 6x cap from 8x. PERF-NOTES "GPU gap vs WatermelonDS, again".
+
 ## Later: memory
 
 The plan's goal is efficiency, and that includes memory. WatermelonDS's Vulkan runs 16x, which is the bar to beat. On the Fold (11-11, PERF-NOTES "WatermelonDS Vulkan vs ours", graphics / total PSS at the end of the run) their VK 8x used 620 / 1441 MB and VK 16x 1072 / 1887 MB, against our OpenGL 8x 396 / 1280 MB and Compute 8x 864 / 1750 MB. Our 16x hasn't been measured on a phone yet (desktop, 11-12: OpenGL 675 MB, Compute 1882 MB). Known big items once 12x/16x exist: the app's frame queue (up to 9 frame textures, ~101 MB each at 16x, plus a 101 MB zeroed CPU vector on each resize, `FrameQueue.cpp:200`), the GL 3D targets (~250 MB at 16x), and Compute's work buffers (805 MB at 16x, why Compute is capped at 8x in the app). Not started.

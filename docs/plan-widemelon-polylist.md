@@ -86,6 +86,6 @@ CPU arrays go static at the larger size (unused tails are never touched; growing
 1. Wing-only polygons stop when native RAM is full (keeps the middle and wings consistent).
 2. A reserved 2048/6144 wing budget rather than one shared 4096/12288 pool.
 3. The count-register and bit-13 change sit behind `WidePolys`, for a clean A/B.
-4. Default on only after the phone runs.
+4. Default on only after the phone runs. Done: on since 11-14 (Fold, Pixel and OnePlus: NSMB intro drops to 0, flowers stay, no measurable cost).
 5. `GP3W` only in the wide view; an old build shows one garbage frame after loading a big wide state.
 6. Once built, `plan-widemelon.md` idea 1 is partly covered (the polygon limit and counts stop showing to the game; BoxTest stays visible), and the RetroAchievements caveat gets updated.
