@@ -102,8 +102,8 @@ class SharedPreferencesSettingsRepository(
         setDefaultMacAddressIfRequired()
         moveColorDitheringIntoDeband()
 
-        // combine() takes at most 5 typed flows, so the 4 look settings (filter, deband, colors and shadow), the 2 threading ones and the 2
-        // upscaling extras (hi-res capture and filtered 2D) are grouped first. Compute's dithering follows deband (RendererConfiguration)
+        // combine() takes at most 5 typed flows, so the 4 look settings (filter, deband, colors and shadow), the 2 threading ones and the 3
+        // GPU extras (hi-res capture, filtered 2D and edge marking) are grouped first. Compute's dithering follows deband (RendererConfiguration)
         val lookSettingsFlow = combine(
             getVideoFiltering(),
             isDebandEnabled(),
@@ -121,8 +121,9 @@ class SharedPreferencesSettingsRepository(
         val gpuExtrasFlow = combine(
             isHiresCaptureEnabled(),
             isFilter2dEnabled(),
-        ) { hiresCaptureEnabled, filter2dEnabled ->
-            Pair(hiresCaptureEnabled, filter2dEnabled)
+            isEdgeMarkingEnabled(),
+        ) { hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled ->
+            Triple(hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled)
         }
         renderConfigurationFlow = combine(
             getVideoRenderer(),
@@ -130,10 +131,11 @@ class SharedPreferencesSettingsRepository(
             threadingSettingsFlow,
             gpuExtrasFlow,
             getVideoInternalResolutionScaling(),
-        ) { renderer, look, (threadedRenderingEnabled, threaded2dRenderingEnabled), (hiresCaptureEnabled, filter2dEnabled), resolutionScaling ->
+        ) { renderer, look, (threadedRenderingEnabled, threaded2dRenderingEnabled), (hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled),
+            resolutionScaling ->
             RendererConfiguration(
                 renderer, look.filtering, look.deband, look.dsScreenColors, look.screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled,
-                hiresCaptureEnabled, filter2dEnabled, resolutionScaling,
+                hiresCaptureEnabled, filter2dEnabled, resolutionScaling, edgeMarkingEnabled,
             )
         }.conflate().shareIn(preferencesCoroutineScope, SharingStarted.Lazily, replay = 1)
     }
@@ -435,6 +437,12 @@ class SharedPreferencesSettingsRepository(
     override fun isHiresCaptureEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_HIRES_CAPTURE) {
             preferences.getBoolean(PreferenceKeys.VIDEO_HIRES_CAPTURE, true)
+        }
+    }
+
+    override fun isEdgeMarkingEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_EDGE_MARKING) {
+            preferences.getBoolean(PreferenceKeys.VIDEO_EDGE_MARKING, true)
         }
     }
 

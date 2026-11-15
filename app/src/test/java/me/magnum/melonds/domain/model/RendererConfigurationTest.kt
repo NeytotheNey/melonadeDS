@@ -38,6 +38,14 @@ class RendererConfigurationTest {
         assertEquals(Boolean::class.javaPrimitiveType, field.type)
     }
 
+    // The same for edgeMarking (MelonDSAndroidConfiguration::buildEmulatorConfiguration), which is on unless the setting turns it off
+    @Test
+    fun edgeMarkingIsABooleanFieldAndOnByDefault() {
+        val field = RendererConfiguration::class.java.getDeclaredField("edgeMarking")
+        assertEquals(Boolean::class.javaPrimitiveType, field.type)
+        assertEquals(true, configuration(VideoRenderer.OPENGL, 4).edgeMarking)
+    }
+
     @Test
     fun openGlKeepsEveryScale() {
         listOf(1, 8, 12, 16).forEach {

@@ -35,6 +35,13 @@
                 android:title="@string/filter_2d"
                 android:summary="@string/filter_2d_summary"
                 android:defaultValue="false" />
+
+        <!-- OpenGL and compute only (software always draws it), so it's hidden for software (set up in VideoPreferencesFragment) -->
+        <SwitchPreference
+                android:key="video_edge_marking"
+                android:title="@string/edge_marking"
+                android:summary="@string/edge_marking_summary"
+                android:defaultValue="true" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/settings_section_threading">

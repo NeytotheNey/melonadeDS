@@ -143,8 +143,13 @@ namespace melonDS { class GPU; }
  *                  and don't blend where its alpha is 0 (without the extension, or desktop, nothing changes). A/B it as 3 against 7.
  *                  3 is the default, in release builds too; 0 draws as before (GPU::GLTransSkip)
  *   gledgeskip N   OpenGL, experiment E2 (docs/plan-gpu-discovery.md): 1 leaves out the final pass's edge-marking draw, and the whole
- *                  pass with its depth detach when fog is off too. Exact while nothing writes the edge flag (edge marking, E1, is
- *                  open), so hash3d stays the same. 1 is the default since 11-12, in release builds too; 0 draws as before (GPU::GLEdgeSkip)
+ *                  pass with its depth detach when fog is off too, in frames where nothing set the edge flag (gledgemark 0, or no
+ *                  polygon drawn opaque), so hash3d stays the same. 1 is the default since 11-12, in release builds too; 0 draws as
+ *                  before (GPU::GLEdgeSkip)
+ *   gledgemark N   OpenGL, experiment E1 (docs/plan-gpu-discovery.md), edge marking, over the app's "Edge marking" setting (on = 1, off = 0,
+ *                  which also leaves Compute's edge marking out; -1 in the summary when unset): 0 none (as before E1), 1 (the default) opaque
+ *                  fragments within one DS pixel of their polygon's outline set the edge flag (program builds only in edge frames),
+ *                  2 every opaque fragment sets the flag; both compare depth-equal polygons at their own depth (GPU::GLEdgeMark)
  *   glclear N      OpenGL, experiment D1 (docs/plan-gpu-discovery.md), a sum of bits: 1 the plain clear (not the clear bitmap) is a
  *                  glClearBuffer per target instead of a full-screen quad, same values; 2 the attr and depth/stencil targets are
  *                  invalidated after the frame, as nothing reads them before the next clear. 3 is the default since 11-12, in release
@@ -283,6 +288,8 @@ struct Overrides
     int hiresCapture = -1;
     int filter2d = -1;
     int halfCamera = -1;
+    // gledgemark, over the "Edge marking" setting (GPU::GLEdgeMark)
+    int edgeMark = -1;
 };
 
 /**

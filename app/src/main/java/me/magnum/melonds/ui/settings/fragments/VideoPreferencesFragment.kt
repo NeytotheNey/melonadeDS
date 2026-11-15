@@ -25,6 +25,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
     private lateinit var internalResolutionPreference: Preference
     private lateinit var hiresCapturePreference: Preference
     private lateinit var filter2dPreference: Preference
+    private lateinit var edgeMarkingPreference: Preference
     private lateinit var renderingCategory: PreferenceCategory
     // Threaded 3D rendering is only used by the software renderer
     private lateinit var threadedRenderingPreference: SwitchPreference
@@ -38,6 +39,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         internalResolutionPreference = findPreference("video_internal_resolution")!!
         hiresCapturePreference = findPreference(PreferenceKeys.VIDEO_HIRES_CAPTURE)!!
         filter2dPreference = findPreference(PreferenceKeys.VIDEO_FILTER_2D)!!
+        edgeMarkingPreference = findPreference(PreferenceKeys.VIDEO_EDGE_MARKING)!!
         threadedRenderingPreference = findPreference("enable_threaded_rendering")!!
         smooth30FpsPreference = findPreference(PreferenceKeys.FRAME_PACING_SMOOTH_30FPS)!!
 
@@ -69,6 +71,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         internalResolutionPreference.isVisible = !isSoftwareRenderer
         hiresCapturePreference.isVisible = !isSoftwareRenderer
         filter2dPreference.isVisible = !isSoftwareRenderer
+        edgeMarkingPreference.isVisible = !isSoftwareRenderer
         smooth30FpsPreference.isEnabled = !isSoftwareRenderer
         threadedRenderingPreference.isEnabled = isSoftwareRenderer
         threadedRenderingPreference.setSummary(

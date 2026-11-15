@@ -999,7 +999,10 @@ void MelonInstance::updateRenderer()
     bool threaded2d = configuration->threaded2dRendering;
     bool hiresCapture = configuration->hiresCapture;
     int filter2d = configuration->filter2d ? 1 : 0;
+    int edgeMark = configuration->edgeMarking ? 1 : 0;
 #ifdef MELONADE_DEBUG_TOOLS
+    if (debugOverrides.edgeMark >= 0)
+        edgeMark = debugOverrides.edgeMark;
     if (debugOverrides.threaded2d >= 0)
         threaded2d = debugOverrides.threaded2d == 1;
     if (debugOverrides.hiresCapture >= 0)
@@ -1013,6 +1016,8 @@ void MelonInstance::updateRenderer()
     nds->GPU.SetHiresCapture(hiresCapture);
     // Only the compositor reads it, at the next Blit, and it does nothing for software
     nds->GPU.Filter2D = filter2d;
+    // Read by the OpenGL and compute renderers at their next frame; software always marks edges
+    nds->GPU.GLEdgeMark = edgeMark;
 
     bool isHalfCameraOverridden = false;
 #ifdef MELONADE_DEBUG_TOOLS

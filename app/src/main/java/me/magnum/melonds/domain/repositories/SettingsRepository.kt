@@ -53,6 +53,7 @@ interface SettingsRepository {
     fun isThreadedRenderingEnabled(): Flow<Boolean>
     fun isThreaded2dRenderingEnabled(): Flow<Boolean>
     fun isHiresCaptureEnabled(): Flow<Boolean>
+    fun isEdgeMarkingEnabled(): Flow<Boolean>
     fun isFilter2dEnabled(): Flow<Boolean>
     fun getFpsCounterPosition(): FpsCounterPosition
     fun showStatusBar(): Boolean

@@ -109,6 +109,8 @@ typedef struct
     bool hiresCapture;
     // OpenGL and compute, at internal resolution 2x and up: the compositor smooths 2D edges (GPU::Filter2D)
     bool filter2d;
+    // OpenGL and compute: draw the games' edge marking (GPU::GLEdgeMark 1, or 0 when off). Software always draws it
+    bool edgeMarking;
     // Puts the Lua scripts' drawings into savestate and rewind pictures
     bool luaDrawingsInScreenshots;
     // WideMelon: width of the top screen's 3D view (even, 256..768; anything else, 0 when it's off, means 256), on the OpenGL and compute renderers

@@ -57,6 +57,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     jboolean threaded2dRendering = env->GetBooleanField(rendererConfigurationObject, env->GetFieldID(renderConfigurationClass, "threaded2dRendering", "Z"));
     jboolean hiresCapture = env->GetBooleanField(rendererConfigurationObject, env->GetFieldID(renderConfigurationClass, "hiresCapture", "Z"));
     jboolean filter2d = env->GetBooleanField(rendererConfigurationObject, env->GetFieldID(renderConfigurationClass, "filter2d", "Z"));
+    jboolean edgeMarking = env->GetBooleanField(rendererConfigurationObject, env->GetFieldID(renderConfigurationClass, "edgeMarking", "Z"));
     jboolean isCopy = JNI_FALSE;
     jstring dsBios7String = dsBios7Uri ? (jstring) env->CallObjectMethod(dsBios7Uri, uriToStringMethod) : nullptr;
     jstring dsBios9String = dsBios9Uri ? (jstring) env->CallObjectMethod(dsBios9Uri, uriToStringMethod) : nullptr;
@@ -117,6 +118,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     finalEmulatorConfiguration.threaded2dRendering = threaded2dRendering;
     finalEmulatorConfiguration.hiresCapture = hiresCapture;
     finalEmulatorConfiguration.filter2d = filter2d;
+    finalEmulatorConfiguration.edgeMarking = edgeMarking;
     finalEmulatorConfiguration.dsiSdCardSettings = MelonDSAndroid::SdCardSettings { .enabled = false };
     finalEmulatorConfiguration.dldiSdCardSettings = MelonDSAndroid::SdCardSettings { .enabled = false };
     finalEmulatorConfiguration.renderer = videoRenderer;

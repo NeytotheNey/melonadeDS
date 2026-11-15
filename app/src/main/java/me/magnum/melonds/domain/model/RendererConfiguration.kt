@@ -15,6 +15,8 @@ data class RendererConfiguration(
     // Smooth 2D edges in the compositor (OpenGL/compute at 2x and up, read natively)
     val filter2d: Boolean,
     private val internalResolutionScaling: Int,
+    // Draw the games' edge marking, the outlines around 3D models (OpenGL/compute; software always does; read natively by name)
+    val edgeMarking: Boolean = true,
 ) {
 
     // Dither polygon color gradients instead of banding them: compute only, with deband, which took over its switch. A field, as it's read
