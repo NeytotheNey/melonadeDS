@@ -423,6 +423,7 @@ class AndroidEmulatorManager(
         if (BuildConfig.DEBUG) {
             val debugSwitches = DebugSwitches.parse(settingsRepository.getDebugSwitches())
             MelonEmulator.setDebugSwitches(debugSwitches.toNativeString())
+            DebugSwitches.setCurrent(debugSwitches)
             if (debugSwitches.switches.isNotEmpty() || debugSwitches.errors.isNotEmpty()) {
                 DebugLog.event {
                     "Debug switches setting: ${debugSwitches.describe().ifEmpty { "none" }}" +

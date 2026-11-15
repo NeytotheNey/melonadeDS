@@ -12,6 +12,7 @@ import me.magnum.melonds.common.opengl.ShaderFactory
 import me.magnum.melonds.common.opengl.ShaderProgramSource
 import me.magnum.melonds.common.opengl.VideoFilterPipeline
 import me.magnum.melonds.common.opengl.VideoFilterShaderProvider
+import me.magnum.melonds.common.opengl.shouldFoldDeband
 import me.magnum.melonds.domain.model.FRAME_TEXTURE_HEIGHT
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.RuntimeBackground
@@ -24,6 +25,7 @@ import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_BOTTOM
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_TOP
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import me.magnum.melonds.domain.model.render.TiltShift
+import me.magnum.melonds.impl.diagnostics.DebugSwitches
 import me.magnum.melonds.impl.diagnostics.LogTags
 import me.magnum.melonds.impl.diagnostics.SvgTimingLog
 import me.magnum.melonds.ui.emulator.model.RuntimeRendererConfiguration
@@ -78,6 +80,13 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var screenQuadScreens = IntArray(0)
     // The output cap (GPU::OutputCap, on by default): the largest need of the screens the quads were built for (see outputScaleNeed); GL thread only
     private var screensOutputScaleNeed = 0
+    // Surface pixels the screen quads cover (their draw rects inside the surface, summed), for shouldFoldDeband; GL thread only
+    private var screensDrawnPixels = 0L
+    // debug.melonade.debandfold (default 1: deband in the screen shader where shouldFoldDeband allows it; 0 = the pre-pass), read again for each game
+    // (DebugSwitches.generation), and whether the last valid frame folded it in, for the DEBANDFOLD log line; GL thread only
+    private var isDebandFoldOn = false
+    private var debandFoldGeneration = -1
+    private var wasDebandFolded = false
     // Top-screen width of the frame the quads were built for; GL thread writes, touch input reads
     @Volatile
     var frameTopScreenWidth = SCREEN_WIDTH
@@ -292,10 +301,12 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             val rect = screen.nativeRect
             ceil(maxOf(rect.width / SCREEN_WIDTH.toDouble(), rect.height / SCREEN_HEIGHT.toDouble()) - 1e-3).toInt().coerceAtLeast(1)
         } ?: 0
+        screensDrawnPixels = listOfNotNull(topScreen, bottomScreen).sumOf { visibleArea(it.drawRect) }
         if (outputScaleNeed != screensOutputScaleNeed) {
             Log.i(LogTags.DEBUG, "OUTCAP: surface ${width.toInt()}x${height.toInt()} need $outputScaleNeed (was $screensOutputScaleNeed): " +
-                "top ${topScreen?.nativeRect?.let { "${it.width}x${it.height}" } ?: "none"}, " +
-                "bottom ${bottomScreen?.nativeRect?.let { "${it.width}x${it.height}" } ?: "none"}, frame width $frameTopScreenWidth")
+                "top ${topScreen?.let { "${it.nativeRect.width}x${it.nativeRect.height} draw ${it.drawRect.width}x${it.drawRect.height}" } ?: "none"}, " +
+                "bottom ${bottomScreen?.let { "${it.nativeRect.width}x${it.nativeRect.height} draw ${it.drawRect.width}x${it.drawRect.height}" } ?: "none"}, " +
+                "drawn $screensDrawnPixels px, frame width $frameTopScreenWidth")
             screensOutputScaleNeed = outputScaleNeed
         }
         val topScreenVertexData = topScreen?.let { buildScreenVertexData(it.drawRect, buildScreenUvs(it.leftU, it.rightU, 0f, topScreenBottomV), topAlpha) }
@@ -326,6 +337,13 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         screenIndices = screenQuadScreens.size * VERTICES_PER_SCREEN
 
         updateShadowCoordinates(topScreen?.drawRect, bottomScreen?.drawRect)
+    }
+
+    // The part of rect inside the surface, in pixels
+    private fun visibleArea(rect: Rect): Long {
+        val visibleWidth = minOf(rect.x + rect.width, width.toInt()) - maxOf(rect.x, 0)
+        val visibleHeight = minOf(rect.y + rect.height, height.toInt()) - maxOf(rect.y, 0)
+        return if (visibleWidth > 0 && visibleHeight > 0) visibleWidth.toLong() * visibleHeight else 0L
     }
 
     private fun buildScreenUvs(left: Float, right: Float, top: Float, bottom: Float): FloatArray {
@@ -491,8 +509,35 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             null
         }
 
+        // debug.melonade.debandfold: deband inside the screen shader, once per drawn pixel, instead of the pre-pass over every frame texel, when
+        // shouldFoldDeband allows it for this frame and layout; the pre-pass otherwise, or if the deband screen shader doesn't build
+        if (debandFoldGeneration != DebugSwitches.generation) {
+            debandFoldGeneration = DebugSwitches.generation
+            isDebandFoldOn = DebugSwitches.readInt("debandfold", 1) != 0
+        }
+        val frameTexels = presentFrameWrapper.textureWidth.toLong() * presentFrameWrapper.textureHeight
+        // Only a tilt-shift that adds passes (VideoFilterPipeline.renderPrePasses) keeps deband in the pre-pass
+        val isTiltShiftActive = currentTiltShift?.let { it.hasBlur || it.hasColorBoost } == true
+        val debandScreenShader = if (
+            presentFrameWrapper.isValidFrame && halvesAt1xShader == null && filter != null &&
+            shouldFoldDeband(isDebandFoldOn, filter.canFoldDeband, isTiltShiftActive, screensDrawnPixels, frameTexels)
+        ) {
+            filter.getDebandScreenShader()
+        } else {
+            null
+        }
+        if (presentFrameWrapper.isValidFrame && (debandScreenShader != null) != wasDebandFolded) {
+            wasDebandFolded = debandScreenShader != null
+            Log.i(LogTags.DEBUG, "DEBANDFOLD: ${if (wasDebandFolded) "screen shader" else "pre-pass or none"} (switch ${if (isDebandFoldOn) 1 else 0}, " +
+                "filter ${filter?.canFoldDeband == true}, tilt-shift $isTiltShiftActive, drawn $screensDrawnPixels px, frame $frameTexels texels)")
+        }
+
         // Pre-passes must run before anything is drawn to the surface; also called for invalid frames to clear the cache
-        val screenTexture = if (halvesAt1xShader == null) filter?.renderPrePasses(presentFrameWrapper, isBottomScreenWideInQuads, currentTiltShift) else null
+        val screenTexture = if (halvesAt1xShader == null) {
+            filter?.renderPrePasses(presentFrameWrapper, isBottomScreenWideInQuads, currentTiltShift, foldDeband = debandScreenShader != null)
+        } else {
+            null
+        }
 
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         if (!presentFrameWrapper.isValidFrame) {
@@ -513,7 +558,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             filter?.bindHalvesAt1xCoordinates(presentFrameWrapper.textureWidth, presentFrameWrapper.textureHeight)
         }
 
-        (halvesAt1xShader ?: filter?.screenShader)?.let { shader ->
+        (halvesAt1xShader ?: debandScreenShader ?: filter?.screenShader)?.let { shader ->
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
             GLES30.glEnable(GLES30.GL_BLEND)
             GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)

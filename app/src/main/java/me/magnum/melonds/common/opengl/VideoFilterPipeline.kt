@@ -30,24 +30,61 @@ class FilterOutput {
 /**
  * The GL objects of a [VideoFilter] (screen shader, pre-pass shaders and textures), created, used and deleted on the GL context's thread.
  */
-class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Boolean = false) {
+class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorrection: Boolean = false) {
 
     private companion object {
         const val TAG = "VideoFilterPipeline"
+        const val DEBAND_DEFINE = "DEBAND"
         val COLOR_ATTACHMENTS = intArrayOf(GLES30.GL_COLOR_ATTACHMENT0)
     }
 
     // A pre-pass that fails to build is left out, so the screen shader gets its input instead
-    val screenShader: Shader = ShaderFactory.createScreenShaderProgram(filter.screenShader, colorCorrection)
+    // Whether the filter's screen shader didn't build, so screenShader is the no-filter one, which can't take deband
+    private var isScreenShaderFallback = false
+    val screenShader: Shader = ShaderFactory.createScreenShaderProgram(filter.screenShader, colorCorrection) { isScreenShaderFallback = true }
+    // With VideoFilter.deband, the deband pre-pass, which runs before the filter's own unless renderPrePasses() is told the screen shader does it
+    private val debandPass = if (filter.deband) {
+        ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.DebandPrePassShader)?.let { PrePass(it, 1, false) }
+    } else {
+        null
+    }
     private val prePasses = filter.prePasses.mapNotNull { prePass ->
         ShaderFactory.createShaderProgramOrNull(prePass.source)?.let { PrePass(it, prePass.scale, prePass.nativeResolutionOnly) }
+    }
+
+    // debug.melonade.debandfold: the screen shader with DEBAND defined, built the first time a frame folds deband in (see shouldFoldDeband), and
+    // null if it doesn't build, which leaves the pre-pass
+    private var debandScreenShader: Shader? = null
+    private var isDebandScreenShaderBuilt = false
+
+    /**
+     * Whether deband can run inside the screen shader instead of the pre-pass: deband is on and its pre-pass built, the filter takes it
+     * ([VideoFilter.canFoldDeband]) and its screen shader built, and the `DEBAND` screen shader didn't fail to build. Only looks at state, so it's
+     * free to ask on every frame.
+     */
+    val canFoldDeband: Boolean
+        get() = debandPass != null && filter.canFoldDeband && !isScreenShaderFallback && !(isDebandScreenShaderBuilt && debandScreenShader == null)
+
+    /**
+     * The screen shader with deband in it, with this pipeline's color correction, built the first time it's asked for; null if it couldn't be
+     * built (then the pre-pass debands as before). Ask it before [renderPrePasses], and pass `foldDeband` only when it isn't null.
+     */
+    fun getDebandScreenShader(): Shader? {
+        if (!isDebandScreenShaderBuilt) {
+            isDebandScreenShaderBuilt = true
+            debandScreenShader = ShaderFactory.createShaderProgramOrNull(filter.screenShader, colorCorrection, listOf(DEBAND_DEFINE))
+            if (debandScreenShader == null) {
+                Log.e(TAG, "The deband screen shader failed to build, so deband stays a pre-pass")
+            }
+        }
+        return debandScreenShader
     }
 
     // debug.melonade.comp1x: frames with screens the compositor drew at 1x (PresentFrameWrapper.halvesAt1x). This pipeline draws them with the 1x
     // shader when it's only the no-filter shader (see canDrawHalvesAt1x); otherwise renderPrePasses() first expands them into the full frame with
     // the expand pass. Both are built the first time such a frame needs them, so nothing is built while there are none, and stay null if they
     // don't build
-    private val isNoFilter = filter.screenShader === ShaderProgramSource.NoFilterShader && prePasses.isEmpty()
+    private val isNoFilter = filter.screenShader === ShaderProgramSource.NoFilterShader && debandPass == null && prePasses.isEmpty()
     private var halvesAt1xShader: Shader? = null
     private var isHalvesAt1xShaderBuilt = false
     private var expandPass: PrePass? = null
@@ -216,6 +253,8 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
     private var lastFrameBottomScreenWide = false
     // A fade changes the blur without a new frame (and scripts can stop it while paused), so the same frame is filtered again
     private var lastFrameTiltShift: TiltShift? = null
+    // Whether the deband pre-pass ran for that frame, since the screen shader can take it over (or hand it back) on the same frame
+    private var lastFrameRanDeband = false
     // What renderPrePasses() returned for that frame
     private var lastOutputTextureId = 0
     private var lastOutputWidth = 0
@@ -237,9 +276,10 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
     /**
      * Runs the pre-passes, then the [tiltShift] if there's one, and returns the texture the screen shader should draw, whose size the caller
      * sets as the shader's texSize (a scaled pass makes it bigger); call it before drawing to the surface and for invalid frames too, and set the
-     * program, VAO, array buffer and texture unit 0 again afterwards.
+     * program, VAO, array buffer and texture unit 0 again afterwards. With [foldDeband] the deband pre-pass is left out, for a frame drawn with
+     * [getDebandScreenShader].
      */
-    fun renderPrePasses(frame: PresentFrameWrapper, isBottomScreenWide: Boolean, tiltShift: TiltShift?): FilterOutput {
+    fun renderPrePasses(frame: PresentFrameWrapper, isBottomScreenWide: Boolean, tiltShift: TiltShift?, foldDeband: Boolean = false): FilterOutput {
         output.set(frame.textureId, frame.textureWidth, frame.textureHeight)
 
         if (!frame.isValidFrame) {
@@ -258,7 +298,8 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
         // boost doesn't jump as the bands reach or leave 0 even then. Each is only tried once
         val tiltShiftPasses = if (tiltShift != null && tiltShift.hasBlur) getTiltShiftPasses() else null
         val tiltShiftColorPass = if (tiltShift != null && tiltShiftPasses == null && tiltShift.hasColorBoost) getTiltShiftColorPass() else null
-        if (prePasses.isEmpty() && tiltShiftPasses == null && tiltShiftColorPass == null) {
+        val runsDeband = debandPass != null && !foldDeband
+        if (!runsDeband && prePasses.isEmpty() && tiltShiftPasses == null && tiltShiftColorPass == null) {
             return output
         }
 
@@ -271,7 +312,7 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
         val appliedTiltShift = if (tiltShiftPasses != null || tiltShiftColorPass != null) tiltShift else null
         val isSameFrame = frame.frameSequence != 0L && frame.frameSequence == lastFrameSequence && frame.textureId == lastFrameTextureId &&
                 width == lastFrameWidth && height == lastFrameHeight && isBottomScreenWide == lastFrameBottomScreenWide &&
-                appliedTiltShift == lastFrameTiltShift
+                appliedTiltShift == lastFrameTiltShift && runsDeband == lastFrameRanDeband
         if (isSameFrame) {
             output.set(lastOutputTextureId, lastOutputWidth, lastOutputHeight)
             return output
@@ -284,8 +325,14 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
         inputHeight = height
         isStateSaved = false
         var isComplete = true
+        if (runsDeband) {
+            isComplete = renderPass(debandPass, frame.topScreenWidth, isBottomScreenWide, null)
+        }
         // Indexed so that no iterator is created on every frame
         for (i in prePasses.indices) {
+            if (!isComplete) {
+                break
+            }
             val pass = prePasses[i]
             if (pass.nativeResolutionOnly && isUpscaled) {
                 continue
@@ -320,6 +367,7 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
         lastFrameHeight = height
         lastFrameBottomScreenWide = isBottomScreenWide
         lastFrameTiltShift = appliedTiltShift
+        lastFrameRanDeband = runsDeband
         lastOutputTextureId = inputTexture
         lastOutputWidth = inputWidth
         lastOutputHeight = inputHeight
@@ -399,6 +447,9 @@ class VideoFilterPipeline(filter: VideoFilter, private val colorCorrection: Bool
         }
         expandPass?.delete()
         expandPass = null
+        debandScreenShader?.delete()
+        debandScreenShader = null
+        debandPass?.delete()
         prePasses.forEach { it.delete() }
         tiltShiftPasses?.horizontal?.delete()
         tiltShiftPasses?.vertical?.delete()

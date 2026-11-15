@@ -7,7 +7,9 @@ object VideoFilterShaderProvider {
 
     private val FILTER_MAP = mapOf(
         VideoFiltering.NONE to NO_FILTER,
-        VideoFiltering.LINEAR to VideoFilter(ShaderProgramSource.LinearShader),
+        // Sharp and Linear take one LINEAR sample per screen pixel and have no pre-pass, so they can deband in their screen shader. NoFilter
+        // (NEAREST) and the rest keep the pre-pass for now
+        VideoFiltering.LINEAR to VideoFilter(ShaderProgramSource.LinearShader, canFoldDeband = true),
         VideoFiltering.XBR2 to VideoFilter(ShaderProgramSource.XbrShader),
         VideoFiltering.HQ2X to VideoFilter(ShaderProgramSource.Hq2xShader),
         VideoFiltering.HQ4X to VideoFilter(ShaderProgramSource.Hq4xShader),
@@ -17,7 +19,7 @@ object VideoFilterShaderProvider {
         VideoFiltering.SCALE2X to VideoFilter(ShaderProgramSource.Scale2xShader),
         // FXAA runs once per frame texel as a pre-pass, then Quilez scales the result up smoothly
         VideoFiltering.FXAA to VideoFilter(ShaderProgramSource.QuilezShader, listOf(FilterPrePass(ShaderProgramSource.FxaaPrePassShader))),
-        VideoFiltering.SHARP to VideoFilter(ShaderProgramSource.SharpShader),
+        VideoFiltering.SHARP to VideoFilter(ShaderProgramSource.SharpShader, canFoldDeband = true),
         // MMPX doubles the frame texture, then Sharp scales that to the screen with every pixel the same size (just Sharp when 3D is upscaled)
         VideoFiltering.MMPX to VideoFilter(
             ShaderProgramSource.SharpShader,
@@ -25,17 +27,16 @@ object VideoFilterShaderProvider {
         ),
     )
 
-    private val DEBAND_PRE_PASS = FilterPrePass(ShaderProgramSource.DebandPrePassShader)
-
     /**
-     * The filter for [filtering], with the deband pre-pass in front of its own when [deband] is set, so that it works with every filter and
-     * the filter's pre-passes (like MMPX's pixel-art detection) see the smoothed frame.
+     * The filter for [filtering], with [VideoFilter.deband] set when [deband] is: the deband pre-pass then runs in front of its own, so that
+     * it works with every filter and the filter's pre-passes (like MMPX's pixel-art detection) see the smoothed frame, unless the screen
+     * shader takes it in ([VideoFilter.canFoldDeband]).
      */
     fun getFilter(filtering: VideoFiltering, deband: Boolean = false): VideoFilter {
         val filter = FILTER_MAP[filtering] ?: NO_FILTER
         if (!deband) {
             return filter
         }
-        return VideoFilter(filter.screenShader, listOf(DEBAND_PRE_PASS) + filter.prePasses)
+        return VideoFilter(filter.screenShader, filter.prePasses, filter.canFoldDeband, deband = true)
     }
 }

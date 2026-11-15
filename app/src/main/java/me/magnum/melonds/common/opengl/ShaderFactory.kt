@@ -15,34 +15,37 @@ object ShaderFactory {
     }
 
     /**
-     * Like [createShaderProgram], but returns null (deleting what was built) if a shader doesn't compile or the program doesn't link.
+     * Like [createShaderProgram], but returns null (deleting what was built) if a shader doesn't compile or the program doesn't link. Each of
+     * [extraDefines] is defined in the fragment shader too, after `COLOR_CORRECTION`.
      */
-    fun createShaderProgramOrNull(source: ShaderProgramSource, colorCorrection: Boolean = false): Shader? {
-        return buildShaderProgram(source, colorCorrection, deleteOnFailure = true)
+    fun createShaderProgramOrNull(source: ShaderProgramSource, colorCorrection: Boolean = false, extraDefines: List<String> = emptyList()): Shader? {
+        return buildShaderProgram(source, colorCorrection, deleteOnFailure = true, extraDefines)
     }
 
     /**
-     * Like [createShaderProgram], for the screen shader, falling back to the no-filter shader if it doesn't build.
+     * Like [createShaderProgram], for the screen shader, falling back to the no-filter shader if it doesn't build (calling [onFallback] first).
      */
-    fun createScreenShaderProgram(source: ShaderProgramSource, colorCorrection: Boolean = false): Shader {
+    fun createScreenShaderProgram(source: ShaderProgramSource, colorCorrection: Boolean = false, onFallback: (() -> Unit)? = null): Shader {
         if (source === ShaderProgramSource.NoFilterShader) {
             return createShaderProgram(source, colorCorrection)
         }
 
         return createShaderProgramOrNull(source, colorCorrection) ?: run {
             Log.e(TAG, "Screen shader failed to build. Falling back to no filter")
+            onFallback?.invoke()
             createShaderProgram(ShaderProgramSource.NoFilterShader, colorCorrection)
         }
     }
 
-    private fun buildShaderProgram(source: ShaderProgramSource, colorCorrection: Boolean, deleteOnFailure: Boolean): Shader? {
+    private fun buildShaderProgram(
+        source: ShaderProgramSource,
+        colorCorrection: Boolean,
+        deleteOnFailure: Boolean,
+        extraDefines: List<String> = emptyList(),
+    ): Shader? {
         val vertexShader = createShader(GLES30.GL_VERTEX_SHADER, source.vertexShaderSource)
-        val fragmentShaderSource = if (colorCorrection) {
-            addDefine(source.fragmentShaderSource, "COLOR_CORRECTION")
-        } else {
-            source.fragmentShaderSource
-        }
-        val fragmentShader = createShader(GLES30.GL_FRAGMENT_SHADER, fragmentShaderSource)
+        val fragmentCode = fragmentShaderSource(source, colorCorrection, extraDefines)
+        val fragmentShader = createShader(GLES30.GL_FRAGMENT_SHADER, fragmentCode)
         val shaderProgram = createShaderProgram(vertexShader, fragmentShader)
 
         if (deleteOnFailure && !(isShaderCompiled(vertexShader) && isShaderCompiled(fragmentShader) && isProgramLinked(shaderProgram))) {
@@ -60,15 +63,28 @@ object ShaderFactory {
         return Shader(vertexShader, fragmentShader, shaderProgram, textureFilter)
     }
 
-    private fun addDefine(code: String, name: String): String {
-        // Nothing but comments and whitespace can come before #version, so the define goes on the line after it
+    /**
+     * [source]'s fragment shader as it's compiled: `COLOR_CORRECTION` defined with [colorCorrection], then each of [extraDefines], in order.
+     * Pure, so tests can check what a variant assembles to.
+     */
+    internal fun fragmentShaderSource(source: ShaderProgramSource, colorCorrection: Boolean, extraDefines: List<String> = emptyList()): String {
+        val names = if (colorCorrection) listOf("COLOR_CORRECTION") + extraDefines else extraDefines
+        return addDefines(source.fragmentShaderSource, names)
+    }
+
+    private fun addDefines(code: String, names: List<String>): String {
+        if (names.isEmpty()) {
+            return code
+        }
+        val defines = names.joinToString("") { "#define $it\n" }
+        // Nothing but comments and whitespace can come before #version, so the defines go on the line after it
         if (code.startsWith("#version")) {
             val versionLineEnd = code.indexOf('\n')
             if (versionLineEnd >= 0) {
-                return code.substring(0, versionLineEnd + 1) + "#define $name\n" + code.substring(versionLineEnd + 1)
+                return code.substring(0, versionLineEnd + 1) + defines + code.substring(versionLineEnd + 1)
             }
         }
-        return "#define $name\n$code"
+        return defines + code
     }
 
     private fun createShaderProgram(vertexShader: Int, fragmentShader: Int): Int {

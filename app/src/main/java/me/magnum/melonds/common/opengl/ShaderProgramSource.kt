@@ -95,10 +95,17 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // Helpers that clamp samples to the screen a fragment belongs to, so the gap and the other screen never bleed in (textureFunction is
         // texture2D, or texture for #version 300 es)
         private fun screenBandFunctions(textureFunction: String): String {
-            return "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
-                    "const float bottomScreenStart = ${SCREEN_HEIGHT + SCREEN_GAP}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+            return SCREEN_BAND_CONSTANTS +
                     SCREEN_COLUMN_RANGE_FUNCTIONS +
-                    "// Range of v (xy) and u (zw) coordinates (texel centers) of the screen that contains p\n" +
+                    screenBandOnlyFunctions(textureFunction)
+        }
+
+        private const val SCREEN_BAND_CONSTANTS = "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+                "const float bottomScreenStart = ${SCREEN_HEIGHT + SCREEN_GAP}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n"
+
+        // screenBandFunctions() without SCREEN_BAND_CONSTANTS and SCREEN_COLUMN_RANGE_FUNCTIONS, for a shader that declares those itself
+        private fun screenBandOnlyFunctions(textureFunction: String): String {
+            return "// Range of v (xy) and u (zw) coordinates (texel centers) of the screen that contains p\n" +
                     "vec4 screenBand(vec2 p) {\n" +
                     "    vec2 band = p.y < 0.5 ? vec2(0.0, topScreenEnd) : vec2(bottomScreenStart, 1.0);\n" +
                     "    float halfTexel = 0.5 / texSize.y;\n" +
@@ -108,6 +115,63 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    return $textureFunction(tex, vec2(clamp(p.x, band.z, band.w), clamp(p.y, band.x, band.y))).bgr;\n" +
                     "}\n"
         }
+
+        // Deband, after mpv's deband (itself based on flash3kyuu), with a per-sample threshold so that detail isn't blurred. Three rings of 4
+        // samples around p, each twice as far as the last (a random angle and distance per output pixel); the farthest ring whose samples are
+        // all within DEBAND_THRESHOLD of center replaces it with their average, so the 1 or 2 level steps of DS gradients blend and anything
+        // with more contrast is left alone. Radii are in DS pixels (texSize is the sampled texture's size, FRAME_TEXTURE_HEIGHT DS pixels
+        // high), so it reaches as far at every internal resolution and output size. A little grain hides the 8 bit steps of the result. Needs
+        // screenBandFunctions() first. DebandPrePassShader runs it once per frame texel; the Sharp and Linear screen shaders run it once per
+        // screen pixel when DEBAND is defined (debug.melonade.debandfold)
+        private const val DEBAND_FUNCTIONS = "// A bit over two 6 bit levels (one 5 bit level), per channel\n" +
+                "const float DEBAND_THRESHOLD = 2.5 / 63.0;\n" +
+                "const float DEBAND_RANGE = 3.0;\n" +
+                "const float DEBAND_GRAIN = 1.0 / 255.0;\n" +
+                "" +
+                "// Hash without sine by Dave Hoskins (MIT), since sin() of big values is imprecise on mobile GPUs\n" +
+                "float hash12(vec2 p) {\n" +
+                "    vec3 p3 = fract(vec3(p.xyx) * 0.1031);\n" +
+                "    p3 += dot(p3, p3.yzx + 33.33);\n" +
+                "    return fract((p3.x + p3.y) * p3.z);\n" +
+                "}\n" +
+                "" +
+                "// Whether all 4 samples around p (offset and perpendicular, both ways) are close to center, with their average in average\n" +
+                "bool debandRing(vec2 p, vec3 center, vec2 offset, vec2 perpendicular, vec4 band, out vec3 average) {\n" +
+                "    vec3 s1 = sampleScreen(p + offset, band);\n" +
+                "    vec3 s2 = sampleScreen(p - offset, band);\n" +
+                "    vec3 s3 = sampleScreen(p + perpendicular, band);\n" +
+                "    vec3 s4 = sampleScreen(p - perpendicular, band);\n" +
+                "    vec3 d = max(max(abs(s1 - center), abs(s2 - center)), max(abs(s3 - center), abs(s4 - center)));\n" +
+                "    average = (s1 + s2 + s3 + s4) * 0.25;\n" +
+                "    return max(d.r, max(d.g, d.b)) < DEBAND_THRESHOLD;\n" +
+                "}\n" +
+                "" +
+                "// center (RGB, as sampleScreen() reads it) debanded with the rings around p, clamped to 0-1\n" +
+                "vec3 deband(vec2 p, vec3 center, vec4 band) {\n" +
+                "    // Texels per DS pixel; the frame texture is FRAME_TEXTURE_HEIGHT DS pixels high at any internal resolution\n" +
+                "    float scale = texSize.y / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+                "    float angle = 6.2831853 * hash12(gl_FragCoord.xy);\n" +
+                "    float radius = DEBAND_RANGE * scale * (0.5 + 0.5 * hash12(gl_FragCoord.yx + 17.0));\n" +
+                "    vec2 offset = vec2(cos(angle), sin(angle)) * radius / texSize;\n" +
+                "    // Rotated in texels, since the frame texture isn't square; scaling both by 2 or 4 later is exact\n" +
+                "    vec2 texels = offset * texSize;\n" +
+                "    vec2 perpendicular = vec2(-texels.y, texels.x) / texSize;\n" +
+                "    vec3 result = center;\n" +
+                "    vec3 average;\n" +
+                "    // Farthest ring first, since it blends the most: the first that passes wins, so flat areas never sample the nearer ones\n" +
+                "    if (debandRing(p, center, offset * 4.0, perpendicular * 4.0, band, average)) {\n" +
+                "        result = average;\n" +
+                "    } else if (debandRing(p, center, offset * 2.0, perpendicular * 2.0, band, average)) {\n" +
+                "        result = average;\n" +
+                "    } else if (debandRing(p, center, offset, perpendicular, band, average)) {\n" +
+                "        result = average;\n" +
+                "    }\n" +
+                "    // Grain only where the color was changed, so flat areas and untouched detail stay clean\n" +
+                "    if (result != center) {\n" +
+                "        result += (hash12(gl_FragCoord.xy + 101.0) - 0.5) * DEBAND_GRAIN;\n" +
+                "    }\n" +
+                "    return clamp(result, 0.0, 1.0);\n" +
+                "}\n"
 
         val BackgroundShader = ShaderProgramSource(
             TextureFiltering.LINEAR,
@@ -258,7 +322,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "}"
         )
 
-        // The default shader with bilinear filtering, which blends in the next texel, so it's kept off the black bars of a wide frame
+        // The default shader with bilinear filtering, which blends in the next texel, so it's kept off the black bars of a wide frame. With
+        // DEBAND defined it debands its sample (DEBAND_FUNCTIONS) in place of the pre-pass (debug.melonade.debandfold)
         val LinearShader = ShaderProgramSource(
             TextureFiltering.LINEAR,
             DEFAULT_VERT_SHADER,
@@ -268,11 +333,20 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "varying float alpha;\n" +
                     SCREEN_COLUMN_RANGE_FUNCTIONS +
                     SAMPLE_COLUMNS_FUNCTIONS +
+                    "#ifdef DEBAND\n" +
+                    SCREEN_BAND_CONSTANTS +
+                    screenBandOnlyFunctions("texture2D") +
+                    DEBAND_FUNCTIONS +
+                    "#endif\n" +
                     COLOR_FUNCTIONS +
                     "void main()\n" +
                     "{\n" +
                     "    vec4 color = sampleColumns(uv, screenColumns(uv));\n" +
-                    "    gl_FragColor = vec4(finishColor(color.bgr), alpha);\n" +
+                    "    vec3 rgb = color.bgr;\n" +
+                    "#ifdef DEBAND\n" +
+                    "    rgb = deband(uv, rgb, screenBand(uv));\n" +
+                    "#endif\n" +
+                    "    gl_FragColor = vec4(finishColor(rgb), alpha);\n" +
                     "}"
         )
 
@@ -793,11 +867,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "}"
         )
 
-        // Deband, after mpv's deband (itself based on flash3kyuu), with a per-sample threshold so that detail isn't blurred
-        // Pre-pass; runs once per frame texel before the selected filter. Three rings of 4 samples, each twice as far as the last (a random
-        // angle and distance per texel); the farthest ring whose samples are all within DEBAND_THRESHOLD of the texel replaces it with their
-        // average, so the 1 or 2 level steps of DS gradients blend and anything with more contrast is left alone. Radii are in DS pixels, so
-        // it reaches as far at every internal resolution. A little grain hides the 8 bit steps of the result
+        // Deband (DEBAND_FUNCTIONS) as a pre-pass, once per frame texel before the selected filter, so it works with every filter and the
+        // filter's pre-passes (like MMPX's pixel-art detection) see the smoothed frame
         val DebandPrePassShader = ShaderProgramSource(
             TextureFiltering.LINEAR,
             PRE_PASS_VERT_SHADER,
@@ -805,57 +876,13 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     SCREEN_UNIFORMS +
                     "varying vec2 uv;\n" +
                     screenBandFunctions("texture2D") +
-                    "" +
-                    "// A bit over two 6 bit levels (one 5 bit level), per channel\n" +
-                    "const float DEBAND_THRESHOLD = 2.5 / 63.0;\n" +
-                    "const float DEBAND_RANGE = 3.0;\n" +
-                    "const float DEBAND_GRAIN = 1.0 / 255.0;\n" +
-                    "" +
-                    "// Hash without sine by Dave Hoskins (MIT), since sin() of big values is imprecise on mobile GPUs\n" +
-                    "float hash12(vec2 p) {\n" +
-                    "    vec3 p3 = fract(vec3(p.xyx) * 0.1031);\n" +
-                    "    p3 += dot(p3, p3.yzx + 33.33);\n" +
-                    "    return fract((p3.x + p3.y) * p3.z);\n" +
-                    "}\n" +
-                    "" +
-                    "// Whether all 4 samples around uv (offset and perpendicular, both ways) are close to center, with their average in average\n" +
-                    "bool debandRing(vec3 center, vec2 offset, vec2 perpendicular, vec4 band, out vec3 average) {\n" +
-                    "    vec3 s1 = sampleScreen(uv + offset, band);\n" +
-                    "    vec3 s2 = sampleScreen(uv - offset, band);\n" +
-                    "    vec3 s3 = sampleScreen(uv + perpendicular, band);\n" +
-                    "    vec3 s4 = sampleScreen(uv - perpendicular, band);\n" +
-                    "    vec3 d = max(max(abs(s1 - center), abs(s2 - center)), max(abs(s3 - center), abs(s4 - center)));\n" +
-                    "    average = (s1 + s2 + s3 + s4) * 0.25;\n" +
-                    "    return max(d.r, max(d.g, d.b)) < DEBAND_THRESHOLD;\n" +
-                    "}\n" +
+                    DEBAND_FUNCTIONS +
                     "" +
                     "void main() {\n" +
                     "    vec4 band = screenBand(uv);\n" +
                     "    vec3 center = sampleScreen(uv, band);\n" +
-                    "    // Texels per DS pixel; the frame texture is FRAME_TEXTURE_HEIGHT DS pixels high at any internal resolution\n" +
-                    "    float scale = texSize.y / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
-                    "    float angle = 6.2831853 * hash12(gl_FragCoord.xy);\n" +
-                    "    float radius = DEBAND_RANGE * scale * (0.5 + 0.5 * hash12(gl_FragCoord.yx + 17.0));\n" +
-                    "    vec2 offset = vec2(cos(angle), sin(angle)) * radius / texSize;\n" +
-                    "    // Rotated in texels, since the frame texture isn't square; scaling both by 2 or 4 later is exact\n" +
-                    "    vec2 texels = offset * texSize;\n" +
-                    "    vec2 perpendicular = vec2(-texels.y, texels.x) / texSize;\n" +
-                    "    vec3 result = center;\n" +
-                    "    vec3 average;\n" +
-                    "    // Farthest ring first, since it blends the most: the first that passes wins, so flat areas never sample the nearer ones\n" +
-                    "    if (debandRing(center, offset * 4.0, perpendicular * 4.0, band, average)) {\n" +
-                    "        result = average;\n" +
-                    "    } else if (debandRing(center, offset * 2.0, perpendicular * 2.0, band, average)) {\n" +
-                    "        result = average;\n" +
-                    "    } else if (debandRing(center, offset, perpendicular, band, average)) {\n" +
-                    "        result = average;\n" +
-                    "    }\n" +
-                    "    // Grain only where the texel was changed, so flat areas and untouched detail stay clean\n" +
-                    "    if (result != center) {\n" +
-                    "        result += (hash12(gl_FragCoord.xy + 101.0) - 0.5) * DEBAND_GRAIN;\n" +
-                    "    }\n" +
                     "    // Swap back to the frame texture's channel order, since sampleScreen() reads the BGR texels as RGB\n" +
-                    "    gl_FragColor = vec4(clamp(result, 0.0, 1.0).bgr, 1.0);\n" +
+                    "    gl_FragColor = vec4(deband(uv, center, band).bgr, 1.0);\n" +
                     "}"
         )
 
@@ -970,7 +997,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // sharp-shimmerless
         // Author: zadpos (Woohyun Kang)
         // License: Public domain
-        // Draws every texel as a rectangle of the same size, blending only the pixels a texel boundary crosses, with the scale taken from fwidth()
+        // Draws every texel as a rectangle of the same size, blending only the pixels a texel boundary crosses, with the scale taken from fwidth().
+        // With DEBAND defined it debands its sample (DEBAND_FUNCTIONS) in place of the pre-pass (debug.melonade.debandfold)
         val SharpShader = ShaderProgramSource(
             TextureFiltering.LINEAR,
             "#version 300 es\n" +
@@ -992,6 +1020,9 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "in float alpha;\n" +
                     "out vec4 fragColor;\n" +
                     screenBandFunctions("texture") +
+                    "#ifdef DEBAND\n" +
+                    DEBAND_FUNCTIONS +
+                    "#endif\n" +
                     COLOR_FUNCTIONS +
                     "" +
                     "void main() {\n" +
@@ -1005,7 +1036,12 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    vec2 w = min((farEdge - farTexel) / d, 1.0);\n" +
                     "    vec2 p = (farTexel - 0.5 + w) / texSize;\n" +
                     "" +
-                    "    fragColor = vec4(finishColor(sampleScreen(p, screenBand(uv))), alpha);\n" +
+                    "    vec4 band = screenBand(uv);\n" +
+                    "    vec3 color = sampleScreen(p, band);\n" +
+                    "#ifdef DEBAND\n" +
+                    "    color = deband(p, color, band);\n" +
+                    "#endif\n" +
+                    "    fragColor = vec4(finishColor(color), alpha);\n" +
                     "}"
         )
 

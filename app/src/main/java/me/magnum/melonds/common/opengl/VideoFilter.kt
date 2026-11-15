@@ -3,10 +3,16 @@ package me.magnum.melonds.common.opengl
 /**
  * A screen filter: pre-passes run in order over the whole frame texture, keeping its layout and channel order, and the screen shader draws
  * the last one's output (or the frame texture) to the surface.
+ *
+ * With [deband], the deband pre-pass runs in front of [prePasses]. A filter whose screen shader takes `DEBAND` ([canFoldDeband]: no pre-passes
+ * of its own and a single-sample LINEAR screen shader) can instead deband once per screen pixel inside its screen shader
+ * (debug.melonade.debandfold, see [shouldFoldDeband]).
  */
 class VideoFilter(
     val screenShader: ShaderProgramSource,
     val prePasses: List<FilterPrePass> = emptyList(),
+    val canFoldDeband: Boolean = false,
+    val deband: Boolean = false,
 )
 
 /**

@@ -1,5 +1,7 @@
 package me.magnum.melonds.impl.diagnostics
 
+import me.magnum.melonds.BuildConfig
+
 /**
  * The debug-only "Debug switches" setting: debug.melonade.* switches (see DebugProperties.h) typed in the app, so A/B runs work without adb.
  * They're given to the native side at game start and replace setprop values of the same name for that game.
@@ -90,5 +92,44 @@ object DebugSwitches {
         }
 
         return Result(switches.toList(), errors)
+    }
+
+    // Switches the frontend reads itself instead of the core (debandfold, see docs/debug-switches.md): the Debug switches setting of the game
+    // that started last, then setprop, the same order the native side reads them in
+    @Volatile
+    private var current = Result(emptyList(), emptyList())
+
+    /**
+     * Goes up every time [setCurrent] is called, so a reader on another thread knows when to read its switches again (once per game).
+     */
+    @Volatile
+    var generation = 0
+        private set
+
+    /**
+     * The Debug switches setting as it was given to the native side for the game that's starting.
+     */
+    fun setCurrent(result: Result) {
+        current = result
+        generation++
+    }
+
+    /**
+     * Debug builds only (release builds always get [default]): the frontend-side switch [name] (without the prefix) as an int, from the Debug
+     * switches setting, else `debug.melonade.<name>`, else [default]. Reads a system property, so ask it once per game, not every frame.
+     */
+    fun readInt(name: String, default: Int): Int {
+        if (!BuildConfig.DEBUG) {
+            return default
+        }
+        val value = current.switches.lastOrNull { it.first == name }?.second ?: systemProperty(PREFIX + name)
+        return value?.trim()?.toIntOrNull() ?: default
+    }
+
+    // android.os.SystemProperties is hidden, but reading it is allowed for apps; null when it can't be read (or in JVM tests) or is empty
+    private fun systemProperty(name: String): String? {
+        return runCatching {
+            Class.forName("android.os.SystemProperties").getMethod("get", String::class.java, String::class.java).invoke(null, name, "") as String
+        }.getOrNull()?.takeIf { it.isNotEmpty() }
     }
 }

@@ -53,7 +53,9 @@ Not chosen: a screen-size pre-pass target in the frame's layout only stays exact
 3. Fold: interleaved Mcyc, pre-pass vs folded vs deband off, quick recipe.
 4. Cover screen and an external display look right.
 
-**Open:** the real drawn area on the inner screen (add `drawRect` next to `nativeRect` in the `OUTCAP:` line).
+**Open:** the real drawn area on the inner screen (add `drawRect` next to `nativeRect` in the `OUTCAP:` line). Answered 11-15: 2.37 Mpx (1470x1103 + 998x749).
+
+**Status 11-15:** built behind `debandfold` (default 0). Fold inner 8x: 9.79 → 6.34 Mcyc (deband off 3.52), looks the same; numbers in PERF-NOTES. Pixel (Mali): compiles, Sharp 8.09 → 6.45 Mcyc, Linear variant runs. Default 1 since 11-15. Cover screen checked; an external display isn't yet.
 
 ## B: integer Sout at a non-integer ratio (8x → 6x)
 
