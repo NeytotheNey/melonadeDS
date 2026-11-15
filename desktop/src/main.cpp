@@ -91,6 +91,7 @@ struct Options
     bool Threaded2D = true;
     bool ThreadedSoft3D = true;
     bool HalfCamera = false;
+    int HalfCameraMode = 0;    // debug.melonade.halfcam (GPU3D::SetHalfCamera), replaces --smooth30
     bool BootScreen = false;
     bool FixedTime = false;    // the RTC starts at 2026-01-01 12:00 instead of now
     bool VSync = false;
@@ -159,7 +160,8 @@ void Usage()
         "  --filter2d                  MMPX-filtered 2D (gl/compute, scale 2+)\n"
         "  --filter2d-mode N           filtered 2D as debug.melonade.filter2d: 2 the 2x map only, 3 identity\n"
         "  --gpu2d N                   GPU 2D shadow renderer: 0 off, 1 lines that gain, 2 all (gl/compute)\n"
-        "  --smooth30                  Compute: in-between frames for 30 fps games (half camera)\n"
+        "  --smooth30                  gl/compute: in-between frames for 30 fps games (half camera)\n"
+        "  --halfcam N                 debug.melonade.halfcam N, 1-5 (3 and up log HALFCAM lines), replaces --smooth30\n"
         "  --no-threaded2d             2D on the emulator thread\n"
         "  --no-threaded-soft          software 3D on the emulator thread\n"
         "  --jit                       x86-64 JIT (off by default: slower than the interpreter here)\n"
@@ -339,6 +341,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--filter2d-mode") opts.Filter2D = std::clamp(atoi(next().c_str()), 0, 3);
         else if (arg == "--gpu2d") opts.Gpu2D = std::clamp(atoi(next().c_str()), 0, 2);
         else if (arg == "--smooth30") opts.HalfCamera = true;
+        else if (arg == "--halfcam") opts.HalfCameraMode = std::clamp(atoi(next().c_str()), 0, 5);
         else if (arg == "--no-threaded2d") opts.Threaded2D = false;
         else if (arg == "--no-threaded-soft") opts.ThreadedSoft3D = false;
         else if (arg == "--jit") opts.Jit = true;
@@ -470,6 +473,9 @@ public:
                 fprintf(stderr, "unknown --set %s (see --list-sets)\n", set.c_str());
         }
         Nds->GPU.GPU3D.SetWideDropLogging(Opts.WideDrops);
+        // as DebugProperties::apply sets it, before the game starts
+        if (Opts.HalfCameraMode > 0)
+            Nds->GPU.GPU3D.SetHalfCamera(Opts.HalfCameraMode);
 
         if (!LoadRom())
             return false;
@@ -657,7 +663,9 @@ public:
         Nds->GPU.SetHiresCapture(Opts.HiresCapture);
         Nds->GPU.Filter2D = Opts.Filter2D;
         Nds->GPU.SetShadow2D(Opts.Gpu2D, false, false, 0);
-        Nds->GPU.GPU3D.SetHalfCameraSmoothing(Opts.HalfCamera && Current == RendererType::Compute);
+        // the app's rule: OpenGL and compute draw the in-between scenes, and --halfcam replaces the setting
+        if (Opts.HalfCameraMode == 0)
+            Nds->GPU.GPU3D.SetHalfCameraSmoothing(Opts.HalfCamera && Current != RendererType::Software);
 
         printf("renderer: %s, scale %d, width %d\n", RendererName(Current), ActiveScale(), Opts.WideWidth);
     }

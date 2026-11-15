@@ -1019,9 +1019,10 @@ void MelonInstance::updateRenderer()
     // DebugProperties::apply already set the mode for this game, and it stays through renderer changes
     isHalfCameraOverridden = debugOverrides.halfCamera >= 0;
 #endif
-    // Also between frames. Only the compute renderer can draw the in-between scenes, so the others don't pay for them
+    // Also between frames. Only the OpenGL and compute renderers can draw the in-between scenes, so software doesn't pay for them
+    bool canDrawInBetween = currentRenderer == Renderer::OpenGl || currentRenderer == Renderer::Compute;
     if (!isHalfCameraOverridden)
-        nds->GPU.GPU3D.SetHalfCameraSmoothing(configuration->framePacingSmooth30Fps && currentRenderer == Renderer::Compute);
+        nds->GPU.GPU3D.SetHalfCameraSmoothing(configuration->framePacingSmooth30Fps && canDrawInBetween);
 }
 
 void MelonInstance::logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs)

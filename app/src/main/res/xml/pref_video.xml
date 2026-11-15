@@ -109,7 +109,7 @@
                 android:dependency="frame_pacing_vsync"
                 android:defaultValue="true" />
 
-        <!-- Compute only, so it's grayed out for the others (set up in VideoPreferencesFragment) -->
+        <!-- OpenGL and compute only, so it's grayed out for software (set up in VideoPreferencesFragment) -->
         <SwitchPreference
                 android:key="frame_pacing_smooth_30fps"
                 android:title="@string/frame_pacing_smooth_30fps"

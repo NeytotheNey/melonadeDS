@@ -28,7 +28,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
     private lateinit var renderingCategory: PreferenceCategory
     // Threaded 3D rendering is only used by the software renderer
     private lateinit var threadedRenderingPreference: SwitchPreference
-    // Only the compute renderer can draw the in-between frames
+    // Only the OpenGL and compute renderers can draw the in-between frames
     private lateinit var smooth30FpsPreference: Preference
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
@@ -69,7 +69,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         internalResolutionPreference.isVisible = !isSoftwareRenderer
         hiresCapturePreference.isVisible = !isSoftwareRenderer
         filter2dPreference.isVisible = !isSoftwareRenderer
-        smooth30FpsPreference.isEnabled = newRenderer == VideoRenderer.COMPUTE
+        smooth30FpsPreference.isEnabled = !isSoftwareRenderer
         threadedRenderingPreference.isEnabled = isSoftwareRenderer
         threadedRenderingPreference.setSummary(
             if (isSoftwareRenderer) R.string.threaded_rendering_summary else R.string.threaded_rendering_software_only

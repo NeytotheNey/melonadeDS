@@ -305,7 +305,7 @@
     <string name="frame_pacing_buffer">Extra frame buffer</string>
     <string name="frame_pacing_buffer_summary">Smoother when the game is close to its frame budget, but adds about 17 ms of input lag.</string>
     <string name="frame_pacing_smooth_30fps">Smooth 30 FPS games (experimental)</string>
-    <string name="frame_pacing_smooth_30fps_summary">Can fill in frames in many 30 FPS games. Needs the Compute renderer, which not every device offers, and adds one frame of 3D delay.</string>
+    <string name="frame_pacing_smooth_30fps_summary">Can fill in frames in many 30 FPS games. Needs the OpenGL or Compute renderer, and adds one frame of 3D delay.</string>
     <string name="sustained_performance_mode">Sustained performance mode</string>
     <string name="sustained_performance_mode_summary">When enabled, peak performance will be lower but thermal throttling will be less pronounced.</string>
     <string name="performance_logging">Performance logging</string>

@@ -101,7 +101,7 @@ Scene outcomes on the last builds: Platinum interpolated 980 of 1,640 scenes (27
 Still open:
 - The bike or other fast movement is untested. The pair limits are tuned for walking, and 8 units is exactly the 10 px limit.
 - No game outside Pokémon has been tried.
-- It's compute only. The app's default of OpenGL skips it entirely.
+- OpenGL support was added on 2026-11-15 (`GLRenderer::CanDrawReplayedScene`). On desktop, White 2 gave the same per-scene log and halfway camera as compute. Unlike compute, GL still draws an in-between scene that matches the real one, because only compute keeps the scene copy that catches it. On the Fold (OpenGL, 4x, plugged in, a 30 s White 2 walk), `halfcam 3` interpolated 384 of 909 scenes. The other 525 had a still camera, and the render and cap skip counts were 0. Replay was 0.84 ms on average and 1.51 ms at worst. The emulator's work per frame went from 7.03 ms to 7.38 ms on average (p99 10.8 to 11.0 ms). It held 60.00 FPS with no frames over 20 ms. No GL errors or seams showed up. Logs are in `perf_logs/2026-11-15-halfcam-gl/`.
 - Real GPU and battery cost.
 - Thin-detail jitter on fences happens with interpolation off too. Its source hasn't been found.
 - The log's `pairmax` reached 16 units in Platinum, over the pair limit. It's probably a rejected candidate, not an applied pair, but that wasn't checked.

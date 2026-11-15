@@ -91,7 +91,7 @@ typedef struct
     float fastForwardSpeedMultiplier;
     bool framePacingVsync;
     bool framePacingBuffer;
-    // Compute only: in-between 3D scenes in games that run at 30 FPS (GPU3D_HalfCamera.h), applied in MelonInstance::updateRenderer()
+    // OpenGL and compute only: in-between 3D scenes in games that run at 30 FPS (GPU3D_HalfCamera.h), applied in MelonInstance::updateRenderer()
     bool framePacingSmooth30Fps;
     bool showBootScreen;
     bool useJit;
