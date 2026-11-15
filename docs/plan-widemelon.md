@@ -31,7 +31,7 @@ Ours is the better general feature: any game, any viewport, OpenGL and Compute, 
 
 ## Ideas for us
 
-1. **Shadow polygon list from a submit hook.** Squeeze copies, not the game's polygon RAM, so the polygon limit and list counts stop showing (and the RetroAchievements caveat goes). The cost is a copy of SubmitPolygon's work to keep in step with upstream.
+1. **Shadow polygon list from a submit hook.** Squeeze copies, not the game's polygon RAM, so the polygon limit and list counts stop showing (and the RetroAchievements caveat goes). The cost is a copy of SubmitPolygon's work to keep in step with upstream. 11-14: partly covered by the native-counted polygon RAM with a bigger wide list ([plan-widemelon-polylist.md](plan-widemelon-polylist.md), `GPU::WidePolys`, debug switch `widepolys`, off by default until the phones have checked it): with it on, the polygon limit, the count registers and DISP3DCNT bit 13 are the native view's, so they stop showing to the game. BoxTest is still squeezed, so the RetroAchievements caveat shrinks to that (and to polygon timing, which already follows the native view) but doesn't go.
 2. **Backdrop in transparent wings** instead of the clear color. Already in MODS.md's smaller ideas.
 3. **Safe generic 2D rules** for plan-gpu-2d step 4, with no per-game data:
    - carry a BG into the wings only if it covers the screen's whole outline;
@@ -103,6 +103,6 @@ The config is latched at line 0 and capped (4 BGs, 128 sprites). It's cleared wh
 ## Open after the merge (11-11)
 
 Steps 1–3 are merged into `material3` / `melonade` (11-11). Phone data: `perf_logs/2026-11-08-widemelon/`.
-1. The `widedrops` counter found real drops at Shroom Ridge's race start in Mario Kart DS (2,212 dropped, 94% would fit natively). Per the 11-07 decision that's the case for the shadow polygon list above, so building it is the user's call.
+1. The `widedrops` counter found real drops at Shroom Ridge's race start in Mario Kart DS (2,212 dropped, 94% would fit natively). Per the 11-07 decision that's the case for the shadow polygon list above, so building it is the user's call. 11-14: NSMB's title intro drops 137–244 polygons a frame at 426 and its 3D flowers vanish (all native-fit); the user chose a cheaper fix than the shadow list, native-counted polygon RAM with a bigger wide list: [plan-widemelon-polylist.md](plan-widemelon-polylist.md).
 2. Optional: in compmode 4 the wing could take the edge's 3D alpha instead of 31, so wings follow fades of a translucent full-screen quad (Contra 4's fade into "Licensed by Nintendo" stays black in the wings, as before step 1).
 3. Steps 4–7 wait for the GPU 2D renderer (`docs/plan-gpu-2d-shadow.md`).

@@ -68,6 +68,10 @@ namespace melonDS { class GPU; }
  *   gpu2dstats     log a GPU2DSTATS line per engine once a second on what a GPU 2D renderer would have to deal with, no effect on emulation (GPU_2DStats.h, default 0)
  *   widedrops      log a WIDEDROPS line once a second on polygons dropped because the polygon or vertex RAM was full, and with WideMelon on, how many of
  *                  those the native view had room for, no effect on emulation (GPU3D::SetWideDropLogging, default 0)
+ *   widepolys      WideMelon: with the view wider than 256, the game sees the native view's polygon and vertex RAM counts (and DISP3DCNT bit 13),
+ *                  and the scene is kept in a list twice the DS's size, half of it for polygons only the wings show, so the wide view stops
+ *                  dropping polygons the DS would draw (docs/plan-widemelon-polylist.md). Takes effect at the next polygon RAM swap
+ *                  (GPU::WidePolys, default 0)
  *   hash3d         log `HASH3D frame=<n> hash=<hex>` per frame: an FNV-1a of the 3D image at native resolution in GetLine's pixel format, numbered
  *                  like HASH2D (n is the HASH2D frame that shows the render, which line 215 of frame n-1 started). OpenGL hashes its 256x192
  *                  downscale, compute the low res image display capture reads, software its color buffer; all three are read late without

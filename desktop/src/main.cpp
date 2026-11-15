@@ -103,11 +103,12 @@ struct Options
     int WindowScale = 2;
     u32 Frames = 0;            // 0 runs until the window is closed
     std::vector<std::string> Sets;
+    bool WideDrops = false;    // the WIDEDROPS log line (GPU3D::SetWideDropLogging)
     std::string StatePath;     // a savestate (.mln/.ml1...) loaded after the reset
     struct Press { u32 From, To, Mask; };
     std::vector<Press> Presses; // --press: keys held over frame ranges, for scripted runs
     struct At { u32 Frame; std::string Action; };
-    std::vector<At> Ats;       // --at: a reset, a state load or a switch change before a frame
+    std::vector<At> Ats;       // --at: a reset, a state load or save, or a switch change before a frame
 };
 
 // --press FRAME[-LAST]:key[+key...], keys a b x y l r start select up down left right; held for
@@ -173,9 +174,11 @@ void Usage()
         "  --boot-screen               boot through the firmware instead of directly\n"
         "  --fixed-time                the RTC starts at 2026-01-01 12:00, for runs to compare\n"
         "  --set NAME=VALUE            a core debug switch, e.g. --set LateBlit=0 (see --list-sets)\n"
-        "  --at F:reset|state|NAME=VALUE\n"
-        "                              before frame F: a reset, the --state loaded again, or a --set\n"
+        "  --at F:reset|state|save=FILE|NAME=VALUE\n"
+        "                              before frame F: a reset, the --state loaded again, a savestate\n"
+        "                              written to FILE, or a --set\n"
         "  --list-sets                 list the switches --set knows\n"
+        "  --widedrops                 log a WIDEDROPS line once a second (WideMelon's dropped polygons)\n"
         "\n"
         "  --layout vertical|horizontal|top|bottom\n"
         "  --window-scale N            window size in DS screens (default 2)\n"
@@ -227,6 +230,7 @@ const BoolSwitch kBoolSwitches[] = {
     {"Hash2DLogging", &GPU::Hash2DLogging},
     {"Hash3DLogging", &GPU::Hash3DLogging},
     {"ComputeSSBO", &GPU::ComputeSSBO},
+    {"WidePolys", &GPU::WidePolys},
 };
 
 const IntSwitch kIntSwitches[] = {
@@ -352,6 +356,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--boot-screen") opts.BootScreen = true;
         else if (arg == "--fixed-time") opts.FixedTime = true;
         else if (arg == "--set") opts.Sets.push_back(next());
+        else if (arg == "--widedrops") opts.WideDrops = true;
         else if (arg == "--at")
         {
             std::string spec = next();
@@ -462,6 +467,7 @@ public:
             if (!ApplySet(Nds->GPU, set))
                 fprintf(stderr, "unknown --set %s (see --list-sets)\n", set.c_str());
         }
+        Nds->GPU.GPU3D.SetWideDropLogging(Opts.WideDrops);
 
         if (!LoadRom())
             return false;
@@ -480,13 +486,35 @@ public:
             fprintf(stderr, "can't read savestate %s\n", path.c_str());
             return false;
         }
+        // a state that fails part of the way through leaves the console half loaded, so it can't run on
         Savestate state(data.data(), (u32)data.size(), false);
-        if (state.Error || !Nds->DoSavestate(&state))
+        if (state.Error || !Nds->DoSavestate(&state) || state.Error)
         {
             fprintf(stderr, "savestate %s didn't load\n", path.c_str());
             return false;
         }
         printf("state: %s\n", path.c_str());
+        return true;
+    }
+
+    bool SaveState(const std::string& path)
+    {
+        Savestate state;
+        if (state.Error || !Nds->DoSavestate(&state) || state.Error)
+        {
+            fprintf(stderr, "can't make a savestate\n");
+            return false;
+        }
+        FILE* f = fopen(path.c_str(), "wb");
+        bool ok = f && fwrite(state.Buffer(), 1, state.Length(), f) == state.Length();
+        if (f)
+            fclose(f);
+        if (!ok)
+        {
+            fprintf(stderr, "can't write savestate %s\n", path.c_str());
+            return false;
+        }
+        printf("saved state: %s (%u bytes)\n", path.c_str(), state.Length());
         return true;
     }
 
@@ -849,6 +877,7 @@ int main(int argc, char** argv)
 
     u32 keyMask = 0, padMask = 0, stickMask = 0;
     bool touching = false, paused = false, fastForward = false, running = true;
+    bool stateFailed = false; // an --at state load failed: the run stops, and nothing is saved
     u32 frame = 0;
     std::vector<s16> audioBuf(2 * 1024);
     FrameStats stats, second;
@@ -1004,13 +1033,24 @@ int main(int argc, char** argv)
                     emu.Reset();
                 else if (at.Action == "state")
                 {
-                    if (opts.StatePath.empty() || !emu.LoadState(opts.StatePath))
+                    if (opts.StatePath.empty())
                         fprintf(stderr, "--at %u:state: no state to load\n", at.Frame);
+                    else if (!emu.LoadState(opts.StatePath))
+                    {
+                        fprintf(stderr, "--at %u:state: the state didn't load, stopping\n", at.Frame);
+                        stateFailed = true;
+                        running = false;
+                        break;
+                    }
                 }
+                else if (at.Action.rfind("save=", 0) == 0)
+                    emu.SaveState(at.Action.substr(5));
                 else if (!ApplySet(emu.Nds->GPU, at.Action))
                     fprintf(stderr, "unknown --at %u:%s (see --list-sets)\n", at.Frame, at.Action.c_str());
                 printf("at frame %u: %s\n", at.Frame, at.Action.c_str());
             }
+            if (!running)
+                break;
 
             auto workStart = std::chrono::steady_clock::now();
             emu.RunFrame();
@@ -1094,7 +1134,8 @@ int main(int argc, char** argv)
     if (!opts.ScreenshotPath.empty())
         screenshot(opts.ScreenshotPath);
 
-    Frontend::FlushSaves(true);
+    if (!stateFailed)
+        Frontend::FlushSaves(true);
     OpenGL::ShaderCacheStats cacheStats;
     OpenGL::SaveShaderCache(cacheStats);
     emu.Nds->Stop();
@@ -1108,5 +1149,5 @@ int main(int argc, char** argv)
     timeEndPeriod(1);
     if (Frontend::LogFile)
         fclose(Frontend::LogFile);
-    return 0;
+    return stateFailed ? 2 : 0;
 }

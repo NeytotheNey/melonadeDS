@@ -124,6 +124,7 @@ static const BoolSwitch BOOL_SWITCHES[] = {
     { "hash3d", &GPU::Hash3DLogging },
     { "computedepth", &GPU::ComputeDepthStats },
     { "computessbo", &GPU::ComputeSSBO },
+    { "widepolys", &GPU::WidePolys },
 };
 
 bool read(const char* name, char* value)
