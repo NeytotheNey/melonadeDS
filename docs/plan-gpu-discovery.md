@@ -14,10 +14,7 @@ Code facts below come from a read of both repos on 11-11 (ours `compute-efficien
 - Textures are decoded per fragment from raw VRAM with several `texelFetch` calls. There's no texture cache on this path (Compute has one).
 - Polygons draw in DS order, with no scissor, no depth prepass and no occlusion. Translucent polygons draw twice when clear alpha is 0, and "need-opaque" translucent ones draw twice as single-polygon draws.
 
-**Our Compute (`GPU3D_Compute.cpp`, `GPU3D_Compute_shaders.h`)**
-- Rasterise shades every pixel of every (polygon, tile) work tile, including the texture sample, with no depth rejection. That's where the 5.3 invocations per screen pixel come from.
-- DepthBlend walks every polygon binned to its tile, per pixel. It reads color first, then depth only if the color is non-zero, so it reads color even for pixels that fail the depth test.
-- A depth prepass was named as the big lever in `docs/plan-compute-efficiency.md` and never tried.
+**Our Compute:** moved to [plan-compute-efficiency.md](plan-compute-efficiency.md) (Phase 2, "Why" and "From the GPU discovery plan"). This plan covers OpenGL and the compositor from here on.
 
 **WatermelonDS Vulkan (`W/GPU3D_Vulkan.cpp`)**, what it does that we don't:
 - loadOp CLEAR, and DONT_CARE stores for attr and depth when no edge, fog or capture needs them.
@@ -59,13 +56,12 @@ Done on the Fold at 8x, title and overworld (the heavy menu wasn't reached). The
 - **New, biggest lever: T1 below.** On GL, translucent polygons are shaded about twice, and with clear alpha 0 the whole translucent pass runs again. Together that's 41% of the title frame.
 - **R2 before R1.** (Later corrected: only White 2's title and interiors are W-buffer; Pokemon overworlds are Z-buffer, see "R1 results".) The W-buffer is on in every frame, so `gl_FragDepth` blocks early-Z everywhere. R1 gains nothing until R2 lands. Opaque shades 2.1 fragments per covered pixel, so the upper bound is about half the opaque pass (~12% of the title frame).
 - **New: K1 below.** The compositor is 0.8–0.9 Mcycles per frame in every scene, 17–20% of GL's cycles.
-- **Compute:** C2 and C3 are favored, since 27–38% of the pixels DepthBlend visits fail depth and only 39% contribute. C1 is about neutral: it saves color reads but adds depth reads for pixels with no color.
+- **Compute:** results and the C1–C3 experiments moved to [plan-compute-efficiency.md](plan-compute-efficiency.md).
 - **E2 is worth doing now.** In a fog area (extra run) the dead edge pass is ~3.6% of GPU cycles and fog ~4.9%; in the plain overworld edge is ~2%. D3's extra gain over E2 is small (about 1–3%, unmeasured) until E1 makes the edge pass real, when merging saves a full-screen read. So: E2 first, D3 after E1.
 - **R2 isn't universal.** The fog area uses the Z-buffer, so early-Z there is blocked only by `discard` (R1), not `gl_FragDepth`. R1 and R2 both matter, depending on the scene.
 - **Small:** D1 (clear quad, 4–7% of 3D). R3 is ruled out, since coverage is already 1.0.
 - **No verdict on D2 or the texture cache:** cost tracks shaded fragments evenly, which looks shading-bound. Telling texture decode from ALU needs perfetto counters, which need adb. (Answered 11-13: the decode is it, see T2 below and PERF-NOTES "T2 probe".)
 - **E1 test game:** White 2's overworld has edge marking on in every frame.
-- COMPTIME doesn't work on the Fold; compute pass shares need `computesync`.
 
 ## Phase 1: experiments
 
@@ -99,13 +95,7 @@ E1 changes what games look like (it's what real hardware and our software render
 | R3 | Per-draw scissor **Ruled out 11-11:** coverage is already 1.0 (Phase 0). | small |
 | R4 | Depth prepass or reverse-order occlusion for big opaque polygons, only if R1 and R2 show early-Z is working and overdraw is still high | large |
 
-**Compute**
-
-| # | Experiment | Size |
-|---|---|---|
-| C1 | DepthBlend reads depth first and skips the color read when the depth test fails | small |
-| C2 | Per-tile Hi-Z: min/max opaque depth per tile from a cheap pass, so Rasterise skips pixels behind it | medium to large |
-| C3 | Per-tile occlusion from binning: skip work tiles fully covered by a later opaque polygon | medium |
+**Compute:** C1–C3 moved to [plan-compute-efficiency.md](plan-compute-efficiency.md), "From the GPU discovery plan" (C1 dropped, C2 folded into the visibility pass, C3 is a cheaper win there).
 
 **Compositor (both renderers)**
 
@@ -166,7 +156,7 @@ Deband is 64% of our cycles; the 3D passes cost the same cycles at either clock.
 
 ## Later: memory
 
-The plan's goal is efficiency, and that includes memory. WatermelonDS's Vulkan runs 16x, which is the bar to beat. On the Fold (11-11, PERF-NOTES "WatermelonDS Vulkan vs ours", graphics / total PSS at the end of the run) their VK 8x used 620 / 1441 MB and VK 16x 1072 / 1887 MB, against our OpenGL 8x 396 / 1280 MB and Compute 8x 864 / 1750 MB. Our 16x hasn't been measured on a phone yet (desktop, 11-12: OpenGL 675 MB, Compute 1882 MB). Known big items once 12x/16x exist: the app's frame queue (up to 9 frame textures, ~101 MB each at 16x, plus a 101 MB zeroed CPU vector on each resize, `FrameQueue.cpp:200`), the GL 3D targets (~250 MB at 16x), and Compute's work buffers (805 MB at 16x, why Compute is capped at 8x in the app). Not started.
+The plan's goal is efficiency, and that includes memory. WatermelonDS's Vulkan runs 16x, which is the bar to beat. On the Fold (11-11, PERF-NOTES "WatermelonDS Vulkan vs ours", graphics / total PSS at the end of the run) their VK 8x used 620 / 1441 MB and VK 16x 1072 / 1887 MB, against our OpenGL 8x 396 / 1280 MB and Compute 8x 864 / 1750 MB. Our 16x hasn't been measured on a phone yet (desktop, 11-12: OpenGL 675 MB, Compute 1882 MB). Known big items once 12x/16x exist: the app's frame queue (up to 9 frame textures, ~101 MB each at 16x, plus a 101 MB zeroed CPU vector on each resize, `FrameQueue.cpp:200`), and the GL 3D targets (~250 MB at 16x). Compute's work buffers (805 MB at 16x, why Compute is capped at 8x) are in [plan-compute-efficiency.md](plan-compute-efficiency.md), stages 2 and 5. Not started.
 
 ## Done looks like
 

@@ -140,6 +140,18 @@ Wireframe, bitmap clear, AlphaRef and opaque A5I3 texels: find them with census 
 4. **Stage 3**, ~60 lines, needs V.
 5. **Whole-tile occlusion at bin time.** Shortens every later walk, but the exact conditions are tricky (no edge pixels of the occluder in the tile, no equal-test polygon between, no cut-outs). Only if the census shows long walks behind full-tile occluders.
 
+### From the GPU discovery plan (moved 11-15)
+
+`plan-gpu-discovery.md` had its own Compute list from its 11-11 code read and Phase 0. It's tracked here now:
+
+| # | Experiment | Where it went |
+|---|---|---|
+| C1 | DepthBlend reads depth first and skips the color read when the depth test fails | Not worth it (below): Phase 0 found it about neutral, since it saves color reads for failing pixels but adds depth reads for pixels with no color. |
+| C2 | Per-tile Hi-Z: min/max opaque depth per tile from a cheap pass, so Rasterise skips pixels behind it | Covered by V: in the opaque prefix only winners get shaded, so a Hi-Z gains nothing there. What's left of it is 1c (row depth bound inside V) and stage 3 (translucent fragments behind V's opaque depth). |
+| C3 | Per-tile occlusion from binning: skip work tiles fully covered by a later opaque polygon | Cheaper win 5 (whole-tile occlusion at bin time), only if the census shows long walks behind full-tile occluders. |
+
+Phase 0's Compute numbers (Fold 8x: 27–38% of DepthBlend visits fail depth, ~39% contribute) are the ones under "Why". COMPTIME reads zero on the Fold too, so pass shares need `computesync` (see "GPU constraints").
+
 Not worth it: splitting texture sampling out of Rasterise (Compute already samples a pre-decoded cache in one fetch); reading depth before color (about neutral in Phase 0); narrowing Result (color, attr and depth need 70 bits a layer).
 
 ### Measure first, then decide
