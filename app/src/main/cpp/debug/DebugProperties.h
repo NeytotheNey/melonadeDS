@@ -95,6 +95,9 @@ namespace melonDS { class NDS; }
  *   ldmdirect      JIT: a slow multi-register load or store whose words all fall in ITCM, DTCM or main RAM (ARM9), or main RAM or
  *                  ARM7 WRAM (ARM7, WRAM on the DS only) is done straight in host memory instead of a full bus read or write per word.
  *                  Same result and code invalidation; 0 is the old per-word loop for A/Bs (ARMJIT::SetDirectBlockTransfers, default 1)
+ *   jitdispatch    ARM64 JIT: a block's exit finds the next block in the lookup table and jumps to it in generated code instead of
+ *                  returning to the Execute loop for it, falling back to the loop for IRQs, halts, idle loops, the frame's target or a
+ *                  missing block. Same emulation either way. Read at game start (ARMJIT::SetJitDispatch, default 0 for now)
  *
  * Others:
  *   shadowlog N    classic OpenGL: log SHADOWSTATS and SHADOWLOG lines for the first N frames (1 means 300)

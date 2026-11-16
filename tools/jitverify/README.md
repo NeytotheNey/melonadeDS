@@ -24,14 +24,15 @@ Software 3D and 2D, both on the emulator thread; no window, no audio output (the
 runs and is drained, as in the app); unthrottled. The RTC is pinned (2026-01-01 12:00, `--rtc`), the
 generated firmware has the core's fixed MAC, and `--sav` is only read: save writes stay in memory,
 so nothing is ever written next to the ROM. The JIT is on with fast memory by default, as the app
-runs it (`--no-jit`, `--no-fastmem`, `--ldmdirect`, `--ldmfast`, `--block-size`, `--set`; see
+runs it (`--no-jit`, `--no-fastmem`, `--ldmdirect`, `--ldmfast`, `--jitdispatch`, `--block-size`, `--set`; see
 `--help`). For every option the last one given wins, and `--fastmem` doesn't turn the JIT back on
 after `--no-jit`. `--at F:reset` resets before frame F and `--at F:state` loads `--state` again,
 any number of times, so stale JIT blocks after a reset or a state load get exercised. Lines are
 written whole and flushed every frame (`--flush-every N` to batch them).
 
-Known: in this core a state loaded mid-run (`--at F:state`, the desktop's too) leaves White 2
-running about 2.5x slower from then on, with the interpreter as well as the JIT.
+fps after `--at F:state` is the fps of the state's scene, not a slowdown: White 2's `.ml1` is on
+the title screen, whose software-rendered 3D runs at about 145 fps from boot too, against
+500-800 in the 2D intro. White 2's `.ml2` data-aborts under FreeBIOS; don't use it as a reference.
 
 ## Building
 

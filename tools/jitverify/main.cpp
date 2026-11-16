@@ -61,6 +61,7 @@ struct Options
     bool FastMem = true;
     int LdmDirect = -1;     // -1 keeps the core's default
     int LdmFast = -1;
+    int JitDispatch = -1;
     bool LdmStats = false;
     int BlockSize = 32;
     bool LiteralOpt = true;
@@ -88,6 +89,7 @@ void Usage()
         "  --no-fastmem          JIT without fast memory\n"
         "  --ldmdirect B         slow block transfers in one plain region straight in host memory (core default 1)\n"
         "  --ldmfast B           ARM64: multi-register loads through fastmem (core default 1)\n"
+        "  --jitdispatch B       ARM64: block exits jump to the next block in generated code (core default 0)\n"
         "  --ldmstats            log the LDMSTATS lines (to --log)\n"
         "  --block-size N        JIT max block size, 1-32 (default 32, the app's)\n"
         "  --literal-opt B       JIT literal optimizations (default 1)\n"
@@ -179,6 +181,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--no-fastmem") opts.FastMem = false;
         else if (arg == "--ldmdirect") opts.LdmDirect = flag() ? 1 : 0;
         else if (arg == "--ldmfast") opts.LdmFast = flag() ? 1 : 0;
+        else if (arg == "--jitdispatch") opts.JitDispatch = flag() ? 1 : 0;
         else if (arg == "--ldmstats") opts.LdmStats = true;
         else if (arg == "--block-size") opts.BlockSize = std::clamp((int)number(), 1, 32);
         else if (arg == "--literal-opt") opts.LiteralOpt = flag();
@@ -307,6 +310,8 @@ std::unique_ptr<VerifyNDS> CreateNDS(const Options& opts)
         nds->JIT.SetDirectBlockTransfers(opts.LdmDirect == 1);
     if (opts.LdmFast >= 0)
         nds->JIT.SetFastBlockLoads(opts.LdmFast == 1);
+    if (opts.JitDispatch >= 0)
+        nds->JIT.SetJitDispatch(opts.JitDispatch == 1);
     if (opts.LdmStats)
         nds->JIT.SetLdmStats(true);
 #endif
@@ -455,7 +460,7 @@ long HostPageSize()
 std::string Header(const Options& opts, VerifyNDS& nds)
 {
     bool jit = nds.IsJITEnabled();
-    int fastmem = 0, block = 0, literal = 0, branch = 0, ldmfast = 0, ldmdirect = 0;
+    int fastmem = 0, block = 0, literal = 0, branch = 0, ldmfast = 0, ldmdirect = 0, jitdispatch = 0;
 #ifdef JIT_ENABLED
     if (jit)
     {
@@ -465,6 +470,9 @@ std::string Header(const Options& opts, VerifyNDS& nds)
         branch = nds.JIT.BranchOptimizationsEnabled();
         ldmfast = nds.JIT.FastBlockLoadsEnabled();
         ldmdirect = nds.JIT.DirectBlockTransfersEnabled();
+#if defined(__aarch64__)
+        jitdispatch = nds.JIT.JitDispatchEnabled();
+#endif // only the A64 backend has the stub; x64 always reports 0
     }
 #endif
 #if defined(__aarch64__)
@@ -476,9 +484,9 @@ std::string Header(const Options& opts, VerifyNDS& nds)
 #endif
     char buf[512];
     snprintf(buf, sizeof(buf),
-        "# jitverify rom=%s host=%s page=%ld frames=%u jit=%d fastmem=%d block=%d literal=%d branch=%d ldmfast=%d ldmdirect=%d mem=%d",
+        "# jitverify rom=%s host=%s page=%ld frames=%u jit=%d fastmem=%d block=%d literal=%d branch=%d ldmfast=%d ldmdirect=%d jitdispatch=%d mem=%d",
         fs::path(opts.RomPath).filename().string().c_str(), host, HostPageSize(), opts.Frames, jit ? 1 : 0,
-        fastmem, block, literal, branch, ldmfast, ldmdirect, opts.Mem ? 1 : 0);
+        fastmem, block, literal, branch, ldmfast, ldmdirect, jitdispatch, opts.Mem ? 1 : 0);
     std::string line = buf;
     line += " state=" + (opts.StatePath.empty() ? std::string("-") : fs::path(opts.StatePath).filename().string());
     line += " bios=" + std::string(opts.BiosDir.empty() ? "free" : "dir");
