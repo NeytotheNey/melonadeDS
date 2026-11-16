@@ -92,6 +92,9 @@ namespace melonDS { class NDS; }
  *   ldmstats       log LDMSTATS run and jit lines about every 5 s on the JIT's slow multi-register loads and stores: calls and words by CPU,
  *                  read or write and region, whether they came from a transfer compiled without a fast path or a patched one, and why
  *                  block transfers were compiled without one. No effect on emulation (ARMJIT_LdmStats.h, default 0)
+ *   ldmdirect      JIT: a slow multi-register load or store whose words all fall in ITCM, DTCM or main RAM (ARM9), or main RAM or
+ *                  ARM7 WRAM (ARM7, WRAM on the DS only) is done straight in host memory instead of a full bus read or write per word.
+ *                  Same result and code invalidation; 0 is the old per-word loop for A/Bs (ARMJIT::SetDirectBlockTransfers, default 1)
  *
  * Others:
  *   shadowlog N    classic OpenGL: log SHADOWSTATS and SHADOWLOG lines for the first N frames (1 means 300)

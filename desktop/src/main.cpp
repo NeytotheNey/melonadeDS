@@ -83,6 +83,7 @@ struct Options
     // fast memory (see README), where the app runs the ARM64 one with fast memory
     bool Jit = false;
     bool FastMem = false;
+    int LdmDirect = -1;        // debug.melonade.ldmdirect (ARMJIT::SetDirectBlockTransfers), -1 keeps the core's default
     bool BetterPolygons = false;
     bool HighResCoordinates = true;
     bool ColorDither = false;
@@ -168,6 +169,7 @@ void Usage()
         "  --no-threaded-soft          software 3D on the emulator thread\n"
         "  --jit                       x86-64 JIT (off by default: slower than the interpreter here)\n"
         "  --fastmem                   JIT with fast memory, as the app runs it\n"
+        "  --ldmdirect 0|1             JIT: slow block transfers in one plain region straight in host memory (default 1)\n"
         "  --bios DIR                  official bios9.bin, bios7.bin (and firmware.bin) in DIR\n"
         "  --gba ROM                   GBA ROM for slot 2\n"
         "  --sav FILE                  save file (default: the ROM's path with .sav)\n"
@@ -353,6 +355,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--jit") opts.Jit = true;
         else if (arg == "--no-jit") opts.Jit = false;
         else if (arg == "--fastmem") opts.Jit = opts.FastMem = true;
+        else if (arg == "--ldmdirect") opts.LdmDirect = atoi(next().c_str()) ? 1 : 0;
         else if (arg == "--bios") opts.BiosDir = next();
         else if (arg == "--gba") opts.GbaRomPath = next();
         else if (arg == "--sav") opts.SavePath = next();
@@ -479,6 +482,8 @@ public:
                 fprintf(stderr, "unknown --set %s (see --list-sets)\n", set.c_str());
         }
         Nds->GPU.GPU3D.SetWideDropLogging(Opts.WideDrops);
+        if (Opts.LdmDirect >= 0)
+            Nds->JIT.SetDirectBlockTransfers(Opts.LdmDirect == 1);
         // as DebugProperties::apply sets it, before the game starts
         if (Opts.HalfCameraMode > 0)
             Nds->GPU.GPU3D.SetHalfCamera(Opts.HalfCameraMode);

@@ -335,6 +335,12 @@ Overrides apply(NDS& nds)
     if (ldmFast >= 0)
         nds.JIT.SetFastBlockLoads(ldmFast == 1);
 
+    // JIT: slow block transfers in one plain memory region done straight in host memory (on in the core), 0 for the per-word loop.
+    // Read on every transfer, so nothing compiled depends on it
+    int ldmDirect = readBool("ldmdirect");
+    if (ldmDirect >= 0)
+        nds.JIT.SetDirectBlockTransfers(ldmDirect == 1);
+
     // LDMSTATS lines about every 5 s on where the JIT's slow multi-register loads and stores go, no effect on emulation
     nds.JIT.SetLdmStats(readBool("ldmstats") == 1);
 
@@ -342,9 +348,9 @@ Overrides apply(NDS& nds)
     int length = snprintf(summary, sizeof(summary), "Debug switches:");
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
         length += snprintf(summary + length, sizeof(summary) - length, " %s=%d", boolSwitch.name, gpu.*boolSwitch.target ? 1 : 0);
-    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d gltimers=%d scenestats=%d gltrans=%d gledgeskip=%d gledgemark=%d gledgefast=%d glclear=%d glnodiscard=%d gltexprobe=%d gltexcache=%d compclear=%d comp1x=%d filter2drows=%d outcap=%d outcapneed=%d outcap3d=%d computecheck=%d computebin=%d computecalc=%d computeflat=%d ldmfast=%d ldmstats=%d",
+    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d gltimers=%d scenestats=%d gltrans=%d gledgeskip=%d gledgemark=%d gledgefast=%d glclear=%d glnodiscard=%d gltexprobe=%d gltexcache=%d compclear=%d comp1x=%d filter2drows=%d outcap=%d outcapneed=%d outcap3d=%d computecheck=%d computebin=%d computecalc=%d computeflat=%d ldmfast=%d ldmdirect=%d ldmstats=%d",
              gpu.ShadowLogFrames, gpu.CaptureSpinUs, gpu.ComputePace, gpu.ComputeTileSize, gpu.ComputeOpt, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.filter2d, captureReads ? 1 : 0, gpu2dStats ? 1 : 0, gpu.GPU3D.GetWideDropLogging() ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), overrides.halfCamera,
-             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : "0", gpu2dWide, gpu.GLTimers, gpu.SceneStats, gpu.GLTransSkip, gpu.GLEdgeSkip, overrides.edgeMark, gpu.GLEdgeFast, gpu.GLClearFast, gpu.GLNoDiscard, gpu.GLTexProbe, gpu.GLTexCache, gpu.CompClear, gpu.Comp1x, gpu.Filter2DRows, gpu.OutputCap, gpu.OutputCapNeed, gpu.OutputCap3D, gpu.ComputeCheck, gpu.ComputeBin, gpu.ComputeCalc, gpu.ComputeFlat, nds.JIT.FastBlockLoadsEnabled() ? 1 : 0, nds.JIT.LdmStatsEnabled() ? 1 : 0);
+             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : "0", gpu2dWide, gpu.GLTimers, gpu.SceneStats, gpu.GLTransSkip, gpu.GLEdgeSkip, overrides.edgeMark, gpu.GLEdgeFast, gpu.GLClearFast, gpu.GLNoDiscard, gpu.GLTexProbe, gpu.GLTexCache, gpu.CompClear, gpu.Comp1x, gpu.Filter2DRows, gpu.OutputCap, gpu.OutputCapNeed, gpu.OutputCap3D, gpu.ComputeCheck, gpu.ComputeBin, gpu.ComputeCalc, gpu.ComputeFlat, nds.JIT.FastBlockLoadsEnabled() ? 1 : 0, nds.JIT.DirectBlockTransfersEnabled() ? 1 : 0, nds.JIT.LdmStatsEnabled() ? 1 : 0);
     LOG_INFO(LOG_TAG_DEBUG, "%s", summary);
     // what was set, and where from: the app's Debug switches setting or setprop
     std::string active = describeActive();
