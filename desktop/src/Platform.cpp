@@ -1,4 +1,4 @@
-// The core's Platform layer for the PC frontend. Files, threads and sync come from the headless
+// The core's Platform layer for the PC frontend and tools/jitverify. Files, threads and sync come from the headless
 // swi-harness (melonDS-android-lib/tools/swi-harness/main.cpp); saves are written to disk here,
 // and the rest (multiplayer, Wi-Fi, camera, mic, AAC) is stubbed out for now
 #include <stdio.h>
@@ -9,6 +9,9 @@
 #include <mutex>
 #include <condition_variable>
 #include <chrono>
+#ifndef _WIN32
+#include <dlfcn.h>
+#endif
 
 #include "Platform.h"
 #include "SPI_Firmware.h"
@@ -396,8 +399,15 @@ void Addon_RumbleStart(u32 len, void* userdata) {}
 void Addon_RumbleStop(void* userdata) {}
 float Addon_MotionQuery(MotionQueryType type, void* userdata) { return 0; }
 
+#ifdef _WIN32
 DynamicLibrary* DynamicLibrary_Load(const char* lib) { return nullptr; }
 void DynamicLibrary_Unload(DynamicLibrary* lib) {}
 void* DynamicLibrary_LoadFunction(DynamicLibrary* lib, const char* name) { return nullptr; }
+#else
+// tools/jitverify on Android: the JIT's fast memory gets ASharedMemory_create from libandroid.so
+DynamicLibrary* DynamicLibrary_Load(const char* lib) { return reinterpret_cast<DynamicLibrary*>(dlopen(lib, RTLD_NOW | RTLD_LOCAL)); }
+void DynamicLibrary_Unload(DynamicLibrary* lib) { if (lib) dlclose(lib); }
+void* DynamicLibrary_LoadFunction(DynamicLibrary* lib, const char* name) { return lib ? dlsym(lib, name) : nullptr; }
+#endif
 
 }

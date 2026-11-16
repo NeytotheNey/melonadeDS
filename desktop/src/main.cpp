@@ -30,6 +30,7 @@
 
 #include "Frontend.h"
 #include "Presenter.h"
+#include "RunOptions.h"
 
 using namespace melonDS;
 namespace fs = std::filesystem;
@@ -108,44 +109,11 @@ struct Options
     std::vector<std::string> Sets;
     bool WideDrops = false;    // the WIDEDROPS log line (GPU3D::SetWideDropLogging)
     std::string StatePath;     // a savestate (.mln/.ml1...) loaded after the reset
-    struct Press { u32 From, To, Mask; };
+    using Press = Frontend::KeyPress;
     std::vector<Press> Presses; // --press: keys held over frame ranges, for scripted runs
     struct At { u32 Frame; std::string Action; };
     std::vector<At> Ats;       // --at: a reset, a state load or save, or a switch change before a frame
 };
-
-// --press FRAME[-LAST]:key[+key...], keys a b x y l r start select up down left right; held for
-// FRAME..LAST, or 6 frames without a LAST. frames count from 0 after the reset (or --state)
-bool ParsePress(const std::string& spec, Options::Press& press)
-{
-    static const struct { const char* Name; u32 Bit; } kKeys[] = {
-        {"a", 0}, {"b", 1}, {"select", 2}, {"start", 3}, {"right", 4}, {"left", 5}, {"up", 6},
-        {"down", 7}, {"r", 8}, {"l", 9}, {"x", 10}, {"y", 11},
-    };
-    size_t colon = spec.find(':');
-    if (colon == std::string::npos) return false;
-    std::string range = spec.substr(0, colon);
-    size_t dash = range.find('-');
-    press.From = strtoul(range.c_str(), nullptr, 10);
-    press.To = dash == std::string::npos ? press.From + 5 : strtoul(range.c_str() + dash + 1, nullptr, 10);
-    press.Mask = 0;
-    std::string keys = spec.substr(colon + 1);
-    size_t pos = 0;
-    for (;;)
-    {
-        size_t plus = keys.find('+', pos);
-        std::string key = keys.substr(pos, plus == std::string::npos ? std::string::npos : plus - pos);
-        bool found = false;
-        for (const auto& k : kKeys)
-        {
-            if (key == k.Name) { press.Mask |= 1u << k.Bit; found = true; }
-        }
-        if (!found) return false;
-        if (plus == std::string::npos) break;
-        pos = plus + 1;
-    }
-    return press.To >= press.From;
-}
 
 void Usage()
 {
@@ -207,105 +175,8 @@ void Usage()
         "      game controllers work too (Nintendo layout: east = A, south = B)\n");
 }
 
-// the core's debug switches that --set can change, all on GPU. they're read as the frame runs
-// or when a renderer is made, and are applied before the first frame
-struct BoolSwitch { const char* Name; bool GPU::* Field; };
-struct IntSwitch { const char* Name; int GPU::* Field; };
-
-const BoolSwitch kBoolSwitches[] = {
-    {"DeferCapture2D", &GPU::DeferCapture2D},
-    {"EngineBNoHold", &GPU::EngineBNoHold},
-    {"EarlyFlushCapture", &GPU::EarlyFlushCapture},
-    {"ShadowMaskLineClear", &GPU::ShadowMaskLineClear},
-    {"ShadowMaskDepthTest", &GPU::ShadowMaskDepthTest},
-    {"EqualDepthMargin", &GPU::EqualDepthMargin},
-    {"ComputeDirectDispatch", &GPU::ComputeDirectDispatch},
-    {"ComputeGrow", &GPU::ComputeGrow},
-    {"ComputeRooms", &GPU::ComputeRooms},
-    {"ComputeWarm", &GPU::ComputeWarm},
-    {"ShaderCache", &GPU::ShaderCache},
-    {"ComputeTimers", &GPU::ComputeTimers},
-    {"ComputePeaks", &GPU::ComputePeaks},
-    {"ComputeSync", &GPU::ComputeSync},
-    {"ComputePaceLog", &GPU::ComputePaceLog},
-    {"ComputeWhy", &GPU::ComputeWhy},
-    {"BlitFlushCapture", &GPU::BlitFlushCapture},
-    {"LateBlit", &GPU::LateBlit},
-    {"BlitAfterReadback", &GPU::BlitAfterReadback},
-    {"Filter2DLogging", &GPU::Filter2DLogging},
-    {"Hash2DLogging", &GPU::Hash2DLogging},
-    {"Hash3DLogging", &GPU::Hash3DLogging},
-    {"ComputeSSBO", &GPU::ComputeSSBO},
-    {"WidePolys", &GPU::WidePolys},
-    {"WideY", &GPU::WideY},
-    // the frontend's deband flag (GPU::OutputCap): the window doesn't deband, so this stands in for the app's
-    {"OutputCapDeband", &GPU::OutputCapDeband},
-};
-
-const IntSwitch kIntSwitches[] = {
-    {"CaptureSpinUs", &GPU::CaptureSpinUs},
-    {"HiresCaptureDebug", &GPU::HiresCaptureDebug},
-    {"GLTransSkip", &GPU::GLTransSkip},
-    {"GLEdgeSkip", &GPU::GLEdgeSkip},
-    {"GLEdgeMark", &GPU::GLEdgeMark},
-    {"GLEdgeFast", &GPU::GLEdgeFast},
-    {"GLClearFast", &GPU::GLClearFast},
-    {"GLNoDiscard", &GPU::GLNoDiscard},
-    {"GLTexProbe", &GPU::GLTexProbe},
-    {"GLTexCache", &GPU::GLTexCache},
-    {"CompClear", &GPU::CompClear},
-    {"Comp1x", &GPU::Comp1x},
-    {"Filter2DRows", &GPU::Filter2DRows},
-    {"OutputCap", &GPU::OutputCap},
-    {"OutputCapNeed", &GPU::OutputCapNeed},
-    {"OutputCap3D", &GPU::OutputCap3D},
-    {"GLTimers", &GPU::GLTimers},
-    {"SceneStats", &GPU::SceneStats},
-    {"ComputeCheck", &GPU::ComputeCheck},
-    {"ComputeBin", &GPU::ComputeBin},
-    {"ComputeCalc", &GPU::ComputeCalc},
-    {"ComputeFlat", &GPU::ComputeFlat},
-};
-
-bool ApplySet(GPU& gpu, const std::string& set)
-{
-    size_t eq = set.find('=');
-    if (eq == std::string::npos)
-        return false;
-    std::string name = set.substr(0, eq);
-    int value = (int)strtol(set.c_str() + eq + 1, nullptr, 0);
-    for (const BoolSwitch& s : kBoolSwitches)
-    {
-        if (name == s.Name)
-        {
-            gpu.*s.Field = value != 0;
-            return true;
-        }
-    }
-    for (const IntSwitch& s : kIntSwitches)
-    {
-        if (name == s.Name)
-        {
-            gpu.*s.Field = value;
-            return true;
-        }
-    }
-    return false;
-}
-
-bool ReadFile(const std::string& path, std::vector<u8>& out)
-{
-    FILE* f = fopen(path.c_str(), "rb");
-    if (!f)
-        return false;
-    fseeko64(f, 0, SEEK_END);
-    s64 len = ftello64(f);
-    fseeko64(f, 0, SEEK_SET);
-    out.resize((size_t)std::max<s64>(len, 0));
-    bool ok = len >= 0 && fread(out.data(), 1, out.size(), f) == out.size();
-    fclose(f);
-    return ok;
-}
+using Frontend::ApplySet;
+using Frontend::ReadFile;
 
 bool ParseArgs(int argc, char** argv, Options& opts)
 {
@@ -364,7 +235,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         {
             Options::Press press;
             std::string spec = next();
-            if (!ParsePress(spec, press)) { fprintf(stderr, "bad --press %s\n", spec.c_str()); return false; }
+            if (!Frontend::ParsePress(spec, press)) { fprintf(stderr, "bad --press %s\n", spec.c_str()); return false; }
             opts.Presses.push_back(press);
         }
         else if (arg == "--boot-screen") opts.BootScreen = true;
@@ -380,8 +251,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         }
         else if (arg == "--list-sets")
         {
-            for (const BoolSwitch& s : kBoolSwitches) printf("%s (0/1)\n", s.Name);
-            for (const IntSwitch& s : kIntSwitches) printf("%s (number)\n", s.Name);
+            Frontend::ListSets();
             exit(0);
         }
         else if (arg == "--layout")
@@ -444,28 +314,8 @@ public:
         args.OutputSampleRate = 48000.0;
 
         bool haveFirmware = false;
-        if (!Opts.BiosDir.empty())
-        {
-            std::vector<u8> bios9, bios7, firmware;
-            if (!ReadFile(Opts.BiosDir + "/bios9.bin", bios9) || bios9.size() != ARM9BIOSSize
-                || !ReadFile(Opts.BiosDir + "/bios7.bin", bios7) || bios7.size() != ARM7BIOSSize)
-            {
-                fprintf(stderr, "can't read bios9.bin and bios7.bin in %s\n", Opts.BiosDir.c_str());
-                return false;
-            }
-            memcpy(args.ARM9BIOS->data(), bios9.data(), ARM9BIOSSize);
-            memcpy(args.ARM7BIOS->data(), bios7.data(), ARM7BIOSSize);
-
-            std::string fwPath = Opts.BiosDir + "/firmware.bin";
-            if (Platform::FileHandle* f = Platform::OpenFile(fwPath, Platform::FileMode::Read))
-            {
-                args.Firmware = Firmware(f);
-                Platform::CloseFile(f);
-                haveFirmware = args.Firmware.Buffer() != nullptr;
-                if (haveFirmware)
-                    args.Firmware.UpdateChecksums();
-            }
-        }
+        if (!Frontend::LoadBiosDir(Opts.BiosDir, args, haveFirmware))
+            return false;
         if (!haveFirmware)
             args.Firmware = Firmware(0);
         if (!haveFirmware && Opts.BootScreen)
@@ -1040,12 +890,7 @@ int main(int argc, char** argv)
 
         if (!paused)
         {
-            u32 scriptMask = 0;
-            for (const Options::Press& press : opts.Presses)
-            {
-                if (frame >= press.From && frame <= press.To)
-                    scriptMask |= press.Mask;
-            }
+            u32 scriptMask = Frontend::PressMask(opts.Presses, frame);
             emu.Nds->SetKeyMask(~(keyMask | padMask | stickMask | scriptMask) & 0xFFF);
 
             for (const Options::At& at : opts.Ats)
