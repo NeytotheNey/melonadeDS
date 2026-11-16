@@ -65,10 +65,16 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    gl_FragColor = vec4(finishColor(color.bgr), alpha);\n" +
                 "}"
 
-        // screenColumns(p) is the u range a wide frame lets the non-wide screen sample; needs texSize and topScreenWidth declared first
+        // The frame's rows (Shader.setTopScreenHeight): x the top screen's half's end and y the bottom screen's start as v coordinates, z the middle
+        // of the gap between them (0.5 without the WideMelon camera's margin), w the frame's height in DS pixels (FRAME_TEXTURE_HEIGHT without it)
+        private const val FRAME_LAYOUT_UNIFORM = "uniform vec4 frameLayout;\n"
+
+        // screenColumns(p) is the u range a wide frame lets the non-wide screen sample; needs texSize and topScreenWidth declared first, and
+        // declares frameLayout
         private const val SCREEN_COLUMN_RANGE_FUNCTIONS = "uniform float bottomScreenWide;\n" +
+                FRAME_LAYOUT_UNIFORM +
                 "vec2 screenColumns(vec2 p) {\n" +
-                "    if ((p.y < 0.5) == (bottomScreenWide < 0.5) || topScreenWidth <= ${SCREEN_WIDTH}.0) {\n" +
+                "    if ((p.y < frameLayout.z) == (bottomScreenWide < 0.5) || topScreenWidth <= ${SCREEN_WIDTH}.0) {\n" +
                 "        return vec2(-1.0, 2.0);\n" +
                 "    }\n" +
                 "    float halfWidth = 0.5 * ${SCREEN_WIDTH}.0 / topScreenWidth;\n" +
@@ -85,7 +91,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "}\n"
 
         // The frame texture stacks both screens top first with 2 empty lines between, FRAME_TEXTURE_HEIGHT by topScreenWidth DS pixels before
-        // upscaling; filters that need the real texel size read texSize instead
+        // upscaling, or taller by the WideMelon camera's margin above and below the top screen (frameLayout has its rows); filters that need the
+        // real texel size read texSize instead
 
         // tex, texSize and topScreenWidth (see above), as most filters declare them
         private const val SCREEN_UNIFORMS = "uniform sampler2D tex;\n" +
@@ -100,14 +107,15 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     screenBandOnlyFunctions(textureFunction)
         }
 
-        private const val SCREEN_BAND_CONSTANTS = "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
-                "const float bottomScreenStart = ${SCREEN_HEIGHT + SCREEN_GAP}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n"
+        // From frameLayout, which SCREEN_COLUMN_RANGE_FUNCTIONS declares
+        private const val SCREEN_BAND_CONSTANTS = "#define topScreenEnd frameLayout.x\n" +
+                "#define bottomScreenStart frameLayout.y\n"
 
         // screenBandFunctions() without SCREEN_BAND_CONSTANTS and SCREEN_COLUMN_RANGE_FUNCTIONS, for a shader that declares those itself
         private fun screenBandOnlyFunctions(textureFunction: String): String {
             return "// Range of v (xy) and u (zw) coordinates (texel centers) of the screen that contains p\n" +
                     "vec4 screenBand(vec2 p) {\n" +
-                    "    vec2 band = p.y < 0.5 ? vec2(0.0, topScreenEnd) : vec2(bottomScreenStart, 1.0);\n" +
+                    "    vec2 band = p.y < frameLayout.z ? vec2(0.0, topScreenEnd) : vec2(bottomScreenStart, 1.0);\n" +
                     "    float halfTexel = 0.5 / texSize.y;\n" +
                     "    return vec4(band + vec2(halfTexel, -halfTexel), screenColumns(p));\n" +
                     "}\n" +
@@ -119,8 +127,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // Deband, after mpv's deband (itself based on flash3kyuu), with a per-sample threshold so that detail isn't blurred. Three rings of 4
         // samples around p, each twice as far as the last (a random angle and distance per output pixel); the farthest ring whose samples are
         // all within DEBAND_THRESHOLD of center replaces it with their average, so the 1 or 2 level steps of DS gradients blend and anything
-        // with more contrast is left alone. Radii are in DS pixels (texSize is the sampled texture's size, FRAME_TEXTURE_HEIGHT DS pixels
-        // high), so it reaches as far at every internal resolution and output size. A little grain hides the 8 bit steps of the result. Needs
+        // with more contrast is left alone. Radii are in DS pixels (texSize is the sampled texture's size, frameLayout.w DS pixels high), so it
+        // reaches as far at every internal resolution and output size. A little grain hides the 8 bit steps of the result. Needs
         // screenBandFunctions() first. DebandPrePassShader runs it once per frame texel; the Sharp and Linear screen shaders run it once per
         // screen pixel when DEBAND is defined (debug.melonade.debandfold)
         private const val DEBAND_FUNCTIONS = "// A bit over two 6 bit levels (one 5 bit level), per channel\n" +
@@ -148,8 +156,9 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "" +
                 "// center (RGB, as sampleScreen() reads it) debanded with the rings around p, clamped to 0-1\n" +
                 "vec3 deband(vec2 p, vec3 center, vec4 band) {\n" +
-                "    // Texels per DS pixel; the frame texture is FRAME_TEXTURE_HEIGHT DS pixels high at any internal resolution\n" +
-                "    float scale = texSize.y / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+                "    // Texels per DS pixel; the frame texture is frameLayout.w DS pixels high at any internal resolution (the constant without a\n" +
+                "    // margin, as before it)\n" +
+                "    float scale = frameLayout.w == ${FRAME_TEXTURE_HEIGHT}.0 ? texSize.y / ${FRAME_TEXTURE_HEIGHT}.0 : texSize.y / frameLayout.w;\n" +
                 "    float angle = 6.2831853 * hash12(gl_FragCoord.xy);\n" +
                 "    float radius = DEBAND_RANGE * scale * (0.5 + 0.5 * hash12(gl_FragCoord.yx + 17.0));\n" +
                 "    vec2 offset = vec2(cos(angle), sin(angle)) * radius / texSize;\n" +
@@ -232,18 +241,27 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // gap) is where it is. With filtered 2D those screens are drawn at the filter map's scale (halfScaleAt1x) instead, so the image is that
         // many times bigger and a texel is its pixel there, scale / halfScale times smaller. Needs texSize (the frame's size) declared first, and
         // highp ints
+        // The top screen's half is taller by the WideMelon camera's margin (frameLayout.w is the frame's rows), and its image at 1x covers the
+        // whole half
         private const val HALVES_AT_1X_FUNCTIONS = "// x: the screens at 1x (bit 0 the top one), y: the frame's internal scale, z: the scale they were drawn at\n" +
                 "uniform ivec3 halvesAt1x;\n" +
+                FRAME_LAYOUT_UNIFORM +
+                "int topHalfRows() {\n" +
+                "    return int(frameLayout.w + 0.5) - ${SCREEN_GAP + SCREEN_HEIGHT};\n" +
+                "}\n" +
                 "bool isInScreenAt1x(ivec2 texel) {\n" +
                 "    int scale = halvesAt1x.y;\n" +
-                "    int screen = texel.y >= ${SCREEN_HEIGHT + SCREEN_GAP} * scale ? 1 : 0;\n" +
-                "    return texel.y - screen * ${SCREEN_HEIGHT + SCREEN_GAP} * scale < ${SCREEN_HEIGHT} * scale && (halvesAt1x.x & (1 << screen)) != 0;\n" +
+                "    int topRows = topHalfRows();\n" +
+                "    int screen = texel.y >= (topRows + ${SCREEN_GAP}) * scale ? 1 : 0;\n" +
+                "    int rows = screen == 0 ? topRows : ${SCREEN_HEIGHT};\n" +
+                "    return texel.y - screen * (topRows + ${SCREEN_GAP}) * scale < rows * scale && (halvesAt1x.x & (1 << screen)) != 0;\n" +
                 "}\n" +
                 "ivec2 sourceAt1x(ivec2 texel) {\n" +
                 "    int scale = halvesAt1x.y;\n" +
                 "    int up = scale / max(halvesAt1x.z, 1);\n" +
-                "    int screen = texel.y >= ${SCREEN_HEIGHT + SCREEN_GAP} * scale ? 1 : 0;\n" +
-                "    int start = screen * ${SCREEN_HEIGHT + SCREEN_GAP} * scale;\n" +
+                "    int topRows = topHalfRows();\n" +
+                "    int screen = texel.y >= (topRows + ${SCREEN_GAP}) * scale ? 1 : 0;\n" +
+                "    int start = screen * (topRows + ${SCREEN_GAP}) * scale;\n" +
                 "    return ivec2(min(texel.x / up, int(texSize.x) / up - 1), start + (texel.y - start) / up);\n" +
                 "}\n"
 
@@ -361,12 +379,18 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "varying float alpha;\n" +
                     "varying vec2 omega;\n" +
                     "uniform float topScreenWidth;\n" +
+                    FRAME_LAYOUT_UNIFORM +
                     "" +
                     "void main() {\n" +
                     "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
                     "    uv = vUV;\n" +
                     "    alpha = vAlpha;\n" +
-                    "    omega = 3.141592654 * 2.0 * vec2(topScreenWidth, $FRAME_TEXTURE_HEIGHT);\n" +
+                    "    // The frame's rows, the constant without the WideMelon camera's margin as before it\n" +
+                    "    if (frameLayout.w == ${FRAME_TEXTURE_HEIGHT}.0) {\n" +
+                    "        omega = 3.141592654 * 2.0 * vec2(topScreenWidth, $FRAME_TEXTURE_HEIGHT);\n" +
+                    "    } else {\n" +
+                    "        omega = 3.141592654 * 2.0 * vec2(topScreenWidth, frameLayout.w);\n" +
+                    "    }\n" +
                     "}",
             PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
@@ -403,15 +427,18 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "varying float alpha;\n" +
                     "varying vec2 omega;\n" +
                     "uniform float topScreenWidth;\n" +
+                    FRAME_LAYOUT_UNIFORM +
                     "" +
                     "void main()\n" +
                     "{\n" +
-                    "    // In main(), since ES 1.00 globals can only start from constants\n" +
-                    "    vec2 inputSize = vec2(topScreenWidth, $FRAME_TEXTURE_HEIGHT);\n" +
-                    "    vec2 outputSize = vec2(topScreenWidth, $FRAME_TEXTURE_HEIGHT);\n" +
+                    "    // In main(), since ES 1.00 globals can only start from constants. The frame's rows, the constant without the WideMelon\n" +
+                    "    // camera's margin as before it\n" +
+                    "    float frameRows = frameLayout.w == ${FRAME_TEXTURE_HEIGHT}.0 ? ${FRAME_TEXTURE_HEIGHT}.0 : frameLayout.w;\n" +
+                    "    vec2 inputSize = vec2(topScreenWidth, frameRows);\n" +
+                    "    vec2 outputSize = vec2(topScreenWidth, frameRows);\n" +
                     "    gl_Position = vec4(vPos, 0.0, 1.0);\n" +
                     "    uv = vUV;\n" +
-                    "    vec2 textureSize = vec2(topScreenWidth, $FRAME_TEXTURE_HEIGHT);\n" +
+                    "    vec2 textureSize = vec2(topScreenWidth, frameRows);\n" +
                     "    alpha = vAlpha;\n" +
                     "    omega = vec2(3.1415 * outputSize.x * textureSize.x / inputSize.x, 2.0 * 3.1415 * textureSize.y);\n" +
                     "}",
@@ -945,8 +972,16 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                         "        return;\n" +
                         "    }\n" +
                         "" +
-                        "    // Texels per DS pixel; the frame texture is FRAME_TEXTURE_HEIGHT DS pixels high at any internal resolution\n" +
-                        "    float radius = blurRadius(uv.y / topScreenEnd) * texSize.y / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+                        "    // Texels per DS pixel; the frame texture is frameLayout.w DS pixels high at any internal resolution. The band is placed on the\n" +
+                        "    // top screen's SCREEN_HEIGHT rows, inside the WideMelon camera's margin (none: the old math exactly)\n" +
+                        "    float radius;\n" +
+                        "    if (frameLayout.w == ${FRAME_TEXTURE_HEIGHT}.0) {\n" +
+                        "        radius = blurRadius(uv.y / topScreenEnd) * texSize.y / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+                        "    } else {\n" +
+                        "        float margin = (frameLayout.w - ${FRAME_TEXTURE_HEIGHT}.0) * 0.5;\n" +
+                        "        float screenY = clamp((uv.y * frameLayout.w - margin) / ${SCREEN_HEIGHT}.0, 0.0, 0.999);\n" +
+                        "        radius = blurRadius(screenY) * texSize.y / frameLayout.w;\n" +
+                        "    }\n" +
                         "    if (radius < MIN_BLUR_RADIUS) {\n" +
                         "        gl_FragColor = vec4(finishTiltShift(texture2D(tex, uv).bgr).bgr, 1.0);\n" +
                         "        return;\n" +
@@ -979,7 +1014,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
             PRECISION_HEADER +
                     "uniform sampler2D tex;\n" +
                     "varying vec2 uv;\n" +
-                    "const float topScreenEnd = ${SCREEN_HEIGHT}.0 / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
+                    FRAME_LAYOUT_UNIFORM +
+                    "#define topScreenEnd frameLayout.x\n" +
                     TILT_SHIFT_BOOST_FUNCTION +
                     "" +
                     "void main() {\n" +

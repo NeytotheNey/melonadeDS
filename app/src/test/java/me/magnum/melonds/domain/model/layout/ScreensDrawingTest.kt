@@ -123,6 +123,80 @@ class ScreensDrawingTest {
         assertScreen(drawing.topScreen, Rect(0, 60, 640, 240), Rect(160, 60, 320, 240), 0f, 1f)
         // The output cap still sizes the frame for 1x, so zooming doesn't change the internal scale
         assertEquals(wideTopSlotNative, drawing.topScreen!!.nativeRectAt1x)
+        // Without a margin it's all 192 rows
+        assertRows(drawing.topScreen, 0f, 192f)
+    }
+
+    // Stage 2: 48 rows of margin above and below, so the top screen's half is 288 rows
+    private val tallCentered = WideWindow.centered(342, cameraFrame, 288)
+
+    @Test
+    fun aZoomedOutWindowWithAMarginFillsTheScreen() {
+        val height = 192f * 512f / 342f
+        val window = WideWindow(342, cameraFrame, 0f, 512f, 288, (288f - height) / 2f, height)
+        val drawing = getScreensDrawing(wideTopSlot, bottomSlot, cameraFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = window)
+
+        // The whole rect, with the middle 256 of 512 columns and 192 of the window's 287.4 rows in the middle
+        assertScreen(drawing.topScreen, wideTopSlot, Rect(160, 60, 320, 240), 0f, 1f)
+        assertRows(drawing.topScreen, (288f - height) / 2f, (288f + height) / 2f)
+        val overlay = drawing.topScreen!!.overlay
+        assertEquals(59.77f, overlay.top, 0.01f)
+        assertEquals(300.23f, overlay.bottom, 0.01f)
+        assertEquals(0f, overlay.topV, 0.0001f)
+        assertEquals(1f, overlay.bottomV, 0.0001f)
+        assertEquals(wideTopSlotNative, drawing.topScreen.nativeRectAt1x)
+    }
+
+    @Test
+    fun atOneXWithAMarginItsTheSameRectsShowingTheMiddleRows() {
+        val withMargin = getScreensDrawing(wideTopSlot, bottomSlot, cameraFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = tallCentered, frameMargin = 48)
+        val without = getScreensDrawing(wideTopSlot, bottomSlot, cameraFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = cameraCentered)
+
+        assertScreen(withMargin.topScreen, wideTopSlot, wideTopSlotNative, 85f / 512f, 427f / 512f)
+        assertRows(withMargin.topScreen, 48f, 240f)
+        assertEquals(without.topScreen!!.overlay, withMargin.topScreen!!.overlay)
+        assertEquals(without.bottomScreen, withMargin.bottomScreen)
+        assertRows(withMargin.bottomScreen, 0f, 192f)
+    }
+
+    @Test
+    fun aWindowPannedUpCutsTheDrawingsAtThePicturesBottom() {
+        val window = WideWindow(342, cameraFrame, 85f, 342f, 288, 0f, 192f)
+        val drawing = getScreensDrawing(wideTopSlot, bottomSlot, cameraFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = window)
+
+        // The top 48 rows are margin, so DS line 0 is a quarter of the way down and the screen runs past the picture
+        assertScreen(drawing.topScreen, wideTopSlot, Rect(80, 90, 480, 360), 85f / 512f, 427f / 512f)
+        assertRows(drawing.topScreen, 0f, 192f)
+        val overlay = drawing.topScreen!!.overlay
+        assertEquals(90f, overlay.top, 0.01f)
+        assertEquals(360f, overlay.bottom, 0.01f)
+        assertEquals(0f, overlay.topV, 0.0001f)
+        assertEquals(0.75f, overlay.bottomV, 0.0001f)
+    }
+
+    @Test
+    fun withoutAWindowTheMarginIsLeftOut() {
+        val drawing = getScreensDrawing(wideTopSlot, bottomSlot, cameraFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, frameMargin = 48)
+        val without = getScreensDrawing(wideTopSlot, bottomSlot, cameraFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f)
+
+        assertRows(drawing.topScreen, 48f, 240f)
+        assertRows(drawing.bottomScreen, 0f, 192f)
+        assertEquals(without.topScreen!!.drawRect, drawing.topScreen!!.drawRect)
+        assertRows(without.topScreen, 0f, 192f)
+
+        // Swapped, the DS top screen is the narrow one and still shows its middle rows
+        val swapped = getScreensDrawing(bottomSlot, wideTopSlot, cameraFrame, isWideLayout = true, areScreensSwapped = true, surfaceWidth = 960f, frameMargin = 48)
+        assertRows(swapped.topScreen, 48f, 240f)
+        assertRows(swapped.bottomScreen, 0f, 192f)
+    }
+
+    @Test
+    fun swappedTheWindowLeavesTheBottomScreensRowsAlone() {
+        val drawing = getScreensDrawing(bottomSlot, wideTopSlot, cameraFrame, isWideLayout = true, areScreensSwapped = true, surfaceWidth = 960f, wideWindow = tallCentered, frameMargin = 48)
+
+        assertEquals(wideTopSlotNative, drawing.touchScreenRect)
+        assertRows(drawing.bottomScreen, 0f, 192f)
+        assertRows(drawing.topScreen, 48f, 240f)
     }
 
     @Test
@@ -152,6 +226,11 @@ class ScreensDrawingTest {
         val without = getScreensDrawing(wideTopSlot, bottomSlot, wideFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f)
 
         assertEquals(without, withWindow)
+    }
+
+    private fun assertRows(screen: ScreenDrawing?, topRow: Float, bottomRow: Float) {
+        assertEquals(topRow, screen!!.topRow, 0.001f)
+        assertEquals(bottomRow, screen.bottomRow, 0.001f)
     }
 
     private fun assertScreen(screen: ScreenDrawing?, drawRect: Rect, nativeRect: Rect, leftU: Float, rightU: Float) {

@@ -286,10 +286,11 @@ void LuaEngine::updateSticks(float leftX, float leftY, float rightX, float right
     sticks[3].store(rightY, std::memory_order_relaxed);
 }
 
-void LuaEngine::updateWideCamera(float x, float zoom)
+void LuaEngine::updateWideCamera(float x, float zoom, float y)
 {
     wideCamera[0].store(x, std::memory_order_relaxed);
     wideCamera[1].store(zoom, std::memory_order_relaxed);
+    wideCamera[2].store(y, std::memory_order_relaxed);
 }
 
 bool LuaEngine::loadScript(LuaScript& script)
@@ -461,7 +462,7 @@ void LuaEngine::sendRequests(LuaScript& script)
         {
             script.sentWideCamera = script.wideCamera;
             const LuaWideCamera& camera = script.sentWideCamera;
-            eventMessenger->onLuaWideCamera(script.id, camera.zoom, camera.hasPan, camera.pan, camera.holdNative);
+            eventMessenger->onLuaWideCamera(script.id, camera.zoom, camera.hasPan, camera.pan, camera.holdNative, camera.hasPanY, camera.panY);
         }
     }
 
@@ -650,7 +651,7 @@ void LuaEngine::closeScript(LuaScript& script)
     {
         LuaWideCamera off;
         if (eventMessenger)
-            eventMessenger->onLuaWideCamera(script.id, off.zoom, off.hasPan, off.pan, off.holdNative);
+            eventMessenger->onLuaWideCamera(script.id, off.zoom, off.hasPan, off.pan, off.holdNative, off.hasPanY, off.panY);
         script.sentWideCamera = off;
     }
 

@@ -68,9 +68,9 @@ namespace MelonDSAndroid {
     extern void releaseKey(u32 key);
     extern void updateMotionData(float ax, float ay, float az, float rx, float ry, float rz);
     /**
-     * A new width for the top screen's 3D view during play (see MelonInstance::setWideViewWidth)
+     * A new width and margin for the top screen's 3D view during play (see MelonInstance::setWideView)
      */
-    extern void setWideViewWidth(int width);
+    extern void setWideView(int width, int margin);
     /**
      * Gives the instance the game's Lua scripts and the modules and images they can use, after setup() and before the emulator starts;
      * [areStateLoadsAllowed] is false when savestates can't be loaded (RetroAchievements hardcore), which melon.state.load() checks too
@@ -98,7 +98,7 @@ namespace MelonDSAndroid {
     extern void finishRewindScreenshot();
     extern void updateLuaSticks(float leftX, float leftY, float rightX, float rightY);
     // The WideMelon camera's window for melon.wide.camera() (LuaEngine::updateWideCamera)
-    extern void updateWideCamera(float x, float zoom);
+    extern void updateWideCamera(float x, float zoom, float y);
     extern void start();
     /**
      * Runs one frame, to be presented on the vsync at [presentDueTimeNs] (CLOCK_MONOTONIC, ns), or as soon as possible if that's 0

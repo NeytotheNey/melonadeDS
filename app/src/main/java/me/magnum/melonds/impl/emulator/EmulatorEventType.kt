@@ -142,6 +142,8 @@ enum class EmulatorEventType(val event: Int) {
      * * whether there's a pan (`i32`, 0 or 1)
      * * pan (`f32`), the window's offset from center in DS pixels
      * * whether 1x is held (`i32`, 0 or 1)
+     * * whether there's a vertical pan (`i32`, 0 or 1)
+     * * vertical pan (`f32`), the window's offset down from center in DS pixels
      */
     EventLuaWideCamera(308),
 }

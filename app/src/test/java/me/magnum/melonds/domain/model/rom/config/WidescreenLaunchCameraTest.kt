@@ -28,6 +28,38 @@ class WidescreenLaunchCameraTest {
     }
 
     @Test
+    fun theMarginLetsTheWidestViewFillTheScreen() {
+        val launch = WidescreenLaunch.resolve(RomModsConfig(wideViewWidth = 342, wideCamera = true, wideCameraMaxWidth = 512), null, isWideRenderer = true)
+
+        // ceil(96 * (512 / 342 - 1)) = ceil(47.7)
+        assertEquals(48, launch.getRenderMargin(342))
+        // 192 * 512 / 342 rows fit in 192 + 2 * 48
+        assertTrue(192f * 512f / 342f <= 192 + 2 * launch.getRenderMargin(342))
+        // No room to zoom out, or a variant that isn't wide: none
+        assertEquals(0, launch.getRenderMargin(512))
+        assertEquals(0, launch.getRenderMargin(600))
+        assertEquals(0, launch.getRenderMargin(0))
+    }
+
+    @Test
+    fun theMarginIsWholeRowsAndCapped() {
+        // 96 * (684 - 342) / 342 is exactly 96, so it isn't rounded up to 97
+        val exact = WidescreenLaunch.resolve(RomModsConfig(wideViewWidth = 342, wideCamera = true, wideCameraMaxWidth = 684), null, isWideRenderer = true)
+        assertEquals(96, exact.getRenderMargin(342))
+        // 96 * (768 / 300 - 1) is about 150, over the cap
+        val capped = WidescreenLaunch.resolve(RomModsConfig(wideViewWidth = 300, wideCamera = true, wideCameraMaxWidth = 768), null, isWideRenderer = true)
+        assertEquals(128, capped.getRenderMargin(300))
+    }
+
+    @Test
+    fun withoutTheCameraThereIsNoMargin() {
+        val launch = WidescreenLaunch.resolve(RomModsConfig(wideViewWidth = 342, wideCameraMaxWidth = 768), null, isWideRenderer = true)
+
+        assertEquals(0, launch.getRenderMargin(342))
+        assertEquals(0, WidescreenLaunch.OFF.getRenderMargin(342))
+    }
+
+    @Test
     fun anUnusableMaxWidthFallsBackToTheDefault() {
         assertEquals(RomModsConfig.DEFAULT_WIDE_CAMERA_MAX_WIDTH, RomModsConfig(wideCameraMaxWidth = 1000).validWideCameraMaxWidth)
         assertEquals(RomModsConfig.DEFAULT_WIDE_CAMERA_MAX_WIDTH, RomModsConfig(wideCameraMaxWidth = 513).validWideCameraMaxWidth)

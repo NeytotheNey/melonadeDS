@@ -72,6 +72,9 @@ namespace melonDS { class GPU; }
  *                  and the scene is kept in a list twice the DS's size, half of it for polygons only the wings show, so the wide view stops
  *                  dropping polygons the DS would draw (docs/plan-widemelon-polylist.md). Takes effect at the next polygon RAM swap
  *                  (GPU::WidePolys, default 1 since 11-14; 0 for A/Bs)
+ *   widey          WideMelon camera, stage 2: with the camera on, the 3D view also gets the app's margin rows above and below the top screen, so
+ *                  zooming out fills the screen; 0 renders no margin (M = 0, zoomed-out views letterbox as in stage 1) for A/Bs
+ *                  (GPU::WideY, default 1)
  *   hash3d         log `HASH3D frame=<n> hash=<hex>` per frame: an FNV-1a of the 3D image at native resolution in GetLine's pixel format, numbered
  *                  like HASH2D (n is the HASH2D frame that shows the render, which line 215 of frame n-1 started). OpenGL hashes its 256x192
  *                  downscale, compute the low res image display capture reads, software its color buffer; all three are read late without

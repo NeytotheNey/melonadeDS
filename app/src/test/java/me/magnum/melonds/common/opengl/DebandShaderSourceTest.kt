@@ -126,7 +126,8 @@ class DebandShaderSourceTest {
 
     private fun assertDeclaredBeforeUse(label: String, code: String) {
         val declarations = declaredNames(code).toMap()
-        for (name in listOf("tex", "texSize", "topScreenWidth", "topScreenEnd", "bottomScreenStart", "screenColumns", "screenBand", "sampleScreen",
+        // topScreenEnd and bottomScreenStart are macros for frameLayout's parts, so it's frameLayout that has to come first
+        for (name in listOf("tex", "texSize", "topScreenWidth", "frameLayout", "screenColumns", "screenBand", "sampleScreen",
                 "hash12", "debandRing", "deband", "DEBAND_THRESHOLD", "DEBAND_RANGE", "DEBAND_GRAIN")) {
             val declaredAt = declarations[name]
             if (declaredAt == null) {

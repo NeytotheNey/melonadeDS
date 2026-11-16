@@ -96,8 +96,8 @@ void ScreenshotRenderer::drawScreenshot(GPU* gpu, Renderer renderer, Frame* rend
 
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        if (renderFrame->topScreenWidth != vertexBufferTopScreenWidth)
-            fillVertexBuffer(renderFrame->topScreenWidth);
+        if (renderFrame->topScreenWidth != vertexBufferTopScreenWidth || renderFrame->topScreenMargin != vertexBufferTopScreenMargin)
+            fillVertexBuffer(renderFrame->topScreenWidth, renderFrame->topScreenMargin);
         glEnableVertexAttribArray(posAttribLocation);
         glEnableVertexAttribArray(texCoordAttribLocation);
         glVertexAttribPointer(posAttribLocation, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
@@ -153,12 +153,14 @@ void ScreenshotRenderer::copyHalvesAt1x(Frame* renderFrame)
 
     int halfScale = std::max(renderFrame->halfScaleAt1x, 1);
     int left = ((int) renderFrame->topScreenWidth - 256) / 2 * halfScale;
+    // With the WideMelon camera's margin the top screen's half is taller, and its native rows start margin rows into its image
+    int margin = (int) renderFrame->topScreenMargin;
     for (int screen = 0; screen < 2; screen++)
     {
         if (!(renderFrame->halvesAt1x & (1 << screen)))
             continue;
 
-        int sourceRow = screen * (192 + 2) * renderFrame->scaleAt1x;
+        int sourceRow = screen == 0 ? margin * halfScale : (192 + 2 * margin + 2) * renderFrame->scaleAt1x;
         glBlitFramebuffer(left, sourceRow, left + 256 * halfScale, sourceRow + 192 * halfScale, 0, screen * 192, 256, screen * 192 + 192, GL_COLOR_BUFFER_BIT,
                           GL_NEAREST);
     }
@@ -466,38 +468,51 @@ void ScreenshotRenderer::setupVertexBuffers()
 
     glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    fillVertexBuffer(256);
+    fillVertexBuffer(256, 0);
 }
 
-void ScreenshotRenderer::fillVertexBuffer(int topScreenWidth)
+void ScreenshotRenderer::fillVertexBuffer(int topScreenWidth, int topScreenMargin)
 {
     float margin = 1.0f / 192.0f;
     // Both screens take the center 256 columns of the frame: all of a 256 wide top screen, or the middle of a wider one, which is also where the
     // bottom screen is
     float left = (topScreenWidth - 256) / (2.0f * topScreenWidth);
     float right = 1.0f - left;
+    // The rows of each screen: the old 386 row layout's without the WideMelon camera's margin (kept exactly), otherwise the top screen's native
+    // 192 rows in the middle of its taller half (the margin rows are left out), and the bottom screen's after the gap
+    float topScreenTopV = 0.0f;
+    float topScreenBottomV = 0.5f - margin;
+    float bottomScreenTopV = 0.5f + margin;
+    if (topScreenMargin > 0)
+    {
+        float frameRows = (float) (192 + 2 * topScreenMargin + 2 + 192);
+        topScreenTopV = topScreenMargin / frameRows;
+        topScreenBottomV = (topScreenMargin + 192) / frameRows;
+        bottomScreenTopV = (192 + 2 * topScreenMargin + 2) / frameRows;
+    }
     // Image is vertically flipped
     const float vertices[] = {
         //Position        // UV
-        -1.0f,  -1.0f,    left, 0.0f,
-        -1.0f,  0.0f,     left, 0.5f - margin,
-        1.0f,  0.0f,      right, 0.5f - margin,
+        -1.0f,  -1.0f,    left, topScreenTopV,
+        -1.0f,  0.0f,     left, topScreenBottomV,
+        1.0f,  0.0f,      right, topScreenBottomV,
 
-        -1.0f,  -1.0f,    left, 0.0f,
-        1.0f,  0.0f,      right, 0.5f - margin,
-        1.0f, -1.0f,      right, 0.0f,
+        -1.0f,  -1.0f,    left, topScreenTopV,
+        1.0f,  0.0f,      right, topScreenBottomV,
+        1.0f, -1.0f,      right, topScreenTopV,
 
-        -1.0f, 0.0f,      left, 0.5f + margin,
+        -1.0f, 0.0f,      left, bottomScreenTopV,
         -1.0f, 1.0f,      left, 1.0f,
         1.0f, 1.0f,       right, 1.0f,
 
-        -1.0f, 0.0f,      left, 0.5f + margin,
+        -1.0f, 0.0f,      left, bottomScreenTopV,
         1.0f, 1.0f,       right, 1.0f,
-        1.0f, 0.0f,       right, 0.5f + margin,
+        1.0f, 0.0f,       right, bottomScreenTopV,
     };
 
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     vertexBufferTopScreenWidth = topScreenWidth;
+    vertexBufferTopScreenMargin = topScreenMargin;
 }
 
 void ScreenshotRenderer::notifyScreenshotReady()

@@ -1,6 +1,8 @@
 package me.magnum.melonds.common.opengl
 
 import android.opengl.GLES30
+import me.magnum.melonds.domain.model.SCREEN_GAP
+import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.render.TiltShift
 
 private const val INVALID_ATTRIBUTE = -1
@@ -20,6 +22,8 @@ class Shader(
     private val uniformTexSize: Int
     // Only declared by the filters that need to know the frame's width in DS pixels (see ShaderProgramSource)
     private val uniformTopScreenWidth: Int
+    // Declared by the filters that need the frame's rows (ShaderProgramSource's frameLayout): where the screens' halves start and end
+    private val uniformFrameLayout: Int
     // Only declared by the filters that keep their samples off the parts beside a screen's middle (see ShaderProgramSource.screenColumns)
     private val uniformBottomScreenWide: Int
     // Only declared by the tilt-shift pre-passes (see ShaderProgramSource.tiltShiftPrePassShader)
@@ -39,6 +43,7 @@ class Shader(
         uniformTex = GLES30.glGetUniformLocation(programId, "tex")
         uniformTexSize = GLES30.glGetUniformLocation(programId, "texSize")
         uniformTopScreenWidth = GLES30.glGetUniformLocation(programId, "topScreenWidth")
+        uniformFrameLayout = GLES30.glGetUniformLocation(programId, "frameLayout")
         uniformBottomScreenWide = GLES30.glGetUniformLocation(programId, "bottomScreenWide")
         uniformTiltShift = GLES30.glGetUniformLocation(programId, "tiltShift")
         uniformTiltShiftBoost = GLES30.glGetUniformLocation(programId, "tiltShiftBoost")
@@ -72,6 +77,25 @@ class Shader(
     fun setTopScreenWidth(width: Int) {
         if (uniformTopScreenWidth != INVALID_UNIFORM) {
             GLES30.glUniform1f(uniformTopScreenWidth, width.toFloat())
+        }
+    }
+
+    /**
+     * Sets the height of the frame's top screen's half in DS pixels (PresentFrameWrapper.topScreenHeight: SCREEN_HEIGHT plus the WideMelon
+     * camera's margin on both sides); call after [use].
+     */
+    fun setTopScreenHeight(height: Int) {
+        if (uniformFrameLayout != INVALID_UNIFORM) {
+            // As v coordinates: the top screen's half's end, the bottom screen's start and the middle of the gap between, then the frame's rows.
+            // Worked out here in float like the constants they replace (192 / 386, 194 / 386, 0.5 and 386 without the camera's margin)
+            val frameRows = (height + SCREEN_GAP + SCREEN_HEIGHT).toFloat()
+            GLES30.glUniform4f(
+                uniformFrameLayout,
+                height / frameRows,
+                (height + SCREEN_GAP) / frameRows,
+                (height + SCREEN_GAP / 2) / frameRows,
+                frameRows,
+            )
         }
     }
 

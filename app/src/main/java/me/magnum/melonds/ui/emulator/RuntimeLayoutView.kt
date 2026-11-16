@@ -384,7 +384,7 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
                 (touchScreenRect == null || !nonTouchScreenView.getRect().overlaps(touchScreenRect))
         val previousHandler = installedCameraTouchHandler
         val handler = if (canSteerCamera) {
-            previousHandler?.takeIf { it.controller === camera } ?: WideCameraTouchHandler(camera, ::getWideScreenPictureWidth)
+            previousHandler?.takeIf { it.controller === camera } ?: WideCameraTouchHandler(camera, ::getWideScreenPictureSize)
         } else {
             null
         }
@@ -397,9 +397,9 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     }
 
     /**
-     * How wide the DS top screen's picture is drawn while it's the wide one, so a drag moves it with the finger; must match the renderer
+     * How big the DS top screen's picture is drawn while it's the wide one, so a drag moves it with the finger; must match the renderer
      */
-    private fun getWideScreenPictureWidth(): Float? {
+    private fun getWideScreenPictureSize(): WideCameraTouchHandler.PictureSize? {
         val (topScreen, bottomScreen) = getDrawnScreens()
         val drawing = getScreensDrawing(
             getLayoutComponentView(topScreen)?.getRect(),
@@ -410,7 +410,8 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
             width.toFloat(),
             wideWindowProvider(),
         )
-        return drawing.topScreen?.drawRect?.width?.toFloat()
+        val drawRect = drawing.topScreen?.drawRect ?: return null
+        return WideCameraTouchHandler.PictureSize(drawRect.width.toFloat(), drawRect.height.toFloat())
     }
 
     /**

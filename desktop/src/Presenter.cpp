@@ -17,9 +17,8 @@ namespace
 {
 
 // the output textures hold the top screen in rows 0-191 and the bottom one in 194-385 (times the
-// scale), with two rows of padding between them, as the app's DSRenderer reads them
-constexpr float kTopBottomV = 192.f / 386.f;
-constexpr float kBottomTopV = 194.f / 386.f;
+// scale), with two rows of padding between them, as the app's DSRenderer reads them. with a
+// vertical margin M (OutputLayout::TopMargin) the top half is 192 + 2M rows, all of it shown here
 
 const char* kVS = R"(#version 320 es
 layout(location = 0) in vec2 vPosition;
@@ -317,15 +316,21 @@ void Presenter::Draw(NDS& nds, int windowW, int windowH, int topWidth, Layout la
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // the frame in DS pixels: the top screen is topWidth wide, the bottom one 256
-    float topW = (float)topWidth, botW = 256.f, h = 192.f;
+    LastTexture = BindFrame(nds);
+    // camera stage 2: the top half's margin rows, shown above and below it
+    int margin = nds.GPU.GetRenderer3D().Accelerated ? LastLayout.TopMargin : 0;
+    float rows = 386.f + 2.f * margin;
+    float topBottomV = (192.f + 2.f * margin) / rows, bottomTopV = (194.f + 2.f * margin) / rows;
+
+    // the frame in DS pixels: the top screen is topWidth wide (and 192 + 2 x margin tall), the bottom one 256
+    float topW = (float)topWidth, botW = 256.f, h = 192.f, topH = 192.f + 2.f * margin;
     float boxW, boxH;
     switch (layout)
     {
-    case Layout::Horizontal: boxW = topW + botW; boxH = h; break;
-    case Layout::TopOnly: boxW = topW; boxH = h; break;
+    case Layout::Horizontal: boxW = topW + botW; boxH = topH; break;
+    case Layout::TopOnly: boxW = topW; boxH = topH; break;
     case Layout::BottomOnly: boxW = botW; boxH = h; break;
-    default: boxW = std::max(topW, botW); boxH = h * 2; break;
+    default: boxW = std::max(topW, botW); boxH = topH + h; break;
     }
     float scale = std::min(windowW / boxW, windowH / boxH);
     float x0 = (windowW - boxW * scale) / 2, y0 = (windowH - boxH * scale) / 2;
@@ -334,18 +339,18 @@ void Presenter::Draw(NDS& nds, int windowW, int windowH, int topWidth, Layout la
     switch (layout)
     {
     case Layout::Horizontal:
-        Top = {x0, y0, topW * scale, h * scale};
-        Bottom = {x0 + topW * scale, y0, botW * scale, h * scale};
+        Top = {x0, y0, topW * scale, topH * scale};
+        Bottom = {x0 + topW * scale, y0 + (topH - h) * scale / 2, botW * scale, h * scale};
         break;
     case Layout::TopOnly:
-        Top = {x0, y0, topW * scale, h * scale};
+        Top = {x0, y0, topW * scale, topH * scale};
         break;
     case Layout::BottomOnly:
         Bottom = {x0, y0, botW * scale, h * scale};
         break;
     default:
-        Top = {x0 + (boxW - topW) * scale / 2, y0, topW * scale, h * scale};
-        Bottom = {x0 + (boxW - botW) * scale / 2, y0 + h * scale, botW * scale, h * scale};
+        Top = {x0 + (boxW - topW) * scale / 2, y0, topW * scale, topH * scale};
+        Bottom = {x0 + (boxW - botW) * scale / 2, y0 + topH * scale, botW * scale, h * scale};
         break;
     }
 
@@ -367,10 +372,8 @@ void Presenter::Draw(NDS& nds, int windowW, int windowH, int topWidth, Layout la
         memcpy(&verts[count * 4], q, sizeof(q));
         count += 6;
     };
-    quad(Top, 0, 1, 0, kTopBottomV);
-    quad(Bottom, botU0, botU1, kBottomTopV, 1);
-
-    LastTexture = BindFrame(nds);
+    quad(Top, 0, 1, 0, topBottomV);
+    quad(Bottom, botU0, botU1, bottomTopV, 1);
     // GPU::Comp1x: a frame with a half at 1x is drawn nearest straight from the 1x image, and expanded
     // into the full frame first for linear filtering (the core only draws such frames without it, but
     // the last one can be drawn again after F8)

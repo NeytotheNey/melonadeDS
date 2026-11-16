@@ -137,6 +137,7 @@ object DebugLog {
         lines.add("sync_rtc_to_device" to configuration.syncRtcToDevice)
         lines.add("lua_drawings_in_screenshots" to configuration.luaDrawingsInScreenshots)
         lines.add("wide_view_width" to configuration.wideViewWidth)
+        lines.add("wide_view_margin" to configuration.wideViewMargin)
         lines.add("rewind_period_s" to configuration.rewindPeriodSeconds)
         lines.add("rewind_window_s" to configuration.rewindWindowSeconds)
         lines.add("cheats_enabled" to settingsRepository.areCheatsEnabled())

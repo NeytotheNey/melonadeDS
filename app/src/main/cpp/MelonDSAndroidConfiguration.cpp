@@ -39,6 +39,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     jboolean syncRtcToDevice = env->GetBooleanField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "syncRtcToDevice", "Z"));
     jboolean luaDrawingsInScreenshots = env->GetBooleanField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "luaDrawingsInScreenshots", "Z"));
     jint wideViewWidth = env->GetIntField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "wideViewWidth", "I"));
+    jint wideViewMargin = env->GetIntField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "wideViewMargin", "I"));
     jobject consoleTypeEnum = env->GetObjectField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "consoleType", "Lme/magnum/melonds/domain/model/ConsoleType;"));
     jint consoleType = env->GetIntField(consoleTypeEnum, env->GetFieldID(consoleTypeEnumClass, "consoleType", "I"));
     jboolean soundEnabled = env->GetBooleanField(emulatorConfiguration, env->GetFieldID(emulatorConfigurationClass, "soundEnabled", "Z"));
@@ -100,6 +101,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     finalEmulatorConfiguration.syncRtcToDevice = syncRtcToDevice;
     finalEmulatorConfiguration.luaDrawingsInScreenshots = luaDrawingsInScreenshots;
     finalEmulatorConfiguration.wideViewWidth = wideViewWidth;
+    finalEmulatorConfiguration.wideViewMargin = wideViewMargin;
     finalEmulatorConfiguration.consoleType = consoleType;
     finalEmulatorConfiguration.audioSettings = MelonDSAndroid::AudioSettings {
         .soundEnabled = (bool) soundEnabled,

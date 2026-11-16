@@ -10,6 +10,8 @@ fun interface FrameRenderCallback {
      * @param frameTextureWidth Width of the frame texture in texels, bigger than the DS's when the 3D renderer is upscaled.
      * @param frameTextureHeight Height of the frame texture in texels, both screens plus the gap between them.
      * @param topScreenWidth Width of the top screen in DS pixels, more than SCREEN_WIDTH when widescreen widens its 3D view.
+     * @param topScreenMargin The WideMelon camera's rows above and below the top screen's SCREEN_HEIGHT, in DS pixels (see
+     * PresentFrameWrapper.topScreenMargin).
      * @param overlayTextureId This queue slot's Lua drawing texture at 2x, or 0 if the slot never had drawings.
      * @param overlayScreens Which screens have Lua drawings in this frame, as [OVERLAY_SCREEN_TOP] and [OVERLAY_SCREEN_BOTTOM] bits.
      * @param halvesAt1x Which screens the compositor drew at 1x (debug.melonade.comp1x), as the same bits: such a screen's image is in the first
@@ -27,6 +29,7 @@ fun interface FrameRenderCallback {
         frameTextureWidth: Int,
         frameTextureHeight: Int,
         topScreenWidth: Int,
+        topScreenMargin: Int,
         overlayTextureId: Int,
         overlayScreens: Int,
         halvesAt1x: Int,

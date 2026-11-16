@@ -75,9 +75,11 @@ class AndroidEmulatorManager(
     @Volatile
     private var luaScriptsState = LuaScriptsState.EMPTY
 
-    // The running game's widescreen width: the launch one, then whatever setWideViewWidth() changed it to
+    // The running game's widescreen width and camera margin: the launch ones, then whatever setWideView() changed them to
     @Volatile
     private var romWideViewWidth = 0
+    @Volatile
+    private var romWideViewMargin = 0
 
     // Writes the scripts' storage snapshots, drained and written under luaDataLock so an older one can't overwrite a newer one
     private val luaDataScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -166,7 +168,10 @@ class AndroidEmulatorManager(
                 val zoom = data.getFloat().takeIf { it > 0f }
                 val hasPan = data.getInt() != 0
                 val pan = data.getFloat().takeIf { hasPan }
-                val request = WideCameraRequest(zoom = zoom, pan = pan, holdNative = data.getInt() != 0)
+                val holdNative = data.getInt() != 0
+                val hasPanY = data.getInt() != 0
+                val panY = data.getFloat().takeIf { hasPanY }
+                val request = WideCameraRequest(zoom = zoom, pan = pan, holdNative = holdNative, panY = panY)
                 _emulatorEvents.tryEmit(EmulatorEvent.LuaWideCamera(scriptId, request))
             }
         }
@@ -179,8 +184,10 @@ class AndroidEmulatorManager(
         luaScriptFolder: Uri?,
         areLuaStateLoadsAllowed: Boolean,
         wideViewWidth: Int,
+        wideViewMargin: Int,
     ): RomLaunchResult {
         romWideViewWidth = wideViewWidth
+        romWideViewMargin = wideViewMargin
         return withContext(Dispatchers.IO) {
             val fileRomDocument = DocumentFile.fromSingleUri(context, rom.uri) ?: return@withContext RomLaunchResult.LaunchFailedRomNotFound
             val fileRomProcessor = romFileProcessorFactory.getFileRomProcessorForDocument(fileRomDocument)
@@ -254,10 +261,11 @@ class AndroidEmulatorManager(
         }
     }
 
-    override fun setWideViewWidth(width: Int) {
+    override fun setWideView(width: Int, margin: Int) {
         romWideViewWidth = width
-        MelonEmulator.setWideViewWidth(width)
-        DebugLog.event { "Wide view width: $width" }
+        romWideViewMargin = margin
+        MelonEmulator.setWideView(width, margin)
+        DebugLog.event { "Wide view width: $width margin: $margin" }
     }
 
     override suspend fun updateRomEmulatorConfiguration(rom: Rom) {
@@ -568,6 +576,7 @@ class AndroidEmulatorManager(
             consoleType = getRomOptionOrDefault(rom.config.runtimeConsoleType, baseConfiguration.consoleType),
             micSource = getRomOptionOrDefault(rom.config.runtimeMicSource, baseConfiguration.micSource),
             wideViewWidth = romWideViewWidth,
+            wideViewMargin = romWideViewMargin,
         ).run { getPermissionAdjustedConfiguration(this) }
     }
 

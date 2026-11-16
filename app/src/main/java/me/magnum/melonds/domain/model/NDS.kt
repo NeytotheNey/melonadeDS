@@ -13,6 +13,8 @@ const val EMULATOR_TARGET_FPS = 60
 // The even widths of the top screen's 3D view that the core takes; must match the range in Configuration.h
 const val MIN_WIDE_VIEW_WIDTH = SCREEN_WIDTH
 const val MAX_WIDE_VIEW_WIDTH = 768
+// The most 3D rows the WideMelon camera renders above and below the top screen (its margin); must match the core's cap
+const val MAX_WIDE_VIEW_MARGIN = 128
 
 val consoleAspectRatio: Float get() {
     return SCREEN_WIDTH.toFloat() / SCREEN_HEIGHT

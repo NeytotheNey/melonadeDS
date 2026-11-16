@@ -228,7 +228,7 @@ class EmulatorActivity : AppCompatActivity() {
     private val wideCameraController = WideCameraController(
         // Picked on the render thread, remembered for the game from the main one
         onZoomPicked = { session, zoom -> runOnUiThread { viewModel.onWideCameraZoomPicked(session, zoom) } },
-        onCameraChanged = { x, zoom -> MelonEmulator.updateWideCamera(x, zoom) },
+        onCameraChanged = { x, zoom, y -> MelonEmulator.updateWideCamera(x, zoom, y) },
     )
     // Whether the right stick is free to pan the camera, which it isn't while it's mapped to an input
     private var isRightStickFreeForCamera = true
@@ -1232,9 +1232,13 @@ class EmulatorActivity : AppCompatActivity() {
 
         // The camera's sticks, not while a menu or dialog is over the game
         if (event.isFromSource(InputDevice.SOURCE_CLASS_JOYSTICK) && wideCameraController.isEnabled && !activeOverlays.hasActiveOverlays()) {
-            val rightX = if (isRightStickFreeForCamera) cameraStickReader.readRightX(event) else 0f
+            if (isRightStickFreeForCamera) {
+                cameraStickReader.readRight(event)
+            }
+            val rightX = if (isRightStickFreeForCamera) cameraStickReader.rightX else 0f
+            val rightY = if (isRightStickFreeForCamera) cameraStickReader.rightY else 0f
             val isLeftStickPushed = maxOf(abs(event.getAxisValue(MotionEvent.AXIS_X)), abs(event.getAxisValue(MotionEvent.AXIS_Y))) > LEFT_STICK_MOVE_THRESHOLD
-            wideCameraController.onSticks(rightX, isLeftStickPushed)
+            wideCameraController.onSticks(rightX, rightY, isLeftStickPushed)
         }
 
         if (!activeOverlays.hasActiveOverlays() && nativeInputListener.onMotionEvent(event))

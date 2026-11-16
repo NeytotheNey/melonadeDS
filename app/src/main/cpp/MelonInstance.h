@@ -50,10 +50,10 @@ public:
 
     void updateMotionData(float ax, float ay, float az, float rx, float ry, float rz);
     /**
-     * A new width for the top screen's 3D view (even, 256..768, anything else means 256), applied before the next frame on the OpenGL and compute
-     * renderers; safe to call from any thread
+     * A new width for the top screen's 3D view (even, 256..768, anything else means 256) and its margin (the WideMelon camera's rows above and
+     * below the top screen, 0..128), applied together before the next frame on the OpenGL and compute renderers; safe to call from any thread
      */
-    void setWideViewWidth(int width) { requestedWideViewWidth.store(width, std::memory_order_relaxed); }
+    void setWideView(int width, int margin) { requestedWideView.store(packWideView(width, margin), std::memory_order_relaxed); }
     float getMotionData(MotionQueryType type);
     void touchScreen(u16 x, u16 y);
     void releaseScreen();
@@ -115,7 +115,7 @@ public:
      */
     void finishRewindScreenshot(bool wait);
     void updateLuaSticks(float leftX, float leftY, float rightX, float rightY) { luaEngine.updateSticks(leftX, leftY, rightX, rightY); }
-    void updateWideCamera(float x, float zoom) { luaEngine.updateWideCamera(x, zoom); }
+    void updateWideCamera(float x, float zoom, float y) { luaEngine.updateWideCamera(x, zoom, y); }
 
     // LuaSavestateHost, for melon.state; emulator thread, between frames
     bool saveLuaState(std::vector<melonDS::u8>& data) override;
@@ -157,11 +157,14 @@ private:
     LuaEngine luaEngine;
     // EmulatorConfiguration::luaDrawingsInScreenshots for the emulator thread, since the configuration can be replaced on another thread
     std::atomic_bool luaDrawingsInScreenshots = false;
-    // The width of the top screen's 3D view, for the emulator thread: it starts at EmulatorConfiguration::wideViewWidth and then follows
-    // setWideViewWidth() (configuration updates don't change it)
+    // The width and margin of the top screen's 3D view, for the emulator thread: they start at EmulatorConfiguration::wideViewWidth and
+    // wideViewMargin and then follow setWideView() (configuration updates don't change them)
     int wideViewWidth;
-    // The width setWideViewWidth() asked for, from any thread, picked up by the emulator thread before the next frame
-    std::atomic_int requestedWideViewWidth;
+    int wideViewMargin;
+    // The width and margin setWideView() asked for (packWideView), from any thread, picked up by the emulator thread before the next frame; one
+    // value so a frame never gets the new width with the old margin
+    std::atomic<u32> requestedWideView;
+    static u32 packWideView(int width, int margin) { return ((u32) width & 0xFFFF) | (((u32) margin & 0xFFFF) << 16); }
     // GPU::OutputCap, emulator thread only: the frontend's need (MelonDSAndroid::getOutputScaleNeed) the renderer is given, and the last one
     // seen with the frames it has held for, as a new one only replaces it once it held for OUTPUT_NEED_STABLE_FRAMES frames. The same for
     // whether the frontend debands (MelonDSAndroid::getOutputDeband, GPU::OutputCapDeband), which holds along with the need: a change to

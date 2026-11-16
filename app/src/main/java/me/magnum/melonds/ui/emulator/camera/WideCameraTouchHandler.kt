@@ -7,12 +7,18 @@ import kotlin.math.hypot
 
 /**
  * Drags and pinches on the DS top screen's view for the WideMelon camera: one finger drags the picture, two pinch it (and drag it by their
- * middle). Moves are reported as a fraction of the drawn picture's width ([pictureWidthProvider], in the view's pixels, null to use the view's
- * width), so the picture follows the finger.
+ * middle). Moves are reported as a fraction of the drawn picture's width and height ([pictureSizeProvider], in the view's pixels, null to use
+ * the view's size), so the picture follows the finger.
  */
-class WideCameraTouchHandler(val controller: WideCameraController, private val pictureWidthProvider: () -> Float?) : View.OnTouchListener {
+class WideCameraTouchHandler(val controller: WideCameraController, private val pictureSizeProvider: () -> PictureSize?) : View.OnTouchListener {
+
+    /**
+     * The drawn picture's size in the view's pixels
+     */
+    data class PictureSize(val width: Float, val height: Float)
 
     private var lastX = 0f
+    private var lastY = 0f
     private var lastSpan = 0f
     private var lastPointerCount = 0
 
@@ -29,14 +35,19 @@ class WideCameraTouchHandler(val controller: WideCameraController, private val p
                 if (event.pointerCount != lastPointerCount) {
                     startGesture(event)
                 } else {
-                    val pictureWidth = pictureWidthProvider()?.takeIf { it > 0f } ?: view.width.toFloat()
-                    val x = getFocusX(event)
+                    val pictureSize = pictureSizeProvider()
+                    val pictureWidth = pictureSize?.width?.takeIf { it > 0f } ?: view.width.toFloat()
+                    val pictureHeight = pictureSize?.height?.takeIf { it > 0f } ?: view.height.toFloat()
+                    val x = getFocus(event, isX = true)
+                    val y = getFocus(event, isX = false)
                     val span = getSpan(event)
                     val pinchScale = if (lastSpan > 0f && span > 0f) span / lastSpan else 1f
                     if (pictureWidth > 0f) {
-                        controller.onTouchMove((x - lastX) / pictureWidth, pinchScale)
+                        val dragFractionY = if (pictureHeight > 0f) (y - lastY) / pictureHeight else 0f
+                        controller.onTouchMove((x - lastX) / pictureWidth, pinchScale, dragFractionY)
                     }
                     lastX = x
+                    lastY = y
                     lastSpan = span
                 }
             }
@@ -46,7 +57,8 @@ class WideCameraTouchHandler(val controller: WideCameraController, private val p
     }
 
     private fun startGesture(event: MotionEvent) {
-        lastX = getFocusX(event)
+        lastX = getFocus(event, isX = true)
+        lastY = getFocus(event, isX = false)
         lastSpan = getSpan(event)
         lastPointerCount = getActivePointers(event).size
     }
@@ -57,9 +69,10 @@ class WideCameraTouchHandler(val controller: WideCameraController, private val p
         return (0 until event.pointerCount).filter { it != liftedIndex }
     }
 
-    private fun getFocusX(event: MotionEvent): Float {
+    // The middle of the fingers on one axis
+    private fun getFocus(event: MotionEvent, isX: Boolean): Float {
         val pointers = getActivePointers(event)
-        return if (pointers.isEmpty()) 0f else pointers.sumOf { event.getX(it).toDouble() }.toFloat() / pointers.size
+        return if (pointers.isEmpty()) 0f else pointers.sumOf { (if (isX) event.getX(it) else event.getY(it)).toDouble() }.toFloat() / pointers.size
     }
 
     // Distance between the first two fingers, 0 with fewer

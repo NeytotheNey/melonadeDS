@@ -9,29 +9,34 @@ import org.junit.Test
 
 class WideCameraControllerTest {
 
-    private val sent = mutableListOf<Pair<Float, Float>>()
+    // x, zoom and y, as melon.wide.camera() gets them
+    private val sent = mutableListOf<Triple<Float, Float, Float>>()
     private val picked = mutableListOf<Pair<Int, Float>>()
-    private val controller = WideCameraController(onZoomPicked = { session, zoom -> picked.add(session to zoom) }, onCameraChanged = { x, zoom -> sent.add(x to zoom) })
+    private val controller = WideCameraController(
+        onZoomPicked = { session, zoom -> picked.add(session to zoom) },
+        onCameraChanged = { x, zoom, y -> sent.add(Triple(x, zoom, y)) },
+    )
+    private val atRest = Triple(0f, 1f, 0f)
     private var now = 1_000_000_000L
     private val settings = WideCameraSettings(showWidth = 342, returnsToCenter = true)
 
-    private fun frames(count: Int, wingLines: Int = 192, frameWidth: Int = 512) = (1..count).map {
+    private fun frames(count: Int, wingLines: Int = 192, frameWidth: Int = 512, frameMargin: Int = 0) = (1..count).map {
         now += 16_666_667L
-        controller.onFrame(now, frameWidth, wingLines)
+        controller.onFrame(now, frameWidth, frameMargin, wingLines)
     }.last()
 
     @Test
     fun offItGivesNoWindowAndTellsTheScriptsTheRestStateOnce() {
         assertNull(frames(30))
         // Once, on the first frame, so scripts never keep a recreated activity's old camera
-        assertEquals(listOf(0f to 1f), sent)
+        assertEquals(listOf(atRest), sent)
     }
 
     @Test
     fun switchingTheCameraOffDropsHeldInput() {
         controller.setSettings(WideCameraSettings(showWidth = 342, returnsToCenter = true))
         frames(30)
-        controller.onSticks(1f, false)
+        controller.onSticks(1f, 0f, false)
         controller.setTouching(true)
         controller.setSettings(null)
         controller.setSettings(WideCameraSettings(showWidth = 342, returnsToCenter = true))
@@ -45,7 +50,7 @@ class WideCameraControllerTest {
     fun releasingHeldInputStopsAStuckTouchAndStick() {
         controller.setSettings(WideCameraSettings(showWidth = 342, returnsToCenter = true))
         frames(30)
-        controller.onSticks(1f, false)
+        controller.onSticks(1f, 0f, false)
         controller.setTouching(true)
         controller.onKey(Input.LEFT, true)
         frames(10)
@@ -61,7 +66,7 @@ class WideCameraControllerTest {
     fun theStickPansAndTheScriptsHearOfIt() {
         controller.setSettings(WideCameraSettings(showWidth = 342, returnsToCenter = true))
         frames(30)
-        controller.onSticks(1f, false)
+        controller.onSticks(1f, 0f, false)
         val window = frames(60)!!
 
         assertEquals(85f, window.offset, 0.01f)
@@ -73,13 +78,13 @@ class WideCameraControllerTest {
     fun theDpadBringsItBackAndTheLastWordIsTheMiddle() {
         controller.setSettings(WideCameraSettings(showWidth = 342, returnsToCenter = true))
         frames(30)
-        controller.onSticks(1f, false)
+        controller.onSticks(1f, 0f, false)
         frames(60)
-        controller.onSticks(0f, false)
+        controller.onSticks(0f, 0f, false)
         controller.onKey(Input.RIGHT, true)
         frames(600)
 
-        assertEquals(0f to 1f, sent.last())
+        assertEquals(atRest, sent.last())
     }
 
     @Test
@@ -91,7 +96,7 @@ class WideCameraControllerTest {
         controller.setSettings(null)
 
         assertNull(frames(1))
-        assertEquals(0f to 1f, sent.last())
+        assertEquals(atRest, sent.last())
     }
 
     @Test
@@ -118,7 +123,7 @@ class WideCameraControllerTest {
     fun aPickComingBackDoesntDropHeldInput() {
         controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1f))
         frames(30)
-        controller.onSticks(1f, false)
+        controller.onSticks(1f, 0f, false)
         frames(5)
         // The view model's state after the pick: same settings, a new start zoom
         controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1.25f))
@@ -131,7 +136,7 @@ class WideCameraControllerTest {
         controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1f))
         frames(30)
         controller.onZoomPress()
-        controller.onSticks(1f, false)
+        controller.onSticks(1f, 0f, false)
         frames(60)
         // The next ROM's state, with the null settings between conflated away
         controller.setState(WideCameraState(session = 2, settings = settings, startZoom = 1f))
@@ -163,6 +168,43 @@ class WideCameraControllerTest {
     }
 
     @Test
+    fun theStickPansDownIntoTheMarginAndTheScriptsHearOfIt() {
+        controller.setSettings(WideCameraSettings(showWidth = 342, returnsToCenter = true))
+        frames(30, frameMargin = 48)
+        controller.onSticks(0f, 1f, false)
+        val window = frames(60, frameMargin = 48)!!
+
+        // At 1x the window's 192 rows can go 48 rows down, to the margin's bottom
+        assertEquals(48f, window.offsetY, 0.01f)
+        assertEquals(0f, window.offset, 0.0001f)
+        assertEquals(48f, sent.last().third, 0.06f)
+    }
+
+    @Test
+    fun aVerticalDragMovesThePictureWithTheFinger() {
+        controller.setSettings(WideCameraSettings(showWidth = 342, returnsToCenter = true))
+        frames(30, frameMargin = 48)
+        controller.setTouching(true)
+        // A tenth of the picture's height down, so the window goes up by 19.2 of its 192 rows
+        controller.onTouchMove(0f, 1f, 0.1f)
+        val window = frames(1, frameMargin = 48)!!
+
+        assertEquals(-19.2f, window.offsetY, 0.01f)
+    }
+
+    @Test
+    fun withoutAMarginTheStickDownDoesNothing() {
+        controller.setSettings(WideCameraSettings(showWidth = 342, returnsToCenter = true))
+        frames(30)
+        controller.onSticks(0f, 1f, false)
+        val window = frames(60)!!
+
+        assertEquals(0f, window.y, 0f)
+        assertEquals(192f, window.height, 0f)
+        assertEquals(atRest, sent.last())
+    }
+
+    @Test
     fun aScriptHoldingNativeKeepsTheMiddle() {
         controller.setSettings(WideCameraSettings(showWidth = 342, returnsToCenter = true))
         controller.setScriptRequest(WideCameraRequest(holdNative = true))
@@ -170,6 +212,6 @@ class WideCameraControllerTest {
         val window = frames(60)!!
 
         assertEquals(1f, window.zoom, 0.0001f)
-        assertEquals(listOf(0f to 1f), sent)
+        assertEquals(listOf(atRest), sent)
     }
 }

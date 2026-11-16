@@ -69,7 +69,8 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     frame = 0;
     luaDrawingsInScreenshots = configuration->luaDrawingsInScreenshots;
     wideViewWidth = configuration->wideViewWidth;
-    requestedWideViewWidth = wideViewWidth;
+    wideViewMargin = configuration->wideViewMargin;
+    requestedWideView = packWideView(wideViewWidth, wideViewMargin);
 
     net->RegisterInstance(instanceId);
 
@@ -336,15 +337,27 @@ void MelonInstance::reset()
 
 u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 {
-    // A width change only needs the existing GL or Compute renderer told, since updateRenderer() applies it to one that's about to be set up again
-    int requestedWidth = requestedWideViewWidth.load(std::memory_order_relaxed);
-    if (requestedWidth != wideViewWidth)
+    // A width or margin change only needs the existing GL or Compute renderer told, since updateRenderer() applies them to one that's about to be
+    // set up again
+    u32 requestedView = requestedWideView.load(std::memory_order_relaxed);
+    int requestedWidth = (int) (requestedView & 0xFFFF);
+    int requestedMargin = (int) (requestedView >> 16);
+    if (requestedWidth != wideViewWidth || requestedMargin != wideViewMargin)
     {
         wideViewWidth = requestedWidth;
+        wideViewMargin = requestedMargin;
         if (!isRenderConfigurationDirty && currentRenderer == Renderer::OpenGl)
-            static_cast<GLRenderer&>(nds->GPU.GetRenderer3D()).SetViewWidth(wideViewWidth);
+        {
+            auto& glRenderer = static_cast<GLRenderer&>(nds->GPU.GetRenderer3D());
+            glRenderer.SetViewWidth(wideViewWidth);
+            glRenderer.SetViewMargin(wideViewMargin);
+        }
         else if (!isRenderConfigurationDirty && currentRenderer == Renderer::Compute)
-            static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D()).SetViewWidth(wideViewWidth);
+        {
+            auto& computeRenderer = static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D());
+            computeRenderer.SetViewWidth(wideViewWidth);
+            computeRenderer.SetViewMargin(wideViewMargin);
+        }
     }
 
     // Cleared first, so a configuration that arrives during updateRenderer() is applied on the next frame
@@ -379,9 +392,12 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     nds->GPU.OutputCapDeband = outputDeband;
 
     int screenWidth;
-    int screenHeight;
+    // The whole frame's height: the top screen's half (192 + 2 * margin rows), the 2 row gap and the bottom screen's 192, at the frame's scale
+    int frameHeight;
     // In DS pixels, with the 256 wide bottom screen centered under it between black bars when this is wider
     int topScreenWidth = 256;
+    // The WideMelon camera's rows above and below the top screen's 192, in DS pixels (always 0 on Software)
+    int topScreenMargin = 0;
     if (currentRenderer == Renderer::OpenGl)
     {
         auto& glRenderer = static_cast<GLRenderer &>(nds->GPU.GetRenderer3D());
@@ -391,8 +407,10 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         int scale = glRenderer.GetOutputScale();
         // The width the compositor draws this frame at, which can lag behind the requested one
         topScreenWidth = glRenderer.GetOutputWidth();
+        // Lags like the width, along with the compositor's layout
+        topScreenMargin = glRenderer.GetOutputMargin();
         screenWidth = topScreenWidth * scale;
-        screenHeight = (192 + 1) * scale;
+        frameHeight = (192 + 2 * topScreenMargin + 2 + 192) * scale;
     }
     else if (currentRenderer == Renderer::Compute)
     {
@@ -403,13 +421,14 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         int scale = computeRenderer.GetOutputScale();
         // Same as OpenGL, the compositor's width can lag behind the requested one
         topScreenWidth = computeRenderer.GetOutputWidth();
+        topScreenMargin = computeRenderer.GetOutputMargin();
         screenWidth = topScreenWidth * scale;
-        screenHeight = (192 + 1) * scale;
+        frameHeight = (192 + 2 * topScreenMargin + 2 + 192) * scale;
     }
     else
     {
         screenWidth = 256;
-        screenHeight = 192 + 1;
+        frameHeight = 192 + 2 + 192;
     }
 
     Frame* renderFrame = frameQueue.getRenderFrame();
@@ -429,8 +448,9 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     }
 
     // Validate frame after ensuring that the frame has finished presenting
-    frameQueue.validateRenderFrame(renderFrame, screenWidth, screenHeight * 2);
+    frameQueue.validateRenderFrame(renderFrame, screenWidth, frameHeight);
     renderFrame->topScreenWidth = topScreenWidth;
+    renderFrame->topScreenMargin = topScreenMargin;
 
     [[unlikely]] if (nds->GPU.GetRenderer3D().NeedsShaderCompile())
     {
@@ -982,6 +1002,7 @@ void MelonInstance::updateRenderer()
             auto& glRenderer = static_cast<GLRenderer&>(nds->GPU.GetRenderer3D());
             // Every time, since the renderer may be a new one at 256, and first so a new renderer's targets are only sized once
             glRenderer.SetViewWidth(wideViewWidth);
+            glRenderer.SetViewMargin(wideViewMargin);
             glRenderer.SetRenderSettings(glRenderSettings.betterPolygons, glRenderSettings.scale);
             break;
         }
@@ -991,6 +1012,7 @@ void MelonInstance::updateRenderer()
             auto& computeRenderer = static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D());
             // Like OpenGL, every time and first, so that a new renderer's shaders are only compiled once
             computeRenderer.SetViewWidth(wideViewWidth);
+            computeRenderer.SetViewMargin(wideViewMargin);
             computeRenderer.SetRenderSettings(computeRenderSettings.scale,computeRenderSettings.highResCoordinates);
             computeRenderer.SetColorDither(computeRenderSettings.colorDithering);
             break;

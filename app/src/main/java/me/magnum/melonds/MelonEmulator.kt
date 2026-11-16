@@ -148,9 +148,10 @@ object MelonEmulator {
     external fun updateLuaSticks(leftX: Float, leftY: Float, rightX: Float, rightY: Float)
 
     /**
-     * The WideMelon camera's window for melon.wide.camera(): its offset from center in DS pixels and its zoom (1 = native).
+     * The WideMelon camera's window for melon.wide.camera(): its offset from center in DS pixels, its zoom (1 = native) and its offset down from
+     * center in DS pixels.
      */
-    external fun updateWideCamera(x: Float, zoom: Float)
+    external fun updateWideCamera(x: Float, zoom: Float, y: Float)
 
 	fun loadRom(romUri: Uri, sramUri: Uri, gbaSlotType: GbaSlotType, gbaRomUri: Uri?, gbaSramUri: Uri?): LoadResult {
         val loadResult = loadRomInternal(romUri.toString(), sramUri.toString(), gbaSlotType.ordinal, gbaRomUri?.toString(), gbaSramUri?.toString())
@@ -302,9 +303,10 @@ object MelonEmulator {
     external fun updateMotionData(ax: Float, ay: Float, az: Float, rx: Float, ry: Float, rz: Float)
 
     /**
-     * Sets the top screen's 3D view width before the next frame (like EmulatorConfiguration.wideViewWidth, 0 for the normal width).
+     * Sets the top screen's 3D view width and the WideMelon camera's margin before the next frame (like EmulatorConfiguration.wideViewWidth and
+     * wideViewMargin, 0 for the normal width and no margin).
      */
-    external fun setWideViewWidth(width: Int)
+    external fun setWideView(width: Int, margin: Int)
 
     /**
      * Sets how many times the native size the screens are shown at, at most, over every surface (0 when unknown), for the output cap

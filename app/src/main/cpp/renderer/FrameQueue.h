@@ -33,13 +33,17 @@ struct Frame {
     // Width of the top screen in DS pixels: 256, or wider when WideMelon widens the 3D view (GL renderers only), with the 256 wide bottom screen
     // centered in the frame between black bars
     u32 topScreenWidth = 256;
+    // The WideMelon camera's margin (stage 2): rows of 3D above and below the top screen's 192, in DS pixels. The top screen's half of the
+    // texture is then 192 + 2 * topScreenMargin rows tall, with its DS line y at row y + topScreenMargin, followed by the 2 row gap and the
+    // bottom screen's 192 rows; 0 is the old 386 row layout. Software is always 0
+    u32 topScreenMargin = 0;
     // Lua drawings for this frame (scripting/LuaDraw.h) in the frame texture's layout at 2x and premultiplied, created once a frame has drawings and
     // kept when the frame is reused
     GLuint overlayTexture{};
     // Rows of the overlay texture with drawings, for the top and the bottom screen (no rows means no drawings on that screen this frame)
     TextureRows overlayRows[2]{};
     // GPU::Comp1x (melonDS::OutputLayout): bit 0 (top screen) and bit 1 (bottom screen) are screens the compositor drew at 1x into the first
-    // topScreenWidth x 192 texels of their own rows (from row screen * 194 * scaleAt1x), which are shown nearest-upscaled from there, while the
+    // topScreenWidth x (their half's height) texels of their own rows (from row 0, or (192 + 2 * topScreenMargin + 2) * scaleAt1x), which are shown nearest-upscaled from there, while the
     // rest of their rows hold older frames. Set only when the compositor draws into this frame's texture, so a frame pushed without a draw keeps
     // the layout of what the texture still holds; emulator thread only until the frame is pushed. halfScaleAt1x is the scale those screens were
     // drawn at (OutputLayout::HalfScale): 1, or with filtered 2D the filter map's, so the image is topScreenWidth x 192 at that scale and is

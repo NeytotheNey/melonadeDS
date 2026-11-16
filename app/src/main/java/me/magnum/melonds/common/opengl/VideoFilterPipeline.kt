@@ -2,7 +2,6 @@ package me.magnum.melonds.common.opengl
 
 import android.opengl.GLES30
 import android.util.Log
-import me.magnum.melonds.domain.model.FRAME_TEXTURE_HEIGHT
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import me.magnum.melonds.domain.model.render.TiltShift
 import java.nio.ByteBuffer
@@ -213,7 +212,10 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         val isReady = pass.prepareTarget(width, height)
         if (isReady) {
             GLES30.glViewport(0, 0, width, height)
-            pass.render(frame.textureId, width, height, frame.topScreenWidth, false, null, frame.halvesAt1x, frame.scaleAt1x, frame.halfScaleAt1x)
+            pass.render(
+                frame.textureId, width, height, frame.topScreenWidth, frame.topScreenHeight, false, null, frame.halvesAt1x, frame.scaleAt1x,
+                frame.halfScaleAt1x,
+            )
         }
         restoreState()
 
@@ -271,6 +273,8 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     private var inputTexture = 0
     private var inputWidth = 0
     private var inputHeight = 0
+    // The frame's top screen half height in DS pixels (PresentFrameWrapper.topScreenHeight), for the passes' shaders
+    private var inputTopScreenHeight = 0
     private var isStateSaved = false
 
     /**
@@ -319,10 +323,11 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         }
 
         // The width can't tell, since widescreen makes the frame wider without upscaling it
-        val isUpscaled = height > FRAME_TEXTURE_HEIGHT
+        val isUpscaled = height > frame.frameHeight
         inputTexture = frameTextureId
         inputWidth = width
         inputHeight = height
+        inputTopScreenHeight = frame.topScreenHeight
         isStateSaved = false
         var isComplete = true
         if (runsDeband) {
@@ -397,7 +402,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             return false
         }
         GLES30.glViewport(0, 0, outputWidth, outputHeight)
-        pass.render(inputTexture, inputWidth, inputHeight, topScreenWidth, isBottomScreenWide, tiltShift)
+        pass.render(inputTexture, inputWidth, inputHeight, topScreenWidth, inputTopScreenHeight, isBottomScreenWide, tiltShift)
         inputTexture = pass.texture
         inputWidth = outputWidth
         inputHeight = outputHeight
@@ -565,6 +570,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             inputWidth: Int,
             inputHeight: Int,
             topScreenWidth: Int,
+            topScreenHeight: Int,
             isBottomScreenWide: Boolean,
             tiltShift: TiltShift?,
             halvesAt1x: Int = 0,
@@ -584,6 +590,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             GLES30.glUniform1i(shader.uniformTex, 0)
             shader.setTextureSize(inputWidth, inputHeight)
             shader.setTopScreenWidth(topScreenWidth)
+            shader.setTopScreenHeight(topScreenHeight)
             shader.setBottomScreenWide(isBottomScreenWide)
             if (tiltShift != null) {
                 shader.setTiltShift(tiltShift)

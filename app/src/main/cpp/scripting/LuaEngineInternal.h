@@ -99,10 +99,12 @@ struct LuaWideCamera
 {
     // set_zoom(): the zoom factor, or negative for the player's
     float zoom = -1.0f;
-    // pan(): the window's offset from center in DS pixels, if hasPan
+    // pan(): the window's offset from center in DS pixels, if hasPan, and down from center, if hasPanY
     bool hasPan = false;
     float pan = 0.0f;
     bool holdNative = false;
+    bool hasPanY = false;
+    float panY = 0.0f;
 
     bool operator==(const LuaWideCamera&) const = default;
 };

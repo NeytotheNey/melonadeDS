@@ -241,10 +241,10 @@ namespace MelonDSAndroid
             instance->updateMotionData(ax, ay, az, rx, ry, rz);
     }
 
-    void setWideViewWidth(int width)
+    void setWideView(int width, int margin)
     {
         if (instance)
-            instance->setWideViewWidth(width);
+            instance->setWideView(width, margin);
     }
 
     void setLuaScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent, bool areStateLoadsAllowed)
@@ -289,10 +289,10 @@ namespace MelonDSAndroid
             instance->updateLuaSticks(leftX, leftY, rightX, rightY);
     }
 
-    void updateWideCamera(float x, float zoom)
+    void updateWideCamera(float x, float zoom, float y)
     {
         if (instance)
-            instance->updateWideCamera(x, zoom);
+            instance->updateWideCamera(x, zoom, y);
     }
 
     void start()

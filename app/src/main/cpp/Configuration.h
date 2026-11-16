@@ -116,6 +116,8 @@ typedef struct
     // WideMelon: width of the top screen's 3D view (even, 256..768; anything else, 0 when it's off, means 256), on the OpenGL and compute renderers
     // only
     int wideViewWidth;
+    // WideMelon camera, stage 2: 3D rows rendered above and below the top screen's 192 (0..128, 0 when the camera is off), with wideViewWidth
+    int wideViewMargin;
     SdCardSettings dsiSdCardSettings;
     SdCardSettings dldiSdCardSettings;
     Renderer renderer;

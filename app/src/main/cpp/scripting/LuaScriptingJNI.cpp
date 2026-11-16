@@ -291,9 +291,9 @@ Java_me_magnum_melonds_MelonEmulator_updateLuaSticks(JNIEnv* env, jobject thiz, 
 }
 
 JNIEXPORT void JNICALL
-Java_me_magnum_melonds_MelonEmulator_updateWideCamera(JNIEnv* env, jobject thiz, jfloat x, jfloat zoom)
+Java_me_magnum_melonds_MelonEmulator_updateWideCamera(JNIEnv* env, jobject thiz, jfloat x, jfloat zoom, jfloat y)
 {
-    MelonDSAndroid::updateWideCamera(x, zoom);
+    MelonDSAndroid::updateWideCamera(x, zoom, y);
 }
 
 }

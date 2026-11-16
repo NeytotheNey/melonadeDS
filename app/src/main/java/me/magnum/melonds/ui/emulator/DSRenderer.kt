@@ -13,7 +13,6 @@ import me.magnum.melonds.common.opengl.ShaderProgramSource
 import me.magnum.melonds.common.opengl.VideoFilterPipeline
 import me.magnum.melonds.common.opengl.VideoFilterShaderProvider
 import me.magnum.melonds.common.opengl.shouldFoldDeband
-import me.magnum.melonds.domain.model.FRAME_TEXTURE_HEIGHT
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.RuntimeBackground
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
@@ -23,6 +22,7 @@ import me.magnum.melonds.domain.model.camera.WideWindow
 import me.magnum.melonds.domain.model.layout.BackgroundMode
 import me.magnum.melonds.domain.model.layout.OverlayDrawing
 import me.magnum.melonds.domain.model.layout.getScreensDrawing
+import me.magnum.melonds.domain.model.render.FrameTextureLayout
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_BOTTOM
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_TOP
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
@@ -112,6 +112,9 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     @Volatile
     var frameTopScreenWidth = SCREEN_WIDTH
         private set
+    // The rows of the frame the quads were built for, which the WideMelon camera's margin (PresentFrameWrapper.topScreenMargin) makes taller;
+    // GL thread only
+    private var frameLayout = FrameTextureLayout(0)
     // The WideMelon camera's window the quads were built for, null without one; GL thread writes, touch input reads
     @Volatile
     var frameWideWindow: WideWindow? = null
@@ -316,13 +319,15 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         //   3                         5
         // Texture is vertically flipped
 
-        // The texture has 2 empty lines between the screens (SCREEN_GAP), one on each side of the middle
-        val lineRelativeSize = 1f / FRAME_TEXTURE_HEIGHT.toFloat()
-        val topScreenBottomV = 0.5f - lineRelativeSize
-        val bottomScreenTopV = 0.5f + lineRelativeSize
+        // The texture has 2 empty lines between the screens (SCREEN_GAP), and the top screen's half is taller by the camera's margin (stage 2):
+        // see FrameTextureLayout. The Lua overlay keeps the old layout at any margin
+        val layout = frameLayout
+        val overlayLayout = FrameTextureLayout.OVERLAY
 
         // Lay out both screens for the current frame width, swap and wide-layout flags (see getScreensDrawing)
-        val drawing = getScreensDrawing(topScreenRect, bottomScreenRect, frameTopScreenWidth, isWideLayout, areScreensSwapped, width, frameWideWindow)
+        val drawing = getScreensDrawing(
+            topScreenRect, bottomScreenRect, frameTopScreenWidth, isWideLayout, areScreensSwapped, width, frameWideWindow, layout.topScreenMargin,
+        )
         isBottomScreenWideInQuads = areScreensSwapped
         val topScreen = drawing.topScreen
         val bottomScreen = drawing.bottomScreen
@@ -351,16 +356,20 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         vertexBuffer.clear()
         screenQuadScreens.forEach {
             if (it == OVERLAY_SCREEN_TOP) {
-                putQuad(vertexBuffer, topScreen!!.drawRect, topScreen.leftU, topScreen.rightU, 0f, topScreenBottomV, topAlpha)
+                val topV = layout.topScreenV(topScreen!!.topRow)
+                val bottomV = layout.topScreenV(topScreen.bottomRow)
+                putQuad(vertexBuffer, topScreen.drawRect, topScreen.leftU, topScreen.rightU, topV, bottomV, topAlpha)
             } else {
-                putQuad(vertexBuffer, bottomScreen!!.drawRect, bottomScreen.leftU, bottomScreen.rightU, bottomScreenTopV, 1f, bottomAlpha)
+                val topV = layout.bottomScreenV(bottomScreen!!.topRow)
+                val bottomV = layout.bottomScreenV(bottomScreen.bottomRow)
+                putQuad(vertexBuffer, bottomScreen.drawRect, bottomScreen.leftU, bottomScreen.rightU, topV, bottomV, bottomAlpha)
             }
         }
         screenQuadScreens.forEach {
             if (it == OVERLAY_SCREEN_TOP) {
-                putOverlayQuad(vertexBuffer, topScreen!!.overlay, 0f, topScreenBottomV, topAlpha)
+                putOverlayQuad(vertexBuffer, topScreen!!.overlay, 0f, overlayLayout.topScreenBottomV, topAlpha)
             } else {
-                putOverlayQuad(vertexBuffer, bottomScreen!!.overlay, bottomScreenTopV, 1f, bottomAlpha)
+                putOverlayQuad(vertexBuffer, bottomScreen!!.overlay, overlayLayout.bottomScreenTopV, 1f, bottomAlpha)
             }
         }
         val usedBytes = vertexBuffer.position() * Float.SIZE_BYTES
@@ -405,10 +414,19 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     }
 
     /**
-     * A screen's Lua drawings quad: [overlay]'s place and columns, rows [topV] to [bottomV] of the overlay texture
+     * A screen's Lua drawings quad: [overlay]'s place, columns and the part of its screen's rows ([topV] to [bottomV] of the overlay texture)
      */
     private fun putOverlayQuad(buffer: FloatBuffer, overlay: OverlayDrawing, topV: Float, bottomV: Float, alpha: Float) {
-        putQuad(buffer, overlay.left, overlay.top, overlay.right, overlay.bottom, overlay.leftU, overlay.rightU, topV, bottomV, alpha)
+        val rowsTopV = lerpV(topV, bottomV, overlay.topV)
+        val rowsBottomV = lerpV(topV, bottomV, overlay.bottomV)
+        putQuad(buffer, overlay.left, overlay.top, overlay.right, overlay.bottom, overlay.leftU, overlay.rightU, rowsTopV, rowsBottomV, alpha)
+    }
+
+    // start to end at t (0 to 1), landing on the ends exactly
+    private fun lerpV(start: Float, end: Float, t: Float): Float = when {
+        t <= 0f -> start
+        t >= 1f -> end
+        else -> start + (end - start) * t
     }
 
     private fun putQuad(
@@ -556,6 +574,11 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
                 frameTopScreenWidth = presentFrameWrapper.topScreenWidth
                 mustUpdateConfiguration = true
             }
+            // And the rows of its layout, which the camera's margin makes taller
+            if (presentFrameWrapper.isValidFrame && presentFrameWrapper.topScreenMargin != frameLayout.topScreenMargin) {
+                frameLayout = FrameTextureLayout(presentFrameWrapper.topScreenMargin)
+                mustUpdateConfiguration = true
+            }
             // And the camera's window, which moves every frame while it eases or pans: then only the quads are filled again (and the shadows if
             // a screen's drawn rect changed)
             var hasWindowMoved = false
@@ -674,6 +697,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         useScreenQuadShader(shader, textureId)
         shader.setTextureSize(textureWidth, textureHeight)
         shader.setTopScreenWidth(frame.topScreenWidth)
+        shader.setTopScreenHeight(frame.topScreenHeight)
         shader.setBottomScreenWide(isBottomScreenWideInQuads)
         shader.setHalvesAt1x(frame.halvesAt1x, frame.scaleAt1x, frame.halfScaleAt1x)
     }

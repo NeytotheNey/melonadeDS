@@ -1,5 +1,6 @@
 package me.magnum.melonds.domain.model.camera
 
+import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import kotlin.math.abs
 import kotlin.math.exp
@@ -7,33 +8,57 @@ import kotlin.math.floor
 import kotlin.math.sign
 
 /**
- * The part of a [frameWidth]-wide frame (the render width, Wr) the wide screen shows: columns [x, x + width) in DS pixels. [showWidth] is the
- * layout's width (Wd), the one the screen's rect is shaped for; a window wider than it is shown letterboxed top and bottom.
+ * The part of a [frameWidth] x [frameHeight] frame (the render width Wr, and the render height Hr = SCREEN_HEIGHT + 2 margin rows) the wide
+ * screen shows: columns [x, x + width) and rows [y, y + height) of the top screen's half, in DS pixels. [showWidth] is the layout's width (Wd),
+ * the one the screen's rect is shaped for; a window wider than its height covers (because the margin can't cover it) is shown letterboxed top
+ * and bottom.
  */
-data class WideWindow(val showWidth: Int, val frameWidth: Int, val x: Float, val width: Float) {
+data class WideWindow(
+    val showWidth: Int,
+    val frameWidth: Int,
+    val x: Float,
+    val width: Float,
+    val frameHeight: Int = SCREEN_HEIGHT,
+    val y: Float = 0f,
+    val height: Float = SCREEN_HEIGHT.toFloat(),
+) {
 
     // The window's offset from the frame's center in DS pixels, what melon.wide.camera() calls x
     val offset get() = x + width / 2f - frameWidth / 2f
 
+    // The same down the frame (down is positive), melon.wide.camera()'s y
+    val offsetY get() = y + height / 2f - frameHeight / 2f
+
     // 1 at the show width, more when zoomed out
     val zoom get() = width / showWidth
 
+    // The frame's rows above (and below) the top screen's SCREEN_HEIGHT, so its DS line 0 is row margin
+    val margin get() = (frameHeight - SCREEN_HEIGHT) / 2
+
     companion object {
         /**
-         * The middle [showWidth] columns, which looks exactly like a frame rendered at [showWidth]
+         * The middle [showWidth] columns and SCREEN_HEIGHT rows, which looks exactly like a frame rendered at [showWidth] with no margin
          */
-        fun centered(showWidth: Int, frameWidth: Int): WideWindow {
-            return WideWindow(showWidth, frameWidth, (frameWidth - showWidth) / 2f, showWidth.toFloat())
+        fun centered(showWidth: Int, frameWidth: Int, frameHeight: Int = SCREEN_HEIGHT): WideWindow {
+            return WideWindow(
+                showWidth,
+                frameWidth,
+                (frameWidth - showWidth) / 2f,
+                showWidth.toFloat(),
+                frameHeight,
+                (frameHeight - SCREEN_HEIGHT) / 2f,
+                SCREEN_HEIGHT.toFloat(),
+            )
         }
     }
 }
 
 /**
- * What the running scripts ask of the camera with melon.wide (LuaWideCameraRequests picks it): a zoom and a pan that replace the player's, null to
- * leave them to the player, and whether to stay at 1x in the middle.
+ * What the running scripts ask of the camera with melon.wide (LuaWideCameraRequests picks it): a zoom and a pan on each axis that replace the
+ * player's, null to leave them to the player, and whether to stay at 1x in the middle.
  */
-data class WideCameraRequest(val zoom: Float? = null, val pan: Float? = null, val holdNative: Boolean = false) {
-    val isOff get() = zoom == null && pan == null && !holdNative
+data class WideCameraRequest(val zoom: Float? = null, val pan: Float? = null, val holdNative: Boolean = false, val panY: Float? = null) {
+    val isOff get() = zoom == null && pan == null && panY == null && !holdNative
 
     companion object {
         val NONE = WideCameraRequest()
@@ -47,12 +72,14 @@ data class WideCameraRequest(val zoom: Float? = null, val pan: Float? = null, va
  * @param frameWidth The frame's width (Wr, what the core renders at)
  * @param topWingLines The DS top screen's lines with 3D wings this frame, the dual-screen wing hold's held lines included
  * @param areScreensSwapped Whether the DS bottom screen is the wide one, which keeps the camera at 1x
+ * @param frameMargin The frame's rows of 3D above and below the top screen (camera stage 2), so it's SCREEN_HEIGHT + 2 * frameMargin tall
  */
 data class WideCameraFrame(
     val showWidth: Int,
     val frameWidth: Int,
     val topWingLines: Int,
     val areScreensSwapped: Boolean,
+    val frameMargin: Int = 0,
 )
 
 /**
@@ -65,6 +92,8 @@ data class WideCameraFrame(
  * @param pinchScale How much a pinch spread the fingers (above 1) or closed them, multiplied over the frame
  * @param isTouching Whether a finger is on the wide screen
  * @param isPlayerMoving Whether the D-pad or the left stick is held
+ * @param stickY The right stick's Y, -1 to 1 (down is positive), before the dead zone
+ * @param dragFractionY How far a touch dragged the picture down, as a fraction of its drawn height
  */
 data class WideCameraInput(
     var stickX: Float = 0f,
@@ -73,21 +102,25 @@ data class WideCameraInput(
     var pinchScale: Float = 1f,
     var isTouching: Boolean = false,
     var isPlayerMoving: Boolean = false,
+    var stickY: Float = 0f,
+    var dragFractionY: Float = 0f,
 )
 
 /**
- * The WideMelon camera (docs/plan-widemelon.md, "Camera: pan and zoom"): which window of the render-width frame the wide screen shows. The game's
- * own camera never moves; zooming out widens the window up to the render width and panning slides it, clamped to the frame. No Android here, so
- * it's unit-tested; not thread-safe (WideCameraController locks around it).
+ * The WideMelon camera (docs/plan-widemelon.md, "Camera: pan and zoom"): which window of the render-size frame the wide screen shows. The game's
+ * own camera never moves; zooming out widens the window up to the render width (and heightens it into the margin rows, stage 2) and panning
+ * slides it, clamped to the frame. No Android here, so it's unit-tested; not thread-safe (WideCameraController locks around it).
  */
 class WideCamera {
 
     // The player's zoom and pan, which the shown ones ease toward; a script's request replaces them while it lasts and leaves them where it was
     private var targetZoom = 1f
     private var targetPan = 0f
+    private var targetPanY = 0f
     // What's shown
     private var zoom = 1f
     private var pan = 0f
+    private var panY = 0f
     // How long the frame has been free to leave 1x, so a frame or two of wings after a menu doesn't zoom back out
     private var freeSeconds = 0f
     // The last window handed out, handed out again while nothing moves
@@ -102,7 +135,7 @@ class WideCamera {
     var returnsToCenter = true
 
     fun update(frame: WideCameraFrame, input: WideCameraInput, request: WideCameraRequest, deltaSeconds: Float): WideWindow? {
-        return update(frame.showWidth, frame.frameWidth, frame.topWingLines, frame.areScreensSwapped, input, request, deltaSeconds)
+        return update(frame.showWidth, frame.frameWidth, frame.frameMargin, frame.topWingLines, frame.areScreensSwapped, input, request, deltaSeconds)
     }
 
     /**
@@ -112,6 +145,7 @@ class WideCamera {
     fun update(
         showWidth: Int,
         frameWidth: Int,
+        frameMargin: Int,
         topWingLines: Int,
         areScreensSwapped: Boolean,
         input: WideCameraInput,
@@ -121,12 +155,12 @@ class WideCamera {
         if (showWidth <= SCREEN_WIDTH || frameWidth <= showWidth) {
             // A frame from before the wide one (at launch, or a width change on its way): back to the middle, keeping the player's zoom
             zoom = 1f
-            pan = 0f
-            targetPan = 0f
+            resetPan()
             freeSeconds = 0f
             return null
         }
 
+        val frameHeight = SCREEN_HEIGHT + 2 * frameMargin.coerceAtLeast(0)
         val dt = deltaSeconds.coerceIn(0f, MAX_DELTA_SECONDS)
         val maxZoom = frameWidth / showWidth.toFloat()
         // The hotkey's presses count even while 1x is held (in a menu, say), so the picked step shows once the hold ends; while a script sets
@@ -144,14 +178,13 @@ class WideCamera {
         if (isHeldNative) {
             // Straight to 1x and the middle, since the wings are black or don't belong to this screen; the player's zoom comes back after
             zoom = 1f
-            pan = 0f
-            targetPan = 0f
+            resetPan()
             freeSeconds = 0f
-            return getWindow(showWidth, frameWidth, (frameWidth - showWidth) / 2f, showWidth.toFloat())
+            return getCenteredWindow(showWidth, frameWidth, frameHeight)
         }
         freeSeconds += dt
         if (freeSeconds < RESUME_SECONDS) {
-            return getWindow(showWidth, frameWidth, (frameWidth - showWidth) / 2f, showWidth.toFloat())
+            return getCenteredWindow(showWidth, frameWidth, frameHeight)
         }
 
         // Zoom: the script's, or the player's pinches (the hotkey's steps are in above)
@@ -164,33 +197,40 @@ class WideCamera {
         // A pinch follows the fingers
         zoom = if (input.isTouching && request.zoom == null) targetZoom else approach(zoom, targetZoom, ZOOM_SECONDS, dt, ZOOM_SNAP)
 
-        // Pan: the script's, or the stick, a drag and the drift back to the middle
-        val isStickIdle = abs(input.stickX) <= STICK_DEAD_ZONE
+        // Pan, each axis on its own: the script's, or the stick, a drag and the drift back to the middle
+        val isStickIdle = abs(input.stickX) <= STICK_DEAD_ZONE && abs(input.stickY) <= STICK_DEAD_ZONE
+        val isReturning = returnsToCenter && isStickIdle && !input.isTouching && input.isPlayerMoving
+        val returnFactor = if (isReturning) exp(-dt / RETURN_SECONDS) else 1f
         if (request.pan != null) {
             targetPan = request.pan
         } else {
-            if (!isStickIdle) {
-                val strength = (abs(input.stickX) - STICK_DEAD_ZONE) / (1f - STICK_DEAD_ZONE)
-                targetPan += sign(input.stickX) * strength.coerceAtMost(1f) * PAN_SPEED * dt
-            }
+            targetPan += getStickPan(input.stickX, dt)
             // The picture follows the finger, so the window moves the other way
             targetPan -= input.dragFraction * showWidth * zoom
-            if (returnsToCenter && isStickIdle && !input.isTouching && input.isPlayerMoving) {
-                targetPan *= exp(-dt / RETURN_SECONDS)
-                // Landing on the middle exactly, where the picture is the same as without a camera
-                if (abs(targetPan) < 0.01f) {
-                    targetPan = 0f
-                }
-            }
+            targetPan = returnToCenter(targetPan, returnFactor)
+        }
+        if (request.panY != null) {
+            targetPanY = request.panY
+        } else {
+            targetPanY += getStickPan(input.stickY, dt)
+            // A drag is a fraction of the picture's height, which shows the window's rows
+            targetPanY -= input.dragFractionY * getWindowHeight(frameHeight, zoom)
+            targetPanY = returnToCenter(targetPanY, returnFactor)
         }
         targetPan = targetPan.coerceIn(-getMaxPan(showWidth, frameWidth, targetZoom), getMaxPan(showWidth, frameWidth, targetZoom))
+        targetPanY = targetPanY.coerceIn(-getMaxPanY(frameHeight, targetZoom), getMaxPanY(frameHeight, targetZoom))
         pan = if (input.isTouching && request.pan == null) targetPan else approach(pan, targetPan, PAN_SECONDS, dt, PAN_SNAP)
+        panY = if (input.isTouching && request.panY == null) targetPanY else approach(panY, targetPanY, PAN_SECONDS, dt, PAN_SNAP)
         val maxPan = getMaxPan(showWidth, frameWidth, zoom)
         pan = pan.coerceIn(-maxPan, maxPan)
+        val maxPanY = getMaxPanY(frameHeight, zoom)
+        panY = panY.coerceIn(-maxPanY, maxPanY)
 
         val width = (showWidth * zoom).coerceAtMost(frameWidth.toFloat())
         val x = ((frameWidth - width) / 2f + pan).coerceIn(0f, frameWidth - width)
-        return getWindow(showWidth, frameWidth, x, width)
+        val height = getWindowHeight(frameHeight, zoom)
+        val y = ((frameHeight - height) / 2f + panY).coerceIn(0f, frameHeight - height)
+        return getWindow(showWidth, frameWidth, x, width, frameHeight, y, height)
     }
 
     /**
@@ -207,13 +247,33 @@ class WideCamera {
         return pickedZoom.also { pickedZoom = null }
     }
 
+    private fun resetPan() {
+        pan = 0f
+        targetPan = 0f
+        panY = 0f
+        targetPanY = 0f
+    }
+
+    private fun getCenteredWindow(showWidth: Int, frameWidth: Int, frameHeight: Int): WideWindow {
+        return getWindow(
+            showWidth,
+            frameWidth,
+            (frameWidth - showWidth) / 2f,
+            showWidth.toFloat(),
+            frameHeight,
+            (frameHeight - SCREEN_HEIGHT) / 2f,
+            SCREEN_HEIGHT.toFloat(),
+        )
+    }
+
     // The last window again if it's the same, so a camera at rest allocates nothing
-    private fun getWindow(showWidth: Int, frameWidth: Int, x: Float, width: Float): WideWindow {
+    private fun getWindow(showWidth: Int, frameWidth: Int, x: Float, width: Float, frameHeight: Int, y: Float, height: Float): WideWindow {
         val last = lastWindow
-        if (last != null && last.showWidth == showWidth && last.frameWidth == frameWidth && last.x == x && last.width == width) {
+        if (last != null && last.showWidth == showWidth && last.frameWidth == frameWidth && last.x == x && last.width == width &&
+            last.frameHeight == frameHeight && last.y == y && last.height == height) {
             return last
         }
-        return WideWindow(showWidth, frameWidth, x, width).also { lastWindow = it }
+        return WideWindow(showWidth, frameWidth, x, width, frameHeight, y, height).also { lastWindow = it }
     }
 
     /**
@@ -222,9 +282,8 @@ class WideCamera {
     fun reset() {
         pickedZoom = null
         targetZoom = 1f
-        targetPan = 0f
         zoom = 1f
-        pan = 0f
+        resetPan()
         freeSeconds = 0f
     }
 
@@ -265,6 +324,40 @@ class WideCamera {
          */
         fun getMaxPan(showWidth: Int, frameWidth: Int, zoom: Float): Float {
             return ((frameWidth - showWidth * zoom) / 2f).coerceAtLeast(0f)
+        }
+
+        /**
+         * How far a window at [zoom] can sit off center vertically in a [frameHeight]-tall frame (none without a margin)
+         */
+        fun getMaxPanY(frameHeight: Int, zoom: Float): Float {
+            return ((frameHeight - SCREEN_HEIGHT * zoom) / 2f).coerceAtLeast(0f)
+        }
+
+        /**
+         * The rows a window at [zoom] shows of a [frameHeight]-tall frame: as many as keep the DS's pixel shape, at most the frame's (the rest is
+         * letterboxed)
+         */
+        fun getWindowHeight(frameHeight: Int, zoom: Float): Float {
+            return (SCREEN_HEIGHT * zoom).coerceAtMost(frameHeight.toFloat())
+        }
+
+        // DS pixels the stick moves the pan by over dt, 0 inside the dead zone
+        private fun getStickPan(stick: Float, dt: Float): Float {
+            if (abs(stick) <= STICK_DEAD_ZONE) {
+                return 0f
+            }
+            val strength = (abs(stick) - STICK_DEAD_ZONE) / (1f - STICK_DEAD_ZONE)
+            return sign(stick) * strength.coerceAtMost(1f) * PAN_SPEED * dt
+        }
+
+        // The pan drifted back toward the middle by [factor] (1 for no drift), landing on the middle exactly, where the picture is the same as
+        // without a camera
+        private fun returnToCenter(pan: Float, factor: Float): Float {
+            if (factor == 1f) {
+                return pan
+            }
+            val next = pan * factor
+            return if (abs(next) < 0.01f) 0f else next
         }
 
         /**

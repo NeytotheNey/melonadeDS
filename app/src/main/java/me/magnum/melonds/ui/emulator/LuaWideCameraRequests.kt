@@ -4,8 +4,8 @@ import me.magnum.melonds.domain.model.camera.WideCameraRequest
 
 /**
  * What scripts ask of the WideMelon camera with melon.wide, with the same rules as [LuaTiltShiftRequests], taken a part at a time: the zoom and
- * the pan each come from the script that changed its requests most recently among those asking for one, and 1x is held while any script holds
- * it. A script asking for nothing drops its request, and a stopped script's requests go away. Main thread only.
+ * each axis of the pan come from the script that changed its requests most recently among those asking for one, and 1x is held while any script
+ * holds it. A script asking for nothing drops its request, and a stopped script's requests go away. Main thread only.
  */
 class LuaWideCameraRequests {
 
@@ -22,6 +22,7 @@ class LuaWideCameraRequests {
             zoom = requests.values.lastOrNull { it.zoom != null }?.zoom,
             pan = requests.values.lastOrNull { it.pan != null }?.pan,
             holdNative = requests.values.any { it.holdNative },
+            panY = requests.values.lastOrNull { it.panY != null }?.panY,
         )
 
     /**

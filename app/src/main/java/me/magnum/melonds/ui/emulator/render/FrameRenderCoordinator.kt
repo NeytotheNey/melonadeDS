@@ -144,6 +144,7 @@ class FrameRenderCoordinator {
                 frameTextureWidth: Int,
                 frameTextureHeight: Int,
                 topScreenWidth: Int,
+                topScreenMargin: Int,
                 overlayTextureId: Int,
                 overlayScreens: Int,
                 halvesAt1x: Int,
@@ -160,6 +161,7 @@ class FrameRenderCoordinator {
                     this.textureWidth = frameTextureWidth
                     this.textureHeight = frameTextureHeight
                     this.topScreenWidth = topScreenWidth
+                    this.topScreenMargin = topScreenMargin
                     this.overlayTextureId = overlayTextureId
                     this.overlayScreens = overlayScreens
                     this.halvesAt1x = halvesAt1x
@@ -167,7 +169,7 @@ class FrameRenderCoordinator {
                     this.halfScaleAt1x = halfScaleAt1x
                     this.frameSequence = frameSequence
                     // Moved once per presented frame, here, so every surface shows the same window
-                    this.wideWindow = if (isValidFrame) wideCameraController?.onFrame(renderStart, topScreenWidth, topWingLines) else null
+                    this.wideWindow = if (isValidFrame) wideCameraController?.onFrame(renderStart, topScreenWidth, topScreenMargin, topWingLines) else null
                 }
 
                 // debug.melonade.comp1x: the emulator only draws screens at 1x while every surface can show them. The output cap (on by

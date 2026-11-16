@@ -21,6 +21,17 @@ class LuaWideCameraRequestsTest {
     }
 
     @Test
+    fun eachAxisOfThePanComesFromTheNewestScriptAskingForIt() {
+        val requests = LuaWideCameraRequests()
+        requests.onScriptRequest(0, WideCameraRequest(pan = 10f, panY = 20f))
+        // pan(30) with y left out: y stays the older script's
+        assertEquals(WideCameraRequest(pan = 30f, panY = 20f), requests.onScriptRequest(1, WideCameraRequest(pan = 30f)))
+        assertEquals(WideCameraRequest(pan = 10f, panY = 20f), requests.onScriptStopped(1))
+        // Only a vertical pan still counts as a request
+        assertEquals(WideCameraRequest(panY = -5f), requests.onScriptRequest(0, WideCameraRequest(panY = -5f)))
+    }
+
+    @Test
     fun zoomAndPanCanComeFromDifferentScripts() {
         val requests = LuaWideCameraRequests()
         requests.onScriptRequest(0, zoomOut)

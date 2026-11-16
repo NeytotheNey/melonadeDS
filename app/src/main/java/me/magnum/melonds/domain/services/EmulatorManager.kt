@@ -24,6 +24,7 @@ interface EmulatorManager {
      * @param luaScriptFolder The game's linked script folder, or null if none is linked
      * @param areLuaStateLoadsAllowed Whether the scripts may load savestates (false in RetroAchievements hardcore)
      * @param wideViewWidth The width the game starts at (WidescreenLaunch.viewWidth), or 0 for the normal width
+     * @param wideViewMargin The WideMelon camera's margin it starts with (WidescreenLaunch.getRenderMargin), or 0
      */
     suspend fun loadRom(
         rom: Rom,
@@ -32,6 +33,7 @@ interface EmulatorManager {
         luaScriptFolder: Uri?,
         areLuaStateLoadsAllowed: Boolean,
         wideViewWidth: Int,
+        wideViewMargin: Int = 0,
     ): RomLaunchResult
 
     /**
@@ -69,9 +71,10 @@ interface EmulatorManager {
     suspend fun updateRomEmulatorConfiguration(rom: Rom)
 
     /**
-     * Changes the running game's widescreen width (0 for the normal width), when the layout shown asks for another one
+     * Changes the running game's widescreen width (0 for the normal width) and the WideMelon camera's margin (0 for none), when the layout shown
+     * asks for others
      */
-    fun setWideViewWidth(width: Int)
+    fun setWideView(width: Int, margin: Int)
 
     suspend fun updateFirmwareEmulatorConfiguration(consoleType: ConsoleType)
 

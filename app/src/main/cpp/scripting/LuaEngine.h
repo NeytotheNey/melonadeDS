@@ -203,9 +203,10 @@ public:
      */
     void updateSticks(float leftX, float leftY, float rightX, float rightY);
     /**
-     * The WideMelon camera's window as melon.wide.camera() returns it: its offset from center in DS pixels and its zoom (1 = native)
+     * The WideMelon camera's window as melon.wide.camera() returns it: its offset from center in DS pixels, its zoom (1 = native) and its
+     * offset down from center in DS pixels
      */
-    void updateWideCamera(float x, float zoom);
+    void updateWideCamera(float x, float zoom, float y);
     /**
      * What the scripts drew for the frame [endFrame] was last called for, empty while no script runs
      */
@@ -305,8 +306,8 @@ private:
     std::vector<ScriptSwitch> pendingScriptSwitches;
     std::atomic_bool isScriptSwitchPending = false;
     std::atomic<float> sticks[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    // updateWideCamera()'s x and zoom
-    std::atomic<float> wideCamera[2] = { 0.0f, 1.0f };
+    // updateWideCamera()'s x, zoom and y
+    std::atomic<float> wideCamera[3] = { 0.0f, 1.0f, 0.0f };
 };
 
 }

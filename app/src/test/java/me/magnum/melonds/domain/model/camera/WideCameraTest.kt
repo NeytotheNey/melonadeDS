@@ -300,4 +300,134 @@ class WideCameraTest {
         val window = camera.update(frame, WideCameraInput(stickX = 1f, isTouching = true), WideCameraRequest.NONE, 5f)!!
         assertEquals(WideCamera.PAN_SPEED * WideCamera.MAX_DELTA_SECONDS, window.offset, 0.01f)
     }
+
+    // Stage 2: the same frame with 48 rows of margin above and below the top screen, 288 rows in all (what 342 shown from 512 gets)
+    private val tallFrame = frame.copy(frameMargin = 48)
+    private val tallCentered = WideWindow.centered(342, 512, 288)
+
+    private fun settleTall(camera: WideCamera, input: WideCameraInput = WideCameraInput(), request: WideCameraRequest = WideCameraRequest.NONE): WideWindow? {
+        var window: WideWindow? = null
+        repeat(60) { window = camera.update(tallFrame, input, request, 0.05f) }
+        return window
+    }
+
+    @Test
+    fun withoutAMarginTheWindowKeepsTheScreensRowsAtEveryZoom() {
+        val camera = readyCamera()
+        camera.update(frame, WideCameraInput(zoomPresses = 2), WideCameraRequest.NONE, 0.016f)
+        val window = settle(camera, WideCameraInput(stickY = 1f))!!
+
+        assertEquals(512f, window.width, 0.01f)
+        // Exactly the 192 rows, so the screen letterboxes as in stage 1
+        assertEquals(192, window.frameHeight)
+        assertEquals(0f, window.y, 0f)
+        assertEquals(192f, window.height, 0f)
+        assertEquals(0f, window.offsetY, 0f)
+    }
+
+    @Test
+    fun atRestTheTallWindowIsTheMiddleRows() {
+        val camera = readyCamera()
+        val window = settleTall(camera)!!
+
+        assertEquals(tallCentered, window)
+        assertEquals(48f, window.y, 0f)
+        assertEquals(192f, window.height, 0f)
+        assertEquals(48, window.margin)
+    }
+
+    @Test
+    fun zoomingOutGrowsTheWindowsRowsIntoTheMargin() {
+        val camera = readyCamera()
+        camera.update(tallFrame, WideCameraInput(zoomPresses = 2), WideCameraRequest.NONE, 0.016f)
+        val window = settleTall(camera)!!
+
+        assertEquals(512f, window.width, 0.01f)
+        // 192 * 512 / 342 rows, under the frame's 288, centered
+        assertEquals(192f * 512f / 342f, window.height, 0.01f)
+        assertEquals(0f, window.offsetY, 0.01f)
+        assertTrue(window.y >= 0f && window.y + window.height <= 288f)
+    }
+
+    @Test
+    fun aMarginTooSmallForTheZoomStopsAtTheFrame() {
+        val camera = readyCamera()
+        camera.update(frame.copy(frameMargin = 20), WideCameraInput(zoomPresses = 2), WideCameraRequest.NONE, 0.016f)
+        var window: WideWindow? = null
+        repeat(60) { window = camera.update(frame.copy(frameMargin = 20), WideCameraInput(), WideCameraRequest.NONE, 0.05f) }
+
+        // All 232 rows, and the rest is letterboxed
+        assertEquals(0f, window!!.y, 0f)
+        assertEquals(232f, window!!.height, 0f)
+    }
+
+    @Test
+    fun theStickPansVerticallyAndStopsAtTheMarginsEdge() {
+        val camera = readyCamera()
+        val down = settleTall(camera, WideCameraInput(stickY = 1f))!!
+        assertEquals(48f, down.offsetY, 0.01f)
+        assertEquals(288f, down.y + down.height, 0.01f)
+        // The other axis stays put
+        assertEquals(0f, down.offset, 0.0001f)
+
+        val up = settleTall(camera, WideCameraInput(stickY = -1f))!!
+        assertEquals(-48f, up.offsetY, 0.01f)
+        assertEquals(0f, up.y, 0.01f)
+    }
+
+    @Test
+    fun zoomingOutLeavesLessRoomToPanVertically() {
+        val camera = readyCamera()
+        settleTall(camera, WideCameraInput(stickY = 1f))
+        camera.update(tallFrame, WideCameraInput(zoomPresses = 1), WideCameraRequest.NONE, 0.016f)
+        val window = settleTall(camera, WideCameraInput(stickY = 1f))!!
+
+        // At 1.25x the window is 240 rows, so it can go (288 - 240) / 2 down
+        assertEquals(1.25f, window.zoom, 1e-4f)
+        assertEquals(24f, window.offsetY, 0.01f)
+    }
+
+    @Test
+    fun aVerticalDragMovesThePictureWithTheFinger() {
+        val camera = readyCamera()
+        camera.update(tallFrame, WideCameraInput(), WideCameraRequest.NONE, 0.016f)
+        // A tenth of the picture's height down: the window goes up a tenth of its 192 rows
+        val window = camera.update(tallFrame, WideCameraInput(dragFractionY = 0.1f, isTouching = true), WideCameraRequest.NONE, 0.016f)!!
+
+        assertEquals(-19.2f, window.offsetY, 0.01f)
+    }
+
+    @Test
+    fun movingEasesTheVerticalPanBackToTheMiddleToo() {
+        val camera = readyCamera()
+        settleTall(camera, WideCameraInput(stickX = 1f, stickY = 1f))
+        val window = settleTall(camera, WideCameraInput(isPlayerMoving = true))!!
+
+        assertEquals(0f, window.offset, 0.5f)
+        assertEquals(0f, window.offsetY, 0.5f)
+    }
+
+    @Test
+    fun aHoldCentersBothAxes() {
+        val camera = readyCamera()
+        settleTall(camera, WideCameraInput(stickY = 1f))
+        val window = camera.update(tallFrame.copy(topWingLines = 0), WideCameraInput(stickY = 1f), WideCameraRequest.NONE, 0.016f)
+
+        assertEquals(tallCentered, window)
+    }
+
+    @Test
+    fun aScriptsVerticalPanIsClampedAndLeavesXToThePlayer() {
+        val camera = readyCamera()
+        val window = settleTall(camera, WideCameraInput(stickX = 1f), WideCameraRequest(panY = 100f))!!
+
+        assertEquals(48f, window.offsetY, 0.01f)
+        // pan(x) wasn't asked for, so the stick still has x
+        assertEquals(85f, window.offset, 0.01f)
+
+        // And the other way round
+        val xOnly = settleTall(camera, WideCameraInput(stickY = -1f), WideCameraRequest(pan = -20f))!!
+        assertEquals(-20f, xOnly.offset, 0.01f)
+        assertEquals(-48f, xOnly.offsetY, 0.01f)
+    }
 }

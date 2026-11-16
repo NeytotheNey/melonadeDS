@@ -331,8 +331,9 @@ class EmulatorViewModel @Inject constructor(
             luaScripts,
             rom.config.mods.luaScriptFolder,
             emulatorSession.areSaveStateLoadsAllowed(),
-            // With the camera on the core renders wider than the layout shows
+            // With the camera on the core renders wider (and taller) than the layout shows
             widescreenLaunch.getRenderWidth(widescreenLaunch.viewWidth),
+            widescreenLaunch.getRenderMargin(widescreenLaunch.viewWidth),
         )
         when (result) {
             is RomLaunchResult.LaunchFailedRomNotFound,
@@ -984,8 +985,8 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * Sends the game the width the shown layout asks for whenever it changes (wider with the camera on), in wide sessions only, and keeps the
-     * camera's settings in step with the shown width.
+     * Sends the game the width the shown layout asks for whenever it changes (wider, with the camera's margin, with the camera on), in wide
+     * sessions only, and keeps the camera's settings in step with the shown width.
      */
     private fun startObservingWideViewWidth(widescreenLaunch: WidescreenLaunch) {
         if (!widescreenLaunch.isWideSession) {
@@ -994,6 +995,7 @@ class EmulatorViewModel @Inject constructor(
 
         sessionCoroutineScope.launch {
             var currentWidth = widescreenLaunch.getRenderWidth(widescreenLaunch.viewWidth)
+            var currentMargin = widescreenLaunch.getRenderMargin(widescreenLaunch.viewWidth)
             _wideCameraState.update { it.copy(settings = getWideCameraSettings(widescreenLaunch, widescreenLaunch.viewWidth)) }
             // The provider can still hold the previous session's layout, so only one matching the session's counts
             combine(_layout, uiLayoutProvider.currentLayoutWithConfiguration) { sessionLayout, providerLayout ->
@@ -1002,9 +1004,11 @@ class EmulatorViewModel @Inject constructor(
                 val (layoutConfiguration, layout) = it ?: return@collect
                 val showWidth = widescreenLaunch.getViewWidth(layoutConfiguration, layout)
                 val width = widescreenLaunch.getRenderWidth(showWidth)
-                if (width != currentWidth) {
+                val margin = widescreenLaunch.getRenderMargin(showWidth)
+                if (width != currentWidth || margin != currentMargin) {
                     currentWidth = width
-                    emulatorManager.setWideViewWidth(width)
+                    currentMargin = margin
+                    emulatorManager.setWideView(width, margin)
                 }
                 _wideCameraState.update { it.copy(settings = getWideCameraSettings(widescreenLaunch, showWidth)) }
             }

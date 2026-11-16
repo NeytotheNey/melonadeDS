@@ -187,15 +187,18 @@ void AndroidMelonEventMessenger::onLuaTiltShift(int scriptId, float top, float b
     MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_TILT_SHIFT, sizeof(data), &data);
 }
 
-void AndroidMelonEventMessenger::onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative)
+void AndroidMelonEventMessenger::onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY)
 {
+    // Read in this order by AndroidEmulatorManager (EventLuaWideCamera)
     struct {
         int32_t scriptId;
         float zoom;
         int32_t hasPan;
         float pan;
         int32_t holdNative;
-    } data = { (int32_t) scriptId, zoom, hasPan ? 1 : 0, pan, holdNative ? 1 : 0 };
+        int32_t hasPanY;
+        float panY;
+    } data = { (int32_t) scriptId, zoom, hasPan ? 1 : 0, pan, holdNative ? 1 : 0, hasPanY ? 1 : 0, panY };
 
     MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_WIDE_CAMERA, sizeof(data), &data);
 }

@@ -78,6 +78,7 @@ struct Options
     RendererType Renderer = RendererType::Compute;
     int Scale = 4;
     int WideWidth = 256;
+    int WideMargin = 0;        // WideMelon camera stage 2: 3D rows above and below the top screen
     // both off: in this core the x86-64 JIT runs slower than the interpreter, with or without
     // fast memory (see README), where the app runs the ARM64 one with fast memory
     bool Jit = false;
@@ -153,6 +154,7 @@ void Usage()
         "  --renderer soft|gl|compute  3D renderer (default compute)\n"
         "  --scale N                   internal resolution for gl/compute, 1-16 (default 4)\n"
         "  --wide W                    WideMelon top screen width, even, 256-768 (default 256, off)\n"
+        "  --wide-margin M             with --wide, M more 3D rows above and below the top screen (0-128)\n"
         "  --better-polygons           OpenGL: better polygon splitting\n"
         "  --no-high-res-coords        Compute: native-resolution vertex coordinates\n"
         "  --dither                    Compute: smooth gradients (color dithering)\n"
@@ -233,6 +235,7 @@ const BoolSwitch kBoolSwitches[] = {
     {"Hash3DLogging", &GPU::Hash3DLogging},
     {"ComputeSSBO", &GPU::ComputeSSBO},
     {"WidePolys", &GPU::WidePolys},
+    {"WideY", &GPU::WideY},
     // the frontend's deband flag (GPU::OutputCap): the window doesn't deband, so this stands in for the app's
     {"OutputCapDeband", &GPU::OutputCapDeband},
 };
@@ -335,6 +338,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
                 return false;
             }
         }
+        else if (arg == "--wide-margin") opts.WideMargin = std::clamp(atoi(next().c_str()), 0, 128);
         else if (arg == "--better-polygons") opts.BetterPolygons = true;
         else if (arg == "--no-high-res-coords") opts.HighResCoordinates = false;
         else if (arg == "--dither") opts.ColorDither = true;
@@ -648,6 +652,7 @@ public:
         {
             auto& gl = static_cast<GLRenderer&>(Nds->GPU.GetRenderer3D());
             gl.SetViewWidth(Opts.WideWidth);
+            gl.SetViewMargin(Opts.WideMargin);
             gl.SetRenderSettings(Opts.BetterPolygons, Opts.Scale);
             break;
         }
@@ -655,6 +660,7 @@ public:
         {
             auto& compute = static_cast<ComputeRenderer&>(Nds->GPU.GetRenderer3D());
             compute.SetViewWidth(Opts.WideWidth);
+            compute.SetViewMargin(Opts.WideMargin);
             compute.SetRenderSettings(Opts.Scale, Opts.HighResCoordinates);
             compute.SetColorDither(Opts.ColorDither);
             break;
@@ -669,7 +675,7 @@ public:
         if (Opts.HalfCameraMode == 0)
             Nds->GPU.GPU3D.SetHalfCameraSmoothing(Opts.HalfCamera && Current != RendererType::Software);
 
-        printf("renderer: %s, scale %d, width %d\n", RendererName(Current), ActiveScale(), Opts.WideWidth);
+        printf("renderer: %s, scale %d, width %d, margin %d\n", RendererName(Current), ActiveScale(), Opts.WideWidth, Opts.WideMargin);
     }
 
     // the renderer's scale, which drops below --scale when that doesn't fit the GPU's limits
@@ -830,7 +836,7 @@ int main(int argc, char** argv)
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
 
     int boxW = opts.Layout == Frontend::Layout::Horizontal ? opts.WideWidth + 256 : opts.WideWidth;
-    int boxH = opts.Layout == Frontend::Layout::Vertical ? 384 : 192;
+    int boxH = (opts.Layout == Frontend::Layout::Vertical ? 384 : 192) + (opts.WideWidth != 256 ? 2 * opts.WideMargin : 0);
     Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | (opts.Hidden ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN);
     SDL_Window* window = SDL_CreateWindow("melonadeDS", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         boxW * opts.WindowScale, boxH * opts.WindowScale, flags);
