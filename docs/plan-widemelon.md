@@ -143,6 +143,12 @@ What PokeDaisy's EXPAND does on DS (read from `pk_nds_wide.cpp` and `WideCamera.
 - **Checks.** Unit tests for the window math; the desktop build; Fold and OnePlus on OpenGL and Compute in White 2's field and a Mario Kart DS race (wing hold) at 1x, zoomed out and panned vertically, plus camera off.
 - **Done 11-15.** Deviation: Comp1x is off while M > 0. Desktop: M = 0 is bit-exact with the build before it on OpenGL and Compute; at M = 48 the middle rows differ only by sub-pixel rounding. Phones, 16:9 layout (342 shown, 512 rendered, M = 48), 4x, OpenGL and Compute: zoomed fully out (1.5) fills the rect with no seams, pan clamps right in both axes, walking eases back, a top-screen 2D menu snaps to 1x, the overlay stays on the middle rows, and Mario Kart DS's margins don't flicker. No GL errors. White 2 field zoomed out, `widey` 1 vs 0: Fold 60 fps on both renderers with ~0 ms (OpenGL) and +0.2 ms (Compute) of work, plugged in; OnePlus unplugged, OpenGL 60 fps with no cost, Compute 18.5 vs 29.9 fps (+21 ms), which joins the deferred OnePlus Compute fill cost. Not covered: a hardware stick, and a live race on the Fold (the OnePlus did one). Logs in `perf_logs/2026-11-15-wide-camera-stage2/`.
 
+**On-screen camera button (user, 11-15, not started).** A layout button for the camera, so touch-only players can zoom without the R3 hotkey or a pinch.
+- It's a toggle like the microphone button: a new `LayoutComponent` with on and off faces (`SingleButtonIcons.kt`), placed by the layout editor, and only shown when the game's Camera switch is on.
+- A tap does what the Camera Zoom hotkey does (user, 11-15): it steps through the zooms and wraps back to 1x. The face shows off at 1x and on while zoomed out.
+- **It needs a new icon**, in both of our icon sets: the vector button drawables (`res/drawable/ic_button_*.xml`) and the pixel set for the controller styles (`PixelIcons.kt`). It needs an on face and an off face, and the off face should match how `ic_button_microphone_off` is drawn.
+- Size: about 60–100 app lines plus the icons. Checks: the AVD for the layout editor and the toggle, the Fold for the zoom.
+
 **Stage 3, per-game real camera (idea).** A Lua script writes the game's own camera position or distance in RAM. The game then culls and draws for the new view, so there's no edge pop-in and no margin limit. The camera address has to be found per game (decompiling helps), and the game sees the change.
 
 ## Open after the merge (11-11)
