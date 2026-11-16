@@ -89,6 +89,9 @@ namespace melonDS { class NDS; }
  *   ldmfast        ARM64 JIT with fast memory: multi-register loads (LDM, POP, Thumb LDMIA) read memory directly instead of calling
  *                  SlowBlockTransfer9/7, as stores already did. Same cycles either way. 0 is the old store-only fast path for A/Bs
  *                  (ARMJIT::SetFastBlockLoads, default 1; x64 always has it)
+ *   ldmstats       log LDMSTATS run and jit lines about every 5 s on the JIT's slow multi-register loads and stores: calls and words by CPU,
+ *                  read or write and region, whether they came from a transfer compiled without a fast path or a patched one, and why
+ *                  block transfers were compiled without one. No effect on emulation (ARMJIT_LdmStats.h, default 0)
  *
  * Others:
  *   shadowlog N    classic OpenGL: log SHADOWSTATS and SHADOWLOG lines for the first N frames (1 means 300)
