@@ -32,3 +32,7 @@ bnohold helps a lot, and nothing looks wrong on the top screen. The bottom scree
 | OpenGL 4x | 59.4 → 59.8 | 40.8 → 54.8 | 16.25 → 15.1 (frames over budget 430 → 32) |
 
 The map moves from lines 1–191 to line 192 on 1275 of 1276 captures. On compute, the GPU goes from waiting on the readback to busy (4x: 48% → 86% utilization). White 2 title, one pair: compute 2x 46.2 → 59.2 fps even though it maps at line 192 either way, which is worth a repeat. OpenGL 2x is unchanged. No GL errors, and the `.sav` files are unchanged. Data: `perf_logs/2026-11-16-bnohold-oneplus/`. Every test gate has now passed.
+
+**White 2 repeat** (same day, plugged in, compute 2x, order 1 0 0 1): 44.5 → 59.1 fps (both pairs agree), 1% low 32.7 → 43.1, work mean 22.0 → 13.9 ms, frames over budget about 2650 → 500. It maps at line 192 either way. What changes is the map wait, 9.4 → 2.2 ms per capture, with GPU util going 49% → 63%. So the morning's 46 → 59 was real. Data: `perf_logs/2026-11-16-bnohold-oneplus-w2/raw/`.
+
+**On in release since 11-16** (core `ac19bc04`, `GPU::EngineBNoHold = true`).

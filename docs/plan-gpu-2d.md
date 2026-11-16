@@ -190,7 +190,20 @@ The new order fills some GPU idle time and takes most of the filter's cost away,
 
 Busy × clock rises 10–13% with the new order. Busy % stays the same while the clock steps up, so it's probably the governor, not more work. Pictures matched on exact frames (OpenGL filter 0 and 1, compute filter 1), still pixels never differed, and there were no GL errors, black frames or broken 3D. The cover-screen, plugged-in case wasn't rerun.
 
-Still to do: a plugged-in OnePlus run and more capture games than White 2.
+**OnePlus, plugged in, three games** (11-16, bnohold on by default now, 4x, filter off, cold boots, order 0 1 1 0, no throttling). Means of two runs:
+
+| Game / renderer | fps blit 0 → 1 | 1% low | map wait ms/frame | GPU util % |
+|---|---|---|---|---|
+| White 2 title, OpenGL | 59.80 → 59.80 | 56.4 → 56.2 | 0.10 → 0.09 | 23 → 23 |
+| White 2 title, compute | 29.6 → 31.4 | 22.1 → 21.3 | 14.6 → 13.7 | 86 → 90 |
+| Dark Dawn title, OpenGL | 59.73 → 59.65 | 53.3 → 47.9 | 0.09 → 0.08 | 21 → 21 |
+| Dark Dawn title, compute | 34.2 → 35.5 | 22.9 → 25.6 | 9.0 → 8.3 | 83 → 86 |
+| Phantom Hourglass intro, OpenGL | 59.77 → 59.76 | 47.6 → 49.4 | 0.23 → 0.11 | 22 → 23 |
+| Phantom Hourglass intro, compute | 49.0 → 52.1 | 25.0 → 28.4 | 8.1 → 6.6 | 85 → 91 |
+
+With bnohold on, OpenGL with blit 0 already holds 60 and the old 3 ms wait is gone, so the new order is close to neutral there (Dark Dawn's OpenGL 1% low swung 46.6–57.0 between runs). Compute gains 1–3 fps and stays GPU-bound. Every capture used the early readback. Screencap bursts showed no more difference between blit 0 and 1 than between two blit 0 runs, exact pairs matched with 0 differing pixels, still pixels never differed, and there were no GL errors, crashes or `.sav` changes. Not frame-exact: a HASH2D per-frame check wasn't run. Data: `perf_logs/2026-11-16-bnohold-oneplus-w2/blit/` and `pics/`.
+
+Nothing left on the test list. Release still has it off (the core default is false, and only `DebugProperties::apply` forces it on).
 
 ### Filter skip on top of the Blit after the readback (11-08, core `0de067ee`)
 
