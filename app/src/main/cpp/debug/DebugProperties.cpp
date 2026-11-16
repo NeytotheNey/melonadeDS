@@ -176,7 +176,7 @@ Overrides apply(NDS& nds)
     // on by default (the core default too since 11-16). only an accelerated renderer holds capture
     // lines or clears the plane, so this is GL and compute
     gpu.EngineBNoHold = true;
-    // the same until it's tested on a phone: OpenGL and compute (Renderer3D::SupportsBlitAfterRender)
+    // the same (the core default since 11-16): OpenGL and compute (Renderer3D::SupportsBlitAfterRender)
     gpu.BlitAfterReadback = true;
 
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)

@@ -145,7 +145,7 @@ Next for this step: make the filter cheaper (skip the passes when the 2D planes 
 
 The GPU runs work in the order it's sent. In a capture frame the compositor and filter for frame N went in at line 192, ahead of the 3D render of N+1 (line 215) and its readback (line 0), so the map at the next line 192 waited behind them. The present of frame N could also get ahead of the readback, which is probably why Deband made the wait longer.
 
-`debug.melonade.blitafterread` (core `GPU::BlitAfterReadback`, off in the core, forced on in debug builds like `bnohold`) changes the order in frames that hold capture lines (OpenGL only):
+`debug.melonade.blitafterread` (core `GPU::BlitAfterReadback`, on in every build since 11-16 like `bnohold`) changes the order in frames that hold capture lines (OpenGL only):
 
 - **line 192:** nothing is sent. The lines are drawn, the bank write masks are saved, and the capture pass's destination bank is copied (`HiresCaptureRecord::DstNative`), since the CPU can write it in VBlank.
 - **line 215:** the 3D render of N+1 goes into a second color buffer, so frame N's 3D stays alive. Then the readback of N+1 goes into its own PBO, then a flush, then the Blit of N from the kept buffer, then a flush.
@@ -203,7 +203,7 @@ Busy × clock rises 10–13% with the new order. Busy % stays the same while the
 
 With bnohold on, OpenGL with blit 0 already holds 60 and the old 3 ms wait is gone, so the new order is close to neutral there (Dark Dawn's OpenGL 1% low swung 46.6–57.0 between runs). Compute gains 1–3 fps and stays GPU-bound. Every capture used the early readback. Screencap bursts showed no more difference between blit 0 and 1 than between two blit 0 runs, exact pairs matched with 0 differing pixels, still pixels never differed, and there were no GL errors, crashes or `.sav` changes. Not frame-exact: a HASH2D per-frame check wasn't run. Data: `perf_logs/2026-11-16-bnohold-oneplus-w2/blit/` and `pics/`.
 
-Nothing left on the test list. Release still has it off (the core default is false, and only `DebugProperties::apply` forces it on).
+Nothing left on the test list, so it's on in release since 11-16 (the core default is now true).
 
 ### Filter skip on top of the Blit after the readback (11-08, core `0de067ee`)
 
