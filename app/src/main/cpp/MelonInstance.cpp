@@ -471,6 +471,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 192 + 2, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, nds->GPU.Framebuffer[frontbuf][1].get());
             glBindTexture(GL_TEXTURE_2D, 0);
             renderFrame->halvesAt1x = 0;
+            renderFrame->topWingLines = 0;
         }
     }
     else
@@ -483,6 +484,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             renderFrame->halvesAt1x = outputLayout.HalvesAt1x;
             renderFrame->scaleAt1x = outputLayout.Scale;
             renderFrame->halfScaleAt1x = outputLayout.HalfScale;
+            renderFrame->topWingLines = outputLayout.TopWingLines;
         }
     }
 

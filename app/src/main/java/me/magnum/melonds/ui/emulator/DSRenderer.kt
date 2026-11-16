@@ -19,7 +19,9 @@ import me.magnum.melonds.domain.model.RuntimeBackground
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.VideoFiltering
+import me.magnum.melonds.domain.model.camera.WideWindow
 import me.magnum.melonds.domain.model.layout.BackgroundMode
+import me.magnum.melonds.domain.model.layout.OverlayDrawing
 import me.magnum.melonds.domain.model.layout.getScreensDrawing
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_BOTTOM
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_TOP
@@ -36,6 +38,7 @@ import me.magnum.melonds.utils.SvgBackground
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.ceil
+import java.nio.FloatBuffer
 import kotlin.math.roundToInt
 
 // Screen shadow: radius as a share of the screen's shorter side with a minimum in surface pixels, and alpha at the screen's edge
@@ -47,6 +50,15 @@ private const val SHADOW_STRENGTH = 0.6f
 private const val FLOATS_PER_VERTEX = 5
 private const val BACKGROUND_FLOATS_PER_VERTEX = 4
 private const val VERTICES_PER_SCREEN = 6
+// Both screens and their Lua drawings
+private const val MAX_SCREEN_VERTEX_FLOATS = 4 * VERTICES_PER_SCREEN * FLOATS_PER_VERTEX
+
+// The screens' draw orders (DSRenderer.screenQuadScreens), shared so that building the quads allocates nothing
+private val SCREENS_NONE = IntArray(0)
+private val SCREENS_TOP = intArrayOf(OVERLAY_SCREEN_TOP)
+private val SCREENS_BOTTOM = intArrayOf(OVERLAY_SCREEN_BOTTOM)
+private val SCREENS_TOP_THEN_BOTTOM = intArrayOf(OVERLAY_SCREEN_TOP, OVERLAY_SCREEN_BOTTOM)
+private val SCREENS_BOTTOM_THEN_TOP = intArrayOf(OVERLAY_SCREEN_BOTTOM, OVERLAY_SCREEN_TOP)
 
 class DSRenderer(private val context: Context) : EmulatorRenderer {
 
@@ -77,7 +89,6 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var screensVao = 0
     private var screenIndices = 0
     // The DS screen (OVERLAY_SCREEN_TOP or OVERLAY_SCREEN_BOTTOM) of each quad in screensVbo in draw order, so its Lua drawings can go right after it
-    private var screenQuadScreens = IntArray(0)
     // The output cap (GPU::OutputCap, on by default): the largest need of the screens the quads were built for (see outputScaleNeed); GL thread only
     private var screensOutputScaleNeed = 0
     // Surface pixels the screen quads cover (their draw rects inside the surface, summed), for shouldFoldDeband; GL thread only
@@ -87,9 +98,23 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     private var isDebandFoldOn = false
     private var debandFoldGeneration = -1
     private var wasDebandFolded = false
+    private var screenQuadScreens = SCREENS_NONE
+    // Reused for every quad rebuild, which happens every frame while the camera's window moves; GL thread only
+    private val screenVertexBuffer: FloatBuffer = ByteBuffer.allocateDirect(MAX_SCREEN_VERTEX_FLOATS * Float.SIZE_BYTES)
+        .order(ByteOrder.nativeOrder())
+        .asFloatBuffer()
+    // Whether screensVbo has its storage yet (it's made again with the GL objects)
+    private var isScreensVboAllocated = false
+    // The drawn rects the shadows were last built for, so a camera move that keeps them skips the shadows
+    private var shadowTopRect: Rect? = null
+    private var shadowBottomRect: Rect? = null
     // Top-screen width of the frame the quads were built for; GL thread writes, touch input reads
     @Volatile
     var frameTopScreenWidth = SCREEN_WIDTH
+        private set
+    // The WideMelon camera's window the quads were built for, null without one; GL thread writes, touch input reads
+    @Volatile
+    var frameWideWindow: WideWindow? = null
         private set
 
     private var shadowsVbo = 0
@@ -213,6 +238,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         GLES30.glGenVertexArrays(3, vaos, 0)
         screensVbo = vbos[0]
         screensVao = vaos[0]
+        isScreensVboAllocated = false
 
         backgroundVbo = vbos[1]
         backgroundVao = vaos[1]
@@ -270,11 +296,15 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     }
 
     private fun applyRendererConfiguration() {
-        updateScreenCoordinates()
+        updateScreenCoordinates(isWindowOnly = false)
         updateShader()
     }
 
-    private fun updateScreenCoordinates() {
+    /**
+     * Builds the screen and Lua drawing quads into screensVbo. With [isWindowOnly] (only the camera's window moved) the shadows are only
+     * rebuilt if a screen's drawn rect changed, and nothing is allocated for the quads themselves.
+     */
+    private fun updateScreenCoordinates(isWindowOnly: Boolean) {
         // Indices:
         // 1                         2
         //   +-----------------------+ 4
@@ -292,16 +322,14 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         val bottomScreenTopV = 0.5f + lineRelativeSize
 
         // Lay out both screens for the current frame width, swap and wide-layout flags (see getScreensDrawing)
-        val drawing = getScreensDrawing(topScreenRect, bottomScreenRect, frameTopScreenWidth, isWideLayout, areScreensSwapped, width)
+        val drawing = getScreensDrawing(topScreenRect, bottomScreenRect, frameTopScreenWidth, isWideLayout, areScreensSwapped, width, frameWideWindow)
         isBottomScreenWideInQuads = areScreensSwapped
         val topScreen = drawing.topScreen
         val bottomScreen = drawing.bottomScreen
-        // The output cap (GPU::OutputCap): each screen's middle columns are shown at nativeRect's size, which the frame has to be at least as big as
-        val outputScaleNeed = listOfNotNull(topScreen, bottomScreen).maxOfOrNull { screen ->
-            val rect = screen.nativeRect
-            ceil(maxOf(rect.width / SCREEN_WIDTH.toDouble(), rect.height / SCREEN_HEIGHT.toDouble()) - 1e-3).toInt().coerceAtLeast(1)
-        } ?: 0
-        screensDrawnPixels = listOfNotNull(topScreen, bottomScreen).sumOf { visibleArea(it.drawRect) }
+        // The output cap (GPU::OutputCap): each screen's middle columns are shown at nativeRect's size, which the frame has to be at least as big as.
+        // With the camera that's their size at 1x (nativeRectAt1x), the largest a window shows them, so zooming and panning never change it
+        val outputScaleNeed = maxOf(topScreen?.let { getOutputScaleNeed(it.nativeRectAt1x) } ?: 0, bottomScreen?.let { getOutputScaleNeed(it.nativeRectAt1x) } ?: 0)
+        screensDrawnPixels = (topScreen?.let { visibleArea(it.drawRect) } ?: 0L) + (bottomScreen?.let { visibleArea(it.drawRect) } ?: 0L)
         if (outputScaleNeed != screensOutputScaleNeed) {
             Log.i(LogTags.DEBUG, "OUTCAP: surface ${width.toInt()}x${height.toInt()} need $outputScaleNeed (was $screensOutputScaleNeed): " +
                 "top ${topScreen?.let { "${it.nativeRect.width}x${it.nativeRect.height} draw ${it.drawRect.width}x${it.drawRect.height}" } ?: "none"}, " +
@@ -309,34 +337,52 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
                 "drawn $screensDrawnPixels px, frame width $frameTopScreenWidth")
             screensOutputScaleNeed = outputScaleNeed
         }
-        val topScreenVertexData = topScreen?.let { buildScreenVertexData(it.drawRect, buildScreenUvs(it.leftU, it.rightU, 0f, topScreenBottomV), topAlpha) }
-        val bottomScreenVertexData = bottomScreen?.let { buildScreenVertexData(it.drawRect, buildScreenUvs(it.leftU, it.rightU, bottomScreenTopV, 1f), bottomAlpha) }
-        val topOverlayVertexData = topScreen?.let { buildScreenVertexData(it.nativeRect, buildScreenUvs(0f, 1f, 0f, topScreenBottomV), topAlpha) }
-        val bottomOverlayVertexData = bottomScreen?.let { buildScreenVertexData(it.nativeRect, buildScreenUvs(0f, 1f, bottomScreenTopV, 1f), bottomAlpha) }
 
-        val (overScreen, underScreen) = if (bottomOnTop) OVERLAY_SCREEN_BOTTOM to OVERLAY_SCREEN_TOP else OVERLAY_SCREEN_TOP to OVERLAY_SCREEN_BOTTOM
-        screenQuadScreens = intArrayOf(underScreen, overScreen).filter {
-            (if (it == OVERLAY_SCREEN_TOP) topScreenVertexData else bottomScreenVertexData) != null
-        }.toIntArray()
-        val screenVertexData = screenQuadScreens.map { if (it == OVERLAY_SCREEN_TOP) topScreenVertexData!! else bottomScreenVertexData!! }
-        val overlayVertexData = screenQuadScreens.map { if (it == OVERLAY_SCREEN_TOP) topOverlayVertexData!! else bottomOverlayVertexData!! }
+        // Under-screen first, then the one drawn over it, each screen's Lua drawings after both in the same order
+        val topFirst = bottomOnTop
+        screenQuadScreens = when {
+            topScreen != null && bottomScreen != null -> if (topFirst) SCREENS_TOP_THEN_BOTTOM else SCREENS_BOTTOM_THEN_TOP
+            topScreen != null -> SCREENS_TOP
+            bottomScreen != null -> SCREENS_BOTTOM
+            else -> SCREENS_NONE
+        }
 
-        val vertexBufferSize = (screenVertexData.sumOf { it.size } + overlayVertexData.sumOf { it.size }) * Float.SIZE_BYTES
-        val vertexBuffer = ByteBuffer.allocateDirect(vertexBufferSize)
-            .order(ByteOrder.nativeOrder())
-            .asFloatBuffer()
-            .apply {
-                screenVertexData.forEach { put(it) }
-                overlayVertexData.forEach { put(it) }
-                position(0)
+        val vertexBuffer = screenVertexBuffer
+        vertexBuffer.clear()
+        screenQuadScreens.forEach {
+            if (it == OVERLAY_SCREEN_TOP) {
+                putQuad(vertexBuffer, topScreen!!.drawRect, topScreen.leftU, topScreen.rightU, 0f, topScreenBottomV, topAlpha)
+            } else {
+                putQuad(vertexBuffer, bottomScreen!!.drawRect, bottomScreen.leftU, bottomScreen.rightU, bottomScreenTopV, 1f, bottomAlpha)
             }
+        }
+        screenQuadScreens.forEach {
+            if (it == OVERLAY_SCREEN_TOP) {
+                putOverlayQuad(vertexBuffer, topScreen!!.overlay, 0f, topScreenBottomV, topAlpha)
+            } else {
+                putOverlayQuad(vertexBuffer, bottomScreen!!.overlay, bottomScreenTopV, 1f, bottomAlpha)
+            }
+        }
+        val usedBytes = vertexBuffer.position() * Float.SIZE_BYTES
+        vertexBuffer.position(0)
 
         GLES30.glBindVertexArray(screensVao)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, screensVbo)
-        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GLES30.GL_STATIC_DRAW)
+        // The buffer's storage is made once at its largest size, and only filled after that
+        if (!isScreensVboAllocated) {
+            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, MAX_SCREEN_VERTEX_FLOATS * Float.SIZE_BYTES, null, GLES30.GL_DYNAMIC_DRAW)
+            isScreensVboAllocated = true
+        }
+        if (usedBytes > 0) {
+            GLES30.glBufferSubData(GLES30.GL_ARRAY_BUFFER, 0, usedBytes, vertexBuffer)
+        }
         screenIndices = screenQuadScreens.size * VERTICES_PER_SCREEN
 
-        updateShadowCoordinates(topScreen?.drawRect, bottomScreen?.drawRect)
+        val topDrawRect = topScreen?.drawRect
+        val bottomDrawRect = bottomScreen?.drawRect
+        if (!isWindowOnly || topDrawRect != shadowTopRect || bottomDrawRect != shadowBottomRect) {
+            updateShadowCoordinates(topDrawRect, bottomDrawRect)
+        }
     }
 
     // The part of rect inside the surface, in pixels
@@ -346,16 +392,49 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         return if (visibleWidth > 0 && visibleHeight > 0) visibleWidth.toLong() * visibleHeight else 0L
     }
 
-    private fun buildScreenUvs(left: Float, right: Float, top: Float, bottom: Float): FloatArray {
-        // Same vertex order as the screens
-        return floatArrayOf(
-            left, bottom,
-            left, top,
-            right, top,
-            left, bottom,
-            right, top,
-            right, bottom,
-        )
+    // The output cap's need for a screen whose middle columns are shown at [nativeRect]'s size
+    private fun getOutputScaleNeed(nativeRect: Rect): Int {
+        return ceil(maxOf(nativeRect.width / SCREEN_WIDTH.toDouble(), nativeRect.height / SCREEN_HEIGHT.toDouble()) - 1e-3).toInt().coerceAtLeast(1)
+    }
+
+    /**
+     * Writes a screen quad at [rect] showing columns [leftU] to [rightU] and rows [topV] to [bottomV] of the texture
+     */
+    private fun putQuad(buffer: FloatBuffer, rect: Rect, leftU: Float, rightU: Float, topV: Float, bottomV: Float, alpha: Float) {
+        putQuad(buffer, rect.x.toFloat(), rect.y.toFloat(), rect.right.toFloat(), rect.bottom.toFloat(), leftU, rightU, topV, bottomV, alpha)
+    }
+
+    /**
+     * A screen's Lua drawings quad: [overlay]'s place and columns, rows [topV] to [bottomV] of the overlay texture
+     */
+    private fun putOverlayQuad(buffer: FloatBuffer, overlay: OverlayDrawing, topV: Float, bottomV: Float, alpha: Float) {
+        putQuad(buffer, overlay.left, overlay.top, overlay.right, overlay.bottom, overlay.leftU, overlay.rightU, topV, bottomV, alpha)
+    }
+
+    private fun putQuad(
+        buffer: FloatBuffer,
+        rectLeft: Float,
+        rectTop: Float,
+        rectRight: Float,
+        rectBottom: Float,
+        leftU: Float,
+        rightU: Float,
+        topV: Float,
+        bottomV: Float,
+        alpha: Float,
+    ) {
+        val left = (rectLeft / width) * 2f - 1f
+        val right = (rectRight / width) * 2f - 1f
+        val top = 1f - rectTop / height * 2f
+        val bottom = 1f - rectBottom / height * 2f
+
+        // Position, UVs and alpha, in the vertex order of the indices above
+        buffer.put(left).put(bottom).put(leftU).put(bottomV).put(alpha)
+        buffer.put(left).put(top).put(leftU).put(topV).put(alpha)
+        buffer.put(right).put(top).put(rightU).put(topV).put(alpha)
+        buffer.put(left).put(bottom).put(leftU).put(bottomV).put(alpha)
+        buffer.put(right).put(top).put(rightU).put(topV).put(alpha)
+        buffer.put(right).put(bottom).put(rightU).put(bottomV).put(alpha)
     }
 
     /**
@@ -364,6 +443,8 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
      * swapped
      */
     private fun updateShadowCoordinates(drawnTopScreenRect: Rect?, drawnBottomScreenRect: Rect?) {
+        shadowTopRect = drawnTopScreenRect
+        shadowBottomRect = drawnBottomScreenRect
         // Empty when the setting is off, so nothing is drawn
         val shadowVertexData = if (rendererConfiguration?.screenShadow == true) {
             listOfNotNull(
@@ -431,23 +512,6 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         return vertexData
     }
 
-    private fun buildScreenVertexData(rect: Rect, uvs: FloatArray, alpha: Float): FloatArray {
-        val left = screenXToViewportX(rect.x)
-        val right = screenXToViewportX(rect.x + rect.width)
-        val top = screenYToViewportY(rect.y)
-        val bottom = screenYToViewportY(rect.y + rect.height)
-
-        return floatArrayOf(
-            // Position    UVs               Alpha
-            left, bottom,  uvs[0], uvs[1],   alpha,
-            left, top,     uvs[2], uvs[3],   alpha,
-            right, top,    uvs[4], uvs[5],   alpha,
-            left, bottom,  uvs[6], uvs[7],   alpha,
-            right, top,    uvs[8], uvs[9],   alpha,
-            right, bottom, uvs[10], uvs[11], alpha,
-        )
-    }
-
     private fun updateShader() {
         val filtering = rendererConfiguration?.videoFiltering ?: VideoFiltering.NONE
         val dsScreenColors = rendererConfiguration?.dsScreenColors ?: false
@@ -492,9 +556,18 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
                 frameTopScreenWidth = presentFrameWrapper.topScreenWidth
                 mustUpdateConfiguration = true
             }
+            // And the camera's window, which moves every frame while it eases or pans: then only the quads are filled again (and the shadows if
+            // a screen's drawn rect changed)
+            var hasWindowMoved = false
+            if (presentFrameWrapper.isValidFrame && presentFrameWrapper.wideWindow != frameWideWindow) {
+                frameWideWindow = presentFrameWrapper.wideWindow
+                hasWindowMoved = true
+            }
             if (mustUpdateConfiguration) {
                 applyRendererConfiguration()
                 mustUpdateConfiguration = false
+            } else if (hasWindowMoved) {
+                updateScreenCoordinates(isWindowOnly = true)
             }
         }
 

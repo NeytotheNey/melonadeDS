@@ -6,6 +6,26 @@ import me.magnum.melonds.domain.model.ControllerConfiguration
 import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.InputConfig
 
+// The WideMelon camera's zoom hotkey by default: the right stick's click, as in PokeDaisy. Configs saved before it existed get it too, if it's free
+// (withDefaultCameraZoomKey)
+const val CAMERA_ZOOM_DEFAULT_KEY = KeyEvent.KEYCODE_BUTTON_THUMBR
+
+/**
+ * [configs], a stored mapping, with the camera's zoom hotkey on its default key if the mapping has no entry for the hotkey (it was saved before the
+ * hotkey existed) and nothing else uses that key. An entry that leaves the hotkey unmapped is kept as it is
+ */
+fun withDefaultCameraZoomKey(configs: List<InputConfig>): List<InputConfig> {
+    val hasCameraZoom = configs.any { it.input == Input.CAMERA_ZOOM }
+    val isDefaultKeyTaken = configs.any { config ->
+        listOf(config.assignment, config.altAssignment).any { (it as? InputConfig.Assignment.Key)?.keyCode == CAMERA_ZOOM_DEFAULT_KEY }
+    }
+    return if (hasCameraZoom || isDefaultKeyTaken) {
+        configs
+    } else {
+        configs + InputConfig(Input.CAMERA_ZOOM, InputConfig.Assignment.Key(null, CAMERA_ZOOM_DEFAULT_KEY))
+    }
+}
+
 class DefaultControllerConfigurationFactory : ControllerConfigurationFactory {
 
     override fun buildDefaultControllerConfiguration(): ControllerConfiguration {
@@ -23,6 +43,7 @@ class DefaultControllerConfigurationFactory : ControllerConfigurationFactory {
             InputConfig(Input.START, InputConfig.Assignment.Key(null, KeyEvent.KEYCODE_BUTTON_START)),
             InputConfig(Input.SELECT, InputConfig.Assignment.Key(null, KeyEvent.KEYCODE_BUTTON_SELECT)),
             InputConfig(Input.PAUSE, InputConfig.Assignment.Key(null, KeyEvent.KEYCODE_BUTTON_MODE)),
+            InputConfig(Input.CAMERA_ZOOM, InputConfig.Assignment.Key(null, CAMERA_ZOOM_DEFAULT_KEY)),
         )
 
         return ControllerConfiguration(inputList)

@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,7 +59,10 @@ import me.magnum.melonds.domain.model.layout.Insets
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.layout.LayoutDisplayPair
 import me.magnum.melonds.domain.model.layout.ScreenFold
+import me.magnum.melonds.domain.model.camera.WideCameraRequest
 import me.magnum.melonds.domain.model.render.TiltShift
+import me.magnum.melonds.ui.emulator.camera.WideCameraSettings
+import me.magnum.melonds.ui.emulator.camera.WideCameraState
 import me.magnum.melonds.domain.model.retroachievements.GameAchievementData
 import me.magnum.melonds.domain.model.retroachievements.RAEvent
 import me.magnum.melonds.domain.model.retroachievements.RASimpleAchievement
@@ -206,6 +210,18 @@ class EmulatorViewModel @Inject constructor(
     private val _luaTiltShift = MutableStateFlow<TiltShift?>(null)
     val luaTiltShift = _luaTiltShift.asStateFlow()
 
+    // What scripts ask of the WideMelon camera with melon.wide; main thread only
+    private val luaWideCameraRequests = LuaWideCameraRequests()
+    private val _luaWideCamera = MutableStateFlow(WideCameraRequest.NONE)
+    val luaWideCamera = _luaWideCamera.asStateFlow()
+
+    // The WideMelon camera's state: this session's number, its settings for the shown layout (null while it's off), and the zoom it starts at
+    // (the game's remembered Camera Zoom step, updated with each pick); main thread only
+    private val _wideCameraState = MutableStateFlow(WideCameraState(session = 0, settings = null, startZoom = 1f))
+    val wideCameraState = _wideCameraState.asStateFlow()
+    // The ROM the camera's picks are remembered for, the one this camera session launched; main thread only
+    private var wideCameraRom: Rom? = null
+
     init {
         // Here and in onCleared() rather than in the activity, since this outlives a recreated activity and every way into a game goes through here
         romMetadataSyncScheduler.onGameStarted()
@@ -315,7 +331,8 @@ class EmulatorViewModel @Inject constructor(
             luaScripts,
             rom.config.mods.luaScriptFolder,
             emulatorSession.areSaveStateLoadsAllowed(),
-            widescreenLaunch.viewWidth,
+            // With the camera on the core renders wider than the layout shows
+            widescreenLaunch.getRenderWidth(widescreenLaunch.viewWidth),
         )
         when (result) {
             is RomLaunchResult.LaunchFailedRomNotFound,
@@ -789,6 +806,9 @@ class EmulatorViewModel @Inject constructor(
         _mainScreenBackground.value = RuntimeBackground.None
         _secondaryScreenBackground.value = RuntimeBackground.None
         _layout.value = null
+        // A new session: the camera starts over, and picks still on their way from the last one are dropped
+        _wideCameraState.value = WideCameraState(session = _wideCameraState.value.session + 1, settings = null, startZoom = 1f)
+        wideCameraRom = null
     }
 
     private fun startObservingEmulatorEvents() {
@@ -803,6 +823,7 @@ class EmulatorViewModel @Inject constructor(
                     is EmulatorEvent.LuaFastForward -> sendLuaUiEvent(LuaUiEvent.Request(LuaUiSetting.FAST_FORWARD, it.scriptId, it.enabled))
                     is EmulatorEvent.LuaSetLayout -> onLuaLayoutRequest(it.scriptId, it.optionKey)
                     is EmulatorEvent.LuaTiltShift -> _luaTiltShift.value = luaTiltShiftRequests.onScriptRequest(it.scriptId, it.tiltShift)
+                    is EmulatorEvent.LuaWideCamera -> _luaWideCamera.value = luaWideCameraRequests.onScriptRequest(it.scriptId, it.request)
                     // Like after the player's load, the achievements' primed and progress indicators start over
                     EmulatorEvent.LuaStateLoaded -> _achievementsEvent.tryEmit(RAEventUi.Reset)
                     is EmulatorEvent.Stop -> {
@@ -963,7 +984,8 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * Sends the game the width the shown layout asks for whenever it changes, in wide sessions only.
+     * Sends the game the width the shown layout asks for whenever it changes (wider with the camera on), in wide sessions only, and keeps the
+     * camera's settings in step with the shown width.
      */
     private fun startObservingWideViewWidth(widescreenLaunch: WidescreenLaunch) {
         if (!widescreenLaunch.isWideSession) {
@@ -971,17 +993,49 @@ class EmulatorViewModel @Inject constructor(
         }
 
         sessionCoroutineScope.launch {
-            var currentWidth = widescreenLaunch.viewWidth
+            var currentWidth = widescreenLaunch.getRenderWidth(widescreenLaunch.viewWidth)
+            _wideCameraState.update { it.copy(settings = getWideCameraSettings(widescreenLaunch, widescreenLaunch.viewWidth)) }
             // The provider can still hold the previous session's layout, so only one matching the session's counts
             combine(_layout, uiLayoutProvider.currentLayoutWithConfiguration) { sessionLayout, providerLayout ->
                 providerLayout?.takeIf { sessionLayout != null && it.first == sessionLayout }
             }.collect {
                 val (layoutConfiguration, layout) = it ?: return@collect
-                val width = widescreenLaunch.getViewWidth(layoutConfiguration, layout)
+                val showWidth = widescreenLaunch.getViewWidth(layoutConfiguration, layout)
+                val width = widescreenLaunch.getRenderWidth(showWidth)
                 if (width != currentWidth) {
                     currentWidth = width
                     emulatorManager.setWideViewWidth(width)
                 }
+                _wideCameraState.update { it.copy(settings = getWideCameraSettings(widescreenLaunch, showWidth)) }
+            }
+        }
+    }
+
+    /**
+     * The camera's settings for a layout shown [showWidth] wide, or null while it's off, the shown variant isn't wide, or the max zoom-out is no
+     * wider than the shown width (no room to zoom out or pan, so the camera would do nothing)
+     */
+    private fun getWideCameraSettings(widescreenLaunch: WidescreenLaunch, showWidth: Int): WideCameraSettings? {
+        val hasRoom = showWidth > 0 && widescreenLaunch.getRenderWidth(showWidth) > showWidth
+        return if (widescreenLaunch.isCameraOn && hasRoom) WideCameraSettings(showWidth, widescreenLaunch.cameraReturnsToCenter) else null
+    }
+
+    /**
+     * The player picked [zoom] with the Camera Zoom hotkey in camera session [session]: the camera starts there the next time it comes on, in
+     * this session or the next. A pick from an earlier session (it was on its way during a ROM switch) is dropped
+     */
+    fun onWideCameraZoomPicked(session: Int, zoom: Float) {
+        if (session != _wideCameraState.value.session) {
+            return
+        }
+        _wideCameraState.update { it.copy(startZoom = zoom) }
+        val rom = wideCameraRom ?: return
+        viewModelScope.launch {
+            // The config may have changed since launch, so the newest one is updated
+            val currentRom = getLibraryRom(rom) ?: return@launch
+            val mods = currentRom.config.mods
+            if (mods.wideCameraZoom != zoom) {
+                romsRepository.updateRomConfig(currentRom, currentRom.config.copy(mods = mods.copy(wideCameraZoom = zoom)))
             }
         }
     }
@@ -994,6 +1048,10 @@ class EmulatorViewModel @Inject constructor(
         // The software renderer only does the normal width
         val isWideRenderer = settingsRepository.getVideoRenderer().first() != VideoRenderer.SOFTWARE
         val wideLayout = mods.wideLayoutId?.let { layoutsRepository.getLayout(it) }
+        // The camera's remembered zoom from the newest config, since the last session may have picked one after this rom was read
+        val startZoom = (getLibraryRom(rom) ?: rom).config.mods.validWideCameraZoom
+        _wideCameraState.update { it.copy(startZoom = startZoom) }
+        wideCameraRom = rom
         return WidescreenLaunch.resolve(mods, wideLayout, isWideRenderer)
     }
 
@@ -1121,14 +1179,17 @@ class EmulatorViewModel @Inject constructor(
             is LuaUiEvent.ScriptStopped -> {
                 _luaLayoutId.value = luaLayoutRequests.onScriptStopped(event.scriptId)
                 _luaTiltShift.value = luaTiltShiftRequests.onScriptStopped(event.scriptId)
+                _luaWideCamera.value = luaWideCameraRequests.onScriptStopped(event.scriptId)
             }
             is LuaUiEvent.ScriptStarted -> {
                 luaLayoutRequests.onScriptStarted(event.scriptId)
                 luaTiltShiftRequests.onScriptStarted(event.scriptId)
+                luaWideCameraRequests.onScriptStarted(event.scriptId)
             }
             LuaUiEvent.SessionEnded -> {
                 _luaLayoutId.value = luaLayoutRequests.onSessionEnded()
                 _luaTiltShift.value = luaTiltShiftRequests.onSessionEnded()
+                _luaWideCamera.value = luaWideCameraRequests.onSessionEnded()
             }
             is LuaUiEvent.SessionStarted,
             is LuaUiEvent.Request -> { }

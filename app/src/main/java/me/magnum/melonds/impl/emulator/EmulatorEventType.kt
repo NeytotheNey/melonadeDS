@@ -134,4 +134,14 @@ enum class EmulatorEventType(val event: Int) {
      * * contrast multiplier (`f32`), 0 to 2
      */
     EventLuaTiltShift(307),
+
+    /**
+     * A Lua script's melon.wide requests changed. Data:
+     * * script ID (`i32`)
+     * * zoom (`f32`), 1 to 3, or negative for the player's
+     * * whether there's a pan (`i32`, 0 or 1)
+     * * pan (`f32`), the window's offset from center in DS pixels
+     * * whether 1x is held (`i32`, 0 or 1)
+     */
+    EventLuaWideCamera(308),
 }

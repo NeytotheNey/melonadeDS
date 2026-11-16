@@ -161,6 +161,45 @@ private fun WidescreenSection(
                 onItemSelected = { onConfigUpdate(RomConfigUpdateEvent.WideViewWidthUpdate(WidescreenAspect.entries[it].viewWidth)) },
             )
         }
+
+        // The width the game is shown at: the picked layout's when all its variants share one, the tab's own otherwise (null when it varies)
+        val shownWidth = if (wideLayout != null) wideLayout.commonWideAspect?.viewWidth else wideViewWidth
+        WideCameraItems(romConfig.mods, shownWidth, onConfigUpdate)
+    }
+}
+
+@Composable
+private fun WideCameraItems(mods: RomModsConfig, shownWidth: Int?, onConfigUpdate: (RomConfigUpdateEvent) -> Unit) {
+    SwitchItem(
+        name = stringResource(id = R.string.wide_camera),
+        caption = stringResource(id = R.string.wide_camera_description),
+        isOn = mods.wideCamera,
+        onToggle = { onConfigUpdate(RomConfigUpdateEvent.WideCameraUpdate(it)) },
+    )
+
+    if (mods.wideCamera) {
+        // Only widths past the shown one zoom out at all
+        val widths = RomModsConfig.WIDE_CAMERA_MAX_WIDTHS.filter { shownWidth == null || it > shownWidth }
+        val widthOptions = widths.map { stringResource(id = R.string.wide_camera_width_pixels, it) }
+        val maxWidth = mods.validWideCameraMaxWidth
+        // A stored width that isn't one of the choices shows as it is, with nothing picked in the list
+        val selectedIndex = widths.indexOf(maxWidth)
+        SingleChoiceItem(
+            name = stringResource(id = R.string.wide_camera_max_width),
+            value = stringResource(id = R.string.wide_camera_width_pixels, maxWidth),
+            items = widthOptions,
+            selectedItemIndex = selectedIndex,
+            onItemSelected = { onConfigUpdate(RomConfigUpdateEvent.WideCameraMaxWidthUpdate(widths[it])) },
+        )
+        if (shownWidth != null && maxWidth <= shownWidth) {
+            SectionNote(stringResource(id = R.string.wide_camera_no_zoom_out))
+        }
+        SwitchItem(
+            name = stringResource(id = R.string.wide_camera_return_to_center),
+            caption = stringResource(id = R.string.wide_camera_return_to_center_description),
+            isOn = mods.wideCameraReturnToCenter,
+            onToggle = { onConfigUpdate(RomConfigUpdateEvent.WideCameraReturnToCenterUpdate(it)) },
+        )
     }
 }
 

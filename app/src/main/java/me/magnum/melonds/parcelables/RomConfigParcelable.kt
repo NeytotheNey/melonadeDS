@@ -36,6 +36,10 @@ class RomConfigParcelable : Parcelable {
                     )
                 },
                 wideLayoutId = parcel.readString()?.let { UUID.fromString(it) },
+                wideCamera = parcel.readInt() != 0,
+                wideCameraMaxWidth = parcel.readInt().takeIf { it > 0 },
+                wideCameraReturnToCenter = parcel.readInt() != 0,
+                wideCameraZoom = parcel.readFloat().takeIf { it > 0f },
             ),
             screensSwapped = parcel.readInt() != 0,
         )
@@ -61,6 +65,12 @@ class RomConfigParcelable : Parcelable {
             }
         }
         dest.writeString(romConfig.mods.wideLayoutId?.toString())
+        dest.writeInt(if (romConfig.mods.wideCamera) 1 else 0)
+        // 0 means the default
+        dest.writeInt(romConfig.mods.wideCameraMaxWidth ?: 0)
+        dest.writeInt(if (romConfig.mods.wideCameraReturnToCenter) 1 else 0)
+        // 0 means none
+        dest.writeFloat(romConfig.mods.wideCameraZoom ?: 0f)
         dest.writeInt(if (romConfig.screensSwapped) 1 else 0)
     }
 

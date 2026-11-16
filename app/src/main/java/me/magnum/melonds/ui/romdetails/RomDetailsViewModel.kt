@@ -176,6 +176,11 @@ class RomDetailsViewModel @Inject constructor(
             is RomConfigUpdateEvent.CustomNameUpdate -> currentRomConfig.copy(customName = event.customName)
             is RomConfigUpdateEvent.WideViewWidthUpdate -> currentRomConfig.copy(mods = currentRomConfig.mods.copy(wideViewWidth = event.newWideViewWidth))
             is RomConfigUpdateEvent.WideLayoutUpdate -> currentRomConfig.copy(mods = currentRomConfig.mods.copy(wideLayoutId = event.newWideLayoutId))
+            is RomConfigUpdateEvent.WideCameraUpdate -> currentRomConfig.copy(mods = currentRomConfig.mods.copy(wideCamera = event.enabled))
+            is RomConfigUpdateEvent.WideCameraMaxWidthUpdate -> currentRomConfig.copy(mods = currentRomConfig.mods.copy(wideCameraMaxWidth = event.maxWidth))
+            is RomConfigUpdateEvent.WideCameraReturnToCenterUpdate -> {
+                currentRomConfig.copy(mods = currentRomConfig.mods.copy(wideCameraReturnToCenter = event.enabled))
+            }
             is RomConfigUpdateEvent.LuaScriptToggle -> currentRomConfig.withLuaScripts { luaScripts ->
                 luaScripts.map { if (it.fileName == event.fileName) it.copy(enabled = event.enabled) else it }
             }

@@ -9,6 +9,7 @@ import me.magnum.melonds.domain.model.ControllerConfiguration
 import me.magnum.melonds.domain.model.InputConfig
 import me.magnum.melonds.impl.SettingsBackupFormat.CONTROLLER_FILE
 import me.magnum.melonds.impl.dtos.input.ControllerConfigurationDto
+import me.magnum.melonds.impl.input.withDefaultCameraZoomKey
 import me.magnum.melonds.migrations.legacy.input.ControllerConfigurationDto33
 import java.io.File
 
@@ -32,15 +33,19 @@ class Migration33to34(
                 json.decodeFromStream<ControllerConfigurationDto33>(it)
             }
 
+            // Inputs added since (the camera's zoom hotkey) would be written as unmapped, so the ones with a default key get it here, the same
+            // way a newer config without them does
             val newData = ControllerConfiguration(
-                configList = originalData.inputMapper.map {
-                    val assignment = if (it.key == KEY_NOT_SET) {
-                        InputConfig.Assignment.None
-                    } else {
-                        InputConfig.Assignment.Key(null, it.key)
+                configList = withDefaultCameraZoomKey(
+                    originalData.inputMapper.map {
+                        val assignment = if (it.key == KEY_NOT_SET) {
+                            InputConfig.Assignment.None
+                        } else {
+                            InputConfig.Assignment.Key(null, it.key)
+                        }
+                        InputConfig(it.input, assignment)
                     }
-                    InputConfig(it.input, assignment)
-                }
+                )
             )
             val newDto = ControllerConfigurationDto.fromControllerConfiguration(newData)
             controllerConfigFile.outputStream().use {

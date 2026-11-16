@@ -18,6 +18,12 @@ sealed class RomConfigUpdateEvent {
      * The game's wide layout, or null for automatic
      */
     data class WideLayoutUpdate(val newWideLayoutId: UUID?) : RomConfigUpdateEvent()
+    data class WideCameraUpdate(val enabled: Boolean) : RomConfigUpdateEvent()
+    /**
+     * The widest the camera zooms out to, in DS pixels
+     */
+    data class WideCameraMaxWidthUpdate(val maxWidth: Int) : RomConfigUpdateEvent()
+    data class WideCameraReturnToCenterUpdate(val enabled: Boolean) : RomConfigUpdateEvent()
     data class LuaScriptToggle(val fileName: String, val enabled: Boolean) : RomConfigUpdateEvent()
     /**
      * Links a picked folder as the game's script folder, or unlinks it if [folderUri] is null

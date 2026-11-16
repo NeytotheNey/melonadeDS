@@ -97,6 +97,8 @@ namespace MelonDSAndroid {
      */
     extern void finishRewindScreenshot();
     extern void updateLuaSticks(float leftX, float leftY, float rightX, float rightY);
+    // The WideMelon camera's window for melon.wide.camera() (LuaEngine::updateWideCamera)
+    extern void updateWideCamera(float x, float zoom);
     extern void start();
     /**
      * Runs one frame, to be presented on the vsync at [presentDueTimeNs] (CLOCK_MONOTONIC, ns), or as soon as possible if that's 0

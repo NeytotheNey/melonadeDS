@@ -91,6 +91,22 @@ struct LuaTiltShift
     bool operator==(const LuaTiltShift&) const = default;
 };
 
+/**
+ * What a script's melon.wide calls ask of the WideMelon camera, clamped to what any game could take (the app clamps further); a default one
+ * asks for nothing
+ */
+struct LuaWideCamera
+{
+    // set_zoom(): the zoom factor, or negative for the player's
+    float zoom = -1.0f;
+    // pan(): the window's offset from center in DS pixels, if hasPan
+    bool hasPan = false;
+    float pan = 0.0f;
+    bool holdNative = false;
+
+    bool operator==(const LuaWideCamera&) const = default;
+};
+
 struct LuaScript
 {
     LuaEngine* engine;
@@ -121,6 +137,9 @@ struct LuaScript
     std::optional<LuaTiltShift> tiltShift;
     // What the app was last told, so that a script can call tilt_shift() every frame and only changes cost an event
     LuaTiltShift sentTiltShift;
+    // melon.wide: kept until the script changes it or stops (not a per-call request), and what the app was last told of it
+    LuaWideCamera wideCamera;
+    LuaWideCamera sentWideCamera;
 
     void clearRequests()
     {
@@ -258,6 +277,20 @@ private:
     static int save(lua_State* L);
     static int load(lua_State* L);
     static int has(lua_State* L);
+};
+
+/**
+ * melon.wide (LuaWideApi.cpp): the WideMelon camera
+ */
+struct LuaWideApi
+{
+    static const luaL_Reg functions[];
+
+private:
+    static int camera(lua_State* L);
+    static int setZoom(lua_State* L);
+    static int pan(lua_State* L);
+    static int holdNative(lua_State* L);
 };
 
 /**

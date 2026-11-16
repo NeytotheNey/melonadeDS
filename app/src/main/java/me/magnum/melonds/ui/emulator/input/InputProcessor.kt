@@ -4,6 +4,7 @@ import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import me.magnum.melonds.domain.model.ControllerConfiguration
+import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.InputConfig
 import kotlin.math.absoluteValue
 
@@ -25,6 +26,10 @@ class InputProcessor(private val controllerConfiguration: ControllerConfiguratio
 
     override fun onKeyEvent(keyEvent: KeyEvent): Boolean {
         val input = controllerConfiguration.keyToInput(keyEvent.keyCode) ?: return false
+        // A held Camera Zoom key steps the zoom once, also when it was still held as a menu closed (its next event is then a repeat)
+        if (input == Input.CAMERA_ZOOM && keyEvent.action == KeyEvent.ACTION_DOWN && keyEvent.repeatCount > 0) {
+            return true
+        }
         if (input.isSystemInput) {
             when (keyEvent.action) {
                 KeyEvent.ACTION_DOWN -> {

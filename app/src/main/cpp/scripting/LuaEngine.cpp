@@ -286,6 +286,12 @@ void LuaEngine::updateSticks(float leftX, float leftY, float rightX, float right
     sticks[3].store(rightY, std::memory_order_relaxed);
 }
 
+void LuaEngine::updateWideCamera(float x, float zoom)
+{
+    wideCamera[0].store(x, std::memory_order_relaxed);
+    wideCamera[1].store(zoom, std::memory_order_relaxed);
+}
+
 bool LuaEngine::loadScript(LuaScript& script)
 {
     script.L = lua_newstate(LuaSandbox::allocate, &script);
@@ -451,6 +457,12 @@ void LuaEngine::sendRequests(LuaScript& script)
             const LuaTiltShift& tiltShift = script.sentTiltShift;
             eventMessenger->onLuaTiltShift(script.id, tiltShift.top, tiltShift.bottom, tiltShift.center, tiltShift.width, tiltShift.radius, tiltShift.saturation, tiltShift.contrast, tiltShift.color);
         }
+        if (script.wideCamera != script.sentWideCamera)
+        {
+            script.sentWideCamera = script.wideCamera;
+            const LuaWideCamera& camera = script.sentWideCamera;
+            eventMessenger->onLuaWideCamera(script.id, camera.zoom, camera.hasPan, camera.pan, camera.holdNative);
+        }
     }
 
     script.clearRequests();
@@ -527,6 +539,8 @@ int LuaEngine::setupScript(lua_State* L)
     lua_setfield(L, -2, "storage");
     newLibrary(L, LuaStateApi::functions);
     lua_setfield(L, -2, "state");
+    newLibrary(L, LuaWideApi::functions);
+    lua_setfield(L, -2, "wide");
     // A plain table of the option values the app sent, built again at each load
     lua_createtable(L, 0, (int) source.options.size());
     for (const LuaOptionValue& option : source.options)
@@ -629,6 +643,15 @@ void LuaEngine::closeScript(LuaScript& script)
         if (eventMessenger)
             eventMessenger->onLuaTiltShift(script.id, off.top, off.bottom, off.center, off.width, off.radius, off.saturation, off.contrast, off.color);
         script.sentTiltShift = off;
+    }
+    // The same for the camera: a reloaded script starts asking for nothing
+    script.wideCamera = LuaWideCamera();
+    if (script.sentWideCamera != LuaWideCamera())
+    {
+        LuaWideCamera off;
+        if (eventMessenger)
+            eventMessenger->onLuaWideCamera(script.id, off.zoom, off.hasPan, off.pan, off.holdNative);
+        script.sentWideCamera = off;
     }
 
     if (!script.L)

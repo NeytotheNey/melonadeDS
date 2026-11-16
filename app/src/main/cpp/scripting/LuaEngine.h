@@ -135,7 +135,7 @@ struct LuaScript;
 /**
  * Runs the game's Lua scripts: one sandboxed Lua state per script, their callbacks around each frame, and the `melon` module they see
  * (MODS.md, "Lua runtime" and "API"). Everything runs on the emulator thread, except [setScripts] (before the emulator thread starts),
- * [notifyStateLoaded], [notifyReset], [disableScript], [enableScript], [restartScript] and [updateSticks] (any thread).
+ * [notifyStateLoaded], [notifyReset], [disableScript], [enableScript], [restartScript], [updateSticks] and [updateWideCamera] (any thread).
  */
 class LuaEngine
 {
@@ -203,6 +203,10 @@ public:
      */
     void updateSticks(float leftX, float leftY, float rightX, float rightY);
     /**
+     * The WideMelon camera's window as melon.wide.camera() returns it: its offset from center in DS pixels and its zoom (1 = native)
+     */
+    void updateWideCamera(float x, float zoom);
+    /**
      * What the scripts drew for the frame [endFrame] was last called for, empty while no script runs
      */
     const LuaOverlay& getOverlay() const { return overlay; }
@@ -213,6 +217,7 @@ private:
     friend struct LuaDrawApi;
     friend struct LuaFolderApi;
     friend struct LuaStateApi;
+    friend struct LuaWideApi;
 
     // From disableScript(), enableScript() and restartScript(), applied in the order they were asked for
     struct ScriptSwitch
@@ -300,6 +305,8 @@ private:
     std::vector<ScriptSwitch> pendingScriptSwitches;
     std::atomic_bool isScriptSwitchPending = false;
     std::atomic<float> sticks[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    // updateWideCamera()'s x and zoom
+    std::atomic<float> wideCamera[2] = { 0.0f, 1.0f };
 };
 
 }

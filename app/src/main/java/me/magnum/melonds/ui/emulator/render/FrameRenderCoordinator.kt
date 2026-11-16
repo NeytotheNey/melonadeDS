@@ -10,6 +10,7 @@ import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import me.magnum.melonds.impl.diagnostics.DisplayPerformanceCapture
 import me.magnum.melonds.impl.diagnostics.LogTags
 import me.magnum.melonds.ui.emulator.EmulatorSurfaceView
+import me.magnum.melonds.ui.emulator.camera.WideCameraController
 
 class FrameRenderCoordinator {
 
@@ -28,6 +29,9 @@ class FrameRenderCoordinator {
     private var fastForwardActive = false
     // Whether the surfaces currently ask for 60 FPS
     private var surfaceFrameRateVote = false
+    // The WideMelon camera, moved on the render thread for each presented frame (PresentFrameWrapper.wideWindow)
+    @Volatile
+    var wideCameraController: WideCameraController? = null
 
     init {
         glContext = GlContext(MelonDSAndroidInterface.getEmulatorGlContext())
@@ -145,6 +149,7 @@ class FrameRenderCoordinator {
                 halvesAt1x: Int,
                 scaleAt1x: Int,
                 halfScaleAt1x: Int,
+                topWingLines: Int,
                 frameSequence: Long,
             ): Boolean {
                 val renderStart = System.nanoTime()
@@ -161,6 +166,8 @@ class FrameRenderCoordinator {
                     this.scaleAt1x = scaleAt1x
                     this.halfScaleAt1x = halfScaleAt1x
                     this.frameSequence = frameSequence
+                    // Moved once per presented frame, here, so every surface shows the same window
+                    this.wideWindow = if (isValidFrame) wideCameraController?.onFrame(renderStart, topScreenWidth, topWingLines) else null
                 }
 
                 // debug.melonade.comp1x: the emulator only draws screens at 1x while every surface can show them. The output cap (on by

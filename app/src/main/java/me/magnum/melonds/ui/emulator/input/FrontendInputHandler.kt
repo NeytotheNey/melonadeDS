@@ -16,6 +16,7 @@ abstract class FrontendInputHandler : IInputListener {
             Input.QUICK_SAVE -> onQuickSave()
             Input.QUICK_LOAD -> onQuickLoad()
             Input.REWIND -> onRewind()
+            Input.CAMERA_ZOOM -> onCameraZoomPressed()
             else -> {}
         }
     }
@@ -41,4 +42,6 @@ abstract class FrontendInputHandler : IInputListener {
     abstract fun onQuickSave()
     abstract fun onQuickLoad()
     abstract fun onRewind()
+    // Once per press: InputProcessor drops the key's repeats
+    abstract fun onCameraZoomPressed()
 }

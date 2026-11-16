@@ -147,6 +147,11 @@ object MelonEmulator {
      */
     external fun updateLuaSticks(leftX: Float, leftY: Float, rightX: Float, rightY: Float)
 
+    /**
+     * The WideMelon camera's window for melon.wide.camera(): its offset from center in DS pixels and its zoom (1 = native).
+     */
+    external fun updateWideCamera(x: Float, zoom: Float)
+
 	fun loadRom(romUri: Uri, sramUri: Uri, gbaSlotType: GbaSlotType, gbaRomUri: Uri?, gbaSramUri: Uri?): LoadResult {
         val loadResult = loadRomInternal(romUri.toString(), sramUri.toString(), gbaSlotType.ordinal, gbaRomUri?.toString(), gbaSramUri?.toString())
         return when (loadResult) {

@@ -289,6 +289,12 @@ namespace MelonDSAndroid
             instance->updateLuaSticks(leftX, leftY, rightX, rightY);
     }
 
+    void updateWideCamera(float x, float zoom)
+    {
+        if (instance)
+            instance->updateWideCamera(x, zoom);
+    }
+
     void start()
     {
         startAudio();

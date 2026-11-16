@@ -25,6 +25,7 @@ class ControllerConfiguration(configList: List<InputConfig>) {
             Input.QUICK_SAVE,
             Input.QUICK_LOAD,
             Input.REWIND,
+            Input.CAMERA_ZOOM,
         )
     }
 

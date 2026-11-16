@@ -32,6 +32,9 @@ public:
     virtual void onLuaSetLayout(int scriptId, const std::string& optionKey) = 0;
     // melon.screen.tilt_shift()'s values, clamped; both strengths are 0 and the color is negative (not passed) when the script no longer wants the effect
     virtual void onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation, float contrast, float color) = 0;
+    // melon.wide's requests, clamped: the zoom (negative for the player's), the pan if [hasPan], and whether native is held; all off when the script
+    // no longer asks for anything
+    virtual void onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative) = 0;
     // A script loaded one of its savestates
     virtual void onLuaStateLoaded() = 0;
     // Snapshots of the scripts' storage are waiting in LuaStorage's outbox (a wake-up only, without data)

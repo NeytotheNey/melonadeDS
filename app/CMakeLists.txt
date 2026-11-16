@@ -104,6 +104,7 @@ add_library(
         ${ANDROID-CPP}/scripting/LuaStateApi.cpp
         ${ANDROID-CPP}/scripting/LuaStorage.cpp
         ${ANDROID-CPP}/scripting/LuaStorageApi.cpp
+        ${ANDROID-CPP}/scripting/LuaWideApi.cpp
 )
 
 target_include_directories(melonDS-android-frontend PUBLIC

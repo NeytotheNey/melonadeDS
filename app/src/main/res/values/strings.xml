@@ -471,6 +471,13 @@
     <string name="wide_layout_aspect_ratio">Set by the layout</string>
     <string name="wide_layout_label">Wide %1$s</string>
     <string name="wide_layout_label_mixed">Wide</string>
+    <string name="wide_camera">Camera</string>
+    <string name="wide_camera_description">Look around with the right stick and zoom out step by step with the Camera Zoom hotkey (by default R3, the right stick click), or drag and pinch the top screen. Goes back to normal in menus and other scenes without 3D at the sides. Draws a wider picture, which costs more GPU. Applies the next time the game starts.</string>
+    <string name="wide_camera_max_width">Zoom out up to</string>
+    <string name="wide_camera_no_zoom_out">That isn\'t wider than the screen is shown, so the camera stays off. Pick a wider one.</string>
+    <string name="wide_camera_width_pixels">%1$d pixels wide</string>
+    <string name="wide_camera_return_to_center">Return to center when moving</string>
+    <string name="wide_camera_return_to_center_description">Eases the view back to the middle while you walk with the D-pad or left stick and aren\'t using the right stick.</string>
     <string name="lua_script_switched_off">Script %1$s was switched off: %2$s</string>
     <string name="lua_scripts">Scripts</string>
     <string name="lua_scripts_off_in_hardcore">Scripts are off in RetroAchievements hardcore mode, because RetroAchievements doesn\'t allow scripting</string>
@@ -538,6 +545,7 @@
     <string name="input_swap_screens">Swap Screens</string>
     <string name="input_quick_save">Quick Save</string>
     <string name="input_quick_load">Quick Load</string>
+    <string name="input_camera_zoom">Camera Zoom</string>
 
     <string name="layouts">Layouts</string>
     <string name="layouts_summary">Manage custom layout configurations</string>

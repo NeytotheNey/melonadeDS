@@ -54,6 +54,7 @@ class ExternalPresentation(
         }
         // Touches on this display go where its own renderer draws the bottom screen
         layoutView.setFrameWidthProvider { emulatorRenderer.frameTopScreenWidth }
+        layoutView.setWideWindowProvider { emulatorRenderer.frameWideWindow }
         surfaceView.updateRendererConfiguration(currentRendererConfiguration)
 
         container.addView(surfaceView)

@@ -1,6 +1,7 @@
 package me.magnum.melonds.domain.model.layout
 
 import me.magnum.melonds.domain.model.Rect
+import me.magnum.melonds.domain.model.camera.WideWindow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -94,6 +95,63 @@ class ScreensDrawingTest {
         assertNull(drawing.topScreen)
         assertEquals(wideTopSlotNative, drawing.touchScreenRect)
         assertNull(getScreensDrawing(wideTopSlot, null, wideFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f).touchScreenRect)
+    }
+
+    // The camera: 16:9 shown from a 512 wide frame
+    private val cameraFrame = 512
+    private val cameraCentered = WideWindow.centered(342, cameraFrame)
+
+    @Test
+    fun aCenteredCameraWindowLooksLikeAFrameAtTheShowWidth() {
+        val drawing = getScreensDrawing(wideTopSlot, bottomSlot, cameraFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = cameraCentered)
+
+        assertScreen(drawing.topScreen, wideTopSlot, wideTopSlotNative, 85f / 512f, 427f / 512f)
+        // The bottom screen is still the frame's middle 256
+        assertScreen(drawing.bottomScreen, bottomSlot, bottomSlot, 0.25f, 0.75f)
+        val overlay = drawing.topScreen!!.overlay
+        assertEquals(0f, overlay.leftU, 0.0001f)
+        assertEquals(1f, overlay.rightU, 0.0001f)
+        assertEquals(80.47f, overlay.left, 0.01f)
+    }
+
+    @Test
+    fun aZoomedOutWindowIsLetterboxed() {
+        val window = WideWindow(342, cameraFrame, 0f, 512f)
+        val drawing = getScreensDrawing(wideTopSlot, bottomSlot, cameraFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = window)
+
+        // 360 * 342 / 512 tall, with the middle 256 of 512 columns in the middle half
+        assertScreen(drawing.topScreen, Rect(0, 60, 640, 240), Rect(160, 60, 320, 240), 0f, 1f)
+        // The output cap still sizes the frame for 1x, so zooming doesn't change the internal scale
+        assertEquals(wideTopSlotNative, drawing.topScreen!!.nativeRectAt1x)
+    }
+
+    @Test
+    fun aPannedWindowCutsTheDrawingsToThePicture() {
+        val window = WideWindow(342, cameraFrame, 0f, 342f)
+        val drawing = getScreensDrawing(wideTopSlot, bottomSlot, cameraFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = window)
+
+        val overlay = drawing.topScreen!!.overlay
+        assertEquals(640f, overlay.right, 0.01f)
+        assertEquals(0f, overlay.leftU, 0.0001f)
+        // Columns 128 to 341 of the frame are the middle 256's first 214
+        assertEquals(214f / 256f, overlay.rightU, 0.0001f)
+        assertEquals(0f, drawing.topScreen.leftU, 0.0001f)
+        assertEquals(342f / 512f, drawing.topScreen.rightU, 0.0001f)
+    }
+
+    @Test
+    fun swappedTouchesFollowTheCenteredWindow() {
+        val drawing = getScreensDrawing(bottomSlot, wideTopSlot, cameraFrame, isWideLayout = true, areScreensSwapped = true, surfaceWidth = 960f, wideWindow = cameraCentered)
+
+        assertEquals(wideTopSlotNative, drawing.touchScreenRect)
+    }
+
+    @Test
+    fun aWindowForAnotherFrameWidthIsLeftOut() {
+        val withWindow = getScreensDrawing(wideTopSlot, bottomSlot, wideFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = cameraCentered)
+        val without = getScreensDrawing(wideTopSlot, bottomSlot, wideFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f)
+
+        assertEquals(without, withWindow)
     }
 
     private fun assertScreen(screen: ScreenDrawing?, drawRect: Rect, nativeRect: Rect, leftU: Float, rightU: Float) {

@@ -14,6 +14,9 @@ import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.Point
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
+import me.magnum.melonds.domain.model.camera.WideWindow
+import me.magnum.melonds.ui.emulator.camera.WideCameraController
+import me.magnum.melonds.ui.emulator.camera.WideCameraTouchHandler
 import me.magnum.melonds.domain.model.input.SoftInputBehaviour
 import me.magnum.melonds.domain.model.layout.LayoutComponent
 import me.magnum.melonds.domain.model.layout.UILayout
@@ -46,6 +49,12 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     private var connectedControllersState: ConnectedControllersState = ConnectedControllersState.NoControllers
     // The width of the frames the screens are drawn from, in DS pixels (DSRenderer.frameTopScreenWidth), for where touches go
     private var frameWidthProvider: () -> Int = { SCREEN_WIDTH }
+    // The WideMelon camera's window the renderer draws with (DSRenderer.frameWideWindow), for where touches go when it's the touch screen
+    private var wideWindowProvider: () -> WideWindow? = { null }
+    // The WideMelon camera that drags and pinches on the DS top screen go to, or null while it's off
+    private var wideCamera: WideCameraController? = null
+    // What the DS top screen's view has for the camera now, null for nothing
+    private var installedCameraTouchHandler: WideCameraTouchHandler? = null
 
     // The last event of the touches that are down now, kept so they can be carried over to a new layout
     private var currentTouches: MotionEvent? = null
@@ -74,6 +83,23 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
      */
     fun setFrameWidthProvider(provider: () -> Int) {
         frameWidthProvider = provider
+    }
+
+    /**
+     * Sets where the WideMelon camera's window comes from, which also moves the touch screen when it's the one drawn wide
+     */
+    fun setWideWindowProvider(provider: () -> WideWindow?) {
+        wideWindowProvider = provider
+    }
+
+    /**
+     * Sets the camera that drags and pinches on the DS top screen go to while it's drawn wide (not swapped), or null for none
+     */
+    fun setWideCamera(camera: WideCameraController?) {
+        if (camera !== wideCamera) {
+            wideCamera = camera
+            updateScreenInputs()
+        }
     }
 
     fun setConnectedControllersState(state: ConnectedControllersState) {
@@ -349,7 +375,42 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
         systemInputHandler?.let {
             getLayoutComponentView(touchScreenComponent)?.view?.setOnTouchListener(TouchscreenInputHandler(it, ::getTouchScreenArea))
         }
-        getLayoutComponentView(nonTouchScreenComponent)?.view?.setOnTouchListener(null)
+        // The top screen takes no DS touch, so it can steer the camera while it's the wide one. Not where it overlaps the touch screen, though:
+        // a top screen stacked over it would take the touches meant for the game, so there the camera has the stick and hotkeys only
+        val nonTouchScreenView = getLayoutComponentView(nonTouchScreenComponent)
+        val touchScreenRect = getLayoutComponentView(touchScreenComponent)?.getRect()
+        val camera = wideCamera
+        val canSteerCamera = camera != null && !areScreensSwapped && nonTouchScreenView != null &&
+                (touchScreenRect == null || !nonTouchScreenView.getRect().overlaps(touchScreenRect))
+        val previousHandler = installedCameraTouchHandler
+        val handler = if (canSteerCamera) {
+            previousHandler?.takeIf { it.controller === camera } ?: WideCameraTouchHandler(camera, ::getWideScreenPictureWidth)
+        } else {
+            null
+        }
+        if (handler !== previousHandler) {
+            // A gesture the old handler had going gets no release now, so drop what it held
+            previousHandler?.controller?.releaseHeldInput()
+            installedCameraTouchHandler = handler
+        }
+        nonTouchScreenView?.view?.setOnTouchListener(handler)
+    }
+
+    /**
+     * How wide the DS top screen's picture is drawn while it's the wide one, so a drag moves it with the finger; must match the renderer
+     */
+    private fun getWideScreenPictureWidth(): Float? {
+        val (topScreen, bottomScreen) = getDrawnScreens()
+        val drawing = getScreensDrawing(
+            getLayoutComponentView(topScreen)?.getRect(),
+            getLayoutComponentView(bottomScreen)?.getRect(),
+            frameWidthProvider(),
+            currentRuntimeLayout?.isWideLayout == true,
+            areScreensSwapped,
+            width.toFloat(),
+            wideWindowProvider(),
+        )
+        return drawing.topScreen?.drawRect?.width?.toFloat()
     }
 
     /**
@@ -401,6 +462,7 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
             currentRuntimeLayout?.isWideLayout == true,
             areScreensSwapped,
             width.toFloat(),
+            wideWindowProvider(),
         )
         val area = drawing.touchScreenRect ?: return null
         return Rect(area.x - touchScreenView.x.toInt(), area.y - touchScreenView.y.toInt(), area.width, area.height)

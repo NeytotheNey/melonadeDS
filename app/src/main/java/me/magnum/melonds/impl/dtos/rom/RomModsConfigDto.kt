@@ -15,6 +15,15 @@ data class RomModsConfigDto(
     val luaScripts: List<LuaScriptDto?>?,
     @SerializedName("wideLayoutId")
     val wideLayoutId: String? = null,
+    // Missing in configs saved before the camera, which then get its defaults
+    @SerializedName("wideCamera")
+    val wideCamera: Boolean? = null,
+    @SerializedName("wideCameraMaxWidth")
+    val wideCameraMaxWidth: Int? = null,
+    @SerializedName("wideCameraReturnToCenter")
+    val wideCameraReturnToCenter: Boolean? = null,
+    @SerializedName("wideCameraZoom")
+    val wideCameraZoom: Float? = null,
 ) {
 
     data class LuaScriptDto(
@@ -39,6 +48,10 @@ data class RomModsConfigDto(
             }.orEmpty(),
             // An ID that can't be read counts as automatic instead of failing the whole config
             wideLayoutId = wideLayoutId?.let { runCatching { UUID.fromString(it) }.getOrNull() },
+            wideCamera = wideCamera ?: false,
+            wideCameraMaxWidth = wideCameraMaxWidth,
+            wideCameraReturnToCenter = wideCameraReturnToCenter ?: true,
+            wideCameraZoom = wideCameraZoom,
         )
     }
 
@@ -49,6 +62,10 @@ data class RomModsConfigDto(
                 luaScriptFolder = romModsConfig.luaScriptFolder?.toString(),
                 luaScripts = romModsConfig.luaScripts.map { LuaScriptDto(it.fileName, it.enabled, it.options) },
                 wideLayoutId = romModsConfig.wideLayoutId?.toString(),
+                wideCamera = romModsConfig.wideCamera,
+                wideCameraMaxWidth = romModsConfig.wideCameraMaxWidth,
+                wideCameraReturnToCenter = romModsConfig.wideCameraReturnToCenter,
+                wideCameraZoom = romModsConfig.wideCameraZoom,
             )
         }
     }

@@ -115,6 +115,7 @@ public:
      */
     void finishRewindScreenshot(bool wait);
     void updateLuaSticks(float leftX, float leftY, float rightX, float rightY) { luaEngine.updateSticks(leftX, leftY, rightX, rightY); }
+    void updateWideCamera(float x, float zoom) { luaEngine.updateWideCamera(x, zoom); }
 
     // LuaSavestateHost, for melon.state; emulator thread, between frames
     bool saveLuaState(std::vector<melonDS::u8>& data) override;

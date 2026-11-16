@@ -1,5 +1,7 @@
 package me.magnum.melonds.domain.model.render
 
+import me.magnum.melonds.domain.model.camera.WideWindow
+
 // Bits of PresentFrameWrapper.overlayScreens and halvesAt1x; must match presentFrame() in MelonDSAndroidJNI.cpp
 const val OVERLAY_SCREEN_TOP = 1
 const val OVERLAY_SCREEN_BOTTOM = 2
@@ -23,4 +25,6 @@ data class PresentFrameWrapper(
     var halfScaleAt1x: Int = 1,
     // Emulator frame sequence number, 0 when the frame is invalid
     var frameSequence: Long = 0,
+    // The WideMelon camera's window of the top-slot screen for this presentation, or null to draw it without one
+    var wideWindow: WideWindow? = null,
 )

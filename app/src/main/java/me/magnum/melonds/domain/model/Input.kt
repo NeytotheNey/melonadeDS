@@ -33,7 +33,9 @@ enum class Input(val keyCode: Int) {
     SWAP_SCREENS(-1),
     QUICK_SAVE(-1),
     QUICK_LOAD(-1),
-    REWIND(-1);
+    REWIND(-1),
+    // The WideMelon camera's zoom: each press is the next step, then back to 1x
+    CAMERA_ZOOM(-1);
 
     val isSystemInput: Boolean
         get() = keyCode != -1

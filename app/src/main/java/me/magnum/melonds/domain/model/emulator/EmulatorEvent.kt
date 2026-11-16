@@ -1,5 +1,6 @@
 package me.magnum.melonds.domain.model.emulator
 
+import me.magnum.melonds.domain.model.camera.WideCameraRequest
 import me.magnum.melonds.domain.model.render.TiltShift
 
 sealed class EmulatorEvent {
@@ -13,6 +14,7 @@ sealed class EmulatorEvent {
     // optionKey names one of the script's layout options, or is null for the player's layout
     data class LuaSetLayout(val scriptId: Int, val optionKey: String?) : EmulatorEvent()
     data class LuaTiltShift(val scriptId: Int, val tiltShift: TiltShift) : EmulatorEvent()
+    data class LuaWideCamera(val scriptId: Int, val request: WideCameraRequest) : EmulatorEvent()
     data object LuaStateLoaded : EmulatorEvent()
     data class Stop(val reason: Reason) : EmulatorEvent() {
         enum class Reason {

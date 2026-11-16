@@ -3,11 +3,16 @@ package me.magnum.melonds.ui.emulator.input
 import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.Point
+import me.magnum.melonds.ui.emulator.camera.WideCameraController
 
-class MelonTouchHandler : IInputListener {
+/**
+ * @param wideCamera Told about the D-pad, which counts as the player moving for the WideMelon camera
+ */
+class MelonTouchHandler(private val wideCamera: WideCameraController? = null) : IInputListener {
     private var isLidClosed = false
 
     override fun onKeyPress(key: Input) {
+        wideCamera?.onKey(key, true)
         if (key == Input.HINGE) {
             handleHingePress()
         } else {
@@ -16,6 +21,7 @@ class MelonTouchHandler : IInputListener {
     }
 
     override fun onKeyReleased(key: Input) {
+        wideCamera?.onKey(key, false)
         if (key != Input.HINGE) {
             MelonEmulator.onInputUp(key)
         }

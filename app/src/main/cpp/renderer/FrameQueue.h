@@ -47,6 +47,8 @@ struct Frame {
     int halvesAt1x = 0;
     int scaleAt1x = 1;
     int halfScaleAt1x = 1;
+    // The WideMelon camera's per-frame data (melonDS::OutputLayout), set with halvesAt1x: the top screen's lines with 3D wings, held ones included
+    int topWingLines = 0;
     EGLSyncKHR renderFence{};
     EGLSyncKHR presentFence{};
     // Increases every time a frame is pushed for presentation, so the presenter can tell new frames from repeated ones and detect skipped frames

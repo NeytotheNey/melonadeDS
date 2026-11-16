@@ -53,6 +53,7 @@ import androidx.window.layout.WindowInfoTracker
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.squareup.picasso.Picasso
 import dagger.hilt.android.AndroidEntryPoint
+import kotlin.math.abs
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.launch
@@ -63,6 +64,7 @@ import me.magnum.melonds.databinding.ActivityEmulatorBinding
 import me.magnum.melonds.domain.model.ConsoleType
 import me.magnum.melonds.domain.model.ControllerConfiguration
 import me.magnum.melonds.domain.model.FpsCounterPosition
+import me.magnum.melonds.domain.model.InputConfig
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.SaveStateSlot
 import me.magnum.melonds.domain.model.emulator.LuaScriptStatus
@@ -93,6 +95,8 @@ import me.magnum.melonds.ui.emulator.input.EmulatorMotionManager
 import me.magnum.melonds.ui.emulator.input.EmulatorRumbleManager
 import me.magnum.melonds.ui.emulator.input.FrontendInputHandler
 import me.magnum.melonds.ui.emulator.input.INativeInputListener
+import me.magnum.melonds.ui.emulator.camera.WideCameraController
+import me.magnum.melonds.ui.emulator.camera.CameraStickReader
 import me.magnum.melonds.ui.emulator.input.InputProcessor
 import me.magnum.melonds.ui.emulator.input.MelonTouchHandler
 import me.magnum.melonds.ui.emulator.model.EmulatorOverlay
@@ -134,6 +138,8 @@ class EmulatorActivity : AppCompatActivity() {
         const val KEY_URI = "uri"
         const val KEY_BOOT_FIRMWARE_CONSOLE = "boot_firmware_console"
         const val KEY_BOOT_FIRMWARE_ONLY = "boot_firmware_only"
+        // How far the left stick has to be pushed to count as the player moving, for the WideMelon camera's return to center
+        private const val LEFT_STICK_MOVE_THRESHOLD = 0.3f
 
         fun getRomEmulatorActivityIntent(context: Context, rom: Rom): Intent {
             return Intent(context, EmulatorActivity::class.java).apply {
@@ -218,6 +224,15 @@ class EmulatorActivity : AppCompatActivity() {
     private lateinit var mainScreenRenderer: DSRenderer
     private lateinit var melonTouchHandler: MelonTouchHandler
     private lateinit var nativeInputListener: INativeInputListener
+    // The WideMelon camera, shared by every surface through frameRenderCoordinator; its window goes to the scripts as well
+    private val wideCameraController = WideCameraController(
+        // Picked on the render thread, remembered for the game from the main one
+        onZoomPicked = { session, zoom -> runOnUiThread { viewModel.onWideCameraZoomPicked(session, zoom) } },
+        onCameraChanged = { x, zoom -> MelonEmulator.updateWideCamera(x, zoom) },
+    )
+    // Whether the right stick is free to pan the camera, which it isn't while it's mapped to an input
+    private var isRightStickFreeForCamera = true
+    private val cameraStickReader = CameraStickReader()
     private val frontendInputHandler = object : FrontendInputHandler() {
         var fastForwardEnabled = false
             private set
@@ -331,6 +346,11 @@ class EmulatorActivity : AppCompatActivity() {
         override fun onRewind() {
             viewModel.onOpenRewind()
         }
+
+        // InputProcessor leaves out a held key's repeats, so each press is one step
+        override fun onCameraZoomPressed() {
+            wideCameraController.onZoomPress()
+        }
     }
     private val settingsLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         viewModel.onSettingsChanged()
@@ -377,6 +397,8 @@ class EmulatorActivity : AppCompatActivity() {
         onOverlaysPresent = {
             // Key events aren't forwarded to the input handler while overlays are shown, so the hold's release would be lost
             frontendInputHandler.releaseFastForwardHold()
+            // Nor the camera's sticks and D-pad
+            wideCameraController.releaseHeldInput()
             enableScreenTimeOut()
             presentation?.setPauseOverlayVisibility(true)
         }
@@ -434,8 +456,9 @@ class EmulatorActivity : AppCompatActivity() {
         emulatorRumbleManager = EmulatorRumbleManager(this, lifecycleScope, connectedControllerManager)
         emulatorMotionManager = EmulatorMotionManager(this, lifecycleScope, connectedControllerManager)
         frameRenderCoordinator = FrameRenderCoordinator()
+        frameRenderCoordinator.wideCameraController = wideCameraController
         choreographerFrameRenderer = ChoreographerFrameRendererFactory.createFrameRenderer(frameRenderCoordinator)
-        melonTouchHandler = MelonTouchHandler()
+        melonTouchHandler = MelonTouchHandler(wideCameraController)
         mainScreenRenderer = DSRenderer(this)
         binding.surfaceMain.apply {
             setRenderer(mainScreenRenderer)
@@ -461,6 +484,7 @@ class EmulatorActivity : AppCompatActivity() {
             setFrontendInputHandler(frontendInputHandler)
             setSystemInputHandler(melonTouchHandler)
             setFrameWidthProvider { mainScreenRenderer.frameTopScreenWidth }
+            setWideWindowProvider { mainScreenRenderer.frameWideWindow }
             // A recreated activity's views start unswapped, so put back the shown swap before any Lua event is handled
             if (viewModel.areScreensSwapped) {
                 swapScreens()
@@ -611,6 +635,21 @@ class EmulatorActivity : AppCompatActivity() {
                 viewModel.luaTiltShift.collect {
                     mainScreenRenderer.tiltShift = it
                     presentation?.updateTiltShift(it)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.wideCameraState.collect {
+                    wideCameraController.setState(it)
+                    updateWideCameraTouch()
+                }
+            }
+        }
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.luaWideCamera.collect {
+                    wideCameraController.setScriptRequest(it)
                 }
             }
         }
@@ -872,6 +911,7 @@ class EmulatorActivity : AppCompatActivity() {
                     setLayoutComponentViewBuilderFactory(RuntimeLayoutComponentViewBuilderFactory())
                     setFrontendInputHandler(frontendInputHandler)
                     setSystemInputHandler(melonTouchHandler)
+                    setWideCamera(wideCameraController.takeIf { it.isEnabled })
                     viewModel.runtimeLayout.value?.let {
                         updateLayout(it)
                     }
@@ -1110,7 +1150,17 @@ class EmulatorActivity : AppCompatActivity() {
         updateRendererScreenAreas()
     }
 
+    /**
+     * Gives the layouts' DS top screen to the camera's drags and pinches while the camera is on
+     */
+    private fun updateWideCameraTouch() {
+        val camera = wideCameraController.takeIf { it.isEnabled }
+        binding.viewLayoutControls.setWideCamera(camera)
+        presentation?.layoutView?.setWideCamera(camera)
+    }
+
     private fun updateRendererScreenAreas() {
+        wideCameraController.setScreensSwapped(binding.viewLayoutControls.areScreensSwapped())
         val touchScreenArea = binding.viewLayoutControls.applyScreenAreasTo(mainScreenRenderer)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window?.systemGestureExclusionRects = touchScreenArea
@@ -1119,6 +1169,9 @@ class EmulatorActivity : AppCompatActivity() {
 
     private fun setupInputHandling(controllerConfiguration: ControllerConfiguration) {
         nativeInputListener = InputProcessor(controllerConfiguration, melonTouchHandler, frontendInputHandler)
+        isRightStickFreeForCamera = listOf(MotionEvent.AXIS_Z, MotionEvent.AXIS_RZ).all { axis ->
+            InputConfig.Assignment.Axis.Direction.entries.all { controllerConfiguration.axisToInput(axis, it) == null }
+        }
     }
 
     private fun handleBackPressed() {
@@ -1175,6 +1228,13 @@ class EmulatorActivity : AppCompatActivity() {
                 event.getAxisValue(MotionEvent.AXIS_Z),
                 event.getAxisValue(MotionEvent.AXIS_RZ),
             )
+        }
+
+        // The camera's sticks, not while a menu or dialog is over the game
+        if (event.isFromSource(InputDevice.SOURCE_CLASS_JOYSTICK) && wideCameraController.isEnabled && !activeOverlays.hasActiveOverlays()) {
+            val rightX = if (isRightStickFreeForCamera) cameraStickReader.readRightX(event) else 0f
+            val isLeftStickPushed = maxOf(abs(event.getAxisValue(MotionEvent.AXIS_X)), abs(event.getAxisValue(MotionEvent.AXIS_Y))) > LEFT_STICK_MOVE_THRESHOLD
+            wideCameraController.onSticks(rightX, isLeftStickPushed)
         }
 
         if (!activeOverlays.hasActiveOverlays() && nativeInputListener.onMotionEvent(event))

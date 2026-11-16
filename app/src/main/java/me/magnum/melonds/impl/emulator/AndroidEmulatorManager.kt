@@ -33,6 +33,7 @@ import me.magnum.melonds.domain.model.emulator.LuaScriptStatus
 import me.magnum.melonds.domain.model.emulator.RomLaunchResult
 import me.magnum.melonds.domain.model.emulator.resolveValues
 import me.magnum.melonds.domain.model.retroachievements.GameAchievementData
+import me.magnum.melonds.domain.model.camera.WideCameraRequest
 import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.domain.model.retroachievements.RAEvent
 import me.magnum.melonds.domain.model.rom.Rom
@@ -159,6 +160,14 @@ class AndroidEmulatorManager(
                     color = data.getFloat().takeIf { it >= 0f },
                 )
                 _emulatorEvents.tryEmit(EmulatorEvent.LuaTiltShift(scriptId, tiltShift))
+            }
+            EmulatorEventType.EventLuaWideCamera -> {
+                val scriptId = data.getInt()
+                val zoom = data.getFloat().takeIf { it > 0f }
+                val hasPan = data.getInt() != 0
+                val pan = data.getFloat().takeIf { hasPan }
+                val request = WideCameraRequest(zoom = zoom, pan = pan, holdNative = data.getInt() != 0)
+                _emulatorEvents.tryEmit(EmulatorEvent.LuaWideCamera(scriptId, request))
             }
         }
     }

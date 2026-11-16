@@ -255,6 +255,7 @@ private fun getInputName(input: Input): String? {
         Input.QUICK_SAVE -> R.string.input_quick_save
         Input.QUICK_LOAD -> R.string.input_quick_load
         Input.REWIND -> R.string.rewind
+        Input.CAMERA_ZOOM -> R.string.input_camera_zoom
         else -> return null
     }
 

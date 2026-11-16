@@ -3,7 +3,15 @@ package me.magnum.melonds.domain.model.layout
 import me.magnum.melonds.domain.model.Rect
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
+import me.magnum.melonds.domain.model.camera.WideWindow
 import me.magnum.melonds.domain.model.consoleAspectRatio
+
+/**
+ * Where a screen's Lua drawings go, in surface pixels, and the part of their SCREEN_WIDTH columns that shows ([leftU] to [rightU], 0 to 1)
+ */
+data class OverlayDrawing(val left: Float, val top: Float, val right: Float, val bottom: Float, val leftU: Float = 0f, val rightU: Float = 1f) {
+    constructor(rect: Rect) : this(rect.x.toFloat(), rect.y.toFloat(), rect.right.toFloat(), rect.bottom.toFloat())
+}
 
 /**
  * How one DS screen is drawn from the frame.
@@ -12,8 +20,18 @@ import me.magnum.melonds.domain.model.consoleAspectRatio
  * @param nativeRect Where its middle SCREEN_WIDTH columns (the 2D, Lua drawings and touches) end up
  * @param leftU The left edge of the columns of its half of the frame that are drawn, as a texture u coordinate
  * @param rightU The right edge of those columns
+ * @param overlay Where its Lua drawings go: on [nativeRect], cut to [drawRect] when a camera window leaves part of it out
+ * @param nativeRectAt1x [nativeRect] with a camera window at 1x, the largest any window shows the middle columns, for the output cap (the same
+ * without a camera)
  */
-data class ScreenDrawing(val drawRect: Rect, val nativeRect: Rect, val leftU: Float, val rightU: Float)
+data class ScreenDrawing(
+    val drawRect: Rect,
+    val nativeRect: Rect,
+    val leftU: Float,
+    val rightU: Float,
+    val overlay: OverlayDrawing = OverlayDrawing(nativeRect),
+    val nativeRectAt1x: Rect = nativeRect,
+)
 
 /**
  * How the DS screens are drawn, or null for a screen the layout doesn't show
@@ -32,6 +50,8 @@ data class ScreensDrawing(val topScreen: ScreenDrawing?, val bottomScreen: Scree
  * @param topScreenRect The rect the DS top screen is drawn in (the layout's bottom screen rect when [areScreensSwapped])
  * @param bottomScreenRect The rect the DS bottom screen is drawn in
  * @param surfaceWidth The surface width, which a wide screen in a layout that isn't wide can grow up to
+ * @param wideWindow The WideMelon camera's window of the screen in the layout's top rect, or null without a camera: that screen is then shaped
+ * for the window's show width and shows only the window, letterboxed when it's wider than the show width
  */
 fun getScreensDrawing(
     topScreenRect: Rect?,
@@ -40,10 +60,17 @@ fun getScreensDrawing(
     isWideLayout: Boolean,
     areScreensSwapped: Boolean,
     surfaceWidth: Float,
+    wideWindow: WideWindow? = null,
 ): ScreensDrawing {
     val (wideScreenRect, narrowScreenRect) = if (areScreensSwapped) bottomScreenRect to topScreenRect else topScreenRect to bottomScreenRect
+    // A window for another frame width (one presented before a width change) is left out
+    val window = wideWindow?.takeIf { it.frameWidth == frameWidth && it.showWidth in (SCREEN_WIDTH + 1) until frameWidth }
 
     val wideScreen = wideScreenRect?.let {
+        if (window != null) {
+            val rect = getWideScreenDrawRect(it, narrowScreenRect, window.showWidth, isWideLayout, surfaceWidth)
+            return@let getWindowedScreenDrawing(rect, window)
+        }
         val drawRect = getWideScreenDrawRect(it, narrowScreenRect, frameWidth, isWideLayout, surfaceWidth)
         ScreenDrawing(drawRect, getNativeScreenRect(drawRect, frameWidth), 0f, 1f)
     }
@@ -68,6 +95,36 @@ private fun getWideScreenDrawRect(rect: Rect, otherRect: Rect?, frameWidth: Int,
     }
 
     return getWideTopScreenRect(rect, otherRect, frameWidth / SCREEN_HEIGHT.toFloat(), surfaceWidth)
+}
+
+/**
+ * How a screen shaped for [window]'s show width at [rect] shows that window of its frame: the window across the rect's width, as tall as that
+ * keeps the DS's pixel shape (so shorter, centered, when the window is wider than the show width), with the frame's middle SCREEN_WIDTH columns
+ * wherever the window puts them and their Lua drawings cut to the picture
+ */
+private fun getWindowedScreenDrawing(rect: Rect, window: WideWindow): ScreenDrawing {
+    val frameWidth = window.frameWidth.toFloat()
+    val windowWidth = window.width.coerceIn(1f, frameWidth)
+    val windowX = window.x.coerceIn(0f, frameWidth - windowWidth)
+    val pictureHeight = rect.height * minOf(1f, window.showWidth / windowWidth)
+    val drawRect = buildCenteredRect(rect.x + rect.width / 2f, rect.y + (rect.height - pictureHeight) / 2f, rect.width.toFloat(), pictureHeight)
+
+    val pixelsPerColumn = drawRect.width / windowWidth
+    val nativeLeft = drawRect.x + ((frameWidth - SCREEN_WIDTH) / 2f - windowX) * pixelsPerColumn
+    val nativeRight = nativeLeft + SCREEN_WIDTH * pixelsPerColumn
+    val nativeRect = buildCenteredRect((nativeLeft + nativeRight) / 2f, drawRect.y.toFloat(), nativeRight - nativeLeft, drawRect.height.toFloat())
+
+    val overlayLeft = nativeLeft.coerceIn(drawRect.x.toFloat(), drawRect.right.toFloat())
+    val overlayRight = nativeRight.coerceIn(overlayLeft, drawRect.right.toFloat())
+    val overlay = OverlayDrawing(
+        left = overlayLeft,
+        top = drawRect.y.toFloat(),
+        right = overlayRight,
+        bottom = drawRect.bottom.toFloat(),
+        leftU = (overlayLeft - nativeLeft) / (nativeRight - nativeLeft),
+        rightU = (overlayRight - nativeLeft) / (nativeRight - nativeLeft),
+    )
+    return ScreenDrawing(drawRect, nativeRect, windowX / frameWidth, (windowX + windowWidth) / frameWidth, overlay, getNativeScreenRect(rect, window.showWidth))
 }
 
 /**

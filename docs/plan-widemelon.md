@@ -98,7 +98,41 @@ The config is latched at line 0 and capped (4 BGs, 128 sprites). It's cleared wh
 
 **Deferred.**
 - **Shadow polygon list:** only if step 3's counter shows drops. If built, reuse HalfCamera's FIFO replay rather than copying `SubmitPolygon`. It doubles geometry work on the emulator thread (the OnePlus's limit), and BoxTest stays visible to the game anyway.
-- **Vertical widening:** needs a Y squeeze, a taller 3D target and compositor, and changes to the wing hold rows and the app's layout rects. Probably 600+ lines.
+- **Vertical widening** (camera stage 2 below): needs a Y squeeze, a taller 3D target and compositor, and changes to the wing hold rows and the app's layout rects. Probably 600+ lines.
+
+## Camera: pan and zoom (11-15)
+
+What PokeDaisy's EXPAND does on DS (read from `pk_nds_wide.cpp` and `WideCamera.kt` on 11-15): the game's camera never moves. EXPAND renders margins around the real frame, then shows a window inside that wider picture each frame. Zooming out makes the window bigger, and the right stick slides it around, limited to the margins. The window drifts back to the middle when the player walks, and it snaps back to 1x on text, menus and the start of a battle, which it knows from Pokémon field RAM. The user wants zoom-out and look-around in WideMelon (11-15), with per-game behavior through Lua and no PC-from-anywhere style function calls.
+
+**Stage 1, display-side camera.** This doesn't change the 3D path in the core.
+- **Render and show widths are separate.** The core renders at a *render width* Wr, which is the widest view the zoom range needs (up to 768). The layout's wide screen keeps the *show width* the player picked (Wd, the current `wideViewWidth`). With the camera off, Wr = Wd and nothing changes.
+- **The app shows a window** `[x, x+w)` of the Wr-wide top texture in the wide screen's rect. At 1x, w = Wd. Zooming out widens w toward Wr, and the picture is letterboxed top and bottom, because there's no vertical widening yet. Panning moves x, clamped to 0..Wr−w.
+- **Controls.** The right stick pans. One mappable Camera Zoom hotkey, the right stick's click by default, steps through the zooms and back to 1x, like PokeDaisy's Expand, and the picked step is remembered per game. On touch, a drag or pinch on the wide screen does the same, since the top screen takes no DS touch. When the stick is let go and the player moves (D-pad or left stick), the window eases back to the middle.
+- **Automatic 1x.** The window goes back to the middle at 1x when the frame has no 3D in the wings: the core counts the top screen's lines that have 3D wings. Lines the wing hold fills from an earlier frame count as wings, so dual-screen 3D games still pan and zoom (Mario Kart DS is the check); the held wings cover the whole render width, and once a game drops its 3D the holds end within 2 frames. It also goes back to 1x when a script asks for it.
+- **The overlay follows the window.** Lua's `melon.draw` overlay is placed over the middle 256 wherever the window puts it. The FPS counter is pinned to the activity's corner, not the DS screen, so the camera doesn't move it. The bottom screen and touch input are unchanged.
+- **Settings, per game in the Mods tab:** a Camera switch (off by default), a max zoom-out (it sets Wr), and return-to-center on move (on by default).
+- **Lua:**
+  - `melon.wide.camera()` → `x, zoom` (the window's offset from center in DS pixels, and the zoom factor, 1 = native);
+  - `melon.wide.set_zoom(z)`, clamped to the allowed range, with `nil` handing control back to the player;
+  - `melon.wide.pan(x)`, an offset from center in DS pixels, clamped, with `nil` handing control back;
+  - `melon.wide.hold_native(bool)`, which forces 1x and the middle while it's true (menus, text, battles).
+
+  Newest running script wins, and a script's requests go away when it stops, like `tilt_shift`. Lua is off in RetroAchievements hardcore, but the camera itself is display-only, so it stays available there.
+- **Costs and risks:**
+  - With the camera on, the GPU fills Wr, not Wd, even at 1x. Measure on the Fold and OnePlus at 342 shown with 512 rendered.
+  - Wider views fill polygon RAM sooner. `widepolys` helps.
+  - Pop-in at the far edges from the game's own culling gets more visible.
+- **Size:** about 30 core lines (the wing-line count, and letting Wr exceed Wd), about 400–500 app lines (camera class, input, DSRenderer UVs and rects, overlay offset, settings), and about 120 Lua lines. OpenGL and Compute only, like the rest of WideMelon.
+- **Checks:**
+  - The AVD covers the settings UI and Lua API errors.
+  - The Fold covers the visuals: Mario Kart DS and White 2 on OpenGL and Compute, with pan, zoom, auto-1x in a menu, and a script holding native.
+
+**Stage 1b, if the fill cost shows (optional).** Render only the window: an asymmetric `ProjectX` that maps a native range `[x0, x0+Wr)` instead of a centered one, using PokeDaisy's off-axis form `(256x − (R−L)w) / (256+L+R)`. The stretch center at `GPU3D.cpp` HiresPosition, the BoxTest retry, `WideXAdjust` and the compositor's middle offset all move with it. This also lets the pan go past 768 wide.
+- **11-15 phone data.** OpenGL showed no cost on the Fold or OnePlus. The OnePlus's Compute did: in White 2's field at 4x, 342 rendered gave 45 fps and 20.7 ms of work, while 512 rendered at zoom 1 gave 30 fps and 31.9 ms (`perf_logs/2026-11-15-wide-camera/`). The user's call (11-15) is to come back to this after the remaining Compute efficiency work, which may change these numbers.
+
+**Stage 2, vertical zoom-out.** This is the deferred vertical widening above, about 600+ lines. It's what makes zooming out fill the screen instead of letterboxing.
+
+**Stage 3, per-game real camera (idea).** A Lua script writes the game's own camera position or distance in RAM. The game then culls and draws for the new view, so there's no edge pop-in and no margin limit. The camera address has to be found per game (decompiling helps), and the game sees the change.
 
 ## Open after the merge (11-11)
 
