@@ -1,0 +1,284 @@
+diff --git a/src/GPU.h b/src/GPU.h
+index ae34bd69..c00d1824 100644
+--- a/src/GPU.h
++++ b/src/GPU.h
+@@ -862,6 +862,12 @@ public:
+     // texture ones are used. bit 2 (debug builds): those programs fail on purpose. 2 is the default
+     // since 11-15; only changed by a debug switch
+     int GLEdgeFast = 2;
++    // OpenGL renderer, experiment D3 (docs/plan-gpu-discovery.md). bit 0: when edge marking and fog
++    // are both on, one final-pass draw does both (GLRenderer::PrepareEdgeFogShader) with dual-source
++    // blending, where the GPU has GL_EXT_blend_func_extended. the same result except on pixels both
++    // edge-marked and fogged with antialiasing on, which can be one step off (the edge pass's 8-bit
++    // rounding before the fog is skipped). 0 by default for now; only changed by a debug switch
++    int GLFinalPass = 0;
+     // OpenGL renderer, experiment D1 (docs/plan-gpu-discovery.md), a bit each. bit 0: the plain
+     // clear (not the clear bitmap, DISP3DCNT bit 14) is a glClearBuffer per attachment instead of a
+     // full-screen quad, with the same values the quad's shader writes. bit 1: after the frame, the
+diff --git a/src/GPU3D_OpenGL.cpp b/src/GPU3D_OpenGL.cpp
+index 5fd2f051..3f9ffc93 100644
+--- a/src/GPU3D_OpenGL.cpp
++++ b/src/GPU3D_OpenGL.cpp
+@@ -554,6 +554,49 @@ bool GLRenderer::PrepareEdgeShaders()
+     return ok;
+ }
+ 
++// GPU::GLFinalPass bit 0 (D3): the combined edge and fog program, built the first frame that wants
++// it. false without GL_EXT_blend_func_extended or when it doesn't build (logged once): the frame
++// draws the two passes as before
++bool GLRenderer::PrepareEdgeFogShader()
++{
++    if (FinalPassEdgeFogShader)
++        return true;
++    if (!HasDualSource || EdgeFogTried)
++        return false;
++    EdgeFogTried = true;
++
++    std::string fs = kFinalPassEdgeFS;
++    fs.insert(strlen(kShaderHeader), "\n#extension GL_EXT_blend_func_extended : require\n#define EdgeFog");
++    GLuint prog = 0;
++    if (!OpenGL::CompileVertexFragmentProgram(prog, kFinalPassVS, fs, "FinalPassEdgeFogShader", {{"vPosition", 0}}, {}))
++    {
++        glDeleteProgram(prog);
++        Platform::Log(Platform::LogLevel::Warn, "GLFINALPASS: the combined edge and fog program didn't build, glfinalpass 1 draws two passes\n");
++        return false;
++    }
++    glUniformBlockBinding(prog, glGetUniformBlockIndex(prog, "uConfig"), 0);
++    glUseProgram(prog);
++    glUniform1i(glGetUniformLocation(prog, "DepthBuffer"), 0);
++    glUniform1i(glGetUniformLocation(prog, "AttrBuffer"), 1);
++    const char* names[6] = {"uEdgeScale", "uDepthUnbias", "uClearPolyID", "uClearDepth", "uEdgeFast", "uFogAlphaOnly"};
++    for (int i = 0; i < 6; i++)
++        EdgeFogULoc[i] = glGetUniformLocation(prog, names[i]);
++    FinalPassEdgeFogShader = prog;
++    Platform::Log(Platform::LogLevel::Info, "GLFINALPASS: combined edge and fog program built\n");
++    return true;
++}
++
++// the edge pass's uniforms (kFinalPassEdgeFS), in loc's order: uEdgeScale, uDepthUnbias, uClearPolyID,
++// uClearDepth, uEdgeFast
++void GLRenderer::SetEdgeUniforms(const GLint* loc, const GPU3D& gpu3d, bool wbuffer, int fast)
++{
++    glUniform1i(loc[0], ScaleFactor);
++    glUniform1f(loc[1], (wbuffer ? 255.0f : 512.0f) / 16777216.0f);
++    glUniform1i(loc[2], (gpu3d.RenderClearAttr1 >> 24) & 0x3F);
++    glUniform1f(loc[3], (float)(((gpu3d.RenderClearAttr2 & 0x7FFF) * 0x200) + 0x1FF) / 16777216.0f);
++    glUniform1i(loc[4], fast);
++}
++
+ void GLRenderer::DropEdgeShaders()
+ {
+     for (int i = EdgeShader; i < EdgeLineShader + 10; i++)
+@@ -919,6 +962,9 @@ std::unique_ptr<GLRenderer> GLRenderer::New() noexcept
+             return false;
+         };
+         result->HasFramebufferFetch = hasExtension("GL_EXT_shader_framebuffer_fetch");
++        // GPU::GLFinalPass bit 0: the combined edge and fog pass blends with a second shader output
++        result->HasDualSource = hasExtension("GL_EXT_blend_func_extended");
++        Platform::Log(Platform::LogLevel::Info, "GLFINALPASS: GL_EXT_blend_func_extended=%d\n", result->HasDualSource ? 1 : 0);
+ #ifdef MELONADE_DEBUG_TOOLS
+         Platform::Log(Platform::LogLevel::Info, "GLTRANS: framebuffer fetch GL_EXT_shader_framebuffer_fetch=%d "
+             "GL_ARM_shader_framebuffer_fetch=%d GL_EXT_shader_framebuffer_fetch_non_coherent=%d\n",
+@@ -969,6 +1015,7 @@ GLRenderer::~GLRenderer()
+     glDeleteProgram(ClearShaderPlain);
+     glDeleteProgram(ClearShaderBitmap);
+     glDeleteProgram(FinalPassEdgeShader);
++    glDeleteProgram(FinalPassEdgeFogShader);
+     glDeleteProgram(FinalPassFogShader);
+ 
+     if (ShadowLogQueries[0]) glDeleteQueries(64, ShadowLogQueries);
+@@ -2996,6 +3043,9 @@ void GLRenderer::RenderSceneChunk(const GPU3D& gpu3d, int y, int h)
+     bool edgepass = (gpu3d.RenderDispCnt & (1<<5)) && (EdgeMark != 0 || !EdgeSkip);
+     bool fogpass = (gpu3d.RenderDispCnt & (1<<7)) != 0;
+ 
++    // GPU::GLFinalPass bit 0 (D3): both in one draw (PrepareEdgeFogShader)
++    bool edgefog = edgepass && fogpass && (FinalPass & 1) && PrepareEdgeFogShader();
++
+     if (edgepass || fogpass) // fog/edge enabled
+     {
+         // the depth buffer's detach goes with the first of them
+@@ -3025,18 +3075,32 @@ void GLRenderer::RenderSceneChunk(const GPU3D& gpu3d, int y, int h)
+         glBindBuffer(GL_ARRAY_BUFFER, ClearVertexBufferID);
+         glBindVertexArray(ClearVertexArrayID);
+ 
+-        if (edgepass)
++        if (edgefog)
++        {
++            // the edge pass's marking, then the fog pass's fog, per pixel (kFinalPassEdgeFS with
++            // EdgeFog), into one blend. dual-source blending can't go with a second draw buffer
++            glUseProgram(FinalPassEdgeFogShader);
++            SetEdgeUniforms(EdgeFogULoc, gpu3d, wbuffer, 0);
++            glUniform1i(EdgeFogULoc[5], (gpu3d.RenderDispCnt & (1<<6)) ? 1 : 0);
++
++            // GL_SRC1_COLOR_EXT, GL_ONE_MINUS_SRC1_COLOR_EXT, GL_SRC1_ALPHA_EXT, GL_ONE_MINUS_SRC1_ALPHA_EXT
++            glBlendFuncSeparate(0x88F9, 0x88FA, 0x8589, 0x88FB);
++            const GLenum one = GL_COLOR_ATTACHMENT0;
++            glDrawBuffers(1, &one);
++
++            glDrawArrays(GL_TRIANGLES, 0, 2*3);
++
++            const GLenum both[2] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
++            glDrawBuffers(2, both);
++        }
++        else if (edgepass)
+         {
+             // edge marking: a pixel with the flag whose neighbor one DS pixel away has another
+             // opaque ID and is further away (depth-equal polygons' bias undone). outside the
+             // target, the neighbor is the clear plane's ID and depth, as the software renderer's
+             // screen borders are
+             glUseProgram(FinalPassEdgeShader);
+-            glUniform1i(EdgeULoc[0], ScaleFactor);
+-            glUniform1f(EdgeULoc[1], (wbuffer ? 255.0f : 512.0f) / 16777216.0f);
+-            glUniform1i(EdgeULoc[2], (gpu3d.RenderClearAttr1 >> 24) & 0x3F);
+-            glUniform1f(EdgeULoc[3], (float)(((gpu3d.RenderClearAttr2 & 0x7FFF) * 0x200) + 0x1FF) / 16777216.0f);
+-            glUniform1i(EdgeULoc[4], EdgeFast & 1);
++            SetEdgeUniforms(EdgeULoc, gpu3d, wbuffer, EdgeFast & 1);
+ 
+             glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+ 
+@@ -3065,7 +3129,7 @@ void GLRenderer::RenderSceneChunk(const GPU3D& gpu3d, int y, int h)
+                 glDisable(GL_SCISSOR_TEST);
+         }
+ 
+-        if (fogpass)
++        if (fogpass && !edgefog)
+         {
+             // fog
+ 
+@@ -3236,6 +3300,7 @@ void GLRenderer::RenderFrame(GPU& gpu)
+     EdgeMark = (gpu.GPU3D.RenderDispCnt & (1<<5)) ? std::clamp(gpu.GLEdgeMark, 0, 2) : 0;
+     // GPU::GLEdgeFast: bit 1 only matters to mode 1's outlines
+     EdgeFast = gpu.GLEdgeFast & 3;
++    FinalPass = gpu.GLFinalPass;
+     EdgeSet = (EdgeMark == 1 && (EdgeFast & 2) && !EdgeLinesFailed) ? EdgeLineShader : EdgeShader;
+ #ifdef MELONADE_DEBUG_TOOLS
+     FailEdgeLines = (gpu.GLEdgeFast & 4) != 0;
+diff --git a/src/GPU3D_OpenGL.h b/src/GPU3D_OpenGL.h
+index e31b3d36..9b027947 100644
+--- a/src/GPU3D_OpenGL.h
++++ b/src/GPU3D_OpenGL.h
+@@ -252,6 +252,17 @@ private:
+ 
+     GLuint FinalPassEdgeShader {};
+     GLuint FinalPassFogShader {};
++    // GPU::GLFinalPass bit 0 (D3): kFinalPassEdgeFS with EdgeFog, the edge and fog passes in one draw
++    // with dual-source blending (GL_EXT_blend_func_extended, HasDualSource), made the first frame
++    // that wants it (PrepareEdgeFogShader). EdgeFogTried: a build was tried. EdgeFogULoc: EdgeULoc's
++    // uniforms, then uFogAlphaOnly. FinalPass: the switch, per frame
++    GLuint FinalPassEdgeFogShader {};
++    bool HasDualSource = false;
++    bool EdgeFogTried = false;
++    GLint EdgeFogULoc[6] {};
++    int FinalPass = 0;
++    bool PrepareEdgeFogShader();
++    void SetEdgeUniforms(const GLint* loc, const GPU3D& gpu3d, bool wbuffer, int fast);
+     // kFinalPassEdgeFS's uEdgeScale, uDepthUnbias, uClearPolyID, uClearDepth, uEdgeFast
+     GLint EdgeULoc[5] {};
+ 
+diff --git a/src/GPU3D_OpenGL_shaders.h b/src/GPU3D_OpenGL_shaders.h
+index 70e37f3d..d4b9d5ca 100644
+--- a/src/GPU3D_OpenGL_shaders.h
++++ b/src/GPU3D_OpenGL_shaders.h
+@@ -154,7 +154,52 @@ layout(std140) uniform uConfig
+     int uFogShift;
+ };
+ 
++#ifdef EdgeFog
++// GPU::GLFinalPass bit 0 (D3, GLRenderer::RenderSceneChunk): the edge and fog passes in one draw,
++// built from this source with EdgeFog defined and GL_EXT_blend_func_extended. the blend is
++// result = oColor * oFactor + dst * (1 - oFactor) per channel (SRC1_COLOR, ONE_MINUS_SRC1_COLOR and
++// the _ALPHA ones), which is each pass's own blend where only one of them changes a pixel. where
++// both do (an edge-marked pixel with the fog flag, fog on the color too), the edge pass's 8-bit
++// store before the fog is redone here for an edge alpha of 1 and skipped for antialiasing's 0.5
++// (that one needs the destination), so those pixels can be a step off. alpha is the fog pass's,
++// edge marking doesn't change it
++layout(location = 0, index = 0) out vec4 oColor;
++layout(location = 0, index = 1) out vec4 oFactor;
++// DISP3DCNT bit 6: fog changes alpha only
++uniform int uFogAlphaOnly;
++
++// kFinalPassFogFS's CalculateFog
++float FogDensity(float depth)
++{
++    int idepth = int(depth * 16777216.0);
++    int densityid, densityfrac;
++
++    if (idepth < uFogOffset)
++    {
++        densityid = 0;
++        densityfrac = 0;
++    }
++    else
++    {
++        uint udepth = uint(idepth);
++        udepth -= uint(uFogOffset);
++        udepth = (udepth >> 2) << uint(uFogShift);
++
++        densityid = int(udepth >> 17);
++        if (densityid >= 32)
++        {
++            densityid = 32;
++            densityfrac = 0;
++        }
++        else
++            densityfrac = int(udepth & uint(0x1FFFF));
++    }
++
++    return mix(uFogDensity[densityid], uFogDensity[densityid+1], float(densityfrac)/131072.0);
++}
++#else
+ layout(location = 0) out vec4 oColor;
++#endif
+ 
+ // GPU::GLEdgeMark (E1, GLRenderer::RenderSceneChunk): uEdgeScale, the neighbor offset, one DS
+ // pixel in target pixels (the 3D scale, wide views too). uClearPolyID and uClearDepth: what a
+@@ -227,8 +272,10 @@ void main()
+ 
+     vec4 ret = vec4(0,0,0,0);
+     vec4 attr = texelFetch(AttrBuffer, coord, 0);
++#ifndef EdgeFog
+     if (uEdgeFast != 0 && (AttrG(attr) & 2) == 0)
+         discard;
++#endif
+     vec4 depth = texelFetch(DepthBuffer, coord, 0);
+ 
+     int polyid = PolyID(attr);
+@@ -253,7 +300,38 @@ void main()
+         }
+     }
+ 
++#ifdef EdgeFog
++    // the fog pass's density, from the same (biased) depth it reads; 0 without the fog flag
++    float d = (attr.b != 0.0) ? FogDensity(depth.r) : 0.0;
++    vec4 fog = uFogColor.bgra;
++    // the blend is oColor * oFactor + dst * (1 - oFactor) per channel, the shape of both passes'
++    // blends, with the same values in the same places: the edge pass's (E, a), the fog pass's
++    // (F, d). so a pixel only one of them changes gets exactly that pass's blend
++    vec3 src = ret.rgb;
++    vec3 factor = vec3(ret.a);
++    if (uFogAlphaOnly == 0 && d != 0.0)
++    {
++        if (ret.a == 0.0)
++        {
++            src = fog.rgb;
++            factor = vec3(d);
++        }
++        else
++        {
++            // both: F * d + (E * a + dst * (1 - a)) * (1 - d) as one blend. with a = 1 the edge
++            // pass's 8-bit store is redone here; with a = 0.5 it can't be (it needs dst)
++            vec3 e = (ret.a == 1.0) ? round(ret.rgb * 255.0) / 255.0 : ret.rgb;
++            float k = 1.0 - (1.0 - ret.a) * (1.0 - d);
++            src = (fog.rgb * d + e * ret.a * (1.0 - d)) / k;
++            factor = vec3(k);
++        }
++    }
++    // alpha: the fog pass's (A, d); the edge pass keeps it
++    oColor = vec4(src, fog.a);
++    oFactor = vec4(factor, d);
++#else
+     oColor = ret;
++#endif
+ }
+ )";
+ 
