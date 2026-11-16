@@ -39,7 +39,7 @@ Departures from the plan: `MelonDSAndroidJNI.cpp` keeps `<ctime>` for `clock_get
 - Back on the Compose dialogs (pause menu → Mods, script options, achievements) was only tried with `KEYCODE_BACK`, not the back gesture or controller B.
 - Phase 5's phone checklist: every settings screen in light and dark, the folder pickers' chevrons and pickers, the RetroAchievements switches grayed while logged out, the layout editor item panel's sliders and value dialogs, and a Lua script whose file starts with a UTF-8 BOM.
 - Only Low audio latency can be tested, since the setting is hidden and the repository always sends Low.
-- `Failed to allocate memory using ftruncate! (Invalid argument)` logs once per game load and the game runs; not looked into.
+- `Failed to allocate memory using ftruncate! (Invalid argument)` logged once per game load. Fixed in the core on 2026-11-16: ashmem already sizes the region, so the ftruncate now only runs on the desktop `shm_open` path.
 - Three lint errors older than the pass: `MissingConstraints` in `activity_emulator.xml`, `PropertyEscape` in `local.properties`, `WrongConstant` in `DeviceLayoutDisplayMapper.kt`.
 - `.claude/shadercheck/check.sh` couldn't run on the Windows PC (no g++/glslang); the merged dumper's output was byte-identical under WSL.
 - `getPlayerLayoutPicks` stays public and top-level in `LuaLayoutRequests.kt` because `LuaUiOverridesTest` calls it; move it into the view model only together with the test.

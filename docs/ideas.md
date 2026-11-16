@@ -19,7 +19,3 @@
 - **Cheat search.** Search memory for values, narrow the results, and turn them into cheats.
 - **Game library revamp.** Grid and mosaic views are mocked up behind the view menu; see [plan-launcher.md](plan-launcher.md) for what is left.
 - **RetroAchievements metadata.** Answered in [plan-launcher.md](plan-launcher.md): the connect API gives title and icon, box art and credits need the user's Web API key, cached once per game.
-
-## Questions to look into
-
-- **`Failed to allocate memory using ftruncate! (Invalid argument)`** logs once per game load (seen on all 13 launches on 2026-11-02, and before that in the polish pass), and every game runs. It comes from the JIT fastmem setup in the core's `src/ARMJIT_Memory.cpp` (around line 919). On Android the region is made with `ASharedMemory_create`, which already sets the size, and the ftruncate after it likely fails because ashmem doesn't support it. If so it's only noise and the fix is to skip ftruncate there. Check that fastmem is really mapped and in use before calling it harmless.
