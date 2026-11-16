@@ -10,6 +10,7 @@
 #include <vector>
 #include <sys/system_properties.h>
 #include "GPU.h"
+#include "NDS.h"
 #include "MelonLog.h"
 
 using namespace melonDS;
@@ -166,13 +167,14 @@ static int readBool(const char* name)
     return -1;
 }
 
-Overrides apply(GPU& gpu)
+Overrides apply(NDS& nds)
 {
+    GPU& gpu = nds.GPU;
     char value[PROP_VALUE_MAX];
     Overrides overrides;
 
-    // on by default in debug builds, so it gets real use, and off in the core until it's proven.
-    // only an accelerated renderer holds capture lines or clears the plane, so this is GL and compute
+    // on by default (the core default too since 11-16). only an accelerated renderer holds capture
+    // lines or clears the plane, so this is GL and compute
     gpu.EngineBNoHold = true;
     // the same until it's tested on a phone: OpenGL and compute (Renderer3D::SupportsBlitAfterRender)
     gpu.BlitAfterReadback = true;
@@ -327,13 +329,19 @@ Overrides apply(GPU& gpu)
     int gpu2dWide = readBool("gpu2dwide") == 1 ? 1 : 0;
     gpu.SetShadow2D(gpu2dMode, gpu2dLog, gpu2dCheck, gpu2dWide);
 
-    char summary[1024];
+    // ARM64 JIT: multi-register loads on the fastmem path (on in the core), 0 for the old store-only path.
+    // Set here, right after the NDS is made, so no block is compiled before it
+    int ldmFast = readBool("ldmfast");
+    if (ldmFast >= 0)
+        nds.JIT.SetFastBlockLoads(ldmFast == 1);
+
+    char summary[2048];
     int length = snprintf(summary, sizeof(summary), "Debug switches:");
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
         length += snprintf(summary + length, sizeof(summary) - length, " %s=%d", boolSwitch.name, gpu.*boolSwitch.target ? 1 : 0);
-    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d gltimers=%d scenestats=%d gltrans=%d gledgeskip=%d gledgemark=%d gledgefast=%d glclear=%d glnodiscard=%d gltexprobe=%d gltexcache=%d compclear=%d comp1x=%d filter2drows=%d outcap=%d outcapneed=%d outcap3d=%d computecheck=%d computebin=%d computecalc=%d computeflat=%d",
+    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d gltimers=%d scenestats=%d gltrans=%d gledgeskip=%d gledgemark=%d gledgefast=%d glclear=%d glnodiscard=%d gltexprobe=%d gltexcache=%d compclear=%d comp1x=%d filter2drows=%d outcap=%d outcapneed=%d outcap3d=%d computecheck=%d computebin=%d computecalc=%d computeflat=%d ldmfast=%d",
              gpu.ShadowLogFrames, gpu.CaptureSpinUs, gpu.ComputePace, gpu.ComputeTileSize, gpu.ComputeOpt, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.filter2d, captureReads ? 1 : 0, gpu2dStats ? 1 : 0, gpu.GPU3D.GetWideDropLogging() ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), gpu.GPU3D.GetHalfCamera(),
-             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : "0", gpu2dWide, gpu.GLTimers, gpu.SceneStats, gpu.GLTransSkip, gpu.GLEdgeSkip, overrides.edgeMark, gpu.GLEdgeFast, gpu.GLClearFast, gpu.GLNoDiscard, gpu.GLTexProbe, gpu.GLTexCache, gpu.CompClear, gpu.Comp1x, gpu.Filter2DRows, gpu.OutputCap, gpu.OutputCapNeed, gpu.OutputCap3D, gpu.ComputeCheck, gpu.ComputeBin, gpu.ComputeCalc, gpu.ComputeFlat);
+             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : "0", gpu2dWide, gpu.GLTimers, gpu.SceneStats, gpu.GLTransSkip, gpu.GLEdgeSkip, overrides.edgeMark, gpu.GLEdgeFast, gpu.GLClearFast, gpu.GLNoDiscard, gpu.GLTexProbe, gpu.GLTexCache, gpu.CompClear, gpu.Comp1x, gpu.Filter2DRows, gpu.OutputCap, gpu.OutputCapNeed, gpu.OutputCap3D, gpu.ComputeCheck, gpu.ComputeBin, gpu.ComputeCalc, gpu.ComputeFlat, nds.JIT.FastBlockLoadsEnabled() ? 1 : 0);
     LOG_INFO(LOG_TAG_DEBUG, "%s", summary);
     // what was set, and where from: the app's Debug switches setting or setprop
     std::string active = describeActive();

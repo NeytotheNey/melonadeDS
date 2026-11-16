@@ -18,4 +18,17 @@ Moved out of `HANDOFF.md` on 11-11. The fix is merged (core `4c8a9f46`, app `148
 
 **Protect the user's data:** back up each `.sav`, prefs and `rom_data.json` first, compare after each run, and restore settings at the end. Loading a state overwrites the `.sav`.
 
-**Before turning it on for release** (the core default `GPU::EngineBNoHold` is false, and only `DebugProperties::apply` sets it): the user plays some gameplay on the Fold, and a save state save and load gets tested with the `.sav` backed up first, since a state taken with held lines has never run. A bottom-screen HASH2D difference between on and off isn't automatically a bug (PERF-NOTES).
+**Before turning it on for release** (the core default `GPU::EngineBNoHold` is false, and only `DebugProperties::apply` sets it): the user plays some gameplay on the Fold, and a save state save and load gets tested with the `.sav` backed up first, since a state taken with held lines has never run. A bottom-screen HASH2D difference between on and off isn't automatically a bug (PERF-NOTES). **11-16:** the user played gameplay and tested a save state save and load: both fine.
+
+## Result (11-16, OnePlus 7 Pro, plugged in, no throttling)
+
+bnohold helps a lot, and nothing looks wrong on the top screen. The bottom screen wasn't visible in this layout, and HASH2D wasn't run. Dark Dawn means over runs ordered 1 0 0 1:
+
+| Config | fps off → on | 1% low | work mean (ms) |
+|---|---|---|---|
+| compute 2x | 26.2 → 47.5 (44.5–51.4) | 14.1 → 32.4 | 38.1 → 20.5 |
+| compute 4x | 18.9 → 35.3 | 10.8 → 25.5 | 52.9 → 27.9 |
+| OpenGL 2x | 59.75 → 59.78 | 52.7 → 54.2 | 15.2 → 15.0 |
+| OpenGL 4x | 59.4 → 59.8 | 40.8 → 54.8 | 16.25 → 15.1 (frames over budget 430 → 32) |
+
+The map moves from lines 1–191 to line 192 on 1275 of 1276 captures. On compute, the GPU goes from waiting on the readback to busy (4x: 48% → 86% utilization). White 2 title, one pair: compute 2x 46.2 → 59.2 fps even though it maps at line 192 either way, which is worth a repeat. OpenGL 2x is unchanged. No GL errors, and the `.sav` files are unchanged. Data: `perf_logs/2026-11-16-bnohold-oneplus/`. Every test gate has now passed.

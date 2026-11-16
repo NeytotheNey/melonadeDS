@@ -85,7 +85,7 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     }
 
 #ifdef MELONADE_DEBUG_TOOLS
-    debugOverrides = DebugProperties::apply(nds->GPU);
+    debugOverrides = DebugProperties::apply(*nds);
 #endif
 
     if (configuration->userInternalFirmwareAndBios)

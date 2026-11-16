@@ -5,7 +5,7 @@
 
 #include <string>
 
-namespace melonDS { class GPU; }
+namespace melonDS { class NDS; }
 
 /**
  * Debug builds only: `adb shell setprop debug.melonade.<switch> <value>` before a game starts changes one of the switches below, and an unset or
@@ -86,6 +86,9 @@ namespace melonDS { class GPU; }
  *   computessbo    compute, Mali diagnostics (docs/shelved/compute-on-mali.md): InterpXSpans reads the setup indices from the same buffer
  *                  bound as a std430 storage buffer instead of through the RGBA16UI texture buffer. Recompiles at the next render
  *                  (GPU::ComputeSSBO, default 0)
+ *   ldmfast        ARM64 JIT with fast memory: multi-register loads (LDM, POP, Thumb LDMIA) read memory directly instead of calling
+ *                  SlowBlockTransfer9/7, as stores already did. Same cycles either way. 0 is the old store-only fast path for A/Bs
+ *                  (ARMJIT::SetFastBlockLoads, default 1; x64 always has it)
  *
  * Others:
  *   shadowlog N    classic OpenGL: log SHADOWSTATS and SHADOWLOG lines for the first N frames (1 means 300)
@@ -300,9 +303,10 @@ struct Overrides
 };
 
 /**
- * Applies every switch that targets the core to [gpu], logs a summary line and returns the frontend switches.
+ * Applies every switch that targets the core to [nds] (its GPU and JIT, before the JIT compiles anything), logs a summary line and
+ * returns the frontend switches.
  */
-Overrides apply(melonDS::GPU& gpu);
+Overrides apply(melonDS::NDS& nds);
 
 }
 
