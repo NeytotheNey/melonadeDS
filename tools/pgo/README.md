@@ -2,7 +2,7 @@
 
 Clang instrumentation PGO for the arm64-v8a native code (frontend, core and libraries). You build an instrumented APK, play on the phone, merge the counters it writes into a profile, and rebuild with that profile. Other ABIs (armeabi-v7a, x86_64) build as if PGO were off.
 
-Release builds use PGO by default: they build with the committed `app/pgo/arm64-v8a-release.profdata`, and CI does the same. If that file is missing they build without PGO and print a warning when a release task runs. Debug builds stay off unless you pass `-PnativePgo`, and their profile (`app/pgo/arm64-v8a.profdata`) is git-ignored. `-PnativePgo=off|generate|use` overrides the default for either. Steps 1-4 below are the debug build; "Release builds" further down is the one that ships.
+PGO is off by default for both release and debug builds, and CI builds without it. Pass `-PnativePgo=generate|use|off` to pick a mode for either. `use` reads `app/pgo/arm64-v8a-release.profdata` for release and `app/pgo/arm64-v8a.profdata` for debug; both are git-ignored and stay local. Steps 1-4 below are the debug build; "Release builds" further down is the one that ships.
 
 ## 1. Build the instrumented APK
 
@@ -67,11 +67,11 @@ The shipped APK is a release build, so its profile has to come from a release ge
 
    Each merge writes `app/pgo/arm64-v8a-release.profdata`, so the last one is the combined profile. Add `--clear` to the first two once you're happy, or the files stay on the phones and the next round includes them.
 
-4. Commit `app/pgo/arm64-v8a-release.profdata` (it's the one profile `.gitignore` lets through, ~2.6 MB). CI's release and nightly builds use it from then on.
+4. Keep `app/pgo/arm64-v8a-release.profdata` local (~2.6 MB, git-ignored). It isn't committed, so CI's release and nightly builds stay without PGO.
 
-5. Rebuild release as usual; it picks the profile up by itself. The configure step logs `MELONADE_PGO=use with ... (md5 ...)`, and `.cxx/<build type>/<hash>/arm64-v8a/build.ninja` has `-fprofile-use=` in every compile line.
+5. Build release with `-PnativePgo=use` to use the profile. The configure step logs `MELONADE_PGO=use with ... (md5 ...)`, and `.cxx/<build type>/<hash>/arm64-v8a/build.ninja` has `-fprofile-use=` in every compile line.
 
-   To A/B it on a phone first, build the use APK with `-PsideloadRelease` (same command as step 1 without `-PnativePgo=generate`). It gets the training build's ID and debug signing, so it replaces the training build and keeps its data; native flags are the same as the shipped release. Without `-PsideloadRelease` a local release build needs the release keystore in `local.properties`. An off build to compare against: add `-PnativePgo=off`.
+   To A/B it on a phone first, build the use APK with `-PsideloadRelease` (same command as step 1 without `-PnativePgo=generate`). It gets the training build's ID and debug signing, so it replaces the training build and keeps its data; native flags are the same as the shipped release. Without `-PsideloadRelease` a local release build needs the release keystore in `local.properties`. An off build to compare against: leave out `-PnativePgo` (off is the default).
 
 ## Stale profiles
 

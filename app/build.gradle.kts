@@ -29,27 +29,16 @@ android {
         }
     }
 
-    // Profile-guided optimization on arm64-v8a (tools/pgo/README.md). -PnativePgo=generate builds the instrumented APK, use builds with the profile,
-    // off builds without. Release defaults to use with the committed app/pgo/arm64-v8a-release.profdata, debug to off (its profile,
-    // app/pgo/arm64-v8a.profdata, isn't committed). -PnativePgoProfile=<path> (relative to the repo root) picks another profile. Off passes nothing to
+    // Profile-guided optimization on arm64-v8a (tools/pgo/README.md), off by default for every build type. -PnativePgo=generate builds the
+    // instrumented APK, use builds with the profile (release: app/pgo/arm64-v8a-release.profdata, debug: app/pgo/arm64-v8a.profdata; neither is
+    // committed), off builds without. -PnativePgoProfile=<path> (relative to the repo root) picks another profile. Off passes nothing to
     // CMake, so an off build keeps its .cxx folder. Other ABIs ignore all of it in app/CMakeLists.txt
     val nativePgoProperty = providers.gradleProperty("nativePgo").orNull?.lowercase()
     require(nativePgoProperty == null || nativePgoProperty in listOf("off", "generate", "use")) {
         "-PnativePgo must be off, generate or use, not '$nativePgoProperty'"
     }
     fun nativePgoProfile(defaultProfile: String) = rootProject.file(providers.gradleProperty("nativePgoProfile").getOrElse(defaultProfile))
-    fun nativePgoMode(buildType: String, defaultProfile: String): String {
-        nativePgoProperty?.let { return it }
-        if (buildType == "debug") return "off"
-        // Release with no -PnativePgo: use the committed profile. Without one (before the first release profile is committed) build as before
-        // rather than fail, so CI keeps building. The warning only shows when a release task was asked for, so debug builds stay quiet
-        val profile = nativePgoProfile(defaultProfile)
-        if (profile.exists()) return "use"
-        if (gradle.startParameter.taskNames.any { it.contains(buildType, ignoreCase = true) }) {
-            logger.warn("w: $buildType builds without PGO: $profile doesn't exist (tools/pgo/README.md, \"Release builds\")")
-        }
-        return "off"
-    }
+    val nativePgoMode = nativePgoProperty ?: "off"
     fun nativePgoArguments(mode: String, defaultProfile: String): List<String> = when (mode) {
         "off" -> emptyList()
         "generate" -> listOf("-DMELONADE_PGO=generate")
@@ -98,7 +87,7 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
-            val pgo = nativePgoMode("release", "app/pgo/arm64-v8a-release.profdata")
+            val pgo = nativePgoMode
             // The release training build (tools/pgo/README.md), and any release build with -PsideloadRelease (to A/B a use build against it on a phone),
             // install beside a real install under their own ID, signed with the debug key so they need no release keystore. Neither reaches the native
             // compile, so the profile matches the shipped release build's code
@@ -120,7 +109,7 @@ android {
             applicationIdSuffix = ".dev"
             // Debug builds are optimized (RelWithDebInfo) for on-device perf tests; -PnativeBuildType=Debug gives -O0, and MELONADE_DEBUG_TOOLS turns on native debug-only tools
             val nativeBuildType = providers.gradleProperty("nativeBuildType").getOrElse("RelWithDebInfo")
-            val pgo = nativePgoMode("debug", "app/pgo/arm64-v8a.profdata")
+            val pgo = nativePgoMode
             buildConfigField("boolean", "PGO_GENERATE", (pgo == "generate").toString())
             externalNativeBuild {
                 cmake {
