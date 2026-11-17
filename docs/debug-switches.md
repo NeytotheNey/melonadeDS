@@ -1,6 +1,6 @@
 # Debug switches (debug builds only)
 
-The full, current list with defaults is the comment block in `app/src/main/cpp/debug/DebugProperties.h`; this file adds the A/B recipes and gotchas. Compute switches are explained in `docs/plan-compute-efficiency.md` (the Mali diagnostics `computecheck`, `computebin`, `computecalc`, `computeflat`, `computessbo` in `docs/shelved/compute-on-mali.md`), and the GPU discovery ones (`gltimers`, `scenestats`, `hash3d`, ...) in `docs/plan-gpu-discovery.md`.
+The full, current list with defaults is the comment block in `app/src/main/cpp/debug/DebugProperties.h`; this file adds the A/B recipes and gotchas. Compute switches are explained in `docs/plan-compute-efficiency.md` (the Mali diagnostics `computecheck`, `computebin`, `computecalc`, `computeflat`, `computessbo` in `docs/compute-on-mali.md`), and the GPU discovery ones (`gltimers`, `scenestats`, `hash3d`, ...) in `docs/plan-gpu-discovery.md`.
 
 Set with `adb shell setprop debug.melonade.<name> <value>` before starting a game; clear with `adb shell "setprop debug.melonade.<name> ''"`. Without adb, type `name=value` pairs into the switch field in Settings → Performance → Diagnostics; they apply at the next game start. The debug log's `Debug switches` line shows what took. Desktop: most core switches are `--set Name=N` (`--list-sets` lists them).
 
@@ -70,4 +70,4 @@ All of these except `gltexprobe` are meant to be exact: A/B them with `hash3d=1`
 
 ## Frame interpolation
 
-- `halfcam` (OpenGL/compute): frame interpolation for 30 FPS games. `4` is the one to use; `1` camera only, `2` adds characters, `3` adds batch logging, `5` a per-pair trace. When set it replaces the Smooth 30 FPS setting, so `0` forces it off. See `docs/shelved/frame-interpolation.md`. The "Debug switches:" line shows the property itself (`-1` when unset); the setting is the `frame_pacing_smooth_30fps` config line.
+- `halfcam` (OpenGL/compute): frame interpolation for 30 FPS games. `4` is the one to use; `1` camera only, `2` adds characters, `3` adds batch logging, `5` a per-pair trace. When set it replaces the Smooth 30 FPS setting, so `0` forces it off. See `docs/frame-interpolation.md`. The "Debug switches:" line shows the property itself (`-1` when unset); the setting is the `frame_pacing_smooth_30fps` config line.

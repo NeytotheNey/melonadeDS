@@ -31,7 +31,7 @@ Debug switches added for this, all off by default:
 - **OnePlus 7 Pro (Adreno 640):** Mario Kart at 4x with `computecheck 30`, all 55 COMPCHECK lines 0. New default 59.97 FPS, 12.77 ms average work, against the old code (`computeflat 0` + `computecalc 1`) at 59.92 and 13.18 ms, so no slowdown. New Super Mario Bros, Phantom Hourglass, Dark Dawn and White 2 passed all 212 COMPCHECK lines and matched OpenGL (`perf_logs/mali-pixel8/oneplus/`, `games/`). One `COMPGLERR 0x0502` showed up before the tile memory allocation in the check run only, with no visible effect.
 - **Pixel 9 Pro Fold (user, 11-13):** Compute works with the fix. No numbers taken.
 
-**Upstream port:** the same fix on rafaelvcaetano's code fixes the blocks there too, in Phantom Hourglass and New Super Mario Bros on the Pixel 8, and 1x runs with no hang. See [compute-on-mali-upstream.md](compute-on-mali-upstream.md) and `perf_logs/mali-pixel8/upstream/`.
+**Upstream port:** the same fix on rafaelvcaetano's code fixes the blocks there too, in Phantom Hourglass and New Super Mario Bros on the Pixel 8, and 1x runs with no hang. See [compute-on-mali-upstream.md](shelved/compute-on-mali-upstream.md) and `perf_logs/mali-pixel8/upstream/`.
 
 ## Background from the first attempt (11-06)
 
@@ -41,4 +41,4 @@ The first try was on the Pixel 9 Pro Fold (Tensor G4, Mali-G715) over APKs on th
 
 One Mali limit still worth knowing: an [Arm employee says](https://community.arm.com/support-forums/f/mobile-graphics-and-gaming-forum/53228/compute-shader-mali-gpu-bug) texture buffers wrap at 65,536 texels on older Mali GPUs, and on newer ones with older drivers, and recommends storage buffers. It wasn't the cause here, and `GL_MAX_TEXTURE_BUFFER_SIZE` was never logged.
 
-WatermelonDS's Vulkan renderer runs fine on the Pixel 9 Pro Fold, but it's a graphics-pipeline renderer, not a compute one ([plan-vulkan.md](../plan-vulkan.md)).
+WatermelonDS's Vulkan renderer runs fine on the Pixel 9 Pro Fold, but it's a graphics-pipeline renderer, not a compute one ([plan-vulkan.md](plan-vulkan.md)).

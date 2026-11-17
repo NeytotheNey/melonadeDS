@@ -83,7 +83,7 @@ namespace melonDS { class NDS; }
  *   computedepth   compute: log a COMPDEPTH line once a second on what DepthBlend does per pixel: polygons walked, colored, failing the depth
  *                  test. DepthBlend is rebuilt with counters (shared-memory atomics, one SSBO add per work group), so it runs slower
  *                  (GPU::ComputeDepthStats, GPU3D_GLStats.h, default 0)
- *   computessbo    compute, Mali diagnostics (docs/shelved/compute-on-mali.md): InterpXSpans reads the setup indices from the same buffer
+ *   computessbo    compute, Mali diagnostics (docs/compute-on-mali.md): InterpXSpans reads the setup indices from the same buffer
  *                  bound as a std430 storage buffer instead of through the RGBA16UI texture buffer. Recompiles at the next render
  *                  (GPU::ComputeSSBO, default 0)
  *   ldmfast        ARM64 JIT with fast memory: multi-register loads (LDM, POP, Thumb LDMIA) read memory directly instead of calling
@@ -254,7 +254,7 @@ namespace melonDS { class NDS; }
  *                  alpha bit set where at least half have it, in 1 and 2 one capture on the averaged 3D, in 3 either by the alphas
  *                  and the blend. The 2D,
  *                  brightness and what's excluded stay as in 0 (GPU::OutputCap3D)
- *   computecheck N compute, Mali diagnostics (docs/shelved/compute-on-mali.md): every Nth render with polygons waits for the GPU, reads
+ *   computecheck N compute, Mali diagnostics (docs/compute-on-mali.md): every Nth render with polygons waits for the GPU, reads
  *                  back binning's buffers, the WorkDescs and the X spans, and the setup indices through the texture buffer (a small
  *                  extra program), and logs a COMPCHECK line with counts of what's inconsistent (work total vs the CPU bound and
  *                  the mask bits, work tiles off screen, past the polygon count or outside the polygon's box, masks vs WorkDescs,

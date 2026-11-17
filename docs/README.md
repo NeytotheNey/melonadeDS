@@ -26,8 +26,8 @@ Notes for working on melonadeDS. The user-facing overview is the [README](../REA
 - [debug-switches.md](debug-switches.md): what the `debug.melonade.*` switches do and how to set them without adb.
 - [code-notes.md](code-notes.md): non-obvious facts about the code, and known issues left alone.
 - [ideas.md](ideas.md): loose feature ideas, not planned.
-- [shelved/frame-interpolation.md](shelved/frame-interpolation.md): smoothing 30 FPS games. The halfway-camera approach is merged as the "Smooth 30 FPS games (experimental)" setting on OpenGL and Compute.
-- [shelved/compute-on-mali.md](shelved/compute-on-mali.md): the Compute renderer on Mali. Fixed (a driver bug with atomics on `uvec4` arrays) and offered on every GLES 3.2 GPU since 11-13.
+- [frame-interpolation.md](frame-interpolation.md): smoothing 30 FPS games. The halfway-camera approach is merged as the "Smooth 30 FPS games (experimental)" setting on OpenGL and Compute.
+- [compute-on-mali.md](compute-on-mali.md): the Compute renderer on Mali. Fixed (a driver bug with atomics on `uvec4` arrays) and offered on every GLES 3.2 GPU since 11-13.
 - [shelved/compute-on-mali-upstream.md](shelved/compute-on-mali-upstream.md): the same Mali fix on an upstream branch, not posted.
 - [shelved/widemelon-software.md](shelved/widemelon-software.md): WideMelon on the software renderer. Shelved.
 - [shelved/d3-edgefog.md](shelved/d3-edgefog.md) and [shelved/r2-fragdepth.md](shelved/r2-fragdepth.md): two GPU discovery experiments that didn't pay, with their patches.

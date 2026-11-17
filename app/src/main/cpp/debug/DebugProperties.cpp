@@ -212,7 +212,7 @@ Overrides apply(NDS& nds)
     if (read("computeopt", value))
         gpu.ComputeOpt = std::clamp(atoi(value), 0, 511);
 
-    // Mali diagnostics (docs/shelved/compute-on-mali.md): computecheck N checks every Nth render
+    // Mali diagnostics (docs/compute-on-mali.md): computecheck N checks every Nth render
     // with polygons, 0 is off and anything else that isn't a number over 0 is 1
     if (read("computecheck", value))
     {

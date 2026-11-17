@@ -1,6 +1,6 @@
 # Frame interpolation
 
-Status (2026-11-17): the halfway-camera approach works and is merged. It's the "Smooth 30 FPS games (experimental)" setting under Frame pacing in all builds, which runs mode 4 with no logging, on the OpenGL or compute renderer (grayed out for Software). Debug builds also have `debug.melonade.halfcam` (modes 1–5, see [debug-switches.md](../debug-switches.md)); when set it replaces the setting, so `0` forces it off. The code is `GPU3D_HalfCamera.cpp` in the core. See "Halfway-camera prototype" below; the sections before it are the older attempts from 2026-10-31, kept for why they failed.
+Status (2026-11-17): the halfway-camera approach works and is merged. It's the "Smooth 30 FPS games (experimental)" setting under Frame pacing in all builds, which runs mode 4 with no logging, on the OpenGL or compute renderer (grayed out for Software). Debug builds also have `debug.melonade.halfcam` (modes 1–5, see [debug-switches.md](debug-switches.md)); when set it replaces the setting, so `0` forces it off. The code is `GPU3D_HalfCamera.cpp` in the core. See "Halfway-camera prototype" below; the sections before it are the older attempts from 2026-10-31, kept for why they failed.
 
 ## Why White 2 looks choppy at 1x
 

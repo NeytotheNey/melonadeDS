@@ -1,5 +1,0 @@
-# Handoff: GPU discovery (OpenGL efficiency)
-
-**Finished and merged; this file can be deleted.** All of the `compute-efficiency` work (app and core, through T2 step 4b, E1, widepolys and the Deband fixes) is in `material3` and the core's `melonade`, and the branch is gone. What's still open, the known issues and the phone test notes moved to [docs/plan-gpu-discovery.md](docs/plan-gpu-discovery.md) ("Left open", "Known, left alone", "Phone test notes"). Numbers are in `PERF-NOTES.md` from "GPU discovery Phase 0" on, switches in `docs/debug-switches.md`.
-
-**Defaults in every build:** T1 (`gltrans=3`), K2c (`comp1x=1`), K3 (`filter2drows=1`), E2 (`gledgeskip=1`), D1 (`glclear=3`), K4 (`outcap=1`, `outcap3d=3`), R1 (`glnodiscard=3`), T2 (`gltexcache=449`; `1` is the A/B baseline), WideMelon `widepolys=1`, E1 `gledgemark=1` (or the "Edge marking" setting) with `gledgefast=2`, Deband in the screen shader (`debandfold`). Off by default: T1c (`gltrans` bit 2), K2a (`compclear`). Shelved: R2, D3 (`docs/shelved/`).
