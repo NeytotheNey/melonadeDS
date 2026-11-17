@@ -279,7 +279,11 @@ namespace melonDS { class NDS; }
  *   heldworker N   threaded 2D, OpenGL/compute: draw held capture lines on the 2D thread too, a sum of bits. 1 (with bnohold) queues
  *                  engine B's part of each held line at its HBlank instead of drawing it on the emulator thread, 2 (with blitafterread)
  *                  queues the held lines at line 192 instead of drawing them there, so they and display capture overlap lines 192-215.
- *                  Output is the same as 0, the default (GPU::HeldTo2DThread)
+ *                  With 2: 4 waits for those lines only at the Blit after the line-215 3D render, 8 doesn't wait for them at a POWCNT
+ *                  write or an LCDC read of a bank they don't write. 16 (with 1) hands engine B's parts to the 2D thread 16 lines at a time so it sleeps in between, and both
+ *                  threads read the clock less often while spinning. 32 (with 2) goes back to drawing the held lines at line 192 for
+ *                  120 capture frames whenever the emulator thread had to wait for them before the Blit in 2 of the last 8 (a game
+ *                  reading its capture in VBlank). Output is the same as 0, the default (GPU::HeldTo2DThread)
  */
 namespace DebugProperties
 {

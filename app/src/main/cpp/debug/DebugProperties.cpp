@@ -267,7 +267,7 @@ Overrides apply(NDS& nds)
     if (read("outcap3d", value))
         gpu.OutputCap3D = std::clamp(atoi(value), 0, 3);
     if (read("heldworker", value))
-        gpu.HeldTo2DThread = std::clamp(atoi(value), 0, 3);
+        gpu.HeldTo2DThread = std::clamp(atoi(value), 0, 63);
 
     if (read("halfcam", value))
     {
