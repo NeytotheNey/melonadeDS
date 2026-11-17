@@ -1,6 +1,6 @@
 # Plan: an optimization session
 
-Status (11-16): build flags on by default (each flag alone and PGO not measured yet). Done: item 4 (late Blit; threaded 2D stays off by default after an 11-16 recheck), item 5 (`heldworker=63`), and item 7's JIT dispatcher work (stub on, linking shelved). Shelved: item 6. Left: item 7's scheduler loop (~5%) and DMA (~2%), the Part 1 per-flag numbers and PGO. Item 8 belongs to the Vulkan plan.
+Status (11-16): build flags on by default (each flag alone and PGO not measured yet). Done: item 4 (late Blit; threaded 2D stays off by default after an 11-16 recheck), item 5 (`heldworker=63`), and item 7's JIT dispatcher work (stub on, linking shelved). Shelved: item 6. PGO tried and kept off (mixed, one regression). Left: item 7's scheduler loop (~5%) and DMA (~2%), the Part 1 per-flag numbers. Item 8 belongs to the Vulkan plan.
 
 ## Why, and what to expect
 
@@ -26,7 +26,7 @@ For each variant: build the debug APK, run the JVM tests and `LuaStorageTest`, a
 
 Keep a flag if the heavy scenes use clearly fewer cycles per frame (a few percent or more, beyond run-to-run noise) with no regressions. If a flag pays but makes incremental builds painfully slow (most likely LTO), turn it on for release builds only. Record the numbers either way.
 
-**Later:** if LTO pays, profile-guided optimization (PGO: build once with instrumentation, play a session, rebuild using the profile) is the next step up. It's a bigger job because the profile has to be collected on the phone and kept current.
+**Later:** if LTO pays, profile-guided optimization (PGO: build once with instrumentation, play a session, rebuild using the profile) is the next step up. It's a bigger job because the profile has to be collected on the phone and kept current. **Tried (11-16), kept off:** `-PnativePgo=generate|use` is in (`tools/pgo/README.md`, default off). A profile from ~12 min of Pixel play (White 2 GL and Compute 4x, Dark Dawn, the White 2 overworld, three other titles) cut emulator-thread CPU 3.6–11% in Dark Dawn on all three phones and 0–3% in White 2 on GL, but made the OnePlus's White 2 Compute 2x 1.1 ms/frame slower (555 vs 71 slow frames, confirmed back to back). Likely the profile marks code the Pixel never ran as cold. Worth another try only with training on an Adreno phone too; see PERF-NOTES "PGO".
 
 ## Part 2: code-level, biggest first
 

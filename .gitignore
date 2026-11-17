@@ -13,3 +13,6 @@
 /build-desktop
 # tools/jitverify builds
 /build-jitverify
+
+# PGO profiles (tools/pgo/README.md), not committed while PGO is off
+/app/pgo/
