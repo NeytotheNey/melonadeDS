@@ -61,7 +61,7 @@ Sizes are in lines and phone steps.
 **Phase 2: field 2D (core, Shadow2D).**
 - Build the Repeat mode (edge carry-over) and the fog BG tile-out.
 - Check the compose rules against EXPAND on the same scenes.
-- Needs the Shadow2D OnePlus stall settled first ([plan-gpu-2d-shadow.md](plan-gpu-2d-shadow.md)).
+- The Shadow2D OnePlus stall it waited on is fixed and merged (11-17, [plan-gpu-2d-shadow.md](plan-gpu-2d-shadow.md), "Fixed").
 - Size: a few hundred lines in the core.
 
 **Phase 3: Gen 4 battles (core plus game state).**
@@ -116,7 +116,7 @@ Sizes are in lines and phone steps.
 - White 2 conversations, doors and battles;
 - a sign read right after leaving a building (the 1.5 s window could make it late).
 
-**4. Then Phase 2**, once the Shadow2D OnePlus stall is settled.
+**4. Then Phase 2.** The Shadow2D OnePlus stall is fixed and merged (11-17), so nothing blocks it.
 
 ## Status
 
