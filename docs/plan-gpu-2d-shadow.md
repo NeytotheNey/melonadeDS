@@ -1,65 +1,42 @@
 # GPU 2D step 3: the shadow renderer
 
-Plan for step 3 of [plan-gpu-2d.md](plan-gpu-2d.md), written 11-08. Increment 1 is built and tested on the OnePlus and the Fold, on branch `gpu-2d-shadow` (11-09, results below). Increment 5 (blending) was moved up and passes the device-free checks; its phone step is next. CPU 2D stays the real result. The shadow pass redraws lines it can prove it matches, at output resolution, on the GPU, for display only. Nothing in `GPU2D_Soft.cpp` changes, so CPU output, HASH2D, capture and threaded 2D can't change. It has to draw X outside 0..255 from the start for WideMelon steps 4–7 ([plan-widemelon.md](plan-widemelon.md)).
+Plan for step 3 of [plan-gpu-2d.md](plan-gpu-2d.md), written 11-08. CPU 2D stays the real result. The shadow pass redraws lines it can prove it matches, at output resolution, on the GPU, for display only. Nothing in `GPU2D_Soft.cpp` changes, so CPU output, HASH2D, capture and threaded 2D can't change. It has to draw X outside 0..255 from the start for WideMelon steps 4–7 ([plan-widemelon.md](plan-widemelon.md)), and it builds on WideMelon's pieces: the block after `AccelWingPlanesStart`, `WingPixel` and `WingPlanesTex`, the hold order and the window edge patch.
 
-## What step 1's logs say for this
+**Status (11-09):** phase 0, increment 1 (core `e4b893bb`) and increment 5 (blending, core `aa597f11`) are done, phone-checked and in `material3` / core `melonade`; the `gpu-2d-shadow` and `widemelon` branches are merged and gone. Next: the OnePlus display stall in mode `all` (below), then windows (increment 4).
 
-From the raw `logs/emulator/gpu2dstats/*.log`, not only the table in plan-gpu-2d.md:
+## Phase 0: gameplay counters (done, 11-09)
 
-- **Most rotated layers aren't plain affine BGs.** Only Advance Wars A rotates plain affine BGs (`affrot`, some lines without blending or windows). Metal Slug 7 B, Mario Kart B, Advance Wars B and Kirby B rotate extended BGs with a 16-bit tilemap (`extrot`). Golden Sun rotates bitmap BGs on both engines (`bmprot`).
-- **Nearly every other rotated line has BLDCNT blending on**, and Metal Slug 7 B also has a window on every line. So outside Advance Wars A, the affine increment shows little until windows and blending land.
-- **Golden Sun changes BG VRAM pages on every line:** `bands` and `bgv` peak at 191 per frame, with uploads averaging about 120 KB and peaking at 268 KB a frame. These are dirty pages, not changed bytes (`GPU::CopyLinearVRAM` copies and reports anything dirty), so they may be rewrites of the same values.
-- So neither rule from the old sketch fits the design case. Falling back to CPU for the rest of the frame means Golden Sun never shows hi-res. Bands mean about 191 draws and uploads per engine per frame. The plan logs the pages that really change instead, and phase 0 checks this on gameplay.
+Step 1's runs were title screens and menus, so before any renderer code the counters ran on gameplay, headless on the PC harness. New counters: `real` (pages dirty mid-frame whose bytes actually changed, a memcmp of the 512-byte page), `log` (distinct changed pages per frame), `logev`, `realpal`, and `logbothev` summing both engines. New harness modes: `--stats2d N`, `--state` on its own, `--tap KEY@FRAME[+N]`, `--touch`, `--sav`. The harness never writes saves (`WriteNDSSave` is a no-op in `tools/swi-harness/main.cpp`). Golden Sun used the user's states (cave, battle start, battle end with the spinning camera); the others used the user's states or button scripts from boot. Golden Sun's world map and menus weren't measured, and the battle run may not include a Psynergy cast. Data and screenshots are in `logs/gpu2dstats-phase0/`.
 
-## Phase 0: gameplay counters
+Harness gotchas: use `--bios free` for the app's states (the official NTR BIOS hangs Mario Kart on a course load). Kirby's and NSMB's states were made in DSi mode with DSP HLE (config word `0x00010001`) and load with the harness's existing DSi setup.
 
-The step 1 runs were title screens and menus. Before any renderer code, run the counters on gameplay: Golden Sun: Dark Dawn first (overworld, a battle with Psynergy, the world map, menus), then Kirby, Metal Slug 7, a Mario Kart race and Contra 4.
-
-- **Counter additions** (`GPU_2DStats.h`, about 40 lines):
-  - `real`: pages dirty mid-frame whose bytes actually changed (a memcmp of the 512-byte page before and after the flat copy);
-  - `log`: distinct changed pages per frame, avg and max, which is what the page log below would store.
-- **Reaching gameplay safely.** The swi-harness never writes saves (`WriteNDSSave` is a no-op in `tools/swi-harness/main.cpp`) and already loads a `.mlN` from a copy (`--state`; `wide_check.sh` copies into `$OUT/states`). Add a `--stats2d` mode that runs N frames from a savestate with `Set2DStatsLogging(true)` (about 40 tool lines). That needs gameplay savestates. Making a state on a phone is safe; only loading one overwrites the `.sav`. The alternatives are playing a debug build with `debug.melonade.gpu2dstats` on, or the AVD with a throwaway `.sav` copy and scripted taps.
-- **What it decides:**
-  - whether `real` pages stay small enough for the page log and its cap (Golden Sun's 268 KB peak of dirty pages is already over the 256 KB cap below);
-  - whether Golden Sun's gameplay uses rotated bitmaps (increment 7) or tiled affine BGs.
-
-### Phase 0 results (PC harness, 11-09)
-
-Phase 0 is done. Golden Sun's world map and menus weren't measured (no state for them), and the battle run may not include a Psynergy cast.
-
-Run headless with the new counters (`real`, `log`, `logev`, `realpal`; `logbothev` sums both engines) and harness modes (`--stats2d N`, `--state` on its own, `--tap KEY@FRAME[+N]`, `--touch`, `--sav`). Golden Sun used the user's states (cave, battle start, battle end with the spinning camera); the others used the user's states or button scripts from boot. Data and screenshots are in `logs/gpu2dstats-phase0/`. Harness notes: use `--bios free` for the app's states (the official NTR BIOS hangs Mario Kart on a course load); Kirby's and NSMB's states were made in DSi mode with DSP HLE (config word `0x00010001`) and load with the harness's existing DSi setup.
-
-- **Golden Sun's mid-frame writes are real.** Engine B rewrites the same 2 pages with new bytes on every line: 382 real changes a frame against 382 dirty, in every scene. Distinct pages stay at 2, but the log needs an entry per change, so about 191 KB a frame from engine B alone. Engine A changes almost nothing outside battle effects.
-- **Over the cap in battles.** Both engines together peak at 575 changes (287.5 KB) a frame in the battle, against the plan's 512 pages / 256 KB; 4 of the battle run's 33 sixty-frame windows went over. The random battle in the cave state peaked at 485. Walking and the spinning camera sit at 382–404.
-- **Golden Sun's layers:** engine B draws rotated 8-bit bitmap BGs on every line (two in battle) with blending on every line. Engine A is text BGs plus 3D, with captures on about half its lines in battle. No windows, mosaic or rotated sprites.
+- **Golden Sun's mid-frame writes are real, but it isn't the hi-res design case** (logs in `logs/gpu2dstats-phase0/gs-pages/`). Engine B rewrites one 256-byte bitmap row on every line (counted as 2 pages because bank H is mirrored at 0x06200000 and 0x06210000): an ARM9 HBlank DMA copies the next row of a 256x192 8-bit picture from main RAM, re-armed at VBlank, and the visible bitmap BG samples exactly that row. Its "rotation" is nominal: the matrix is identity (A=256, B=C=0) with a fixed Y, so these are 1:1 pre-rendered pictures streamed through a line buffer, and hi-res gives them nothing. Step 1's `bmprot`/`rotbg` count any affine BG, so they overstate real rotation. Both engines together peak at 575 changes (287.5 KB) a frame in battle. Engine A is text BGs plus 3D, with captures on about half its lines in battle; its battle effects (up to about 190 changes) weren't looked at.
 - **Every other game changes nothing mid-frame in gameplay.** Mario Kart race, Metal Slug 7 mission 1 and Kirby's Spring Breeze had zero changes; Contra 4's stage 1 had 7 frames with any, at most 8 OBJ pages.
-- **Their layers:** Mario Kart B and Metal Slug 7 B rotate two extended BGs with blending on every line, and Metal Slug 7 B has a window on every line (Mario Kart A has a window and OBJ-window sprites on every line). Contra 4 and Kirby are text BGs with blending; no rotated BGs in these stretches. No game used mosaic. At most one rotated sprite on screen.
+- **Layers:** Mario Kart B and Metal Slug 7 B rotate two extended BGs (16-bit tilemap) with blending on every line, and Metal Slug 7 B has a window on every line (Mario Kart A has a window and OBJ-window sprites on every line). Only Advance Wars A rotates plain affine BGs. Contra 4 and Kirby are text BGs with blending. No game used mosaic. At most one rotated sprite on screen.
 
-**Golden Sun's 2 pages (11-09, logs in `logs/gpu2dstats-phase0/gs-pages/`).** They're one 256-byte bitmap row, counted twice because bank H is mirrored at 0x06200000 and 0x06210000. An ARM9 HBlank DMA (64 words, destination reloaded) copies the next row of a 256x192 8-bit picture from main RAM into that row every line, re-armed at VBlank. The visible bitmap BG samples exactly that row on every line (cave: BG3 at row 15; battle: BG2 at row 63), so the per-line versions are what the screen shows. About 250 of the 256 bytes change per line. Its "rotation" is nominal: the matrix is identity (A=256, B=C=0) with a fixed Y, so these are 1:1 pre-rendered pictures streamed through a line buffer, and hi-res gives them nothing. Step 1's `bmprot`/`rotbg` count any affine BG, so they overstate real rotation.
+What this changed in the plan:
 
-What this changes in the plan:
-
-- **Golden Sun isn't the hi-res design case.** Engine B's layers gain nothing from the shadow renderer, so under mode `1` they stay CPU and never touch the page log or its cap. "Gains something" has to mean a real rotation or scale (B or C nonzero, or A or D other than 256), not just an affine BG. Engine A's battle effects (up to about 190 changes) weren't looked at.
-- **The page log:** log by physical bank page, not by mirror, which halves Golden Sun's count. With that, and its 1:1 layers left on CPU, the 512-page cap holds for everything measured. A per-line row log (at most 48 KB a frame) is only worth it if mode `all` has to cover line-buffer games.
-- **Increment order:** blending is on every rotated line in all three rotating games, and windows on Metal Slug 7's, so windows and blending should come right after text BGs, before affine (open decision 2). Mosaic can drop to last or be skipped.
-- **The real hi-res cases are Mario Kart B and Metal Slug 7 B** (rotated extended BGs with blending, plus a window in Metal Slug 7) and Advance Wars. Increment 7 (bitmap BGs) drops in priority unless a game with truly rotated bitmaps turns up.
+- "Gains something" has to mean a real rotation or scale (B or C nonzero, or A or D other than 256), not just an affine BG. Golden Sun's 1:1 layers stay CPU under mode `1` and never touch the page log or its cap.
+- The page log counts physical bank pages, not mirrors. With that, the 512-page cap holds for everything measured. A per-line row log (at most 48 KB a frame) is only worth it if mode `all` has to cover line-buffer games.
+- Blending is on every rotated line in all three rotating games, and windows on Metal Slug 7's, so windows and blending come before affine. Mosaic drops to last or is skipped.
+- The real hi-res cases are Mario Kart B and Metal Slug 7 B (rotated extended BGs with blending, plus a window in Metal Slug 7) and Advance Wars. Increment 7 (bitmap BGs) drops in priority unless a game with truly rotated bitmaps turns up.
 
 ## Architecture
 
 ### Where things happen
 
-- **Emulator thread, while each `LineJob` is built:** a new recorder, `Shadow2DRecorder` in `src/GPU_Shadow2D.h/.cpp`, owned by `GPU` as a `unique_ptr` that's null while off, like `Stats2D` and `CapReads`. It hooks in at:
+- **Emulator thread, while each `LineJob` is built:** the recorder, `Shadow2DRecorder` in `src/GPU_Shadow2D.h/.cpp`, owned by `GPU` as a `unique_ptr` that's null while off, like `Stats2D` and `CapReads`. It hooks in at:
   - `GPU::Snapshot2DScanline` → `NoteLine(job)`;
   - `GPU::Snapshot2DSprites` → `NoteSprites(job)`;
   - `GPU::MakeVRAMFlat_2DBGCoherent` and `MakeVRAMFlat_2DOBJCoherent` → `NoteFlatDirty`, between `DeriveState` and the flat copies. That's where `Stats2D->NoteBGDirty` sits, since nothing else can see those sets once `DeriveState` clears the bits;
   - reset and load: `GPU::Reset`, `GPU::DoSavestate`, `InitFramebuffers`.
-- **GL, only inside the Blit (`GLCompositor::RenderFrame`):** the uploads, the OBJ pass and the composite pass. They follow `LateBlit` and `BlitAfterReadback` for free, so in capture frames with `blitafterread` they run after the readback, off the line-192 map's critical path.
+- **GL, only inside the Blit (`GLCompositor::RenderFrame`):** the uploads, the OBJ pass and the composite pass. They follow `LateBlit` and `BlitAfterReadback` for free, so in capture frames they run after the readback, off the line-192 map's critical path.
 - **Why the Blit can read the recorder's data:** the Blit always runs by line 215, and the flats only change at the next BG snapshot (line 0) or line 262's OBJ snapshot. A frame stamp guards it: data from another frame sends every line to CPU.
-- **Palette and OAM** are never read live at the Blit, since games write them in VBlank before a line-215 Blit. The recorder keeps its own copies, driven by `GPU::PaletteDirty` and `OAMDirty`, which are set in `WritePalette`/`WriteOAM` and read by nothing else today.
+- **Palette and OAM** are never read live at the Blit, since games write them in VBlank before a line-215 Blit. The recorder keeps its own copies, driven by `GPU::PaletteDirty` and `OAMDirty`, which are set in `WritePalette`/`WriteOAM` and read by nothing else.
 
 ### Per-line state
 
-- **Where:** a new block in the accelerated framebuffer after the wing planes (`GPU2D::AccelShadowStateStart`, at today's `AccelFramebufferWords`), 32 words a line, 24 KB per screen buffer. The recorder writes it into `job.Framebuffer[num]`. Like the wing planes it swaps with POWCNT, belongs to the composited frame with threaded 2D and the Blit after the readback, and is zeroed by `BlankFrame` and `InitFramebuffers`. `LogHash2D` only hashes the 192 lines, so HASH2D is unaffected.
+- **Where:** a block in the accelerated framebuffer after the wing planes (`GPU2D::AccelShadowStateStart`, at the old `AccelFramebufferWords`), 32 words a line, 24 KB per screen buffer. The recorder writes it into `job.Framebuffer[num]`. Like the wing planes it swaps with POWCNT, belongs to the composited frame with threaded 2D and the Blit after the readback, and is zeroed by `BlankFrame` and `InitFramebuffers`. `LogHash2D` only hashes the 192 lines, so HASH2D is unaffected.
 - **Fields:** the BG `UnitState` serialized, plus the sprite line's OBJ state, which `NoteSprites` captures one HBlank earlier and keeps pending (sprite line 0 is built at VCount 262 of the frame before):
   - word 0: flags (unit, Enabled, ForcedBlank, LayerEnable, OBJEnable, VCount == Line, has-page-log, ineligible reason);
   - DispCnt, BGCnt[4], BGX/YPos[4], `BGX/YRefInternal`[2], BGRotA–D[2];
@@ -73,11 +50,12 @@ What this changes in the plan:
 ### Memory and the mid-frame rule
 
 - **`MemTex`:** one `R32UI` texture, 256 texels (1 KB) a row. It holds the flats (A BG 512 rows, B BG 128, A OBJ 256, B OBJ 128, BG ext palettes 32+32, OBJ ext palettes 8+8), then palette rows, then page-log rows. About 1,424 rows (1.4 MB), under GLES's 2048-row minimum.
-- **Base upload:** `glTexSubImage2D` per run of pages in the union of the dirty sets since the last upload. The sets come from the `NoteFlatDirty` hook ORing the derived bits, so there's no second tracker. The source is the flats, which hold the state as of the frame's last line. A generation counter forces a full 1.4 MB upload after a reset, a load, a renderer switch or a new compositor.
-- **Page log (the mid-frame rule):** when a page is dirty at line L > 0 and its bytes really changed (a memcmp against a copy taken before the flat copy), the old page is kept as "valid for lines [previous change, L)". Palette pages (4 × 512 bytes) go through the same log from the recorder's copy.
+- **Base upload:** `glTexSubImage2D` per run of pages in the union of the dirty sets since the last upload. The sets come from the `NoteFlatDirty` hook ORing the derived bits, so there's no second tracker. The source is the flats, which hold the state as of the frame's last line. A generation counter (process-wide, so a new recorder can't repeat an old value) forces a full 1.4 MB upload after a reset, a load, a renderer switch or a new compositor.
+- **Page log (increment 1b, not built):** when a page is dirty at line L > 0 and its bytes really changed (a memcmp against a copy taken before the flat copy), the old page is kept as "valid for lines [previous change, L)". Palette pages (4 × 512 bytes) go through the same log from the recorder's copy.
   - At the Blit the log goes to `MemTex` rows, plus `PageLogTex` (`R32UI`, one row per changed page, 192 entries, each a history row or "base"). Only lines flagged has-page-log pay for the lookup in the shader.
-  - Cap: 512 pages (256 KB) per frame, to be confirmed by phase 0. On overflow at line L, lines 0..L−1 go to CPU, since their version of that page wasn't kept. Lines from L on are still right.
-- **OAM never goes to the GPU.** The recorder turns each sprite line's OAM and OBJ state into sprite instances (OAM index, row range, decoded attributes, affine parameters). It splits a sprite's row range wherever OAM or the OBJ state that matters (DispCnt OBJ bits, OBJEnable, the screen half) changes. They're uploaded as a vertex buffer with `glVertexAttribDivisor`, not a UBO (the 16 KB limit). Cap: 2048 instances; lines past that go to CPU.
+  - Cap: 512 physical pages (256 KB) per frame. On overflow at line L, lines 0..L−1 go to CPU, since their version of that page wasn't kept. Lines from L on are still right.
+  - Until 1b, lines before the frame's last real change are CPU (reason `memchanged`).
+- **OAM never goes to the GPU.** The recorder turns each sprite line's OAM and OBJ state into sprite instances (OAM index, row range, decoded attributes, affine parameters). It splits a sprite's row range wherever OAM or the OBJ state that matters (DispCnt OBJ bits, OBJEnable, the screen half) changes. They're uploaded as a vertex buffer with `glVertexAttribDivisor`, not a UBO (GLES only guarantees 16 KB). Cap: 2048 instances; lines past that go to CPU.
 
 ### Passes and targets
 
@@ -85,26 +63,22 @@ What this changes in the plan:
    - It draws instance quads into `ObjTex` (`RG32UI`, ViewWidth × 384 at ObjScale) with a 16-bit depth buffer.
    - R holds the CPU's `OBJLine` pixel format exactly: color or palette index, 0x8000/0x1000 for direct and standard palette, priority 0x30000, opaque 0x40000, mosaic 0x100000, and the flag byte.
    - Depth is `prio*128 + index` with `GL_LESS`, which is the "lowest (priority, index) wins" rule of `SoftRenderer::DrawSpritePixel`. Upstream's `2DSpriteVS.glsl` uses the same key.
-   - OBJ-window sprites are a second draw into G only (`glColorMaski`, depth off). `glInvalidateFramebuffer` on the depth afterwards.
+   - OBJ-window sprites (increment 4) are a second draw into G only (`glColorMaski`, depth off), then `glInvalidateFramebuffer` on the depth. Increment 1 left them out: they can't matter with windows off, and per-channel `glColorMaski` on RG32UI is a driver risk.
    - ObjScale is 1 until increment 3. From then it's the 3D scale, capped at 4, on frames with a visible rotated sprite.
-2. **Composite pass,** a new program on the same output FBO, right after the compositor's `glDrawArrays` and before `CopyHeldWings` and `RunHiresCapture`.
+2. **Composite pass,** a program on the same output FBO, right after the compositor's `glDrawArrays` and before `CopyHeldWings` and `RunHiresCapture`.
    - Quads cover only the row runs drawn this frame.
    - Each fragment works from highp `gl_FragCoord` (as `FilterSubPixel` does). It evaluates the layers in the CPU's priority order (`DrawScanlineBGMode<N>`) and pushes a 3-entry stack the way `DrawPixel_Accel` does, including the backdrop, the 3D placeholder 0x40000000 and sprites through the `InterleaveSprites` palette lookup.
-   - Then it builds the planes: unit A takes the 4-way branch of `DrawScanline_BGOBJ`'s accelerated path, and unit B takes `ColorComposite` with plane 1 = 0 and plane 2 = 0x07000000.
+   - Then it builds the planes: unit A takes the 4-way branch of `DrawScanline_BGOBJ`'s accelerated path, and unit B takes `ColorComposite(top, second)` with plane 1 = 0 and plane 2 = 0x07000000.
    - Then it runs the existing `CompositePixel`, with the 3D fetched at the fragment's real position (`Fetch3D`, the WIDE variant for wings) and master brightness from the control word. Blending with 3D, fades and brightness stay exact by construction.
    - Text BGs and normal sprites use the native X (`floor(sub/scale)`), so they're pixel-identical to CPU at any scale. Affine BGs use integer sub-pixel coordinates (`ref*S + subX*A + fy*B`, floor-divided by `256*S`), which equals the CPU at S = 1.
 3. **Check variant** (`SHADOW2D_PLANES` define). The same function writes planes 0–2 as words into a 256×384 `RGBA32UI` target at 1x, at any user scale. Every 30 frames it's read back with `glReadPixels` and compared word for word with `gpu.Framebuffer[backbuf]` on drawn lines. That's the only synchronous readback, and only in check mode.
-   - Engine A's plane 1 under the backdrop is a leftover of the previous pass unless `EngineBNoHold` clears it (see the `DrawScanline_BGOBJ` comment). The shadow writes 0, so run the check in debug builds, where `EngineBNoHold` is on.
+   - Engine A's plane 1 under the backdrop is a leftover of the previous pass unless `EngineBNoHold` clears it (see the `DrawScanline_BGOBJ` comment). `EngineBNoHold` is on in every build since 11-16; with it off (the harness without `--bnohold`), unit B lines with an alpha blend that has the backdrop as 1st target stay CPU (reason `bleftover`).
 
 ### GPU or CPU per line
 
-- **Feature-eligible** is decided by the recorder from the line's state, for the increments that have landed. The base rules: display mode 1, enabled, not forced blank, VCount == Line. Increment 1 adds:
-  - text BGs only;
-  - no windows (`DispCnt & 0xE000`);
-  - `BlendCnt & 0x3FC0 == 0`, so `ColorComposite` always returns val1;
-  - no BG or OBJ mosaic, and no rotated sprite on the line.
+- **Feature-eligible** is decided by the recorder from the line's state, for the increments that have landed. The base rules: display mode 1, enabled, not forced blank, VCount == Line, not capture-armed (engine A), screens on. With increments 1 and 5: text BGs only, no windows (`DispCnt & 0xE000`), no BG or OBJ mosaic (decided from the mosaic bit alone, whatever the size), and no rotated sprite on the line. Hi-res display lines are display mode 2 or bitmap BGs, so `dispmode` or `bgtype` catches them before the `hires` reason.
 - **Drawn** is decided at the Blit, in the compositor's uploaded copy of word 0 (bit 31). A line is drawn if it's feature-eligible, the page log covers it, and it isn't a hi-res display line (`HiresDisplayFlag` after `PrepareHiresDisplay`), held or white. Then the mode's policy applies:
-  - `1`: only lines that gain something: scale 2 or more with a rotated BG or sprite, or 2D the wide config sends into the wings;
+  - `1`: only lines that gain something: scale 2 or more with a real rotation or scale on a BG or sprite, or 2D the wide config sends into the wings;
   - `all`: every feature-eligible line.
 
   It's never a uniform mask, per the Adreno gotcha in MODS.md.
@@ -126,145 +100,73 @@ What this changes in the plan:
 
 ## Increments
 
-Sizes are rough line counts. A phone step is one install-and-test round. The device-free checks for every increment:
+Order (user, 11-09): text BGs and sprites (1), then blending (5), windows (4), affine BGs (2), affine sprites (3), bitmap BGs (7), mosaic (6) last. 1b waits until a game needs it, most likely Golden Sun with bitmap BGs: the replay logs show it would gain almost nothing now (`memchanged` held back lines only in SoulSilver's boot, 130–258 of 115,200). Sizes are rough line counts; a phone step is one install-and-test round.
+
+Device-free checks for every increment:
 - a host build of the core;
 - `.claude/shadercheck/check.sh`, with `dump.cpp` updated by hand;
-- `tools/swi-harness/wide_check.sh` unchanged with the recorder on;
-- HASH2D unchanged.
+- `tools/swi-harness/wide_check.sh` unchanged with the recorder on (`SWI_HARNESS_SHADOW2D=on|both`);
+- HASH2D unchanged with the recorder on and off (harness `--accel --hash2d --shadow2d N`, plus `--threaded2d`);
+- the shader replay (`Shadow2DReplay.cpp`, a C++ copy of the OBJ and composite shaders compared with the CPU's planes) from the phase 0 states: 0 plane mismatches and 0 stale `MemTex` words. Scripts are in `logs/gpu2d-shadow/` (`host_checks.sh`, `replay_batch.sh`).
 
-1. **Text BGs and normal sprites, plus the whole frame.** This builds the recorder, the line block, base uploads, the OBJ pass, the composite and check programs, the `GPU2D` log, and the wide plumbing with a forced debug mode. Until 1b, lines before the frame's last real change are CPU.
-   - Files: `GPU_Shadow2D.h/.cpp` (new, about 400), `GPU.cpp/.h` hooks (60), `GPU2D.h` layout (15), `GPU_OpenGL.cpp/.h` (`PrepareShadow2D`, `RunShadow2D`, `CheckShadow2D`, `LogShadow2D`, `FreeShadow2D*`, about 450), `GPU_OpenGL_shaders.h` (about 450 GLSL), reset calls in `GLRenderer`/`ComputeRenderer` next to `ResetFilter2D` (10), app `DebugProperties.cpp/.h` (25). About 1,400 in all.
-   - Proof:
-     - `check` at 1x and 4x gives 0 mismatches over 100+ checks per game, on OpenGL and compute, on the Fold and the OnePlus. Games: Advance Wars (menu and map), NSMB gameplay, White 2's title and overworld (its hi-res display lines must stay CPU), and Phantom Hourglass (3D on both screens, wing hold).
-     - `all` vs `0` at 4x: exact-frame pairs with 0 differing pixels.
-     - HASH2D with threaded 2D on and off, `all`, 600 frames: identical.
-     - Fold at WideMelon 342: the wings are exact vs off, and `gpu2dwide 1` puts tilemaps and sprites in the wings with the middle exact.
-     - The `GPU2D` log's recorder µs and upload KB on the OnePlus at OpenGL 4x.
-   - 3 phone steps.
+Phone proof for every increment: `check` at 1x and 4x with 0 mismatches on OpenGL and compute, on the Fold and the OnePlus; `all` vs `0` exact-frame pairs at 4x; and a cost A/B that looks at presented fps and render ms, not only emulation fps.
+
+1. **Text BGs and normal sprites, plus the whole frame. Done**, results below.
 1b. **Page log:** mid-frame memory versions, palette included.
    - Files: `GPU_Shadow2D.cpp` and shaders (about 250), plus a harness `--shadow-replay` (about 150 tool lines). Every 16th line it keeps a full copy of the flats and palette, then at the Blit compares them with what the base plus the log rebuilds for that line.
    - Proof: replay passes from savestates (Golden Sun, Contra 4, Kirby, White 2). `check` gives 0 on scenes with `bgv` changes, and the log shows those lines kept on the GPU.
    - 1 phone step.
 2. **Affine BGs, hi-res.** `DrawBG_Affine` and the tiled `DrawBG_Extended` (the kind most rotated games use), including the no-wrap and ext palette cases.
    - Files: shaders and recorder rules, about 230.
-   - Proof: `check` at 1x on Advance Wars A (plain affine, some lines without blending), then Metal Slug 7 B, Mario Kart B, Advance Wars B and Kirby B, on the lines without blending or windows. At 4x and 8x, only the rotated layers differ from off (a diff mask), and they look sharp.
+   - Proof: `check` at 1x on Advance Wars A (plain affine), then Metal Slug 7 B, Mario Kart B, Advance Wars B and Kirby B. At 4x and 8x, only the rotated layers differ from off (a diff mask), and they look sharp. The Mario Kart state used so far is all text BGs, not the rotated race scene.
    - 2 phone steps.
 3. **Affine sprites,** with ObjScale at the 3D scale (capped at 4) on frames that have one.
    - Files: about 200.
    - Proof: Kirby A (`sprrot` up to 4) and Mario Kart B, `check` 0, plus a cost check of `ObjTex` at 8x wide.
    - 1–2 phone steps.
-4. **Windows.** A closed form of `CalculateWindowMask`'s scan (carry-in from `Win0Active`/`Win1Active`, x2 checked before x1), the OBJ window from `ObjTex.g`, WINOUT, and the edge patch under WideView or WideCheck.
+4. **Windows.** A closed form of `CalculateWindowMask`'s scan (carry-in from `Win0Active`/`Win1Active`, x2 checked before x1), the OBJ window from `ObjTex.g`, WINOUT, and the edge patch under WideView or WideCheck. The window mask is a constant `0xFF` in the shader today, so this only has to compute it per pixel.
    - Files: about 150.
    - Proof: Metal Slug 7 B, Kirby B and Advance Wars' dialogs, `check` 0, exact pairs.
    - 1 phone step.
-5. **Blending.** The full `ColorComposite`: the four 3D branches, semi-transparent and bitmap-sprite alpha, and the window effect bit 0x20.
-   - Files: about 200.
-   - Proof: fades, White 2's overworld, Contra 4's Konami fade and Golden Sun A, `check` 0, exact pairs.
-   - 1–2 phone steps.
+5. **Blending. Done**, results below.
 6. **Mosaic.** BG mosaic (latched refs, the X table) and OBJ mosaic with `ApplySpriteMosaicX`'s latch rule (at most 16 fetches back a pixel).
    - Files: about 250.
    - No game in the step 1 set uses it, so first find a scene with a harness scan for `bgmos`/`objmos`. If none turns up, skip it and mosaic stays CPU.
    - 1 phone step.
 7. **Bitmap BGs, hi-res.** The bitmap modes of `DrawBG_Extended` and `DrawBG_Large`.
    - Files: about 150.
-   - Proof: Golden Sun on both engines (needs 1b and 5), `check` 0, sharp at 4x.
+   - Proof: Golden Sun on both engines (needs 1b), `check` 0, sharp at 4x.
    - 1–2 phone steps.
    - **7b, hi-res capture Phase 2, if it fits.** A bitmap BG whose range resolves to one bank A–D with a valid copy samples `HiresBankTex` (unit 3). Bank validity has to catch writes through the BG, OBJ and ARM7 mappings too ([hires-capture.md](hires-capture.md)). About 250 lines. First log White 2's battle registers to confirm it's a bitmap BG.
 
-Total: about 3,200 lines, inside the old 2,500–3,500 estimate.
-
 ### Increment 1 results (11-09)
 
-Branch `gpu-2d-shadow` in both repos, from `widemelon`, uncommitted. The open decisions went with the defaults: the order is text BGs and sprites, then windows, blending, affine BGs, affine sprites, bitmap BGs, mosaic last; the page log counts physical pages with a 512 cap; mode `1` draws only lines with a real rotation or scale or 2D in the wings; drawn lines lose MMPX; compute is allowed, opt-in.
+Decisions taken with it (the plan's defaults): the page log counts physical pages with a 512 cap; mode `1` draws only lines with a real rotation or scale or 2D in the wings; drawn lines lose MMPX on their non-rotated layers when "Smooth 2D edges" is on; compute is allowed, opt-in.
 
 **What landed** (about 2,700 lines with the harness tools):
-- Core: `GPU_Shadow2D.h/.cpp` (recorder), hooks in `GPU.cpp/.h`, `GPU2D.h` (`AccelShadowStateStart`, 32 words a line), `GPU_OpenGL.cpp/.h` and `GPU_OpenGL_shaders.h` (upload, OBJ pass, composite, check, log), reset calls in `GPU3D_OpenGL.cpp` and `GPU3D_Compute.cpp`.
-- Harness: `--accel`, `--hash2d`, `--shadow2d N` and `--threaded2d` in `main.cpp`; `SWI_HARNESS_SHADOW2D=on|both` for `wide_check.sh`; `Shadow2DReplay.cpp`, a C++ copy of the OBJ and composite shaders compared with the CPU's planes.
-- App: `gpu2d` and `gpu2dwide` in `DebugProperties`.
-- `.claude/shadercheck`: 4 new programs.
-
-**Changes from the plan:**
-- The composite keeps only the top two stack entries, since the third never reaches the planes without blending. Increment 5 brings it back.
-- OBJ-window sprites aren't built or drawn. They can't matter with windows off, and this drops the per-channel `glColorMaski` on RG32UI, which is a driver risk. Increment 4 brings them back.
+- Core: `GPU_Shadow2D.h/.cpp` (recorder), hooks in `GPU.cpp/.h`, `GPU2D.h` (`AccelShadowStateStart`), `GPU_OpenGL.cpp/.h` (`PrepareShadow2D`, `RunShadow2D`, `CheckShadow2D`, `LogShadow2D`, `FreeShadow2D*`) and `GPU_OpenGL_shaders.h`, reset calls in `GPU3D_OpenGL.cpp` and `GPU3D_Compute.cpp`.
+- Harness: `--accel`, `--hash2d`, `--shadow2d N` and `--threaded2d` in `main.cpp`; `SWI_HARNESS_SHADOW2D` for `wide_check.sh`; `Shadow2DReplay.cpp`.
+- App: `gpu2d` and `gpu2dwide` in `DebugProperties`. `.claude/shadercheck`: 4 new programs.
 - `PageLogTex` isn't created yet (1b).
-- Also kept on CPU: capture-armed engine A lines and screens-off lines. Mosaic is decided from the mosaic bit alone, whatever the size.
-- The upload generation comes from a process-wide counter, so a new recorder can't repeat an old value.
-- Hi-res display lines never show the `hires` reason. They're display mode 2 or bitmap BGs, so `dispmode` or `bgtype` catches them first.
 
-**Device-free checks (all pass):**
-- Host core build.
-- `shadercheck`: all 75 lines ok.
-- `wide_check.sh` with the recorder on and off: identical results.
-- HASH2D with the recorder on and off over 1,200 frames: identical on 8 games (Mario Kart, Golden Sun cave, Advance Wars, Contra 4, White 2, Phantom Hourglass, NSMB, Kirby), plus threaded 2D on Kirby and White 2.
-- Shader replay from the phase 0 states: 6.67 M eligible lines with 0 plane mismatches and 0 stale `MemTex` words. A deliberate BG X+1 gave 2.6 M mismatches, so the compare is live.
-- Scripts and logs are in `logs/gpu2d-shadow/` (`host_checks.sh`, `replay_batch.sh`).
+**Checks:** all device-free checks passed (shadercheck 75 ok; HASH2D identical over 1,200 frames on 8 games plus threaded 2D on Kirby and White 2; replay 6.67 M eligible lines with 0 mismatches, and a deliberate BG X+1 gave 2.6 M, so the compare is live). On the phones, `check` gave 0 mismatches and 0 failures at 1x and 4x, OpenGL and compute, on the OnePlus (`perf_logs/2026-11-09-shadow2d/oneplus/`) and the Fold (user-run field build, harder settings: "Smooth 2D edges", upscaled capture, threaded 2D and the inner screen's wide view all on). `all` vs `0` exact pairs had 0 differing pixels, with no row patterns, so the mediump texcoord worry didn't show on the Adreno 640. HASH2D on the OnePlus with threaded 2D on and off matched `0` over 600 frames.
 
-**Eligible lines (replay):**
-- Kirby: 67% from boot, 100% from the states.
-- White 1, SoulSilver and DQ9 boots: 58–67%.
-- White 2 overworld: 50%.
-- Advance Wars menus: 20%.
-- NSMB, Mario Kart, Golden Sun and Phantom Hourglass: 0%, because of blending, BG types or capture. Nearly everything else waits for increments 4 and 5.
+**WideMelon 342:** `gpu2dwide 0` keeps the wings identical to `0`. `gpu2dwide 1` draws policy `1` lines with the middle exact, and Advance Wars' intro letters, bars and banner carry into the wings. In Kirby and White 2 the wings looked the same as off; that's worth a look in WideMelon step 4.
 
-**OnePlus 7 Pro, plugged in** (`perf_logs/2026-11-09-shadow2d/oneplus/`):
-- **`check`** gave 0 mismatches and 0 failures at 1x and 4x, on OpenGL and on compute:
+**Cost:** the recorder averages 0.39 ms a frame on the OnePlus at OpenGL 4x (95–153 µs on the Fold), under the 1 ms stop line. Uploads average 45 KB a frame when drawing (max 104).
 
-| Scene | Checks (GL 4x / GL 1x / compute 4x / compute 1x) | Drawn |
-|---|---|---|
-| Kirby boot, title and demo | 131 / 133 / 129 / 131 | 34% |
-| White 2 title | 141 / 142 / 158 / 142 | 27% |
-| White 2 overworld | 121 / 121 / 81+77 / 121 | 100% |
-| Advance Wars intro | 163 / 164 / 163 / 164 | 65% |
-| Phantom Hourglass | 0 | 0% |
+### Increment 5 results (11-09)
 
-  Phantom Hourglass drew nothing, as expected, and looked right.
-- **`all` vs `0` at OpenGL 4x** (non-wide):
-  - Every pair that landed on the same frame had 0 differing pixels: Advance Wars 6 of 16; the GPU-drawn bottom screen in 16 of 16, 12 of 12 and 12 of 12.
-  - The other pairs differed by animation, not row patterns, so the reviewer's mediump texcoord worry didn't show up on the Adreno 640.
-- **HASH2D:** `all` with threaded 2D on and with it off, 600 frames of Kirby's boot, matched `0` frame for frame. Mode `0` alone splits between two outcomes from frame 313 on, so it isn't the shadow.
-- **WideMelon 342** at OpenGL 4x:
-  - `all` with `gpu2dwide 0`: wings identical to `0` on every exact pair (23).
-  - `gpu2dwide 1`: policy `1` lines get drawn (Kirby 34%, Advance Wars 73%, White 2 overworld 100%), and the middle stays exact. Advance Wars' intro letters, bars and banner carry into the wings.
-  - In Kirby and White 2 the wings looked the same as off. That's worth a look in WideMelon step 4.
-  - `check` with `gpu2dwide 1`: 0 mismatches. One compute 4x pair: exact.
-- **Cost, OpenGL 4x on Kirby:**
-  - The recorder averages 0.39 ms a frame (max 0.56), under the 1 ms stop line.
-  - Uploads average 45 KB a frame when drawing (max 104).
-  - fps and frame time are within noise of `0` (59.9 fps either way).
+About +360/−40 lines: GLSL copies of `ColorComposite`, `ColorBlend4/5`, `ColorBrightnessUp/Down`; the three-entry stack is back (increment 1 kept two); unit A's planes come from `DrawScanline_BGOBJ`'s four branches. No new programs, so `GPU_OpenGL.cpp` and `dump.cpp` didn't change. Harness `--bnohold` flag added.
 
-**Fold, `check`** (user-run field build `melonade-gpu2d-shadow-inc1-check-2026-11-09.apk`, which defaults to `check`; read from the app's debug logs `melonade_debug_20261109-113706.txt` and `-115336.txt`):
-- 0 mismatches and 0 failures in every config, with no crashes or GL errors.
-- The settings were harder than the OnePlus runs: "Smooth 2D edges" on, upscaled capture on, threaded 2D on, and the inner screen's wide view (308, or 342 in one run) with `gpu2dwide 0`.
+- **Checks:** all device-free checks passed (logs in `logs/gpu2d-shadow/inc5/`), with replay at 0 mismatches on all 20 scenes with `EngineBNoHold` off and on. Deliberate bugs are caught: EVA/EVB swapped (Mario Kart, Contra 4, Phantom Hourglass, DQ9) and EVY+1 on darken (NSMB). Not covered by any scene: brighten (effect 2), same code shape as darken.
+- **Phones:** `check` 0 mismatches and 0 failures in all 32 OnePlus runs and all 24 Fold runs (NSMB, Mario Kart, White 2, Contra 4, Advance Wars, Kirby, Phantom Hourglass; OpenGL and compute, 1x and 4x), no crashes or GL errors (`perf_logs/2026-11-09-shadow2d-inc5/`). `bleftover` can't fire with `EngineBNoHold` on, so only the harness replay tests it. The recorder costs 200–480 µs a frame on the OnePlus and 100–160 µs on the Fold.
 
-| Scene | Checks (GL 1x / GL 4x / compute 1x / compute 4x) | Drawn |
-|---|---|---|
-| Advance Wars, wide | 195 / 177 / 170 / 163 | 21–25% |
-| Kirby, 256 | 276 / 188 / 214 / 354 | 76–88% |
-| White 2 title and overworld, wide | 413 / 388 / 251 / 465 | 52–53% |
-| Golden Sun, compute 4x | 11 | 1% |
-
-- The recorder averaged 95–153 µs a frame.
-- Phantom Hourglass wasn't run on the Fold; it draws nothing in this increment (OnePlus).
-
-Increment 1 is done.
-
-### New order (11-09)
-
-The replay logs above show the page log would gain almost nothing now: `memchanged` held back lines only in SoulSilver's boot (130–258 of 115,200), while blending kept most lines on CPU in nearly every game. So the user moved blending (increment 5) first. Then windows (4) and the rest. 1b waits until a game needs it, most likely Golden Sun with bitmap BGs (increment 7).
-
-### Increment 5 results (11-09, device-free only)
-
-Uncommitted on `gpu-2d-shadow` in the core, about +360/−40 lines: `GPU_OpenGL_shaders.h` (GLSL copies of `ColorComposite`, `ColorBlend4/5`, `ColorBrightnessUp/Down`; the three-entry stack is back; unit A's planes come from `DrawScanline_BGOBJ`'s four branches; unit B is `ColorComposite(top, second)`, 0, 0x07000000), `GPU_Shadow2D.cpp/.h` (the rule below), `Shadow2DReplay.cpp` (mirrors the shader), and a harness `--bnohold` flag. No new programs, so `GPU_OpenGL.cpp` and `dump.cpp` are unchanged. The window mask is a constant `0xFF` in the shader, so increment 4 only has to compute it per pixel.
-
-- **What still stays on CPU for blending:** unit B lines with an alpha blend that has the backdrop as 1st target, when `EngineBNoHold` is off (release builds, and the harness without `--bnohold`). There B's pass starts with whatever unit A left in plane 1, and the CPU blends the backdrop with that. The review found it; reason `bleftover` (old `R_Blend` number). It fired only in Advance Wars' boot (6.6% of lines).
-- **Checks, all pass** (logs in `logs/gpu2d-shadow/inc5/`): host build; shadercheck 75 ok; `wide_check.sh` with the recorder on and off identical; HASH2D on and off identical on the 8 games, plus threaded 2D on Kirby and White 2; replay 0 plane mismatches and 0 stale mem on all 20 scenes, with `EngineBNoHold` both off and on. Deliberate bugs are caught: EVA/EVB swapped (Mario Kart, Contra 4, Phantom Hourglass, DQ9) and EVY+1 on darken (NSMB).
-- **Not covered by any scene:** brighten (effect 2), same code shape as darken; and the review's exact leftover case, which the rule covers anyway.
-
-Eligible lines in the replay, increment 1 → 5 (EngineBNoHold on; Advance Wars is 78% with it off):
+Eligible lines in the replay, increment 1 → 5 (first-match reasons, so window and bgtype now show what blending used to hide):
 
 | Scene | Inc 1 | Inc 5 | Still CPU |
 |---|---|---|---|
-| Mario Kart state, NSMB state, White 2 state, Kirby states | 0–100% | 100% | – |
+| Mario Kart, NSMB, White 2, Kirby states | 0–100% | 100% | – |
 | DQ9, Platinum, SoulSilver boots | 42–65% | 93–96% | dispmode |
 | Advance Wars boot | 20% | 84% | window 8%, bgtype 7% |
 | White 1 boot | 67% | 83% | dispmode 14% |
@@ -279,37 +181,21 @@ Eligible lines in the replay, increment 1 → 5 (EngineBNoHold on; Advance Wars 
 | Metal Slug 7 boot | 0% | 38% | bgtype 40%, capture 22% |
 | Golden Sun battle | 0% | 0% | bgtype, dispmode |
 
-Reasons are first-match, so window and bgtype now show what blending used to hide. The Mario Kart state is all text BGs with no window, not the rotated race scene from phase 0, so increments 2 and 4 still matter there.
+On the phones, drawn lines went from 27% to 93% on White 2's title, 65% to 93% on Advance Wars, 0% to 78% on NSMB and 0% to 52% on Contra 4. Still on CPU there: Mario Kart bgtype 32% and window 31%; Kirby bgtype 45% and window 19%; Contra 4 dispmode 39% and memchanged 8%.
 
-**OnePlus 7 Pro, plugged in** (11-09, `perf_logs/2026-11-09-shadow2d-inc5/oneplus/`, `summary_t5.txt`):
-- **`check`:** 0 mismatches and 0 failures in all 32 runs, with no crashes or GL errors. Each cell is checks / drawn %:
+### Open: the OnePlus display stall in mode `all` (11-09)
 
-| Scene | GL 4x | Compute 4x | GL 1x | Compute 1x |
-|---|---|---|---|---|
-| NSMB boot, title, cutscene, map | 188 / 78% | 145 / 72% | 201 / 79% | 199 / 79% |
-| NSMB 1-1 gameplay | 193 / 62% | – | – | – |
-| Mario Kart title, menu, fade, attract demo | 71 / 34% | 41 / 28% | 71 / 35% | 71 / 34% |
-| White 2 intro, title, overworld | 236 / 80% | 174 / 74% | 244 / 80% | 244 / 80% |
-| Contra 4 Konami fade, title, intro | 184 / 52% | 176 / 52% | 188 / 51% | 186 / 51% |
-| Advance Wars intro | 188 / 93% | 171 / 92% | 191 / 93% | 191 / 93% |
-| Kirby boot | 131 / 34% | 131 / 34% | 133 / 35% | 131 / 34% |
-| Phantom Hourglass | 8 / 5% | 8 / 6% | 8 / 5% | 8 / 5% |
+Cost A/B at 4x, modes `0`, `1`, `all`, one 30 s pass each, both phones on battery. The compute numbers here predate Compute render pacing (`GPU::ComputePace`, `docs/plan-compute-efficiency.md`).
 
-- **Drawn vs increment 1:** White 2's title went from 27% to 93%, Advance Wars from 65% to 93%, NSMB from 0% to 78%, Contra 4 from 0% to 52%. Still on CPU: Mario Kart bgtype 32% and window 31%; Kirby bgtype 45% and window 19%; Contra 4 dispmode 39% and memchanged 8%.
-- **`all` vs `0` at GL 4x:** no row patterns. The GPU-drawn bottom screen was exact in every White 2 overworld pair (12) and every NSMB file-select pair (8). The other differences were animation or a different fade step.
-- **Cost:** the recorder averages 200–480 µs a frame (the worst second was 730 µs), under the 1 ms line. GL holds 57–60 fps. Compute 4x is GPU-bound as before (about 30 fps on NSMB's map and White 2's overworld).
-- `bleftover` can't fire in debug builds, so the phone doesn't test it. That's covered by the harness replay with `EngineBNoHold` off.
+- **Mode `1`** draws nothing yet at 4x non-wide (no rotated layers are eligible) and cost nothing measurable on either phone.
+- **Fold (SM8850), `all`:** 60 fps in every mode, render 0.6–1.2 ms, about 1.6 Mclk a frame more GPU where 100% of lines are drawn (`fold/cost_table.md`).
+- **OnePlus 7 Pro (Snapdragon 855, Adreno 640, 1440x3120), `all`:** emulation stays near 60 fps on OpenGL, but frames take far longer to reach the screen. Render ms per presented frame, `0` → `all`: NSMB world map 1.7 → 321 ms (2.4 presented fps, starting as the map loads); White 2 overworld 2.1 → 29 ms (34 presented fps). On compute both fall to 30–34 emulated fps, with emulator work going from 12–15 to 26–30 ms. No cost on Kirby's boot (51% drawn) or Mario Kart's demo (0% drawn).
+- **Not known yet:** whether it scales with screen size (the composite runs at output resolution, and the Fold ran on its cover screen), with 3D on screen (NSMB and White 2 have 3D, Kirby doesn't), with sprite instances (NSMB 74 a frame, White 2 0), or comes from a sync point. A guess: it has the same shape as the Compute stall that pacing fixed, and pacing is compute-only, so OpenGL has none.
+- **Not the shadow, at least on compute:** before pacing, NSMB's map at compute 4x on the OnePlus already presented only 2.2 fps with the shadow off (render about 600 ms, emulation 53). Render pacing fixed that scene (2.1 → 60 presented fps), so the shadow's cost on compute with pacing on hasn't been measured. The OpenGL stall is still open.
+- The `check` runs missed it because their fps is emulation speed.
+- Data: `perf_logs/2026-11-09-shadow2d-inc5/oneplus-cost/` (`cost_summary.txt`, `runs/`, `scripts/costsum.py`).
 
-**Fold, on battery, cover screen, 256 wide, "Smooth 2D edges" on** (11-09, `perf_logs/2026-11-09-shadow2d-inc5/fold/`, `summary_t5.txt`, `cost_table.md`):
-- **`check`:** 0 mismatches and 0 failures in all 24 runs (NSMB, Mario Kart, White 2, Contra 4, Advance Wars, Kirby at OpenGL and compute, 1x and 4x), with no GL errors or crashes. Drawn % and CPU reasons match the OnePlus. The recorder costs 100–160 µs a frame.
-
-**Cost A/B at 4x, modes `0`, `1`, `all`** (one 30 s pass each, both phones on battery):
-- **Mode `1`** draws nothing yet at 4x non-wide (no rotated layers are eligible). It cost nothing measurable on either phone: work and render moved within noise, even though the recorder logs 0.1–0.4 ms a frame.
-- **Fold, `all`:** 60 fps everywhere, work and p95 unchanged. GPU load rises 88–108 Mclk/s (about 1.5–1.8 Mclk a frame) where 100% of lines are drawn (NSMB map, White 2 overworld, OpenGL and compute), against a base of 128–135 on OpenGL. Kirby (50% drawn) adds 43. White 2's OpenGL render time goes from 0.81 to 1.2 ms.
-- **OnePlus, `all`: the display stalls** (`perf_logs/2026-11-09-shadow2d-inc5/oneplus-cost/`, `cost_summary.txt`). Emulation keeps 57–60 fps on OpenGL, but presented frames drop: NSMB's map to 2.4 a second (about 0.3–0.5 s of render per present) and White 2's overworld to 34 (render 2 → 29 ms). On compute both fall to 30–34 fps with under 2 presented. Kirby at 51% drawn and Mario Kart at 0% cost nothing. The stall is new and OnePlus only so far. The two phones aren't close: the Fold is a Snapdragon 8 Elite Gen 5 (SM8850) and the OnePlus a Snapdragon 855 (Adreno 640) driving a 1440x3120 screen. The shadow composite runs at output resolution, so screen size may matter too (the Fold ran on its cover screen). The increment 5 `check` runs missed it, since their fps is emulation speed.
-- **A separate, older problem:** NSMB's map at compute 4x on the OnePlus already presents only 2.2 fps with the shadow off (render about 600 ms), while emulation runs at 53.
-
-Next: find the OnePlus stall in `all` before more increments. Then windows (increment 4).
+Find this before more increments, then windows (increment 4).
 
 ## Switches
 
@@ -323,30 +209,15 @@ Next: find the OnePlus stall in `all` before more increments. Then windows (incr
   It isn't called `shadow2d`, because `shadowlog` already means 3D shadows.
 - **`debug.melonade.gpu2dwide`:** `1` makes every layer draw past the edge. Test only.
 - **No user setting** until increments 2, 4 and 5 make something visible. Then "Sharper rotated 2D" under Settings → Display, OpenGL and compute, default off, hidden on software, plumbed like "Smooth 2D edges".
-- **Compute** runs the same code, since `ComputeRenderer::Blit` uses the same `GLCompositor`. It's GPU-bound on the OnePlus, so it stays opt-in there, with its cost noted in the plan doc.
-
-## Branch
-
-`widemelon`, or a `gpu-2d-shadow` branch cut from it in both repos. `gpu-2d` is already an ancestor of `widemelon`, and the design builds on WideMelon's pieces: the block after `AccelWingPlanesStart`, `WingPixel` and `WingPlanesTex`, the hold order and the window edge patch.
+- **Compute** runs the same code, since `ComputeRenderer::Blit` uses the same `GLCompositor`. It's GPU-bound on the OnePlus, so it stays opt-in there.
 
 ## Risks and when to stop
 
 - **Recorder cost on the emulator thread.** The OnePlus at OpenGL is CPU-limited. Stop and rethink if the recorder plus uploads add more than about 1 ms a frame in mode `1`. Off, it has to cost nothing (a null pointer).
 - **GPU cost.** Stop if mode `1` drops the Fold below 60 at OpenGL 4x in Metal Slug 7 or Mario Kart, or costs the OnePlus more than the filter does (3.8 Mclk a frame). Removing the double composite of drawn rows comes first.
 - **Exactness.** An Adreno integer quirk that a phone step or two can't fix in `check` keeps that feature on CPU. A mismatch the recorder can't explain (state not captured) means a stricter line rule, never "close enough".
-- **Golden Sun.** If phase 0 shows its gameplay really changes more than the cap per frame, the page log doesn't save it, and bands or a CPU-assisted design are needed before increment 7.
 - **Memory.** `ObjTex` at 8x and 342 wide is about 34 MB, hence the ObjScale cap of 4.
-- **Filter.** With "Smooth 2D edges" on, drawn lines lose MMPX on their non-rotated layers.
+- **Filter.** With "Smooth 2D edges" on, drawn lines lose MMPX on their non-rotated layers. Remapping native-resolution layers through the filter map would fix it at more cost.
 - **Out of scope, these lines stay CPU:** VCount writes (lines from there on), display modes 0, 2 and 3, the FIFO, and capture.
 
-## Open decisions (user)
-
-1. **Phase 0's route to gameplay:** gameplay savestates for a headless `--stats2d` harness run, playing a debug build with `gpu2dstats` on, or the AVD with a throwaway `.sav`.
-2. **Increment order:** most rotated scenes have blending on, and Metal Slug 7 has windows, so affine alone mostly shows up only in `check`. Move windows and blending ahead of affine or right after it, and bitmap BGs ahead of mosaic, since Golden Sun uses rotated bitmaps and no game in the set used mosaic?
-3. **Mid-frame rule:** the page log with a 256 KB cap and CPU for the lines before an overflow, instead of bands or a per-frame fallback. Confirm, or pick the cap after phase 0.
-4. **Mode `1` policy:** draw only lines that gain something, or every eligible line?
-5. **Filter interplay:** accept losing MMPX on non-rotated layers of drawn lines for now, or remap native-resolution layers through the filter map, which costs more?
-6. **Compute and the user setting:** allow it on compute (opt-in) or hide it there, and the setting's name and when it appears.
-7. **Branch:** `widemelon` directly, or `gpu-2d-shadow` cut from it.
-
-Code to read first: `GPU.cpp` (`Snapshot2DScanline`, `Snapshot2DSprites`, `MakeVRAMFlat_2DBGCoherent`/`2DOBJCoherent`, `StartScanline` line 192, `StartHBlank` line 215), `GPU_OpenGL.cpp` (`GLCompositor::RenderFrame`, the `PrepareFilter2D` pattern), `GPU_OpenGL_shaders.h` (`kCompositePixelFS`, `WingPixel`, `Fetch3D`, `FilterSubPixel`), `GPU2D.h` (`AccelWingPlanesStart`, `LineJob`, `UnitState`), `GPU2D_Soft.cpp` (the reference: `DrawScanline_BGOBJ`, `DrawSpritePixel`, `InterleaveSprites`, `DrawBG_*`), `GPU_2DStats.h` and `tools/swi-harness/main.cpp` (phase 0).
+Code to read first: `GPU.cpp` (`Snapshot2DScanline`, `Snapshot2DSprites`, `MakeVRAMFlat_2DBGCoherent`/`2DOBJCoherent`, `StartScanline` line 192, `StartHBlank` line 215), `GPU_OpenGL.cpp` (`GLCompositor::RenderFrame`, the `PrepareFilter2D` pattern), `GPU_OpenGL_shaders.h` (`kCompositePixelFS`, `WingPixel`, `Fetch3D`, `FilterSubPixel`), `GPU2D.h` (`AccelWingPlanesStart`, `LineJob`, `UnitState`), `GPU2D_Soft.cpp` (the reference: `DrawScanline_BGOBJ`, `DrawSpritePixel`, `InterleaveSprites`, `DrawBG_*`), `GPU_Shadow2D.cpp`, `GPU_2DStats.h` and `tools/swi-harness/main.cpp`.

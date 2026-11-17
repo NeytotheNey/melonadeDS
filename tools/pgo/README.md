@@ -71,7 +71,7 @@ The shipped APK is a release build, so its profile has to come from a release ge
 
 5. Build release with `-PnativePgo=use` to use the profile. The configure step logs `MELONADE_PGO=use with ... (md5 ...)`, and `.cxx/<build type>/<hash>/arm64-v8a/build.ninja` has `-fprofile-use=` in every compile line.
 
-   To A/B it on a phone first, build the use APK with `-PsideloadRelease` (same command as step 1 without `-PnativePgo=generate`). It gets the training build's ID and debug signing, so it replaces the training build and keeps its data; native flags are the same as the shipped release. Without `-PsideloadRelease` a local release build needs the release keystore in `local.properties`. An off build to compare against: leave out `-PnativePgo` (off is the default).
+   To A/B it on a phone first, build the use APK with `-PsideloadRelease` (step 1's command with `-PnativePgo=use` instead of `generate`). It gets the training build's ID and debug signing, so it replaces the training build and keeps its data; native flags are the same as the shipped release. Without `-PsideloadRelease` a local release build needs the release keystore in `local.properties`. An off build to compare against: leave out `-PnativePgo` (off is the default).
 
 ## Stale profiles
 

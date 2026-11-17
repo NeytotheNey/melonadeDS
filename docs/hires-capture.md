@@ -23,7 +23,7 @@ On the White 2 title, DISPCAPCNT `C033040C` blends engine A's BG+3D (EVA 12) wit
 
 From Phase 1's checklist: WideMelon on, savestate load and rewind on the title, a mode-2 game without capture (it should stay native, with no passes in the `HIRESCAP` log), and the emulator HASH2D comparison of the software path against the old APK (600 frames, threaded 2D on and off, must be identical). Not recorded either way: the White 2 battle and overworld capture scenes for regressions, the title after the ~30 s POWCNT1 swap to the top screen, a renderer switch mid-scene, a screenshot, the setting off, and `work_avg_ms`/GPU busy % in the title and battle. Unverified, from shader maths only: the compositor's `Fetch3D` truncates `c/63*63`, which may give c−1 for some values against the CPU's `>> 2`.
 
-Risks to watch: the record copy (~0.6 MB per capture frame) and ~0.7 MB of uploads on the Z Fold 8's CPU (a cheaper record could ride val2/val3 in the ScreenTex planes mode 2 leaves unused), the next frame's capture readback waiting behind the pass (the CAPWAIT log on compute), and memory: 2 MiB per bank image at 4x and 8 MiB at 8x, 40 MiB worst case at 8x.
+Risks to watch: the record copy (~0.6 MB per capture frame) and ~0.7 MB of uploads on the Z Fold 8's CPU (a cheaper record could ride val2/val3 in the ScreenTex planes mode 2 leaves unused), the next frame's capture readback waiting behind the pass (the CAPWAIT log on compute; since 11-16 the Blit after the readback sends the pass after it in capture frames, [plan-gpu-2d.md](plan-gpu-2d.md)), and memory: 2 MiB per bank image at 4x and 8 MiB at 8x, 40 MiB worst case at 8x.
 
 - The game never sees hi-res data, so the accuracy risk is a stale shadow copy shown on screen after a write path we missed. The coarse invalidation, the `HIRESCAP` skip reasons and the 1x `check` mode are there to catch it.
 - A frame that starts with held lines from the previous frame counts every bank stale and skips its pass (a fix from the first phone test).
@@ -31,7 +31,7 @@ Risks to watch: the record copy (~0.6 MB per capture frame) and ~0.7 MB of uploa
 
 ## Phase 2: bitmap BG consumers
 
-For dual-screen 3D. White 2's battles are assumed to be that, but it isn't verified. First log DISPCAPCNT/DISPCNT/BGxCNT/VRAMCNT in a White 2 battle and in another dual-screen-3D game, as was done for the title, to see whether they use a sub BG bitmap or sub OBJ. If it is a direct-color bitmap BG:
+For dual-screen 3D; it may land as increment 7b of the GPU 2D shadow renderer ([plan-gpu-2d-shadow.md](plan-gpu-2d-shadow.md)). White 2's battles are assumed to be that, but it isn't verified. First log DISPCAPCNT/DISPCNT/BGxCNT/VRAMCNT in a White 2 battle and in another dual-screen-3D game, as was done for the title, to see whether they use a sub BG bitmap or sub OBJ. If it is a direct-color bitmap BG:
 
 - In `DrawBG_Extended`, a BG is a candidate when its VRAM resolves to one physical bank A–D for that line, the affine part is identity and mosaic is off.
 - After `ColorComposite`, a pixel whose val1 came from that BG unmodified (color effect 0, compmode 7) writes a tag into plane 1: bank, source X, source Y. Plane 1 is never read for those pixels, but the 3D-on-bottom path writes `ColorComposite` there, so the tag must overwrite it.

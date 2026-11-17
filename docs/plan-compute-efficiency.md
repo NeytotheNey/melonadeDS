@@ -1,60 +1,92 @@
 # Compute renderer efficiency
 
-Plan written 11-09 on branch `compute-efficiency` (app and core, both cut from `gpu-2d-shadow`). The goal is less GPU time, less graphics memory and less battery from the Compute 3D renderer, mainly for older Adreno phones. The test case is the OnePlus 7 Pro (Adreno 640) at 4x. 60 FPS there is the aim but not a hard target: any gain counts.
+The goal is less GPU time, less graphics memory and less battery from the Compute 3D renderer, mainly for older Adreno phones. The test case is the OnePlus 7 Pro (Adreno 640) at 4x. 60 FPS there is the aim but not a hard target: any gain counts.
 
-## Where it stands
+Phase 1 (11-09 to 11-11, branch `compute-efficiency`) is merged into `material3` / `melonade`. Phase 2, a visibility pass, is planned below and not started. The short version of the numbers is in `PERF-NOTES.md` under "Compute efficiency on the OnePlus 7 Pro"; raw logs are in `perf_logs/2026-11-09-compute-timers/` (`summary*.txt`, one folder per run under `runs/`), `perf_logs/2026-11-11-rooms/` and `perf_logs/2026-11-11-warmup/`.
 
-From `PERF-NOTES.md` and a code read of `GPU3D_Compute.cpp`, `GPU3D_Compute_shaders.h`, `GPU_OpenGL.cpp` and the app's `FrameQueue.cpp`:
+## Phase 1: what was built
 
-- **The OnePlus at Compute 4x is GPU-bound.** White 2's title runs at 24–28 FPS with the GPU at its top clock step, about 18 Mclk a frame against about 3.4 for the OpenGL renderer. The cap at that clock is about 9.5 Mclk a frame for 60 FPS, so it needs about half the work. It isn't thermal or CPU.
-- **Nobody knows which pass costs what.** There are no GL timer queries in the core or the app. The perf logger has no GPU field.
-- **NSMB's map at Compute 4x** presents 2.2 FPS while emulation runs at 53. Unexplained.
-- **Memory at 4x is about 296 MiB of buffers and textures** (the Fold showed about 696 MB graphics PSS against about 350 for OpenGL):
+**Where it started (11-09):** the OnePlus at Compute 4x was GPU-bound. White 2's title ran at about 31 FPS with the GPU at its top clock step, about 18 Mclk a frame against about 3.4 for the OpenGL renderer. NSMB's map presented 2.1 FPS while emulation ran at 53. Buffers and textures took about 296 MiB at 4x (the Fold showed about 696 MB graphics PSS against about 350 for OpenGL), mostly tile work buffers sized for 16 polygon layers on every tile and a 9-texture frame queue.
 
-| Buffer | 4x | Why it's that big |
+- **Render pacing, on by default** (`GPU::ComputePace` = 2). A fence follows each 3D render; when two are pending the render is skipped (the previous 3D image stays), or the emulator waits when it can't skip (capture frames, an active Smooth 30 FPS in-between). A skipped frame that a capture then needs is redrawn at line 0. NSMB's map at 4x had the driver queue 0.6 s deep (render latency 610 ms); with pacing it went from 2.1 to 60.0 presented FPS, Smooth 30 FPS on or off. Wait-only (`computepace 1`) gives 51.6. Code: `GPU3D_Compute.cpp/.h` (`UpdatePace`, `WaitForPace`, `CanSkipForPace`, `RedrawSkippedFrame`, `ResetPace`, `PaceStale`), `GPU.cpp` (the line-0 redraw and the POWCNT redraw), `GPU3D_HalfCamera.cpp` (`CanSkipRender`).
+- **`GPU::ComputeOpt`, default 223.** A sum of bits, each one an output-identical saving:
+  - 1: skip the software divide for linear spans in Z-buffer programs.
+  - 2: load only the span and polygon fields the coverage test needs.
+  - 4: skip second-layer stores the final pass doesn't read unless AA or fog is on.
+  - 8: a dead branch and a folded constant.
+  - 16: a VRAM write only defeats the identical-frame skip when a cached texture really changed. White 2's overworld with Smooth off: 52 → 30 renders a second (22 a second were forced by dirty VRAM alone).
+  - 32: **off by default.** Skip a render when a swap repeats the previous scene exactly (`GPU3D::MatchRenderScene`). It halves renders again but stutters (see Open).
+  - 64: pacing may skip with Smooth 30 FPS on when HalfCamera has nothing to interpolate. NSMB map, Smooth on: 53.2 → 60.0 FPS.
+  - 128: attr's 9 bits (edge flags, coverage) ride in the color word's free bits (6–7, 14–15, 22–23, 29–31), so there are two tile buffers, not three. Rasterise masks color to `0x1F3F3F3F` before packing; DepthBlend unpacks only in the opaque branch. OnePlus title 32.23 → 33.12 FPS, NSMB map render median 7.26 → 5.87 ms; the Fold saves 27–37 MB.
+  - 256: **off by default.** Color and depth interleaved in one buffer. Needs 128. No faster than two buffers and no smaller.
+  - Bits 1–8 together: title 31.40 → 32.15 FPS, NSMB map render median 8.93 → 7.55 ms.
+- **Right-sized work buffers** (`GPU::ComputeGrow`, default on; `computegrow 0` gives the old full sizes). Tile memory starts at 6 of 16 layers and the X spans (plus the setup-index texture buffer) at a 16th. `GrowWorkBuffers` runs after polygon setup and before any upload or dispatch, fed `totalTileBound` and the exact setup-index count; it grows to need + 25%, rounded to a step, capped at full size, grow-only until `ResizeTargets`. No shader change: the GPU never bins outside the CPU's bound. Fold, 4x, graphics settled, grow on / off: title 388 / 483 MB, overworld 428 / 510, NSMB map 312 / 466, FPS 60 everywhere. The OnePlus's meminfo doesn't show these buffers at all.
+- **Checked grows.** A failed `glBufferData` is detected (`WorkBufferData`: `glGetError` plus `GL_BUFFER_SIZE`), retried smaller, and a render with no room is skipped with the previous image kept.
+- **Remembered rooms** (`computerooms`, `GPU3D_ComputeRooms.cpp`): each game's grown sizes are stored per scale and layout in `cacheDir/compute_rooms.bin` and used from the next start.
+- **Memory warm-up** (`computewarm`, all builds): the first frame after `ResizeTargets` zeroes the work buffers with a small compute program, so the GPU's page commit (about 120–130 ms for 508 MB at 8x on the Fold) lands on the black screen. White 2's title hitch at 12.7 s, 8x: 95 → 49–67 ms. Trade-off: the whole room is resident, headroom included.
+- **Program binary cache** (`shadercache`): the 33 compiled programs are saved in `cacheDir/compute_programs.bin`, keyed on driver identity and full source. Fold: a cold 4x compile was 400 ms, a cache hit 4.5 ms. Android's own driver cache often hits already. About 160 KB a config.
+- **Memory outside the work buffers.** The compositor's own output textures are only made when no frontend texture is set (`GLCompositor::PrepareOutput`), and the app's frame queue reuses finished frames first and frees ones idle for 1800 frames (`FrameQueue.cpp/.h`). It settles at 4–5 textures, not 9.
+- **Bug fixes with no switch:** rendering off (or geometry off, reset, load) draws the empty scene once and then skips, in all three renderers (`GPU3D::VBlank`, `SetEnabled`, `RenderedSinceVBlank`); `Texcache::CheckInvalid` wraps its dirty-word index correctly; the compressed-texture palette hash covers every byte a texel reads; `ComputeRenderer::Reset` forces a render.
+
+**Where the cost is:** Rasterise and DepthBlend are 70–77% of compute time in every scene, about equal (`computesync` shares). Both run once per pixel of every work tile; DepthBlend is nearly all memory access. Peak use at 4x: title 31% of the tile work buffer, 14% of the span buffer, on both phones.
+
+**Ruled out, don't retry:** 16 px tiles at 4x (title 31.45 → 28.17: binning halves but Rasterise grows 47%, since every work tile costs a full tile of threads), tile-grouped DepthBlend, GL timer queries for compute passes on Adreno.
+
+### Results at defaults
+
+OnePlus, Compute 4x, Smooth 30 FPS on, plugged in:
+
+| Scene | Before | After |
 |---|---|---|
-| Tile work buffers (color, depth, attr) | 144 MiB | sized for 16 polygon layers on every tile (`MaxWorkTiles = tiles * 16`) |
-| Frame queue, 9 textures | 54 MiB | sized for 8x fast-forward; the free list is FIFO so all 9 get used |
-| X span setup | 48 MiB | 96 B × a guessed maximum × scale |
-| Final tile buffer | 18 MiB | 24 B a pixel |
-| Compositor output textures ×2 | 12 MiB | never drawn into on Android: the FBO is re-pointed at the frame queue texture every frame |
-| Bin results | 6 MiB | sized for 2048 polygons |
-| Everything else | 13 MiB | |
+| NSMB map, presented FPS | 2.1 | 60.0 |
+| White 2 title, FPS | 31.4 | 32.3 |
+| White 2 overworld, FPS | 59.9 | 60.0 |
 
-## Suspects for GPU time
+White 2's title is dual-screen 3D: a new swap every frame with a capture, so nothing can be skipped and it's plainly GPU-bound. 2x holds 60 there. It won't reach 60 at 4x on this phone without a much bigger change (Phase 2).
 
-Read from the code, not measured:
+The Fold (cover screen, plugged in) holds 60.00 FPS at 4x with 0 frames over 16.7 ms in all three scenes, and pacing never skips there. Unlike the OnePlus, it commits the work buffers, so the memory work shows there. The user saw White 2's title hold a stable 60 at Compute 8x (11-10); deband drops it.
 
-- **Tile size.** `TileSizeForScale` gives 8 px tiles for 1x–4x and 16 px for 5x–8x, so 4x has 12,288 tiles and 5x has 4,800. Binning is polygons × tiles. Bigger tiles cut binning and work items but waste more rasterizer threads on partly covered tiles.
-- **Rasterizer.** A full tile of threads runs per (polygon, tile) pair whatever the coverage. Each pixel thread copies a 96-byte `XSpanSetup` and a 40-byte `Polygon`, and calls `CalcYFactorX` (a software 64/32 divide) before the linear-span test that can make it unused.
-- **Work that could be skipped.** `ClearCoarseBinMask`, `DepthBlend` and `FinalPass` run on zero-polygon frames. `VCount215` always calls `RenderFrame`, shown or not. `Texcache.Update` returns true on any texture or palette VRAM write, even when no cached entry changed, which defeats the identical-frame skip.
-- **Wide formats.** Attr tiles use 32 bits for 9, depth 32 for 24. The final tile buffer always writes a second-layer depth that only the fog variants read.
-- **Both screens are composited at scale**, including the 2D-only one.
+HASH2D matched on every overlapping frame for every change, on both phones, and between the phones.
 
-## Steps
+### Debug switches
 
-1. **Per-pass GPU timers.** `GL_EXT_disjoint_timer_query` around each compute pass and the compositor draw, behind `debug.melonade.computetimers`, summed and logged once a second. Debug builds only, off by default, no cost when off. Run on the OnePlus at 4x: White 2 title, White 2 overworld, NSMB's map. This ranks step 4.
-2. **Free memory wins.** Don't allocate the compositor output textures when an external output texture is in use. Allocate frame queue textures on first use and reuse the most recently freed one, so normal speed touches about 3 instead of 9. About 50 MiB at 4x; helps the OpenGL renderer too.
-3. **Right-size the work buffers.** Log peak work-tile and span use per scene first. Then size the tile buffers and span buffer to a lower starting point and grow when a frame gets near the limit (the existing overflow guards stay as the backstop). The numbers from the peak log decide the starting size.
-4. **GPU time, in the order step 1 gives.**
-   - 16 px tiles at 3x–4x as a debug-switch A/B (one line in `TileSizeForScale`).
-   - Rasterizer: move the divide behind the linear test, read only the span fields a pixel needs.
-   - Skip the three passes on zero-polygon frames; don't force a render when a VRAM write invalidated nothing.
-   - Narrower tile formats, only if the timers say DepthBlend or Rasterise is bandwidth-bound.
-5. **Battery.** Falls out of step 4's skips. Measure with a plugged-in long run after it.
-6. **Shader program binary cache.** Stops the synchronous recompile of all 33 programs on a scale or WideMelon width change. A hitch fix, not a frame-rate one.
+All `debug.melonade.<name>`, read at game start; the full text is in `DebugProperties.h`. `computepace`, `computeopt` (0 is the old shaders and skips; 95 the old three tile buffers; 479 one tile buffer; 255 turns the repeated-scene skip on), `computegrow`, `computerooms`, `computewarm`, `shadercache`, `computetile N` (force 8, 16 or 32 px tiles), and the logging ones: `computewhy` (`COMPWHY`, why each render wasn't skipped), `computesync` (`COMPSYNC`), `computepeaks` (`COMPPEAK`), `computetimers` (`COMPTIME`). Always logged in debug builds: `COMPTILES` (with `maxblock`, the GPU's storage block limit: 512 MB on the OnePlus, 2 GB on the Fold), `FRAMEQ`, `COMPGROW`, `COMPSLOW` (phase timings of any Compute frame over 30 ms), `COMPGLERR`, and `COMPROOMS`, `COMPWARM` and `COMPSHADER` while `computerooms`, `computewarm` and `shadercache` are on (the default).
 
-## Where the plan stands (11-10)
+- `computetimers` reads zero for compute passes on Adreno (640 and the Fold); only the compositor buckets mean anything.
+- `computesync` inflates everything about 2.5x, so read shares only. `computepeaks` syncs every frame; ignore FPS. `computewhy` and `computetimers` cost nothing measurable.
+- `computewarm` debug builds glFinish around the warm-up to time it, so debug grows cost a bit more than release; set it to 0 for A/Bs against logs from before 11-11.
 
-- **Done on the OnePlus:** step 1 (by a different method), step 2, pacing (not in the original plan), the low-risk half of step 4, and the skip work for step 5.
-- **Open:**
-  - Why bit 32 causes long frames; it's the remaining battery win in 30 FPS games with Smooth 30 FPS on.
-  - Step 3 (right-size the buffers): done on both phones (11-10) and committed. See "Step 3: right-sized buffers" below.
-  - Packing attr into color: done (11-10); the confirm run of the default-on build is still owed. `computeopt` bit 128, default on. OnePlus title 32.23 → 33.12 FPS, NSMB map render median 7.26 → 5.87 ms; the Fold saves 27–37 MB. One buffer instead of two (bit 256) measured the same, so it's off. Numbers are in `HANDOFF-compute.md`, step 6.
-  - Judging pacing's skipped frames by eye on NSMB's map and Mario Kart.
-  - A scene with anti-aliasing or fog for `computeopt` bit 4.
-  - Step 6 (program binary cache): written and reviewed 11-11, not phone-tested. See `HANDOFF-compute.md`.
-- **The title won't reach 60 at 4x on this phone** without a much bigger change (a depth pre-pass so overdrawn layers aren't shaded). 2x holds 60 there (59.67); 3x wasn't measured on the title.
+### Testing notes
+
+- **Scenes:** White 2's title by cold boot with no input (frame-deterministic, so HASH2D compares frame by frame, but it only sees 3D at 1x through the capture). White 2's overworld and NSMB's world map by continuing the save with taps. No savestate was ever loaded; keep it that way.
+- **Quick recipe:** one 30 s window per config, fresh app start, no perfetto.
+- **Scripts to start from** (in `perf_logs/2026-11-09-compute-timers/scripts/`): `ct_run_v6.sh` and `ct_chain_v5.sh` (cold start, set renderer, scale and props, reach a scene, pull logs), `ctsum6.py` and `ctsumf.py` (medians), `hashalign5.py` (exact-frame HASH2D compare of cold-boot title runs, handles midnight), `shotdiff.py` (masked screenshot compare), `slowframes.py` and `waitcorr.py` (slow frames against pacing waits). The step 6 versions are in `runs/pack_scripts/` (OnePlus) and `fold-pack/scripts/` (Fold).
+- **HASH2D at 60 FPS loses lines:** the core's log limit (50 lines a second per call site) drops about 15% of HASH2D lines when a game runs at 60. A full frame-by-frame check on a fast phone needs that limit raised.
+- **Desktop build** (`desktop/`) runs Compute and OpenGL on the PC's GPU; it's a logic check on Nvidia, not a phone result. The PC harness builds without the GL renderer, so it can't check Compute.
+
+### Things to distrust
+
+- Packing masks color to 6/6/6/5 bits. `ClipSegment` truncates `factor_den` to 32 bits, so extreme clip coordinates could push a vertex color out of range; the old code let the stray bits through to the final pass, the new one cuts them off. Both are wrong there, differently. Nobody has found a game that does it.
+- A savestate stores `IsShadowMask` and `Attr` separately. If one ever disagreed, packing would render it differently from before.
+- `computeopt 95` launches with two tile buffers and rebuilds for three at the first frame, so it costs a second shader compile.
+- `TileLayers`' initial value (2) is hard-coded to match `OptMask`'s default.
+- Lazy drivers (Adreno, Mali) may never report a failed grow, and a grow still briefly holds old and new storage while earlier renders are in flight. The one-buffer fallback (buffer over the GPU's block limit) never triggered on either phone, so that path is untested.
+- The POWCNT redraw runs GL inside an IO write handler, on the assumption a context is always current there.
+- Every Compute render does a `glFenceSync` and a `glFlush`, in all builds.
+- With `computeopt` bit 4 on, layer 2 of the final tile buffer is stale when AA and fog are off. Nothing reads it today.
+- The size `static_assert` guarding `MatchRenderScene`'s field list wouldn't catch a `bool` added into padding.
+- Release builds make a handful of empty virtual calls a frame for the stats hooks.
+- The desktop Qt build of the lazy compositor outputs has never been built.
+
+### Open
+
+- **The OnePlus:** a 4x run of the current build with graphics PSS, since the warm-up now makes the whole room resident there.
+- **The Fold's packing confirm run** of the default-on build (low risk; the OnePlus's passed). Also not done there: a run unplugged, and the main screen (all Phase 1 runs were on the cover screen).
+- **The user's eyes on skipped frames.** Pacing leaves the previous 3D image up for about 7 frames a second on NSMB's map (up to 21 in Mario Kart's demo), with 2D still updating. Nobody has judged whether it looks juddery; `screenrecord` is blocked over adb on the OnePlus. If it does, `computepace 1` is the fallback.
+- **Why `computeopt` bit 32 stutters.** White 2's overworld, Smooth on: 60 → 30 renders a second and the GPU ends about 9 °C cooler, but FPS drops 59.97 → 58.36 with about 100 long frames per 30 s. The long frames are pacing waits (0.91 correlation with `wait_ms`); with `computepace 0` they become dropped presents instead (55.8 presented). So the GPU falls behind when half the renders are skipped. The guess is its clock drops in the gaps. A perfetto `gpu.counters` trace of `computeopt 127` against 95 would say. It's the remaining battery win for 30 FPS games with Smooth 30 FPS on.
+- **The rest of the 12.7 s title hitch** (about 40–60 ms at 8x): 26 ms is texture decode and upload on the first textured frame (`texget` in `COMPSLOW`); the rest is outside RenderFrame, probably the emulator waiting on the GPU in the capture readback. Fixing the texture part means decoding off the frame path. Optional; it's one frame at the title.
+- **Smaller gaps:** a scene with anti-aliasing or fog for bit 4 (Mario Kart's demo isn't frame-deterministic); a long plugged-in run; a real battery number (the 240 mA from bit 16 was one plugged-in pass, a direction only).
+- **16x:** the app's scale setting stops at 8x, and at 16x the buffers run into GPU block and `int` size limits (`TileLayersFor`, `maxblock` in `COMPTILES`). Phase 2's stage 5 removes the reason for the cap.
 
 ## Phase 2: a visibility pass (planned 11-15)
 
@@ -170,118 +202,3 @@ Not worth it: splitting texture sampling out of Rasterise (Compute already sampl
 - GL changes need the phone: a Fold run and a OnePlus run before a step counts as done.
 - Perf runs follow `PERF-NOTES.md`'s recipe (fresh start per run, interleaved A/B; back up the `.sav` around any state load).
 - If the timers show the cost is spread evenly and 4x stays well under 60 on the OnePlus, a 3x option is the fallback for that phone.
-
-## Results
-
-All on the OnePlus 7 Pro, Compute 4x, unplugged, one 30 s window per config (11-09). Raw logs are in `perf_logs/2026-11-09-compute-timers/`. Nothing here has run on the Fold yet.
-
-### Step 1: timers
-
-- **Timer queries don't work for compute on Adreno 640.** `debug.melonade.computetimers` (`COMPTIME`) reads 0.000–0.004 ms for every compute pass in every scene. Only the compositor buckets look real. The switch costs nothing measurable.
-- **`debug.melonade.computesync` replaces it** (`COMPSYNC`): a `glFinish` after each pass, timed by wall clock. It inflates everything about 2.5x (sum × normal FPS comes to 2.2–2.6 s a second), so read it as shares:
-
-| ms per render | interp | bin | rast | depth | final | clear+offs+sort |
-|---|---|---|---|---|---|---|
-| White 2 title 4x | 5.68 | 6.64 | 25.85 | 24.86 | 4.06 | 2.91 |
-| White 2 overworld 4x | 1.87 | 2.00 | 14.84 | 13.17 | 6.15 | 2.17 |
-| NSMB map 4x | 2.07 | 3.60 | 19.91 | 18.01 | 3.51 | 2.38 |
-| Title 2x | 3.31 | 2.71 | 9.40 | 10.91 | 1.69 | 2.32 |
-| Title 5x (16 px tiles) | 5.38 | 3.15 | 40.23 | 25.17 | 4.97 | 2.43 |
-
-- **Rasterise and DepthBlend are 70–77% of compute time in every scene**, about equal. Both run once per pixel of every work tile (title: 65k work tiles × 64 = 4.2M invocations, 5.3 per screen pixel). DepthBlend is nearly all memory access.
-- **16 px tiles look cheaper:** from 4x/8 px to 5x/16 px (1.56x the pixels) binning halves and DepthBlend stays flat. `debug.melonade.computetile N` forces a tile size for the A/B.
-- **Peak use** (`debug.melonade.computepeaks`, `COMPPEAK`; it syncs every frame, so ignore FPS): title 64,934 of 196,608 work tiles (CPU bound 116,265), 75,095 of 524,288 X spans; overworld 28,790 and 17,549; NSMB map 40,415 and 20,021. No overflow anywhere.
-- **Baseline FPS:** title 31.4, overworld 59.9, NSMB map 53.4 emulated but 2.1 presented.
-
-### NSMB's map: a pacing problem
-
-With no capture readback in the frame, nothing holds the emulator thread back, so it submits renders faster than the GPU finishes them. The driver queue sits about 0.6 s deep (render latency 610 ms median) and the frame queue fills to 9/9. `debug.melonade.computepace N` puts a fence after each render:
-
-| pace | emulated FPS | presented FPS | render ms median / p95 | frame queue |
-|---|---|---|---|---|
-| 0 (old) | 53.44 | 2.1 | 610.61 / 764.19 | 9 |
-| 1, wait | 51.65 | 51.5 | 19.11 / 19.65 | 5 |
-| 2, skip | 59.93 | 59.9 | 9.15 / 18.14 | 5 (8 peak) |
-
-Mode 2 rendered 51 and skipped 9 frames a second. Neither mode engaged on White 2's title or overworld (31.4 and 59.9 in all three). At 3x the map holds 60 without pacing. Mode 2 is now the default in all builds (`GPU::ComputePace`): it skips when that's safe and waits when it isn't (capture frames, Smooth 30 FPS). A skipped frame that a capture then needs is redrawn at line 0 with the line-215 textures.
-
-With the default and Smooth 30 FPS on, the map waits instead of skipping: 51.7 emulated and 51.6 presented (86% speed), render 19.1 ms, frame queue 4. A 3-minute soak held 51.7 FPS start to end, GPU zone 59 → 63 °C, no GL errors. Whether skipped frames look juddery in motion hasn't been judged by eye (`screenrecord` is blocked for the shell user on this OxygenOS).
-
-### Tile size: 16 px loses at 4x
-
-`computetile 16` against the default 8 px: title 31.45 → 28.17 FPS, overworld and NSMB map unchanged at 60 (map render 9.05 → 13.17 ms). Binning halves (6.64 → 3.06) but Rasterise grows 47% (25.85 → 37.98), because every work tile costs a full tile of threads. DepthBlend stays flat. HASH2D matched on all 1,137 title frames. Bigger tiles and tile-grouped DepthBlend are dropped.
-
-### Shader changes (`computeopt`, default all on)
-
-Four changes meant to be bit-identical, one per bit: skip the unused divide for linear spans in Z-buffer programs (1), load only the span and polygon fields the coverage test needs (2), skip second-layer stores the final pass doesn't read unless AA or fog is on (4), a dead branch and a folded constant (8). All 33 programs compile under the NDK's `glslc` for every mask, and with the mask at 0 they match the old shaders.
-
-- Title 31.40 → 32.15 FPS; NSMB map render median 8.93 → 7.55 ms; overworld unchanged at 60.
-- HASH2D matched on all 1,278 title frames (that sees 3D at 1x through the capture). Overworld and NSMB map: screenshots at about the same moment, no differences outside moving sprites and water.
-- Not checked: a scene with anti-aliasing or fog (Mario Kart's demo isn't frame-deterministic).
-
-### Identical frames are being re-rendered
-
-White 2 draws 3D at 30 FPS, but with Smooth 30 FPS off the overworld does 52–53 renders a second and the title renders on every frame. `Texcache.Update` returns true on any texture or palette VRAM write, which defeats the identical-frame skip even when no cached texture changed. Bit 16 of `computeopt` (default on) only defeats the skip when a cached entry was really erased. `debug.melonade.computewhy` (`COMPWHY`) counts why each render wasn't skipped.
-
-OnePlus, 4x, plugged in this time (11-10), `computeopt 15` against the default 31:
-
-| Scene | Smooth 30 FPS | renders/s before | after | FPS |
-|---|---|---|---|---|
-| White 2 overworld | off | 51.89 | 29.97 | 59.94 both |
-| White 2 overworld | on | – | 59.99 | 59.94 |
-| White 2 title | off | 32.21 | 32.22 | 32.17 / 32.18 |
-| NSMB map | off | 52.77 | 52.63 | 59.93 / 59.94 |
-
-- **Overworld:** 22 renders a second were forced by dirty VRAM alone (`texdirty=22/22`); bit 16 removes them. Rough battery read over 60 s: about 240 mA less draw and the GPU zone ending at 50.2 °C instead of 59.4 (plugged in, one run each, so a direction only).
-- **Title:** nothing to skip. The game swaps on every frame it runs and no swap repeats (`flush=33/33 flushsame=0 captured=33`). It's GPU-bound, not over-rendered.
-- **NSMB map:** the game swaps 60 times a second, none identical; pacing skips 7.
-- **What's left in the overworld:** of 30 swaps a second, about 14 repeat the previous scene exactly (`flushsame`) and still render. With Smooth 30 FPS on, HalfCamera adds an in-between render per swap (`halfcam=30/30`), so the fix saves nothing there.
-- **Pixels:** HASH2D matched on 1,256 of 1,256 title frames; overworld and map screenshots differ only in moving things.
-
-### Repeated scenes, Smooth 30 FPS and the older bugs (run 6, 11-10, plugged in)
-
-- **Pacing with Smooth 30 FPS on (`computeopt` bit 64, default on).** A pace skip is now allowed when HalfCamera has nothing to interpolate. NSMB map, Smooth on: 53.19 → 59.97 FPS, presented 53.1 → 60.0, render median 18.62 → 7.27 ms, about 7 skips a second.
-- **Repeated-scene skip (`computeopt` bit 32, default off).** A swap whose polygons, vertices and registers equal the previous swap's by value doesn't render. Overworld, Smooth off: 29.98 → 16.81 renders a second at the same FPS, but presented drops 60.0 → 59.6 (12 skipped display frames and 62 late presents in 30 s). Overworld, Smooth on: 60.01 → 30.25 renders a second and the GPU zone ends at 50.5 °C instead of 59.4, but FPS goes 59.97 → 58.36 with about 100 frames per 30 s over 16.7 ms of work (max 38.2 ms). Isolating bits put it on bit 32 alone (`computeopt 63`: 58.28; `95`: 59.96). Off until the cause is found.
-- **3D off:** Contra 4's 2D intro renders 0 times a second; White 2's bag renders once on entry and then never. The bag's settled screens are pixel-identical between Compute and OpenGL, with no leftover 3D.
-- **Pixels:** HASH2D matched on 1,255 title frames against run 5, with Smooth off and with it on. The PC harness matched HEAD on 58,200 software-renderer frames over 21 games (it never reached the engine-off branch; no game there powers 3D off).
-- **Mario Kart demo, Smooth on:** 59.96 FPS, pacing skips up to 21 a second, stills look right. Judder not judged.
-- **Soak:** 3 minutes in the overworld with bit 32 on held 58.5–58.9 FPS, no GL errors.
-- **After run 6:** a `RenderedSinceVBlank` guard (a VCOUNT write that jumps past line 215 can't leave a stale image) and the bit 32 default flip.
-
-### Final build at defaults (11-10, plugged in, Smooth 30 FPS on, no props)
-
-| Scene | FPS | presented | render median ms | frames over 16.7 ms in 30 s |
-|---|---|---|---|---|
-| White 2 title | 32.29 | 32.3 | 2.12 | all (31 ms a frame) |
-| White 2 overworld | 59.97 | 60.0 | 1.73 | 4 |
-| NSMB map | 59.97 | 60.0 | 7.14 | 10 |
-
-HASH2D on the title matched run 6 on every frame: 1,256 and 1,257 frames with Smooth on, 1,254 with it off. No error lines in any run.
-
-**Why bit 32 stutters:** it's the pacing wait. Overworld, Smooth on, `computeopt 127`: 84 waits in 26 s (807 ms, about 9 ms each, in bursts with two renders pending), 72 slow frames, render p95 14.5 ms against 2.5. Slow frames per second correlate 0.91 with `wait_ms`. With `computepace 0` the emulator-thread stutter goes (14 slow frames) but presented drops to 55.8 with 125 skipped display frames, so the GPU really does fall behind when half the renders are skipped. Why it falls behind wasn't measured; a dropped GPU clock is the guess (sysfs is denied on this phone).
-
-A review found the bit 16 skip sound, and three older bugs next to it, fixed in run 6's build: turning the 3D engine off doesn't clear the identical flag (a stale image can linger), `CheckInvalid` reads past the dirty array for texture ranges that wrap, and games that never enable 3D draw an empty frame every frame.
-
-### The Fold (11-10, final build, plugged in, cover screen)
-
-Compute 4x at defaults holds 60.00 FPS with 0 frames over 16.7 ms on White 2's title (render median 0.46 ms), White 2's overworld (0.75) and NSMB's map (0.68). Pacing never skips there. HASH2D on the title matched the OnePlus on every overlapping frame (838–860 per pair, Smooth on and off). No GL errors.
-
-Graphics memory on the title, settled: Compute 4x 477–483 MB (GL mtrack 378 MB), OpenGL 4x 205 MB (GL mtrack 118 MB), down from 696 MB on the old build. Unlike the OnePlus, the Fold commits the work buffers, so step 3 saves real memory there. Peak use matches the OnePlus: 31% of the tile work buffer, 14% of the span buffer.
-
-### Step 3: right-sized buffers (11-10)
-
-Tile memory starts at 6 of its 16 layers and the X spans at a 16th, and both grow before a frame's dispatch from numbers the CPU already has: the bounding-box work-tile bound and the exact span count. So no frame ever loses work, and the shaders didn't change. `debug.melonade.computegrow 0` gives the old sizes.
-
-Fold, Compute 4x, Smooth on, plugged in, graphics memory settled:
-
-| Scene | grow on | grow off | saved |
-|---|---|---|---|
-| White 2 title | 388 MB | 483 MB | 95 MB |
-| White 2 overworld | 428 MB | 510 MB | 82 MB |
-| NSMB map | 312 MB | 466 MB | 154 MB |
-
-FPS is 60.00 in all of them on the Fold and unchanged on the OnePlus (title 32.24 against 32.22, unplugged). HASH2D matched on every overlapping frame on both phones, and `COMPPEAK`'s `pastroom` and `pastbound` read 0 throughout. The OnePlus's meminfo doesn't show these buffers at all, so the saving is only visible on the Fold.
-
-### Step 2: frame queue
-
-The queue settles at 4–5 textures at normal speed, not the 3 the plan guessed, and went to 9 on NSMB's map before pacing. Graphics memory on the title was 174,944 kB (EGL mtrack 126,280, Gfx dev 47,896); there's no before number, and the OnePlus doesn't seem to charge for buffer pages that are never touched, so step 3 may save little there.

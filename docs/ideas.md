@@ -6,8 +6,7 @@
 
 ## Rendering
 
-- **2D rendering on the GPU.** - WIP
-- **Filtering for 2D assets.** Add texture filtering options.
+- **2D rendering on the GPU, with filtering for 2D assets.** WIP in [plan-gpu-2d.md](plan-gpu-2d.md); the "Smooth 2D edges" setting is already in.
 - **Share the blitafterread code between OpenGL and compute.** Both renderers already share `GLCompositor`, but the kept/spare 3D buffer swap and the early capture readback (second pixel buffer, optional fence, valid flag, the drop list) are written twice in `GPU3D_OpenGL.cpp` and `GPU3D_Compute.cpp`. Two small helpers owned by each renderer could hold that logic, with callbacks for what really differs: texture creation, the readback itself, and how the output is bound. Roughly 100–150 lines less, and no behavior change, so check it against the current build with matching pictures and capture data.
 
 ## Performance
@@ -17,5 +16,4 @@
 ## App features
 
 - **Cheat search.** Search memory for values, narrow the results, and turn them into cheats.
-- **Game library revamp.** Grid and mosaic views are mocked up behind the view menu; see [plan-launcher.md](plan-launcher.md) for what is left.
-- **RetroAchievements metadata.** Answered in [plan-launcher.md](plan-launcher.md): the connect API gives title and icon, box art and credits need the user's Web API key, cached once per game.
+- **Game library revamp and RetroAchievements metadata.** Built (grid and mosaic views, a metadata sheet, art from the user's Web API key); see [plan-launcher.md](plan-launcher.md) for the phone checks and what's left.

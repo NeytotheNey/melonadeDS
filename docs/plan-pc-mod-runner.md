@@ -1,8 +1,6 @@
 # Plan: PC test runner for Lua mods
 
-## Status (2026-11-05)
-
-Plan only. Nothing is built, and the user chose not to build it yet. The natural time to start is after the Pokémon battle info mod, when adding more games means a lot of repeat testing.
+Plan only. Nothing is built, and the user chose not to build it yet (11-05). The battle info mod (`mods/pokemon-battle-info/`) is done, so the natural time to start is when adding more games means a lot of repeat testing.
 
 ## Goal
 
@@ -22,11 +20,12 @@ Why it's worth having: testing a mod today means an Android emulator running the
 ## What already exists
 
 **`tools/swi-harness` in the core repo** (on `melonade`) already does the hard part. It runs the core headless on Windows with MSYS2 MinGW and has:
-- all the `Platform::` stubs (threads, files, save callbacks, audio and camera no-ops), in about the first 390 lines of its 927-line `main.cpp`
+- all the `Platform::` stubs (threads, files, save callbacks, audio and camera no-ops), in about the first 420 lines of its `main.cpp`
 - ROM loading, DS and DSi mode, official or FreeBIOS, an x86-64 JIT switch, a fixed RTC
 - `--frames`, `--tap KEY@FRAME`, `--shot-every` (BMP files)
+- `--sav` (copied into the cart at boot, never written back) and `--state` (only read)
 
-It doesn't load a save or a save state, since its `WriteNDSSave` is a no-op and nothing reads one in. It also builds the core with `MELONADE_SWI_LOG`, which the runner shouldn't have.
+It builds the core with `MELONADE_SWI_LOG`, which the runner shouldn't have.
 
 **The Lua engine is nearly free of Android already.** In `app/src/main/cpp/scripting/`, only `LuaScriptingJNI.cpp` uses JNI, and the runner leaves it out. What's left:
 - `MelonLog.h` includes `android/log.h`. A small shim header in the runner's include path can send those calls to stderr, with no app code changed.
@@ -58,7 +57,7 @@ Sizes are rough new or moved lines.
 
 1. **Share the stubs (about 390 moved, core repo).** Move the `Platform::` stubs out of `swi-harness/main.cpp` into their own file. Check by running the harness and confirming its SWI log is unchanged.
 2. **Build it (about 150).** CMake for the core, Lua (including `patched/lstrlib.c`, without `LUA_USE_POSIX` on Windows) and the scripting files without the JNI one, plus the Android shim. Check: it compiles and links.
-3. **Run a script (about 300).** ROM, BIOS and console options, the frame loop, `LuaSavestateHost`, save and state loading. Check: a small script reads memory and logs across frames, and an error sets the exit code. `logs/emulator/device-selftest.lua` and the NAS `lua-test-scripts` set are ready-made tests.
+3. **Run a script (about 300).** ROM, BIOS and console options, the frame loop, `LuaSavestateHost`, save and state loading. Check: a small script reads memory and logs across frames, and an error sets the exit code. The NAS `lua-test-scripts` set is a ready-made test.
 4. **Folder and options (about 250).** Top-level scripts, modules with the same caps as the app, the header parser, and `--option` values with the same fallback rules. Check: the same scripts get the same values as in the app.
 5. **Screenshots (about 100).** The overlay blend and the PNG writer. Check: the draw self-test script's picture against the same script on the Android emulator.
 6. **Prove it on a real mod.** Run the battle info mod on White 2 through a battle from a save state, and compare with the same battle on the Android emulator. Record the frame rate of both. Add a short "how to use it" to the Testing section of MODS.md.

@@ -1,6 +1,6 @@
 # Code notes that aren't obvious
 
-Moved out of `HANDOFF.md` on 11-11. Facts about the code that you can't easily see from reading it.
+Facts about the code that you can't easily see from reading it.
 
 ## Layout editor
 
@@ -11,11 +11,11 @@ Moved out of `HANDOFF.md` on 11-11. Facts about the code that you can't easily s
 
 ## Video filters
 
-- The frame texture is 256N x 386N at N× upscale: top screen v in [0, 192/386], a 2-row gap (never written), bottom screen [194/386, 1]. `SCREEN_BAND_FUNCTIONS` clamps samples to the fragment's own screen.
+- The frame texture is 256N x 386N at N× upscale: top screen v in [0, 192/386], a 2-row gap (never written), bottom screen [194/386, 1]. `screenBandFunctions()` (`ShaderProgramSource.kt`) clamps samples to the fragment's own screen.
 - Every filter uses the real texture size except LCD and Scanlines, which stay on the 256x386 DS grid. (xBR2/Scale2x on the DS grid tore BW2's 3D-drawn overworld sprites at 2x.)
 - A `VideoFilter` is a screen shader plus optional pre-passes (`FilterPrePass(source, scale, nativeResolutionOnly)`), run into FBOs by `VideoFilterPipeline`. MMPX = a 2x native-only pre-pass + Sharp. DS screen colors inserts `#define COLOR_CORRECTION` into screen shaders only; screenshots and thumbnails stay uncorrected.
 - Phone screenshots are in Display P3 ("Vivid"), so measured colors won't match the color-correction formula exactly.
-- Left alone: an external display's `DSRenderer` never frees its GL objects; `ExternalScreenRender`/`ExternalLayoutRender` aren't instantiated anywhere. Scanlines isn't in the settings list (same upstream). Later candidates: xBR-lv2, SMAA, Lottes CRT (use the DS size for `res`).
+- Left alone: an external display's `DSRenderer` never frees its GL objects. Scanlines isn't in the settings list (same upstream). Later candidates: xBR-lv2, SMAA, Lottes CRT (use the DS size for `res`).
 
 ## Frame pacing
 
@@ -33,6 +33,6 @@ Moved out of `HANDOFF.md` on 11-11. Facts about the code that you can't easily s
 - **Audio/pacing:** the mic stream (enableMic/disableMic) isn't under `audioOutputMutex`; a FilterAudioStream (only if Oboe resamples) can be freed under its error thread; ADPF hints miss the inner stream when Oboe resamples; paced → timer fallback with the extra buffer on skips a frame; a save write that fails after open has already truncated the old file.
 - **Perf logger cosmetics:** `display_refresh_rate_changes` and `_last_hz` ignore paused samples while events don't; a rate is labeled by its first reading (e.g. "120.07"); `display_expected_hold_refreshes` is one average across rates.
 - **Save states and FreeBIOS updates:** a state saved while a CPU was inside FreeBIOS can break after a FreeBIOS change that moves code. DQ9's 17:45 state hit an ARM9 abort on 11-02. Fresh states are fine.
-- **Threaded 2D** is opt-in (Settings → Display → "2D rendering"), hash-identical to sync; keep the 2 ms barrier spin. Never hash-checked with OpenGL on the phone. Its plan's steps 5 and 6 were never done and aren't needed unless the feature comes back.
+- **Threaded 2D** is opt-in (Settings → Display → "Threaded 2D rendering"), hash-identical to sync; keep the 2 ms barrier spin. Never hash-checked with OpenGL on the phone. Its plan's steps 5 and 6 were never done and aren't needed unless the feature comes back.
 - A black cover screen after fold was seen once with an intermediate build and never again. If it shows up, grab the debug log around the fold.
 - **Decided:** keep upstream's unfinished multiplayer strings. MelonMix and DraStic script compatibility are dropped (see `MODS.md`).

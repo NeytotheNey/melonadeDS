@@ -2,24 +2,34 @@
 
 Notes for working on melonadeDS. The user-facing overview is the [README](../README.md) at the root, and the mods (WideMelon and Lua) are documented in [MODS.md](../MODS.md).
 
-- [plan-audio.md](plan-audio.md): the audio pass. Current: steps 1 and 2 done, 3 to 7 open.
-- [plan-vulkan.md](plan-vulkan.md): a Vulkan 3D renderer. Plan only, waiting on its gate after the Phase 0 profile.
-- [plan-optimization.md](plan-optimization.md): an optimization session, first build flags (`-O3`, LTO, a newer CPU target), then the hot spots from the phone profile. Plan only.
-- [plan-gpu-2d.md](plan-gpu-2d.md): filtered, hi-res and wide 2D, with a GPU renderer as a display-only shadow of CPU 2D. Steps 1 (counters) and 2 (filtered 2D, MMPX) built and OnePlus-tested; step 2's cost in capture scenes is open.
-- [plan-gpu-2d-shadow.md](plan-gpu-2d-shadow.md): plan for plan-gpu-2d's step 3, the GPU shadow 2D renderer: a gameplay counter run, then seven increments from text BGs to bitmap BGs, drawing past 0..255 for WideMelon. Increments 1 and 5 done and phone-checked; the OnePlus stall in mode `all` and windows (increment 4) are next.
-- [plan-compute-efficiency.md](plan-compute-efficiency.md): less GPU time, memory and battery from the Compute renderer, aimed at the OnePlus 7 Pro at 4x. Timers, frame queue trim and render pacing built and OnePlus-tested (NSMB's map at 4x went from 2 to 60 FPS shown); shader work and the Fold check open.
-- [plan-widemelon.md](plan-widemelon.md): improving WideMelon, mainly 2D in the wings, from PokeDaisy's widescreen notes. Steps 1 to 3 merged; wide 2D waits for the GPU 2D renderer.
-- [plan-gpu-discovery.md](plan-gpu-discovery.md): where the GPU's cycles go on OpenGL and Compute, and cheap experiments behind debug switches. Phase 0 and T1 (translucent draw skips, -15% at White 2's title) done; T1c next.
-- [plan-shield.md](plan-shield.md): the NVIDIA Shield TV (Tegra X1+, ARMv8.0), the slowest CPU we've tested. First runs done; the armv8.2 rollback is tentative, measurements and fixes open.
+- [plan-audio.md](plan-audio.md): the audio pass. Steps 1, 2 and 4 done (no phone listening check on record yet), step 3 and the rest open.
+- [plan-optimization.md](plan-optimization.md): build flags, hot spots and the JIT. Build flags on, late Blit and held 2D lines done, dispatcher stub on, linking shelved; PGO built but off by default (11-17, opt-in with `-PnativePgo=use`). Left: scheduler and DMA.
+- [plan-vulkan.md](plan-vulkan.md): a Vulkan 3D renderer. Plan only, waiting on its gate.
+- [plan-gpu-2d.md](plan-gpu-2d.md): filtered, hi-res and wide 2D, with a GPU renderer as a display-only shadow of CPU 2D. Steps 1 (counters) and 2 (filtered 2D) done; step 3 in progress.
+- [plan-gpu-2d-shadow.md](plan-gpu-2d-shadow.md): step 3, the GPU shadow 2D renderer. Increments 1 and 5 done and phone-checked; next is the OnePlus display stall in mode `all`, then windows (increment 4).
+- [plan-compute-efficiency.md](plan-compute-efficiency.md): less GPU time, memory and battery from the Compute renderer. Phase 1 (timers, frame queue trim, render pacing, program cache) built and merged; its open list and Phase 2 (shader work) remain.
+- [plan-gpu-discovery.md](plan-gpu-discovery.md): where the GPU's cycles go on OpenGL and Compute, and the experiments behind debug switches (T1, K4, E1, E2/D1, R1, T2). Merged; a short "Left open" list remains.
+- [plan-t2-texcache.md](plan-t2-texcache.md): the OpenGL texture cache (T2), as built.
+- [plan-k4-output-cap.md](plan-k4-output-cap.md): the output-resolution cap (K4), as built.
+- [plan-deband-outcap.md](plan-deband-outcap.md): cheaper Deband and the cap's part B, as built. Open: the external-display check.
+- [plan-widemelon.md](plan-widemelon.md): improving WideMelon, mainly 2D in the wings. Steps 1 to 3 and camera stages 1 and 2 merged; wide 2D waits for the GPU 2D renderer.
+- [plan-widemelon-polylist.md](plan-widemelon-polylist.md): the bigger polygon list (WidePolys, on since 11-14), as built.
+- [plan-pc-mod-runner.md](plan-pc-mod-runner.md): running per-game Lua mods on the PC.
+- [plan-launcher.md](plan-launcher.md): the game library and RetroAchievements views. Built; picking a match by hand is open.
+- [plan-shield.md](plan-shield.md): the NVIDIA Shield TV (Tegra X1+, ARMv8.0), the slowest CPU we've tested. First runs done; the armv8.2 rollback is still open.
+- [plan-swi-test-rom.md](plan-swi-test-rom.md): the clean-room SWI test ROM for FreeBIOS. Built and run; the DSi follow-ups are open.
 - [hires-capture.md](hires-capture.md): upscaled display capture. Phase 1 done, Phase 2 (bitmap BGs) open.
-- [blackmagic3.md](blackmagic3.md): what we borrowed from upstream's blackmagic3 instead of porting it. Done, with a few follow-ups.
-- [polish.md](polish.md): the cleanup and polish pass over `material3`, with its leftovers and two device-free check recipes. Done.
-- [debug-switches.md](debug-switches.md): what the older `debug.melonade.*` switches do and how to set them without adb.
+- [pokemon-battle-ram.md](pokemon-battle-ram.md): Pokemon battle RAM layout for the battle info mod.
+- [blackmagic3.md](blackmagic3.md): what we borrowed from upstream's blackmagic3 instead of porting it. Done.
+- [polish.md](polish.md): the finished cleanup pass over `material3`: rules still in force, leftovers and two device-free check recipes.
+- [test-engine-b-nohold.md](test-engine-b-nohold.md): the engine B no-hold test. Done and passed; on in release since 11-16. Kept for its rerun recipe.
+- [debug-switches.md](debug-switches.md): what the `debug.melonade.*` switches do and how to set them without adb.
 - [code-notes.md](code-notes.md): non-obvious facts about the code, and known issues left alone.
-- [test-engine-b-nohold.md](test-engine-b-nohold.md): the pending OnePlus test of the engine B no-hold fix.
 - [ideas.md](ideas.md): loose feature ideas, not planned.
-- [shelved/frame-interpolation.md](shelved/frame-interpolation.md): smoothing 30 FPS games. Old attempts shelved; a halfway-camera prototype is merged behind a debug switch, compute only.
+- [shelved/frame-interpolation.md](shelved/frame-interpolation.md): smoothing 30 FPS games. The halfway-camera approach is merged as the "Smooth 30 FPS games (experimental)" setting on OpenGL and Compute.
+- [shelved/compute-on-mali.md](shelved/compute-on-mali.md): the Compute renderer on Mali. Fixed (a driver bug with atomics on `uvec4` arrays) and offered on every GLES 3.2 GPU since 11-13.
+- [shelved/compute-on-mali-upstream.md](shelved/compute-on-mali-upstream.md): the same Mali fix on an upstream branch, not posted.
 - [shelved/widemelon-software.md](shelved/widemelon-software.md): WideMelon on the software renderer. Shelved.
-- [shelved/compute-on-mali.md](shelved/compute-on-mali.md): the Compute renderer on a Pixel 9 Pro Fold. It runs, but the 3D is broken in tile-sized blocks; what was tested and what to try next. Shelved.
+- [shelved/d3-edgefog.md](shelved/d3-edgefog.md) and [shelved/r2-fragdepth.md](shelved/r2-fragdepth.md): two GPU discovery experiments that didn't pay, with their patches.
 
 `PERF-NOTES.md` (phone measurements) and `HANDOFF.md` (working notes) are the maintainer's local files at the repo root. They are not in git, so where these docs cite `PERF-NOTES.md` the numbers only exist on that PC.

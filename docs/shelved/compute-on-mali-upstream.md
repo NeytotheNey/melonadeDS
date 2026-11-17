@@ -3,7 +3,7 @@
 Drafts for rafaelvcaetano's repos. Nothing is posted yet. The background is in [compute-on-mali.md](compute-on-mali.md).
 
 Before posting:
-- The fix is ported onto upstream as lib branch `mali-uvec4-fix` (`b2668e3d`, off lib `431ab4bd`, app `aaf263d2`), in a local clone at `C:\Dev\upstream-test`. It changes one file, with 25 lines added and 10 removed, and a review found no issues. Pushing it needs a public fork of melonDS-android-lib, since ours is private.
+- The fix is ported onto upstream as lib branch `mali-uvec4-fix` (`af6834c9`, off lib `431ab4bd`, app `aaf263d2`), in a local clone at `C:\Dev\upstream-test\melonDS-android`. It changes one file, with 25 lines added and 10 removed, and a review found no issues. The branch is pushed to the local Forgejo (`ney/melonDS-android-lib-upstream`, remote `fork`), not to GitHub. A PR still needs a public GitHub fork of melonDS-android-lib, since ours is private.
 - Attach `perf_logs/mali-pixel8/upstream/sheet_nsmb.png` (before | OpenGL | after) to the PR. `sheet_ph.png` is the Phantom Hourglass one.
 
 ---

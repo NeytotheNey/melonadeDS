@@ -1,47 +1,19 @@
 # The polish pass over `material3` (done)
 
-A cleanup pass over everything the fork had added since `c42995ca`, on branch `claude/friendly-heisenberg-3eipz2`, finished on 2026-11-02. It started from five read-only reviews (emulator UI and GL, layout editor and shared views, settings/impl/perf logging and tests, native code, resources/build/scripts/docs). The core submodule, vendored Lua and enet/faad2/oboe were out of scope, and so were new features. The full plan, the handoff with its per-commit test tables and the five review findings files are in git history: `git show a41e78b4:PLAN-polish.md`, `a41e78b4:HANDOFF-polish.md` and `a41e78b4:docs/polish-findings/`.
+A cleanup pass over everything the fork had added since `c42995ca`, finished on 2026-11-02: dead code removed, a few correctness fixes, native and Kotlin consolidation (one `DebugProperties` table, `melonade-*` logcat tags, `LuaEngine.cpp` split into per-API files, `impl/diagnostics`), shared resources, a one-sentence comment pass and American spelling. Each phase's commits and rationale are in `git log`; the full plan, handoff and review findings are at `git show a41e78b4:PLAN-polish.md`, `a41e78b4:HANDOFF-polish.md` and `a41e78b4:docs/polish-findings/`.
 
-## Ground rules
+Rules from the pass that still hold: comments keep the first sentence and drop history, restated code and plan-doc citations (rationale goes in the commit message); native constants are `UPPER_SNAKE` in frontend files, `kCamel` only inside `scripting/`; don't touch `app/src/main/cpp/lua/` (vendored) or the submodules. American spelling everywhere except stored preference keys and values; upstream names like `SoftInputBehaviour*`, `FirmwareColour*`, `favouriteColour` and the stored value `super_colours` stay British. The layout editor's fixed colors stay (the user's call). Don't undo: the four `Anchor` ternaries stay to keep the float rounding; layouts are mirrored by hand between native and Kotlin and checked at startup; the old logcat tags (`melonDS`, `melonDS-core`, `melonDS-lua`, `OpenGL`) now match nothing.
 
-1. One concern per commit, in phase order, so each can be built and phone-tested on its own.
-2. Comments: keep the first sentence; delete anything that narrates history ("used to", "as before X"), restates the code or cites a plan doc. Rationale that still matters goes in the commit message.
-3. No behavior changes except the correctness fixes listed in Phase 1.
-4. American spelling everywhere: identifiers, comments and UI strings. Stored preference keys and values keep their spelling.
-5. Native constants are `UPPER_SNAKE` in frontend files; `kCamel` may stay inside `scripting/` only.
-6. Don't touch `app/src/main/cpp/lua/` (vendored) or the submodules.
-
-## What each phase did
-
-**Phase 1, delete and fix** (`30b08e96..d51e8806`): removed the gitHub flavor's dead update-install path (and with it the unused install permission), dead code, unused imports and stale markers; fixed the busy-spin pauses in reset and rewind load, a perf session that could never restart after a stuck one, the Lua options save using the wrong ROM lookup, a popup menu id of 0, a swallowed folder permission failure and the icon tint on pressed buttons; added Lua and a WideMelon credit to the licenses screen.
-
-**Phase 2, native consolidation** (`8a0a19ac..7ac57ee9`): one `DebugProperties` table for the 14 `debug.melonade.*` switches, one `monotonicNanos()`, one tag scheme (every logcat tag is `melonade-*` now; `melonDS`, `melonDS-core`, `melonDS-lua` and `OpenGL` match nothing), `FramePacing.h` bodies moved to a .cpp, `AudioLatency` as an enum, `PackedTouch`, and a startup check of the layouts mirrored by hand between native and Kotlin.
-
-**Phase 3, split `LuaEngine.cpp`** (`4cd096a6..90b696be`): the engine keeps the lifecycle and `setupScript`; the rest is `LuaSandbox.cpp`, `LuaMemoryApi.cpp`, `LuaDrawApi.cpp`, `LuaFolderApi.cpp`, `LuaStateApi.cpp` and `LuaStorageApi.cpp`, sharing `LuaEngineInternal.h`. A blocked I/O read in `melon.mem` raised a garbled error and was fixed on the way (`73105f89`).
-
-**Phase 4, Kotlin consolidation** (`f58360d9..812dc29d` and `043e6634..6c0217d6`): `PerformanceLogger` split into logger, `PerformanceSummary` (table-driven, with a `# Keys` block) and `SessionStatistics`; one log-folder resolver, one state-change map and one settings/device snapshot shared by the perf and debug logs, all in `impl/diagnostics`; `LuaScriptHeader` in the domain model and a `LuaScriptOptionType` enum; the Lua scripts dialog in Compose; the layout editor's snapping, size and aspect-lock state consolidated; `ControllerAppearance` sealed; the Mods tab rows built from the shared preference rows. Logs differ from pre-pass ones on purpose: the perf summary gains a `# Keys` block and new `# App`/`# Device` fields, the debug log header becomes the same `key: value` lines, and the debug log's config keys are renamed (`jit`→`jit_enabled`, `renderer`→`video_renderer`, `resolution_scaling`→`internal_resolution_scaling`). CSVs are byte-identical.
-
-**Phase 5, resources, strings, build** (`0ecffc27..f1cc27d9`): shared row styles and picker defaults, string fixes, a `PreferenceKeys` test against the XML, more JVM tests, a portable `emu.sh`, a merged shader dumper, and the UI strings in American spelling.
-
-**Phase 6, comment pass** (`3d495c59..4597a377`): about 450 multi-sentence comment blocks cut to one sentence, plus American-spelling renames where every reference was in the fork's own code. Dropped rationale is in the commit bodies. The user tried its debug APK on the phone on 2026-11-02 and saw no issues.
-
-**Phase 7, docs and repo root**: the root keeps README.md, MODS.md and LICENSE; the other docs moved under `docs/` and were condensed (see [README.md](README.md)); local paths became upstream repos at a commit.
-
-## Departures and the user's calls
-
-The user's calls: American spelling everywhere except stored preference keys and values (2026-11-02, replacing an earlier British-UI rule; upstream names like `SoftInputBehaviour*`, `FirmwareColour*`, `favouriteColour` and the stored value `super_colours` stay British); the hidden audio latency setting stays until it's measured ([plan-audio.md](plan-audio.md) step 7); the layout editor's fixed colors stay.
-
-Departures from the plan: `MelonDSAndroidJNI.cpp` keeps `<ctime>` for `clock_gettime`, and the Lua license text comes from `lua.h`. The achieved-speed meter moved into `AudioDiagnostics`. The Lua API files are structs of static functions that `LuaEngine` befriends (a namespace can't be a friend), registered with `lua_newtable` + `luaL_setfuncs`. `clearLuaScripts()` keeps its lock so a write can't be lost to a concurrent `copy()`. ProGuard keeps were added for `LuaScriptOptionValue` and `LuaScriptDataSnapshot`, which native code reads by field name. `ControllerAppearance` is sealed `Vector`/`Pixel`, not `Flat`, because Outline and Soft tint are already called flat; the four `Anchor` ternaries stay to keep the float rounding. The preference title/summary pair became two styles rather than one `<include>`, and the chevron is a default only in `StoragePickerPreference`. About seven class-level paragraphs that state a thread or sign rule kept two sentences. Accepted visual changes: the Lua scripts dialog looks like the other Compose dialogs, and "Don't change" in a layout dropdown is single-line.
+Logs changed on purpose in that pass: the perf summary has a `# Keys` block and `# App`/`# Device` fields, the debug log header uses `key: value` lines, and the debug log's config keys were renamed (`jit`→`jit_enabled`, `renderer`→`video_renderer`, `resolution_scaling`→`internal_resolution_scaling`). CSVs are byte-identical to before.
 
 ## Never checked, and known leftovers
 
 - An RA popup dismissing on stop (it can't be raised on demand) and the fallback when the picked log folder isn't writable.
 - Back on the Compose dialogs (pause menu → Mods, script options, achievements) was only tried with `KEYCODE_BACK`, not the back gesture or controller B.
 - Phase 5's phone checklist: every settings screen in light and dark, the folder pickers' chevrons and pickers, the RetroAchievements switches grayed while logged out, the layout editor item panel's sliders and value dialogs, and a Lua script whose file starts with a UTF-8 BOM.
-- Only Low audio latency can be tested, since the setting is hidden and the repository always sends Low.
-- `Failed to allocate memory using ftruncate! (Invalid argument)` logged once per game load. Fixed in the core on 2026-11-16: ashmem already sizes the region, so the ftruncate now only runs on the desktop `shm_open` path.
+- Only Low audio latency can be tested, since the setting is hidden and the repository always sends Low. It stays hidden until it's measured ([plan-audio.md](plan-audio.md) step 7).
 - Three lint errors older than the pass: `MissingConstraints` in `activity_emulator.xml`, `PropertyEscape` in `local.properties`, `WrongConstant` in `DeviceLayoutDisplayMapper.kt`.
-- `.claude/shadercheck/check.sh` couldn't run on the Windows PC (no g++/glslang); the merged dumper's output was byte-identical under WSL.
+- `.claude/shadercheck/check.sh` couldn't run on the Windows PC (no g++/glslang); it works under WSL.
 - `getPlayerLayoutPicks` stays public and top-level in `LuaLayoutRequests.kt` because `LuaUiOverridesTest` calls it; move it into the view model only together with the test.
 - Skipped: a `LuaSessionController` (it would move only about 70 lines), merging `LayoutEditorView.clampInside` with `LayoutEditorSnapping.clamp` (they place an item bigger than the editor differently), and `openGridDialog` as Compose (not a straight port).
 - Testing notes: for the exit-reason check use `kill -9`, since a recents swipe is a user-requested exit that `ExitReasonReporter` skips. A Lua ITCM read on the script's first frame fails in DS mode because the game hasn't enabled ITCM yet; check after boot.

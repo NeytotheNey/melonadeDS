@@ -25,7 +25,7 @@ On a 1080p TV, 4x (1024x768 per screen) already covers about the output's height
 
 ## Step 0: the CPU target (tentative: roll back armv8.2)
 
-Since the 11-03 Fold profile every arm64 build uses `-march=armv8.2-a` (`app/build.gradle.kts:46-51`, `app/CMakeLists.txt:25-27`). Nothing checks the CPU at startup, so debug and release builds crash at launch on any ARMv8.0 device: Cortex-A53, A57, A72 and A73 chips that still meet minSdk 29. The `armeabi-v7a` library in GitHub builds doesn't help, because Android loads the arm64 one.
+Since the 11-03 Fold profile every arm64 build uses `-march=armv8.2-a` (`nativeArmv82` in `app/build.gradle.kts`, default on; `MELONADE_ARMV82` in `app/CMakeLists.txt`). Nothing checks the CPU at startup, so debug and release builds crash at launch on any ARMv8.0 device: Cortex-A53, A57, A72 and A73 chips that still meet minSdk 29. The `armeabi-v7a` library in GitHub builds doesn't help, because Android loads the arm64 one.
 
 What we get for it is small. All three build flags together (`-O3`, ThinLTO, armv8.2) cut emulator-thread work by 2.4% with no fps change (PERF-NOTES "Native build flags"). armv8.2 alone was never measured. No code in the core or the JIT uses LSE atomics or dotprod directly.
 

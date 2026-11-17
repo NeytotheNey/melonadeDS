@@ -2,7 +2,7 @@
 
 Reference for the battle info Lua mod. All addresses are ARM9 bus addresses (`melon.mem.read*`). We reuse facts like addresses and constants here, not code; use our own field names rather than the decomp's.
 
-How sure each fact is: **[S]** a source states it, **[X]** two independent sources agree, **[I]** inferred, verify it. Nothing here had been run against a ROM when this was written, so see "Verified in game" at the end.
+How sure each fact is: **[S]** a source states it, **[X]** two independent sources agree, **[I]** inferred, verify it. The tags are from before anything was run; "Verified in game" at the end has what running it showed.
 
 ## White 2, English (`IRDO`)
 
@@ -113,7 +113,7 @@ Block A has species at +0, item +2, ability +0xD (u8). Block B has moves at +0, 
 
 ## Verified in game
 
-Run on the English White 2 (`IRDO`) with the software renderer on an Android emulator, 2026-11-05. Covered: wild singles, trainer singles, trainer doubles, a save state load mid-battle. Where this section disagrees with the sections above, this section wins.
+Run on the English White 2 (`IRDO`) with the software renderer on an Android emulator, 2026-11-05: wild singles, trainer singles, trainer doubles, a save state load mid-battle. Where this section disagrees with the sections above, this section wins.
 
 **Confirmed:** `base` was always `0x02204D04`, even at boot. Species, level, HP, max HP, types, current ability, in-use moves and PP, and `P` all matched the screen. Stages confirmed for Atk and Def only. Condition words confirmed for paralysis only (`conditions[1]` = 1). Active mons do come first in `P`, and a switch swaps pointers. A fainted mon stays in its slot with HP 0, and its stages reset to 6. In doubles, slot 0 is the upper HP box and slot 1 the lower, on both sides.
 
@@ -177,7 +177,7 @@ Inside a move button the name is centered at about y+11 to y+23, type and PP at 
 **Damage, heals and crits** (decomp, then run on `melonade_poke` with the software renderer):
 - The client's command queue: `client = read32(core + 4)`, and `read32(client)` must equal `main`. `queue = read32(client + 0x13C)` holds the write position (u32 at +0), the read position (u32 at +4) and the command bytes (at +8, values big-endian). `read32(client + 0x180)` is the command playing now, with its args at `client + 0x140`.
 - A hit: record HP drops while the command playing is 51 (`SC_DAMAGE_PLURAL`) or 50 (`SC_DAMAGE`). The bar starts one frame later and takes about 1.2 frames per HP at 43 max HP or less. The next command starts at +34.
-- A crit on that hit: read on from the read position. Each command is a u16 ID. A message command (90, 91) then has a u16 message ID, then u32 args up to `0xFFFF0000`. Command 90 with message `0x51` is a crit in singles. Command 91 with message `0x180` and arg0 equal to the mon ID is a crit in doubles. Skip effectiveness messages (90: `0x4E`, `0x4F`; 91: 6, 9, `0xC`, `0xF`, `0x12`, `0x15`) and other mons' `0x180`, and stop at anything else. The queue holds the whole turn, so never scan past that point: it spoils the turn. In forced-crit runs this made 0 wrong calls on 93 hits (43 crits): 30 hits in singles, 63 in doubles, one target of a spread move critted and the other not. Those runs compared it with the queue's own messages. One natural crit was also seen on screen as "A critical hit!".
+- A crit on that hit: read on from the read position. Each command is a u16 ID. A message command (90, 91) then has a u16 message ID, then u32 args up to `0xFFFF0000`. Command 90 with message `0x51` is a crit in singles. Command 91 with message `0x180` and arg0 equal to the mon ID is a crit in doubles. Skip effectiveness messages (90: `0x4E`, `0x4F`; 91: 6, 9, `0xC`, `0xF`, `0x12`, `0x15`) and other mons' `0x180`, and stop at anything else. The queue holds the whole turn, so never scan past that point: it spoils the turn. In forced-crit runs, checked against the queue's own messages, this made 0 wrong calls on 93 hits (43 crits; singles and doubles, including a spread move that critted one target and not the other). One natural crit was also seen on screen.
 - Heals raise record HP during command 65 (`SC_UPDATE_HP_GAUGE`), which also carries recoil, Substitute's cost, Leech Seed and Toxic. Use the HP difference, since the queue's value isn't clamped (Potion's says 20 when the real heal was 4).
 - Level-up raises HP and max HP on the same frame during command 69, so it looks like a heal unless filtered. A switch swaps pointers during `SC_SEND_OUT` while HP and mon ID stay put, so track by mon ID.
 - Hits on a Substitute don't change HP, and `rec+0x1F2` only changes on creation and break, so they can't show a damage number.

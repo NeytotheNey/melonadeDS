@@ -8,15 +8,14 @@ Measurements are in the local `PERF-NOTES.md` ("Audio"; see [README.md](README.m
 2. The Oboe callback (AAudio, Shared, LowLatency, MMAP, 96-frame bursts) locks the same mutex in `SPU::ReadOutput`, copies, applies volume, and fades a short read's gap from the last frame to silence over 72 frames (1.5 ms), fading back in on the next read.
 3. The stream is 48 kHz I16, which matches the device, so Oboe never resamples. Oboe is 1.10.0, with the ADPF performance hint on.
 
-## Done (steps 1 and 2, `1f181515` and `4146bf4f`)
+## Done (steps 1, 2 and 4: `1f181515`, `4146bf4f`, `15ed6cf6`)
 
-- **Drift control:** a PI controller steers the ring towards 960 frames (20 ms) with at most ±0.5% skew, applied on the emulator thread.
+- **Drift control:** a PI controller steers the ring towards 960 frames (20 ms) with at most ±0.5% skew, run in the audio callback (`AudioDriftController` in `OboeCallback.cpp`).
 - **Smaller AAudio buffer:** starts at 3 bursts and grows one burst per xrun.
 - **Priming and trims:** silence until the ring reaches 960 at start/resume (480 after an underrun), then a trim to 840; only for bursts of 256 frames or less.
 - **Logging:** skew, fill, buffer size and FF speed in the debug log, perf CSV and summary; summary totals exclude fast-forward.
-- **Tried and parked:** scaling the fast-forward base rate by the measured FF speed made the pitch glide between 1.45x and 2x on the phone, so the base is the requested multiplier again and slow FF scenes still run dry until step 6.
-
-- **Softer underruns (step 4):** a gap fades out from the last frame read and the next read fades in, over 72 frames, with the gain carried across callbacks; muting, priming and stopping use the same fade. Written without a build; not yet built or heard on the phone.
+- **Softer underruns (step 4):** a gap fades out from the last frame read and the next read fades in, over 72 frames, with the gain carried across callbacks; muting, priming and stopping use the same fade. Merged, but no listening check on the phone is recorded.
+- **Tried and parked:** scaling the fast-forward base rate by the measured FF speed made the pitch glide between 1.43x and 2x on the phone, so the base is the requested multiplier again and slow FF scenes still run dry until step 6.
 
 Still owed: a phone run of the `4146bf4f` build (resumes and short pauses, checking the logged FF speed).
 
@@ -40,7 +39,7 @@ When the emulator can't hold full speed (charging throttles, heavy scenes, slow 
 
 ### 7. Decide the hidden latency setting
 
-`settings_audio_latency_enabled` is false, so the audio latency setting is hidden, but `MelonDSAndroidConfiguration.cpp` still applies whatever value is saved. The polish pass left it as is (user's call, 2026-11-02). Decide from measurements whether the setting makes an audible or measurable difference now that drift control and the growing AAudio buffer size things: if it does, show it again; if not, remove the pref, its two arrays, two strings and the switch.
+`settings_audio_latency_enabled` is false, so the audio latency setting is hidden, but `MelonDSAndroidConfiguration.cpp` still applies whatever value is saved. Left as is for now (user's call, 2026-11-02). Decide from measurements whether the setting makes an audible or measurable difference now that drift control and the growing AAudio buffer size things: if it does, show it again; if not, remove the pref, its two arrays, two strings and the switch.
 
 ## Already fine
 
