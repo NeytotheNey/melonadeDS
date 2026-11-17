@@ -45,11 +45,12 @@ void LuaEngine::setScripts(std::vector<LuaScriptSource> newScripts, std::shared_
     areStateLoadsAllowed = newAreStateLoadsAllowed;
 }
 
-void LuaEngine::start(NDS* newNds, std::shared_ptr<MelonEventMessenger> newEventMessenger, LuaSavestateHost* newSavestateHost)
+void LuaEngine::start(NDS* newNds, std::shared_ptr<MelonEventMessenger> newEventMessenger, LuaSavestateHost* newSavestateHost, GameState* newGameState)
 {
     nds = newNds;
     eventMessenger = std::move(newEventMessenger);
     savestateHost = newSavestateHost;
+    gameState = newGameState;
 
     if (auto cart = nds->NDSCartSlot.GetCart())
         gameCode.assign(cart->GetHeader().GameCode, strnlen(cart->GetHeader().GameCode, 4));
@@ -490,6 +491,7 @@ int LuaEngine::setupScript(lua_State* L)
     static const luaL_Reg gameFunctions[] = {
         { "code", luaGameCode },
         { "title", luaGameTitle },
+        { "state", LuaGameApi::state },
         { nullptr, nullptr },
     };
     static const luaL_Reg inputFunctions[] = {

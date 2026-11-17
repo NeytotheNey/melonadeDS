@@ -121,6 +121,9 @@ add_library(
         ${ANDROID-CPP}/debug/DebugLog.cpp
         ${ANDROID-CPP}/debug/DebugProperties.cpp
         ${ANDROID-CPP}/debug/LogQueue.cpp
+        ${ANDROID-CPP}/gamestate/GameState.cpp
+        ${ANDROID-CPP}/gamestate/pk_nds_field.cpp
+        ${ANDROID-CPP}/gamestate/pk_nds_field_gpu.cpp
         ${ANDROID-CPP}/perf/PgoDump.cpp
         ${ANDROID-CPP}/performancehint/JniPerformanceHintManager.cpp
         ${ANDROID-CPP}/performancehint/NdkPerformanceHintManager.cpp
@@ -134,6 +137,7 @@ add_library(
         ${ANDROID-CPP}/scripting/LuaDrawApi.cpp
         ${ANDROID-CPP}/scripting/LuaEngine.cpp
         ${ANDROID-CPP}/scripting/LuaFolderApi.cpp
+        ${ANDROID-CPP}/scripting/LuaGameApi.cpp
         ${ANDROID-CPP}/scripting/LuaMemoryApi.cpp
         ${ANDROID-CPP}/scripting/LuaSandbox.cpp
         ${ANDROID-CPP}/scripting/LuaScriptingJNI.cpp

@@ -181,6 +181,9 @@ class RomDetailsViewModel @Inject constructor(
             is RomConfigUpdateEvent.WideCameraReturnToCenterUpdate -> {
                 currentRomConfig.copy(mods = currentRomConfig.mods.copy(wideCameraReturnToCenter = event.enabled))
             }
+            is RomConfigUpdateEvent.WideCameraZoomOnTextUpdate -> {
+                currentRomConfig.copy(mods = currentRomConfig.mods.copy(wideCameraZoomOnText = event.enabled))
+            }
             is RomConfigUpdateEvent.LuaScriptToggle -> currentRomConfig.withLuaScripts { luaScripts ->
                 luaScripts.map { if (it.fileName == event.fileName) it.copy(enabled = event.enabled) else it }
             }

@@ -296,6 +296,15 @@ private:
 };
 
 /**
+ * melon.game.state() (LuaGameApi.cpp): what a Pokemon game the field read knows is doing (gamestate/GameState.h); the rest of melon.game is in
+ * LuaEngine.cpp
+ */
+struct LuaGameApi
+{
+    static int state(lua_State* L);
+};
+
+/**
  * melon.storage
  */
 struct LuaStorageApi

@@ -1021,7 +1021,11 @@ class EmulatorViewModel @Inject constructor(
      */
     private fun getWideCameraSettings(widescreenLaunch: WidescreenLaunch, showWidth: Int): WideCameraSettings? {
         val hasRoom = showWidth > 0 && widescreenLaunch.getRenderWidth(showWidth) > showWidth
-        return if (widescreenLaunch.isCameraOn && hasRoom) WideCameraSettings(showWidth, widescreenLaunch.cameraReturnsToCenter) else null
+        return if (widescreenLaunch.isCameraOn && hasRoom) {
+            WideCameraSettings(showWidth, widescreenLaunch.cameraReturnsToCenter, widescreenLaunch.cameraZoomsInOnText)
+        } else {
+            null
+        }
     }
 
     /**

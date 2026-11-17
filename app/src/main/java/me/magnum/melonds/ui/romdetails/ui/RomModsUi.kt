@@ -200,6 +200,12 @@ private fun WideCameraItems(mods: RomModsConfig, shownWidth: Int?, onConfigUpdat
             isOn = mods.wideCameraReturnToCenter,
             onToggle = { onConfigUpdate(RomConfigUpdateEvent.WideCameraReturnToCenterUpdate(it)) },
         )
+        SwitchItem(
+            name = stringResource(id = R.string.wide_camera_zoom_on_text),
+            caption = stringResource(id = R.string.wide_camera_zoom_on_text_description),
+            isOn = mods.wideCameraZoomOnText,
+            onToggle = { onConfigUpdate(RomConfigUpdateEvent.WideCameraZoomOnTextUpdate(it)) },
+        )
     }
 }
 

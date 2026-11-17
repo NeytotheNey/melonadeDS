@@ -229,6 +229,8 @@ class EmulatorActivity : AppCompatActivity() {
         // Picked on the render thread, remembered for the game from the main one
         onZoomPicked = { session, zoom -> runOnUiThread { viewModel.onWideCameraZoomPicked(session, zoom) } },
         onCameraChanged = { x, zoom, y -> MelonEmulator.updateWideCamera(x, zoom, y) },
+        // Asked once per presented frame while the camera is on, which keeps the native field read running for a known Pokemon game
+        gameScene = { MelonEmulator.getGameScene() },
     )
     // Whether the right stick is free to pan the camera, which it isn't while it's mapped to an input
     private var isRightStickFreeForCamera = true

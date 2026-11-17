@@ -1,6 +1,7 @@
 package me.magnum.melonds.ui.emulator.camera
 
 import me.magnum.melonds.domain.model.Input
+import me.magnum.melonds.domain.model.camera.GameScene
 import me.magnum.melonds.domain.model.camera.WideCameraRequest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -213,5 +214,78 @@ class WideCameraControllerTest {
 
         assertEquals(1f, window.zoom, 0.0001f)
         assertEquals(listOf(atRest), sent)
+    }
+
+    // A known Pokemon game: the scene the native field read would give, and how often the controller asked
+    private var scene = GameScene.FIELD
+    private var sceneAsks = 0
+    private val knownGameController = WideCameraController(
+        onCameraChanged = { _, _, _ -> },
+        gameScene = { sceneAsks++; scene },
+    )
+
+    private fun knownGameFrames(count: Int, wingLines: Int = 192) = (1..count).map {
+        now += 16_666_667L
+        knownGameController.onFrame(now, 512, 0, wingLines)
+    }.last()
+
+    @Test
+    fun aKnownGamesTextBoxPullsInAndTheZoomComesBackAfter() {
+        knownGameController.setState(WideCameraState(session = 1, settings = settings, startZoom = 1.25f))
+        assertEquals(1.25f, knownGameFrames(120)!!.zoom, 0f)
+        scene = GameScene.TEXT
+        assertEquals(1f, knownGameFrames(30)!!.zoom, 0f)
+        scene = GameScene.FIELD
+        // Still in until 0.5 s after the text box
+        assertEquals(1f, knownGameFrames(27)!!.zoom, 0f)
+        assertEquals(1.25f, knownGameFrames(60)!!.zoom, 0f)
+    }
+
+    @Test
+    fun theTextSettingOffLeavesTheZoomOut() {
+        knownGameController.setState(WideCameraState(session = 1, settings = settings.copy(zoomsInOnText = false), startZoom = 1.25f))
+        knownGameFrames(120)
+        scene = GameScene.TEXT
+        assertEquals(1.25f, knownGameFrames(60)!!.zoom, 0f)
+        // A battle still pulls in
+        scene = GameScene.BATTLE
+        assertEquals(1f, knownGameFrames(60)!!.zoom, 0f)
+    }
+
+    @Test
+    fun theSceneDecidesInsteadOfTheWingLinesAndAFadeHolds() {
+        knownGameController.setState(WideCameraState(session = 1, settings = settings, startZoom = 1.25f))
+        knownGameFrames(120)
+        assertEquals(1.25f, knownGameFrames(60, wingLines = 0)!!.zoom, 0f)
+        scene = GameScene.FADE
+        assertEquals(1.25f, knownGameFrames(60, wingLines = 0)!!.zoom, 0f)
+    }
+
+    @Test
+    fun swappedScreensAndAScriptsHoldStillWinInAKnownGame() {
+        knownGameController.setState(WideCameraState(session = 1, settings = settings, startZoom = 1.25f))
+        knownGameFrames(120)
+        knownGameController.setScreensSwapped(true)
+        assertEquals(1f, knownGameFrames(1)!!.zoom, 0f)
+        knownGameController.setScreensSwapped(false)
+        knownGameController.setScriptRequest(WideCameraRequest(holdNative = true))
+        assertEquals(1f, knownGameFrames(120)!!.zoom, 0f)
+    }
+
+    @Test
+    fun theSceneIsOnlyAskedForWhileTheCameraIsOn() {
+        knownGameFrames(30)
+        assertEquals(0, sceneAsks)
+        knownGameController.setSettings(settings)
+        knownGameFrames(30)
+        assertEquals(30, sceneAsks)
+    }
+
+    @Test
+    fun anUnknownGameKeepsTheWingRule() {
+        // The default scene provider: no game state, so no wings snaps to 1x at once
+        controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1.25f))
+        assertEquals(1.25f, frames(120)!!.zoom, 0.0001f)
+        assertEquals(1f, frames(1, wingLines = 0)!!.zoom, 0f)
     }
 }

@@ -46,6 +46,7 @@ main ones:
 | `--unthrottled`, `--hidden`, `--no-audio`, `--gpu-sync` | for benchmarks and scripted runs |
 | `--state F` | load a savestate after the reset (DS-mode states only; point `--sav` at a copy, the state replaces the save) |
 | `--press F[-L]:KEYS` | hold keys (`a`, `start`, `up`, ... joined by `+`) over frames F..L, for scripted runs |
+| `--game-state` | print the app's Pokemon game state scene (`app/src/main/cpp/gamestate`, the camera's auto zoom) whenever it changes |
 
 Keys: arrows = D-pad, X = A, Z = B, S = X, A = Y, Q = L, W = R, Enter = Start, Right Shift = Select,
 mouse on the bottom screen = touch, Tab (hold) = fast forward, P = pause, Ctrl+R = reset,

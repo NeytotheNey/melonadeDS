@@ -1,6 +1,7 @@
 package me.magnum.melonds.ui.emulator.camera
 
 import me.magnum.melonds.domain.model.Input
+import me.magnum.melonds.domain.model.camera.GameScene
 import me.magnum.melonds.domain.model.camera.WideCamera
 import me.magnum.melonds.domain.model.camera.WideCameraInput
 import me.magnum.melonds.domain.model.camera.WideCameraRequest
@@ -9,8 +10,9 @@ import kotlin.math.abs
 
 /**
  * The camera's settings for the shown layout: [showWidth] is the layout's width (Wd), and the core renders wider (Wr, the frame's width).
+ * [zoomsInOnText] is whether a text box pulls in to 1x in a Pokemon game the native field read knows.
  */
-data class WideCameraSettings(val showWidth: Int, val returnsToCenter: Boolean)
+data class WideCameraSettings(val showWidth: Int, val returnsToCenter: Boolean, val zoomsInOnText: Boolean = true)
 
 /**
  * The camera's state for the screen: [session] tells one game session from the next (a ROM switch), [settings] are null while it's off, and
@@ -23,11 +25,13 @@ data class WideCameraState(val session: Int, val settings: WideCameraSettings?, 
  * Collects the player's camera input and the scripts' requests from the main thread and moves the [WideCamera] once per presented frame on the
  * render thread (FrameRenderCoordinator), so every surface shows the same window. [onCameraChanged] gets the window's offset from center, its
  * zoom and its offset down from center for melon.wide.camera(), on the render thread, on the first frame and whenever they change. [onZoomPicked] gets the zoom a Camera Zoom
- * press picked and the session it was picked in, on the render thread, to remember for the game.
+ * press picked and the session it was picked in, on the render thread, to remember for the game. [gameScene] gives what a known Pokemon game
+ * is doing (GameScene, MelonEmulator.getGameScene), asked once per presented frame on the render thread while the camera is on.
  */
 class WideCameraController(
     private val onZoomPicked: (session: Int, zoom: Float) -> Unit = { _, _ -> },
     private val onCameraChanged: (x: Float, zoom: Float, y: Float) -> Unit,
+    private val gameScene: () -> Int = { GameScene.UNKNOWN },
 ) {
 
     private val lock = Any()
@@ -102,6 +106,7 @@ class WideCameraController(
         }
         settings = newSettings
         camera.returnsToCenter = newSettings?.returnsToCenter ?: true
+        camera.zoomsInOnText = newSettings?.zoomsInOnText ?: true
     }
 
     fun setScriptRequest(newRequest: WideCameraRequest) = synchronized(lock) {
@@ -178,6 +183,8 @@ class WideCameraController(
     fun onFrame(nowNanos: Long, frameWidth: Int, frameMargin: Int, topWingLines: Int): WideWindow? {
         var pickedZoom: Float? = null
         var pickedSession = 0
+        // Only asked while the camera is on, since asking keeps the native read running; outside the lock, as it goes into the native code
+        val scene = if (isEnabled) gameScene() else GameScene.UNKNOWN
         val window = synchronized(lock) {
             val currentSettings = settings
             val deltaSeconds = if (lastFrameNanos == 0L) 0f else (nowNanos - lastFrameNanos) / 1e9f
@@ -197,7 +204,7 @@ class WideCameraController(
                 zoomPresses = 0
                 null
             } else {
-                camera.update(currentSettings.showWidth, frameWidth, frameMargin, topWingLines, areScreensSwapped, input, request, deltaSeconds).also {
+                camera.update(currentSettings.showWidth, frameWidth, frameMargin, topWingLines, areScreensSwapped, input, request, deltaSeconds, scene).also {
                     // Whatever the camera couldn't apply yet (a frame from before the wide one) waits for the next frame
                     zoomPresses = input.zoomPresses
                     pickedZoom = camera.takePickedZoom()

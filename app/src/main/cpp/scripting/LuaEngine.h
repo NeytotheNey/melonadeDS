@@ -12,6 +12,7 @@
 #include "LuaStorage.h"
 #include "MelonEventMessenger.h"
 #include "NDS.h"
+#include "gamestate/GameState.h"
 
 // From lua.h, which is only included by LuaEngine.cpp
 struct lua_State;
@@ -149,10 +150,10 @@ public:
      */
     void setScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent, bool areStateLoadsAllowed);
     /**
-     * Loads the scripts given to [setScripts] and calls their on_load(game) once the game has started; [savestateHost] must outlive the
-     * scripts (until [stop])
+     * Loads the scripts given to [setScripts] and calls their on_load(game) once the game has started; [savestateHost] and [gameState]
+     * (melon.game.state()) must outlive the scripts (until [stop])
      */
-    void start(melonDS::NDS* nds, std::shared_ptr<MelonEventMessenger> eventMessenger, LuaSavestateHost* savestateHost);
+    void start(melonDS::NDS* nds, std::shared_ptr<MelonEventMessenger> eventMessenger, LuaSavestateHost* savestateHost, GameState* gameState);
     /**
      * Whether any script is still running, or the player switched one on or off since the last frame (which [runFrame] applies)
      */
@@ -219,6 +220,7 @@ private:
     friend struct LuaFolderApi;
     friend struct LuaStateApi;
     friend struct LuaWideApi;
+    friend struct LuaGameApi;
 
     // From disableScript(), enableScript() and restartScript(), applied in the order they were asked for
     struct ScriptSwitch
@@ -284,6 +286,7 @@ private:
     melonDS::NDS* nds = nullptr;
     std::shared_ptr<MelonEventMessenger> eventMessenger;
     LuaSavestateHost* savestateHost = nullptr;
+    GameState* gameState = nullptr;
     bool areStateLoadsAllowed = true;
     // Bytes held by every script's state slots together, capped at kMaxStateSlotMemory
     size_t stateSlotMemory = 0;

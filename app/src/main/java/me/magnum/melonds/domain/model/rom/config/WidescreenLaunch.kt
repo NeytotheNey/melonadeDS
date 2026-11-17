@@ -15,6 +15,7 @@ import java.util.UUID
  * @param viewWidth The width the game is shown at when it starts (the layout's), or 0 for the normal width
  * @param cameraMaxWidth The widest the WideMelon camera zooms out to, which the core renders at, or 0 when the camera is off
  * @param cameraReturnsToCenter Whether the camera eases back to the middle while the player moves
+ * @param cameraZoomsInOnText Whether a text box pulls the camera in to 1x, in the Pokemon games the native field read knows
  */
 data class WidescreenLaunch(
     val automaticViewWidth: Int,
@@ -22,6 +23,7 @@ data class WidescreenLaunch(
     val viewWidth: Int,
     val cameraMaxWidth: Int = 0,
     val cameraReturnsToCenter: Boolean = true,
+    val cameraZoomsInOnText: Boolean = true,
 ) {
 
     val isWideSession get() = automaticViewWidth > 0
@@ -83,9 +85,9 @@ data class WidescreenLaunch(
             val cameraMaxWidth = if (mods.wideCamera) mods.validWideCameraMaxWidth else 0
             return if (pickedLayout != null) {
                 val viewWidth = pickedLayout.commonWideAspect?.viewWidth ?: automaticWidth
-                WidescreenLaunch(automaticWidth, pickedLayout.id, viewWidth, cameraMaxWidth, mods.wideCameraReturnToCenter)
+                WidescreenLaunch(automaticWidth, pickedLayout.id, viewWidth, cameraMaxWidth, mods.wideCameraReturnToCenter, mods.wideCameraZoomOnText)
             } else {
-                WidescreenLaunch(automaticWidth, null, automaticWidth, cameraMaxWidth, mods.wideCameraReturnToCenter)
+                WidescreenLaunch(automaticWidth, null, automaticWidth, cameraMaxWidth, mods.wideCameraReturnToCenter, mods.wideCameraZoomOnText)
             }
         }
     }

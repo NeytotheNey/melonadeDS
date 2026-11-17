@@ -24,6 +24,7 @@ sealed class RomConfigUpdateEvent {
      */
     data class WideCameraMaxWidthUpdate(val maxWidth: Int) : RomConfigUpdateEvent()
     data class WideCameraReturnToCenterUpdate(val enabled: Boolean) : RomConfigUpdateEvent()
+    data class WideCameraZoomOnTextUpdate(val enabled: Boolean) : RomConfigUpdateEvent()
     data class LuaScriptToggle(val fileName: String, val enabled: Boolean) : RomConfigUpdateEvent()
     /**
      * Links a picked folder as the game's script folder, or unlinks it if [folderUri] is null
