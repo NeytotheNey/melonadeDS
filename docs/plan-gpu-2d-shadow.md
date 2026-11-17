@@ -2,7 +2,7 @@
 
 Plan for step 3 of [plan-gpu-2d.md](plan-gpu-2d.md), written 11-08. CPU 2D stays the real result. The shadow pass redraws lines it can prove it matches, at output resolution, on the GPU, for display only. Nothing in `GPU2D_Soft.cpp` changes, so CPU output, HASH2D, capture and threaded 2D can't change. It has to draw X outside 0..255 from the start for WideMelon steps 4–7 ([plan-widemelon.md](plan-widemelon.md)), and it builds on WideMelon's pieces: the block after `AccelWingPlanesStart`, `WingPixel` and `WingPlanesTex`, the hold order and the window edge patch.
 
-**Status (11-17):** phase 0, increment 1 (core `e4b893bb`) and increment 5 (blending, core `aa597f11`) are done, phone-checked and in `material3` / core `melonade`; the `gpu-2d-shadow` and `widemelon` branches are merged and gone. The OnePlus display stall in mode `all` is fixed on `fix/shadow2d-oneplus-stall` (the planes pass, below). Next: windows (increment 4).
+**Status (11-17):** phase 0, increment 1 (core `e4b893bb`) and increment 5 (blending, core `aa597f11`) are done, phone-checked and in `material3` / core `melonade`; the `gpu-2d-shadow` and `widemelon` branches are merged and gone. The OnePlus display stall in mode `all` is fixed and merged (the planes pass, below; core `f65efa1a`, app PR #9). Open: GLTIME dropping sets while the shadow runs, and whether OpenGL gets a pacing safety net (both in "Fixed", below). Next: windows (increment 4).
 
 ## Phase 0: gameplay counters (done, 11-09)
 
