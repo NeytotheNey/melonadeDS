@@ -276,6 +276,10 @@ namespace melonDS { class NDS; }
  *                  render (GPU::ComputeFlat)
  *   cpusemu L      pin the emulator thread (and the core threads it creates) to the CPUs in the comma-separated list L (MelonDSAndroidJNI.cpp)
  *   cpus2d L       pin the core's 2D render thread to the CPUs in L (MelonDSAndroidJNI.cpp)
+ *   heldworker N   threaded 2D, OpenGL/compute: draw held capture lines on the 2D thread too, a sum of bits. 1 (with bnohold) queues
+ *                  engine B's part of each held line at its HBlank instead of drawing it on the emulator thread, 2 (with blitafterread)
+ *                  queues the held lines at line 192 instead of drawing them there, so they and display capture overlap lines 192-215.
+ *                  Output is the same as 0, the default (GPU::HeldTo2DThread)
  */
 namespace DebugProperties
 {

@@ -124,6 +124,7 @@ inline const IntSwitch kIntSwitches[] = {
     {"ComputeBin", &melonDS::GPU::ComputeBin},
     {"ComputeCalc", &melonDS::GPU::ComputeCalc},
     {"ComputeFlat", &melonDS::GPU::ComputeFlat},
+    {"HeldTo2DThread", &melonDS::GPU::HeldTo2DThread},
 };
 
 inline bool ApplySet(melonDS::GPU& gpu, const std::string& set)
