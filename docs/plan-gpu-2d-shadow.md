@@ -2,7 +2,7 @@
 
 Plan for step 3 of [plan-gpu-2d.md](plan-gpu-2d.md), written 11-08. CPU 2D stays the real result. The shadow pass redraws lines it can prove it matches, at output resolution, on the GPU, for display only. Nothing in `GPU2D_Soft.cpp` changes, so CPU output, HASH2D, capture and threaded 2D can't change. It has to draw X outside 0..255 from the start for WideMelon steps 4–7 ([plan-widemelon.md](plan-widemelon.md)), and it builds on WideMelon's pieces: the block after `AccelWingPlanesStart`, `WingPixel` and `WingPlanesTex`, the hold order and the window edge patch.
 
-**Status (11-09):** phase 0, increment 1 (core `e4b893bb`) and increment 5 (blending, core `aa597f11`) are done, phone-checked and in `material3` / core `melonade`; the `gpu-2d-shadow` and `widemelon` branches are merged and gone. Next: the OnePlus display stall in mode `all` (below), then windows (increment 4).
+**Status (11-17):** phase 0, increment 1 (core `e4b893bb`) and increment 5 (blending, core `aa597f11`) are done, phone-checked and in `material3` / core `melonade`; the `gpu-2d-shadow` and `widemelon` branches are merged and gone. The OnePlus display stall in mode `all` is fixed on `fix/shadow2d-oneplus-stall` (the planes pass, below). Next: windows (increment 4).
 
 ## Phase 0: gameplay counters (done, 11-09)
 
@@ -65,13 +65,14 @@ What this changed in the plan:
    - Depth is `prio*128 + index` with `GL_LESS`, which is the "lowest (priority, index) wins" rule of `SoftRenderer::DrawSpritePixel`. Upstream's `2DSpriteVS.glsl` uses the same key.
    - OBJ-window sprites (increment 4) are a second draw into G only (`glColorMaski`, depth off), then `glInvalidateFramebuffer` on the depth. Increment 1 left them out: they can't matter with windows off, and per-channel `glColorMaski` on RG32UI is a driver risk.
    - ObjScale is 1 until increment 3. From then it's the 3D scale, capped at 4, on frames with a visible rotated sprite.
-2. **Composite pass,** a program on the same output FBO, right after the compositor's `glDrawArrays` and before `CopyHeldWings` and `RunHiresCapture`.
-   - Quads cover only the row runs drawn this frame.
-   - Each fragment works from highp `gl_FragCoord` (as `FilterSubPixel` does). It evaluates the layers in the CPU's priority order (`DrawScanlineBGMode<N>`) and pushes a 3-entry stack the way `DrawPixel_Accel` does, including the backdrop, the 3D placeholder 0x40000000 and sprites through the `InterleaveSprites` palette lookup.
-   - Then it builds the planes: unit A takes the 4-way branch of `DrawScanline_BGOBJ`'s accelerated path, and unit B takes `ColorComposite(top, second)` with plane 1 = 0 and plane 2 = 0x07000000.
-   - Then it runs the existing `CompositePixel`, with the 3D fetched at the fragment's real position (`Fetch3D`, the WIDE variant for wings) and master brightness from the control word. Blending with 3D, fades and brightness stay exact by construction.
-   - Text BGs and normal sprites use the native X (`floor(sub/scale)`), so they're pixel-identical to CPU at any scale. Affine BGs use integer sub-pixel coordinates (`ref*S + subX*A + fy*B`, floor-divided by `256*S`), which equals the CPU at S = 1.
-3. **Check variant** (`SHADOW2D_PLANES` define). The same function writes planes 0–2 as words into a 256×384 `RGBA32UI` target at 1x, at any user scale. Every 30 frames it's read back with `glReadPixels` and compared word for word with `gpu.Framebuffer[backbuf]` on drawn lines. That's the only synchronous readback, and only in check mode.
+2. **Planes pass** (`SHADOW2D_PLANES`, `RunShadow2DPlanes`), right after the OBJ pass, also before the output is bound. It draws the drawn row runs at 1x into `PlanesTex` (`RGBA32UI`, ViewWidth × 384, no gap between the screens, the wings too on lines that draw them).
+   - Each fragment is one native pixel. It evaluates the layers in the CPU's priority order (`DrawScanlineBGMode<N>`) and pushes a 3-entry stack the way `DrawPixel_Accel` does, including the backdrop, the 3D placeholder 0x40000000 and sprites through the `InterleaveSprites` palette lookup.
+   - Then it builds the planes: unit A takes the 4-way branch of `DrawScanline_BGOBJ`'s accelerated path, and unit B takes `ColorComposite(top, second)` with plane 1 = 0 and plane 2 = 0x07000000. It writes planes 0–2 as words, and in A whether a 2D layer drew the pixel.
+3. **Composite pass,** a program on the same output FBO, right after the compositor's `glDrawArrays` and before `CopyHeldWings` and `RunHiresCapture`.
+   - Quads cover only the row runs drawn this frame. Each fragment works from highp `gl_FragCoord` (as `FilterSubPixel` does), reads its native pixel's planes and runs the existing `CompositePixel`, with the 3D fetched at the fragment's real position (`Fetch3D`, the WIDE variant for wings) and master brightness from the control word. Blending with 3D, fades and brightness stay exact by construction. A wing pixel no 2D layer drew goes to `WingPixel()`.
+   - Text BGs and normal sprites use the native X (`floor(sub/scale)`), so their planes don't depend on the sub-pixel and working them out once per native pixel is exact at any scale. Affine BGs (increment 2) will need integer sub-pixel coordinates (`ref*S + subX*A + fy*B`, floor-divided by `256*S`), so their layers will have to be worked out at the output's scale.
+   - **The 1x planes are exact only while every drawn layer is a text BG or a normal sprite.** Affine BGs (increment 2) and ObjScale above 1 (increment 3) need sub-pixel planes (a planes target at that scale, or those layers worked out in the composite) or a guard that keeps such lines off the 1x path.
+4. **Check** (`check` mode). Every 30 frames the middle 256 columns of `PlanesTex` are read back with `glReadPixels` and compared word for word with `gpu.Framebuffer[backbuf]` on drawn lines. That's the only synchronous readback, and only in check mode. On a checked frame the planes pass starts from a sentinel (0xDEADBEEF) instead of discarding `PlanesTex`, so a texel it misses can't pass on the last frame's planes.
    - Engine A's plane 1 under the backdrop is a leftover of the previous pass unless `EngineBNoHold` clears it (see the `DrawScanline_BGOBJ` comment). `EngineBNoHold` is on in every build since 11-16; with it off (the harness without `--bnohold`), unit B lines with an alpha blend that has the backdrop as 1st target stay CPU (reason `bleftover`).
 
 ### GPU or CPU per line
@@ -95,8 +96,8 @@ What this changed in the plan:
 
 ### Texture units and cost
 
-- **Units:** the compositor uses 0 ScreenTex, 1 3D, 2 HeldWings, 3 HiresBank, 4–6 the capture pass, 7 `MakeHiresTexture`'s scratch binding, 8 HiresStream, 9 FilterMap and 10 WingPlanes. The shadow programs draw with those bindings in place and add 11 `MemTex`, 12 `LineStateTex`, 13 `ObjTex` and 14 `PageLogTex`. 15 stays spare.
-- **Mobile cost:** one extra render target switch per frame (the OBJ pass) and no per-BG layer targets (upstream has 22 in `GPU2D_OpenGL.cpp`). Drawn rows are composited twice, once by the normal pass and again by the shadow. Giving the normal pass row runs too is the first optimization if cost bites.
+- **Units:** the compositor uses 0 ScreenTex, 1 3D, 2 HeldWings, 3 HiresBank, 4–6 the capture pass, 7 `MakeHiresTexture`'s scratch binding, 8 HiresStream, 9 FilterMap and 10 WingPlanes. The shadow programs draw with those bindings in place and add 11 `MemTex`, 12 `LineStateTex`, 13 `ObjTex`, 14 `PageLogTex` and 15 `PlanesTex`.
+- **Mobile cost:** two extra render target switches per frame (the OBJ and planes passes) and no per-BG layer targets (upstream has 22 in `GPU2D_OpenGL.cpp`). Drawn rows are composited twice, once by the normal pass and again by the shadow. Giving the normal pass row runs too is the first optimization if cost bites.
 
 ## Increments
 
@@ -183,19 +184,19 @@ Eligible lines in the replay, increment 1 → 5 (first-match reasons, so window 
 
 On the phones, drawn lines went from 27% to 93% on White 2's title, 65% to 93% on Advance Wars, 0% to 78% on NSMB and 0% to 52% on Contra 4. Still on CPU there: Mario Kart bgtype 32% and window 31%; Kirby bgtype 45% and window 19%; Contra 4 dispmode 39% and memchanged 8%.
 
-### Open: the OnePlus display stall in mode `all` (11-09)
+### Fixed: the OnePlus display stall in mode `all` (11-17)
 
-Cost A/B at 4x, modes `0`, `1`, `all`, one 30 s pass each, both phones on battery. The compute numbers here predate Compute render pacing (`GPU::ComputePace`, `docs/plan-compute-efficiency.md`).
-
-- **Mode `1`** draws nothing yet at 4x non-wide (no rotated layers are eligible) and cost nothing measurable on either phone.
-- **Fold (SM8850), `all`:** 60 fps in every mode, render 0.6–1.2 ms, about 1.6 Mclk a frame more GPU where 100% of lines are drawn (`fold/cost_table.md`).
-- **OnePlus 7 Pro (Snapdragon 855, Adreno 640, 1440x3120), `all`:** emulation stays near 60 fps on OpenGL, but frames take far longer to reach the screen. Render ms per presented frame, `0` → `all`: NSMB world map 1.7 → 321 ms (2.4 presented fps, starting as the map loads); White 2 overworld 2.1 → 29 ms (34 presented fps). On compute both fall to 30–34 emulated fps, with emulator work going from 12–15 to 26–30 ms. No cost on Kirby's boot (51% drawn) or Mario Kart's demo (0% drawn).
-- **Not known yet:** whether it scales with screen size (the composite runs at output resolution, and the Fold ran on its cover screen), with 3D on screen (NSMB and White 2 have 3D, Kirby doesn't), with sprite instances (NSMB 74 a frame, White 2 0), or comes from a sync point. A guess: it has the same shape as the Compute stall that pacing fixed, and pacing is compute-only, so OpenGL has none.
-- **Not the shadow, at least on compute:** before pacing, NSMB's map at compute 4x on the OnePlus already presented only 2.2 fps with the shadow off (render about 600 ms, emulation 53). Render pacing fixed that scene (2.1 → 60 presented fps), so the shadow's cost on compute with pacing on hasn't been measured. The OpenGL stall is still open.
-- The `check` runs missed it because their fps is emulation speed.
-- Data: `perf_logs/2026-11-09-shadow2d-inc5/oneplus-cost/` (`cost_summary.txt`, `runs/`, `scripts/costsum.py`).
-
-Find this before more increments, then windows (increment 4).
+- **Symptom:** at OpenGL 4x on the OnePlus 7 Pro (Adreno 640), emulation stayed near 60 fps in mode `all`, but NSMB's world map and White 2's overworld presented about 4 fps, at about 250 ms of render time per presented frame. The Fold (much newer Adreno) had no problem. The `check` runs missed it because their fps is emulation speed.
+- **Cause:** the composite worked out the whole 2D layer stack (state fetches, up to four text BGs with three dependent `MemTex` fetches each, the sprite) at every output pixel, 16 times per DS pixel at 4x, though the result only depends on the native pixel. That cost 14.2 ms of GPU a frame on the map (`gltimers` `cx_shadow`), which put the emulator's GPU work at about 16.9 ms a frame, over a frame's time before the presenter's own draw. Uploads and the OBJ pass cost under 0.1 ms.
+- **Why it collapsed instead of slowing down:** nothing on OpenGL makes the CPU wait for the GPU. The presenter's waits are GPU-side (`eglWaitSyncKHR`) and the emulator only flushes, so the overrun queued up frame after frame: render ms per presented frame climbed from about 50 to 300 ms over 20 s, and `GLTIME` fell behind (`untimed` up to 66 a second).
+- **Fix:** the planes pass (see "Passes and targets") works the planes out once per native pixel at 1x, and the composite only reads them. Exact by construction for text BGs and normal sprites; byte-identical on the desktop in 5 games and 3 views, and `check` 0 mismatches on the phone.
+- **Cost of the fix:** both shadow programs (the planes pass and the composite) compile on the first frame that draws a line, a one-time hitch.
+- **OnePlus, OpenGL 4x, `all`:** NSMB map 2.5 → 59.9 presented fps, render 310 → 2.0 ms, `cx_shadow` 14.2 → 2.0 ms, the planes pass 2.1 ms. White 2 overworld 2.6 → 59.9 presented fps, render 309 → 2.3 ms, `cx_shadow` 14.3 → 1.9 ms. `check` 59 checks, 0 mismatches.
+- **Final OnePlus build (`perf_logs/2026-11-17-shadow2d-final-oneplus/`):** OpenGL 4x, NSMB map and White 2 overworld at 59.9 presented fps, render about 2 ms, `check` 0 mismatches. Compute 4x with pacing, `0` → `all`: no stall, `compx` +1.7 ms of GPU; NSMB 59.9 fps, render 7.2 → 12.4 ms; White 2 59.9 → 58.9 emulation fps, work 11.6 → 14.8 ms; `check` 0 mismatches.
+- **GLTIME drops sets while the shadow runs (open, timing only):** `bad=` is 0 in mode `0` on both phones. In `all` it drops about 22% of sets on the Fold and nearly all of NSMB's steady map scene on the OnePlus (about 120 a second), while White 2 there is clean. The query placement checks out: nothing nests, and no slot is reused while pending. The guess is that Adreno reorders the independent ObjFB and PlanesFB passes inside the `cx_sobj` query, so its start lands after its end. A cheap test: start a new timer part right after each framebuffer bind in `RunShadow2DObj` and `RunShadow2DPlanes`. If `bad=` goes to 0, that's the cause. Until then, OpenGL timer numbers in `all` are averages over the kept sets.
+- **Fold (11-17, Adreno 750, inner screen, plugged in, `perf_logs/2026-11-17-shadow2d-fix-fold/`):** `check` 0 mismatches on OpenGL and Compute in NSMB and White 2, no GL errors, 60 presented fps in every mode. `all` costs +1.1 ms (NSMB) and +1.7 ms (White 2) of GPU at OpenGL 4x.
+- **Pacing:** a test switch that held the emulator thread before each Blit until the previous one finished (about 6 ms of waiting a frame) turned the collapse into 55 fps with every frame presented, but left the GPU cost as it was. It only changes how an overrun shows. Whether OpenGL wants such a safety net (Compute has `GPU::ComputePace`) is a separate decision.
+- Data: `perf_logs/2026-11-17-shadow2d-stall-oneplus/` (the stall with `gltimers`), `perf_logs/2026-11-17-shadow2d-fix-oneplus/` (the fix, the cost split and the pacing test) and `perf_logs/2026-11-17-shadow2d-final-oneplus/` (the final build, OpenGL and compute). The 11-09 numbers are in `perf_logs/2026-11-09-shadow2d-inc5/oneplus-cost/`; on compute, that stall came from before Compute render pacing.
 
 ## Switches
 

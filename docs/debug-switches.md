@@ -8,7 +8,7 @@ Set with `adb shell setprop debug.melonade.<name> <value>` before starting a gam
 
 - `hash2d` 1: logs `HASH2D frame=<n> top=<hex> bottom=<hex>` (tag `melonade`) each frame, an FNV-1a over both 2D back buffers. Proves a 2D change is output-identical. At 60 FPS the core's log limit (50 lines a second per call site) drops about 15% of the lines.
 - `hash3d` 1: logs `HASH3D frame=<n> hash=<hex>` per frame, a hash of the 3D image at native resolution; the check for every "exact" GL switch below. Costs a blit and a 192 KB readback a frame on the GPU renderers.
-- `gltimers` 1 (OpenGL): a `GLTIME` line once a second with the GPU µs of each pass; `2` times them on the CPU between `glFinish` calls instead (slow, compare its `share=` list).
+- `gltimers` 1 (OpenGL): a `GLTIME` line once a second with the GPU µs of each pass; `2` times them on the CPU between `glFinish` calls instead (slow, compare its `share=` list). `bad=` counts the sets dropped because a pass read over a second (the Adreno 640 can return a negative time, read as nearly 2^64, when the GPU is far behind).
 - `scenestats` 1: a `SCENESTATS` line once a second on the scenes rendered (any renderer); on OpenGL also the `GLTRANS`, `GLOPAQUE` and `GLTEXCACHE` lines. `2` adds per-fragment counts (`SCENEFRAGS`), which slows it down.
 - `capreads` 1: logs how often games read display capture results and why held capture lines get drawn early (`CAPREADS` and `CAPFLUSH` once a second, sampled `CAPTRACE` and `CAPDIRTY` per frame); see `GPU_CaptureReads.h`.
 - `gpu2dstats` 1: once-a-second `GPU2DSTATS eng=A|B` line counting BG types, sprite features and mid-frame VRAM/palette/OAM changes; fields in `GPU_2DStats.h`.
@@ -32,7 +32,7 @@ Set with `adb shell setprop debug.melonade.<name> <value>` before starting a gam
 
 ## 2D
 
-- `gpu2d` (OpenGL/compute): the GPU 2D shadow renderer. `0` off, `1` only lines that gain something, `all` every eligible line, `check` all plus a 1x readback compared with CPU 2D every 30 frames, `log` adds a once-a-second `GPU2D` line. `gpu2dwide` 1: every layer draws past the screen edge (test only). See `docs/plan-gpu-2d-shadow.md`.
+- `gpu2d` (OpenGL/compute): the GPU 2D shadow renderer. `0` off, `1` only lines that gain something, `all` every eligible line, `check` all plus a 1x readback compared with CPU 2D every 30 frames, `log` adds a once-a-second `GPU2D` line. `gpu2dwide` 1: every layer draws past the screen edge (test only). See `docs/plan-gpu-2d-shadow.md`. Desktop: `--gpu2d N` (0, 1, 2 all, 3 all with the `GPU2D` line, 4 check) and `--gpu2d-wide`.
 - `filter2d` (OpenGL/compute): `0` off, `1` on (overrides "Smooth 2D edges"), `2` only the 2x MMPX pass, `3` all passes with identity output, which must match off. See `docs/plan-gpu-2d.md`.
 - `filter2drows` (OpenGL and compute, experiment K3), default 1 since 11-11 (`0` redraws the whole map): with filtered 2D, a frame whose keys changed on only some lines redraws only the map rows they can reach. `2` checks: every 30th partial redraw is compared with a full one (`rowchecks` and `rowmismatches` on the `FILTER2D` line). Desktop: `--set Filter2DRows=N` (`--set Filter2DLogging=1` for the line, `--filter2d-mode N` for the `filter2d` modes).
 

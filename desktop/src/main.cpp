@@ -90,7 +90,8 @@ struct Options
     bool ColorDither = false;
     bool HiresCapture = false;
     int Filter2D = 0;          // GPU::Filter2D: 0 off, 1 on, 2 the 2x map only, 3 identity
-    int Gpu2D = 0;             // the GPU 2D shadow renderer (GPU::SetShadow2D): 0 off, 1, 2 all
+    int Gpu2D = 0;             // the GPU 2D shadow renderer (GPU::SetShadow2D): 0 off, 1, 2 all, 3 all + log, 4 check
+    int Gpu2DWide = 0;         // debug.melonade.gpu2dwide: 1 lets every layer draw past the edge
     bool Threaded2D = true;
     bool ThreadedSoft3D = true;
     bool HalfCamera = false;
@@ -130,7 +131,9 @@ void Usage()
         "  --hires-capture             upscaled display capture (gl/compute)\n"
         "  --filter2d                  MMPX-filtered 2D (gl/compute, scale 2+)\n"
         "  --filter2d-mode N           filtered 2D as debug.melonade.filter2d: 2 the 2x map only, 3 identity\n"
-        "  --gpu2d N                   GPU 2D shadow renderer: 0 off, 1 lines that gain, 2 all (gl/compute)\n"
+        "  --gpu2d N                   GPU 2D shadow renderer: 0 off, 1 lines that gain, 2 all, 3 all with the\n"
+        "                              GPU2D log line, 4 check (gl/compute)\n"
+        "  --gpu2d-wide                with --gpu2d, every 2D layer draws past the edge (debug.melonade.gpu2dwide 1)\n"
         "  --smooth30                  gl/compute: in-between frames for 30 fps games (half camera)\n"
         "  --halfcam N                 debug.melonade.halfcam N, 1-5 (3 and up log HALFCAM lines), replaces --smooth30\n"
         "  --no-threaded2d             2D on the emulator thread\n"
@@ -218,7 +221,8 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--hires-capture") opts.HiresCapture = true;
         else if (arg == "--filter2d") opts.Filter2D = 1;
         else if (arg == "--filter2d-mode") opts.Filter2D = std::clamp(atoi(next().c_str()), 0, 3);
-        else if (arg == "--gpu2d") opts.Gpu2D = std::clamp(atoi(next().c_str()), 0, 2);
+        else if (arg == "--gpu2d") opts.Gpu2D = std::clamp(atoi(next().c_str()), 0, 4);
+        else if (arg == "--gpu2d-wide") opts.Gpu2DWide = 1;
         else if (arg == "--smooth30") opts.HalfCamera = true;
         else if (arg == "--halfcam") opts.HalfCameraMode = std::clamp(atoi(next().c_str()), 0, 5);
         else if (arg == "--no-threaded2d") opts.Threaded2D = false;
@@ -525,7 +529,7 @@ public:
         Nds->GPU.SetThreaded2D(Opts.Threaded2D);
         Nds->GPU.SetHiresCapture(Opts.HiresCapture);
         Nds->GPU.Filter2D = Opts.Filter2D;
-        Nds->GPU.SetShadow2D(Opts.Gpu2D, false, false, 0);
+        Nds->GPU.SetShadow2D(std::min(Opts.Gpu2D, 2), Opts.Gpu2D >= 3, Opts.Gpu2D == 4, Opts.Gpu2DWide);
         // the app's rule: OpenGL and compute draw the in-between scenes, and --halfcam replaces the setting
         if (Opts.HalfCameraMode == 0)
             Nds->GPU.GPU3D.SetHalfCameraSmoothing(Opts.HalfCamera && Current != RendererType::Software);
