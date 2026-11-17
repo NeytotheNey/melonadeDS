@@ -3,6 +3,7 @@ package me.magnum.melonds.domain.model.camera
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.max
@@ -97,6 +98,8 @@ object GameScene {
  * @param areScreensSwapped Whether the DS bottom screen is the wide one, which keeps the camera at 1x
  * @param frameMargin The frame's rows of 3D above and below the top screen (camera stage 2), so it's SCREEN_HEIGHT + 2 * frameMargin tall
  * @param gameScene What a known Pokemon game is doing (GameScene), or GameScene.UNKNOWN for other games
+ * @param maxWidth The widest the camera zooms out to (the Mods tab's widest view), or 0 for the frame's width. The core renders only as wide as
+ * the player's zoom needs (WidescreenLaunch.getRenderWidth), so the frame can be narrower than this
  */
 data class WideCameraFrame(
     val showWidth: Int,
@@ -105,6 +108,7 @@ data class WideCameraFrame(
     val areScreensSwapped: Boolean,
     val frameMargin: Int = 0,
     val gameScene: Int = GameScene.UNKNOWN,
+    val maxWidth: Int = 0,
 )
 
 /**
@@ -135,6 +139,10 @@ data class WideCameraInput(
  * The WideMelon camera (docs/plan-widemelon.md, "Camera: pan and zoom"): which window of the render-size frame the wide screen shows. The game's
  * own camera never moves; zooming out widens the window up to the render width (and heightens it into the margin rows, stage 2) and panning
  * slides it, clamped to the frame. No Android here, so it's unit-tested; not thread-safe (WideCameraController locks around it).
+ *
+ * The zoom's range comes from the widest view (maxWidth), but the core renders only as wide as the player's zoom needs ([playerZoom], see
+ * WidescreenLaunch.getRenderWidth), so a zoom-out can be ahead of the frame for a frame or two while the wider one is on its way. The window
+ * never leaves the frame it's given: until the wider frame comes, it shows all of the one there is.
  *
  * In a Pokemon game the native field read knows (a GameScene other than UNKNOWN), the scene decides when to pull in to 1x instead of the wing
  * lines, and the zoom and the look-around move the way PokeDaisy's WideCamera.kt does (docs/plan-expand-parity.md, Phase 1; updateForScene).
@@ -194,12 +202,14 @@ class WideCamera {
             request,
             deltaSeconds,
             frame.gameScene,
+            frame.maxWidth,
         )
     }
 
     /**
      * Moves the camera on by [deltaSeconds] for a frame (see WideCameraFrame) and returns the window to show, or null when the frame isn't wider
-     * than the show width (the screen is then drawn the way it is without a camera).
+     * than the show width (the screen is then drawn the way it is without a camera). A frame as wide as the show width (the core at 1x) still
+     * moves the camera when [maxWidth] leaves room to zoom out, so the player can zoom out from it.
      */
     fun update(
         showWidth: Int,
@@ -211,9 +221,17 @@ class WideCamera {
         request: WideCameraRequest,
         deltaSeconds: Float,
         gameScene: Int = GameScene.UNKNOWN,
+        maxWidth: Int = 0,
     ): WideWindow? {
-        if (showWidth <= SCREEN_WIDTH || frameWidth <= showWidth) {
-            // A frame from before the wide one (at launch, or a width change on its way): back to the middle, keeping the player's zoom
+        val maxZoom = getMaxZoom(showWidth, frameWidth, maxWidth)
+        if (maxWidth > 0 && showWidth > 0) {
+            // A known range clamps the player's zoom even on frames that go no further (a hold, a frame before the wide one), so the render zoom
+            // asked for from it (playerZoom) is always one the range allows. Without one, the range is the frame's, which may not be here yet
+            targetZoom = targetZoom.coerceIn(1f, max(1f, maxZoom))
+        }
+        if (showWidth <= SCREEN_WIDTH || frameWidth < showWidth || maxZoom <= 1f) {
+            // A frame from before the wide one (at launch, or a width change on its way), or no room to zoom out: back to the middle, keeping
+            // the player's zoom
             zoom = 1f
             resetPan()
             freeSeconds = 0f
@@ -221,9 +239,28 @@ class WideCamera {
             return null
         }
 
+        val window = move(showWidth, frameWidth, frameMargin, topWingLines, areScreensSwapped, input, request, deltaSeconds, gameScene, maxZoom)
+        // At 1x the core renders the show width, which is drawn as without a camera
+        return if (frameWidth > showWidth) window else null
+    }
+
+    // update once the frame is at least the show width and there's room to zoom out
+    private fun move(
+        showWidth: Int,
+        frameWidth: Int,
+        frameMargin: Int,
+        topWingLines: Int,
+        areScreensSwapped: Boolean,
+        input: WideCameraInput,
+        request: WideCameraRequest,
+        deltaSeconds: Float,
+        gameScene: Int,
+        maxZoom: Float,
+    ): WideWindow {
         val frameHeight = SCREEN_HEIGHT + 2 * frameMargin.coerceAtLeast(0)
         val dt = deltaSeconds.coerceIn(0f, MAX_DELTA_SECONDS)
-        val maxZoom = frameWidth / showWidth.toFloat()
+        // The widest this frame can show, less than maxZoom while a wider frame is on its way
+        val frameZoom = frameWidth / showWidth.toFloat()
         // The hotkey's presses count even while 1x is held (in a menu, say), so the picked step shows once the hold ends; while a script sets
         // the zoom they're dropped
         if (input.zoomPresses > 0) {
@@ -253,7 +290,7 @@ class WideCamera {
             return getCenteredWindow(showWidth, frameWidth, frameHeight)
         }
         if (isKnownGame) {
-            return updateForScene(showWidth, frameWidth, frameHeight, scene, input, request, dt, maxZoom)
+            return updateForScene(showWidth, frameWidth, frameHeight, scene, input, request, dt, maxZoom, frameZoom)
         }
         tweenTarget = Float.NaN
         freeSeconds += dt
@@ -268,8 +305,9 @@ class WideCamera {
             targetZoom /= input.pinchScale
         }
         targetZoom = targetZoom.coerceIn(1f, maxZoom)
-        // A pinch follows the fingers
+        // A pinch follows the fingers. Either way no wider than the frame, so a zoom-out ahead of the frame eases on from it once it's wider
         zoom = if (input.isTouching && request.zoom == null) targetZoom else approach(zoom, targetZoom, ZOOM_SECONDS, dt, ZOOM_SNAP)
+        zoom = zoom.coerceAtMost(frameZoom)
 
         // Pan, each axis on its own: the script's, or the stick, a drag and the drift back to the middle
         val isStickIdle = abs(input.stickX) <= STICK_DEAD_ZONE && abs(input.stickY) <= STICK_DEAD_ZONE
@@ -330,6 +368,7 @@ class WideCamera {
         request: WideCameraRequest,
         dt: Float,
         maxZoom: Float,
+        frameZoom: Float,
     ): WideWindow {
         when (gameScene) {
             GameScene.FADE -> {
@@ -394,6 +433,12 @@ class WideCamera {
                 zoom = shownTarget
             }
         }
+        if (zoom > frameZoom) {
+            // A wider frame is on its way: all of this one, and the eased move starts over from it, so it doesn't jump once the frame comes
+            zoom = frameZoom
+            tweenFrom = frameZoom
+            tweenElapsed = 0f
+        }
 
         // Pan, each axis on its own
         val width = (showWidth * zoom).coerceAtMost(frameWidth.toFloat())
@@ -448,6 +493,19 @@ class WideCamera {
     fun setPlayerZoom(zoom: Float) {
         targetZoom = zoom.coerceAtLeast(1f)
     }
+
+    /**
+     * The zoom the player's camera is at once nothing pulls it in: the hotkey's step, a pinch, the remembered start zoom or a script's zoom, but
+     * not the pull-ins (a scene, swapped screens, hold_native, no wing lines), which only change what's shown. The core's render width follows
+     * this (WidescreenLaunch.getRenderWidth), so a pull-in never resizes it. Within the range the last update saw, or unclamped (at least 1)
+     * before it
+     */
+    val playerZoom: Float get() = targetZoom
+
+    /**
+     * The zoom shown on the last frame (1 while pulled in or on a frame that gives no window), which eases toward the player's zoom
+     */
+    val shownZoom: Float get() = zoom
 
     /**
      * The zoom the last hotkey press picked, once, or null if there was none since the last call
@@ -543,6 +601,26 @@ class WideCamera {
             }
             // The next multiple of ZOOM_STEP above it, at most the widest view
             return ((floor(zoom / ZOOM_STEP + 1e-3f) + 1f) * ZOOM_STEP).coerceIn(1f, maxZoom)
+        }
+
+        /**
+         * The widest zoom for a layout [showWidth] wide: the widest view [maxWidth], or the frame's [frameWidth] when that's 0
+         */
+        fun getMaxZoom(showWidth: Int, frameWidth: Int, maxWidth: Int): Float {
+            if (showWidth <= 0) {
+                return 1f
+            }
+            return (if (maxWidth > 0) maxWidth else frameWidth) / showWidth.toFloat()
+        }
+
+        /**
+         * The zoom the core renders for when the player's zoom is [zoom] (see playerZoom): the next hotkey step at or above it, at least 1 and at
+         * most [maxZoom], so a pinch changes the render width only when it crosses a step. 1.1 renders for 1.25, 1.25 for itself
+         */
+        fun getRenderZoom(zoom: Float, maxZoom: Float): Float {
+            // Less a hundredth of a step, so a zoom a float error past a step isn't rounded up to the next one
+            val step = ceil(zoom / ZOOM_STEP - 0.01f) * ZOOM_STEP
+            return step.coerceIn(1f, max(1f, maxZoom))
         }
 
         /**

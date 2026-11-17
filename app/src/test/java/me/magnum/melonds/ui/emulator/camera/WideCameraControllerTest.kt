@@ -2,6 +2,7 @@ package me.magnum.melonds.ui.emulator.camera
 
 import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.camera.GameScene
+import me.magnum.melonds.domain.model.camera.WideCamera
 import me.magnum.melonds.domain.model.camera.WideCameraRequest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -13,13 +14,16 @@ class WideCameraControllerTest {
     // x, zoom and y, as melon.wide.camera() gets them
     private val sent = mutableListOf<Triple<Float, Float, Float>>()
     private val picked = mutableListOf<Pair<Int, Float>>()
+    // The render zooms asked for, with their session
+    private val renderZooms = mutableListOf<Pair<Int, Float>>()
     private val controller = WideCameraController(
         onZoomPicked = { session, zoom -> picked.add(session to zoom) },
         onCameraChanged = { x, zoom, y -> sent.add(Triple(x, zoom, y)) },
+        onRenderZoomNeeded = { session, zoom -> renderZooms.add(session to zoom) },
     )
     private val atRest = Triple(0f, 1f, 0f)
     private var now = 1_000_000_000L
-    private val settings = WideCameraSettings(showWidth = 342, returnsToCenter = true)
+    private val settings = WideCameraSettings(showWidth = 342, returnsToCenter = true, maxWidth = 512)
 
     private fun frames(count: Int, wingLines: Int = 192, frameWidth: Int = 512, frameMargin: Int = 0) = (1..count).map {
         now += 16_666_667L
@@ -155,7 +159,7 @@ class WideCameraControllerTest {
         controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1f))
         controller.onZoomPress()
         // Frames from before the wide one (at launch, or a width change on its way)
-        assertNull(frames(10, frameWidth = 342))
+        assertNull(frames(10, frameWidth = 256))
         assertEquals(1.25f, frames(60)!!.zoom, 0.0001f)
     }
 
@@ -287,5 +291,176 @@ class WideCameraControllerTest {
         controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1.25f))
         assertEquals(1.25f, frames(120)!!.zoom, 0.0001f)
         assertEquals(1f, frames(1, wingLines = 0)!!.zoom, 0f)
+    }
+
+    // The render width follows the player's zoom: frames at 342 are the core at 1x, 428 with 25 rows at 1.25x, 512 with 48 at the widest
+
+    @Test
+    fun at1xItAsksForThe1xRenderOnceAndDrawsAsWithoutACamera() {
+        controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1f))
+        assertNull(frames(60, frameWidth = 342))
+        assertEquals(listOf(1 to 1f), renderZooms)
+        assertEquals(listOf(atRest), sent)
+    }
+
+    @Test
+    fun itAsksForTheRememberedZoomsStep() {
+        controller.setState(WideCameraState(session = 2, settings = settings, startZoom = 512f / 342f))
+        frames(1)
+        assertEquals(listOf(2 to 512f / 342f), renderZooms)
+    }
+
+    @Test
+    fun aPressAt1xAsksForTheWiderFrameAndShowsItOnceItComes() {
+        controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1f))
+        frames(30, frameWidth = 342)
+        controller.onZoomPress()
+        // Asked for at once; until the frame comes it's drawn at 1x
+        assertNull(frames(1, frameWidth = 342))
+        assertEquals(listOf(1 to 1f, 1 to 1.25f), renderZooms)
+        assertNull(frames(3, frameWidth = 342))
+        assertEquals(1.25f, frames(60, frameWidth = 428, frameMargin = 25)!!.zoom, 0.0001f)
+
+        // The next press goes past the frame's width to the widest view, shown whole frame until that one comes
+        controller.onZoomPress()
+        assertEquals(428f, frames(10, frameWidth = 428, frameMargin = 25)!!.width, 0.01f)
+        assertEquals(1 to 512f / 342f, renderZooms.last())
+        assertEquals(512f, frames(60, frameMargin = 48)!!.width, 0.01f)
+
+        // Then back to 1x, which asks for the 1x render once the zoom has eased in
+        controller.onZoomPress()
+        frames(60, frameMargin = 48)
+        assertEquals(1 to 1f, renderZooms.last())
+        assertEquals(4, renderZooms.size)
+    }
+
+    @Test
+    fun aPinchAsksForMoreRoomAtOnceButLessOnlyOnceTheFingersAreOff() {
+        controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1f))
+        frames(30, frameWidth = 342)
+        controller.setTouching(true)
+        // Out to 1.1, which renders for 1.25
+        controller.onTouchMove(0f, 1f / 1.1f)
+        frames(1, frameWidth = 342)
+        assertEquals(1 to 1.25f, renderZooms.last())
+        // Back in to 1x with the fingers still down: no resize yet
+        controller.onTouchMove(0f, 1.1f)
+        frames(5, frameWidth = 428, frameMargin = 25)
+        assertEquals(1 to 1.25f, renderZooms.last())
+        controller.setTouching(false)
+        // And with them off, after the few frames a narrower one has to hold
+        frames(WideCameraController.SHRINK_FRAMES - 1, frameWidth = 428, frameMargin = 25)
+        assertEquals(1 to 1.25f, renderZooms.last())
+        frames(1, frameWidth = 428, frameMargin = 25)
+        assertEquals(listOf(1 to 1f, 1 to 1.25f, 1 to 1f), renderZooms)
+    }
+
+    @Test
+    fun pullInsDontChangeTheRenderZoom() {
+        controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1.25f))
+        frames(60, frameWidth = 428, frameMargin = 25)
+        // No wing lines, swapped screens and a script's hold all show 1x, but the player's zoom stays where it was
+        assertEquals(1f, frames(30, wingLines = 0, frameWidth = 428, frameMargin = 25)!!.zoom, 0f)
+        controller.setScreensSwapped(true)
+        frames(30, frameWidth = 428, frameMargin = 25)
+        controller.setScreensSwapped(false)
+        controller.setScriptRequest(WideCameraRequest(holdNative = true))
+        frames(30, frameWidth = 428, frameMargin = 25)
+        assertEquals(listOf(1 to 1.25f), renderZooms)
+    }
+
+    @Test
+    fun aKnownGamesPullInDoesntChangeTheRenderZoom() {
+        val asked = mutableListOf<Float>()
+        val known = WideCameraController(onCameraChanged = { _, _, _ -> }, gameScene = { scene }, onRenderZoomNeeded = { _, zoom -> asked.add(zoom) })
+        known.setState(WideCameraState(session = 1, settings = settings, startZoom = 1.25f))
+        fun play(count: Int) = (1..count).map { now += 16_666_667L; known.onFrame(now, 428, 25, 192) }.last()
+        assertEquals(1.25f, play(120)!!.zoom, 0f)
+        for (pullIn in listOf(GameScene.TEXT, GameScene.BATTLE, GameScene.MENU)) {
+            scene = pullIn
+            assertEquals(1f, play(60)!!.zoom, 0f)
+        }
+        assertEquals(listOf(1.25f), asked)
+    }
+
+    @Test
+    fun aScriptsZoomOutAsksForTheRoomItNeeds() {
+        controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1f))
+        frames(30, frameWidth = 342)
+        controller.setScriptRequest(WideCameraRequest(zoom = 1.4f))
+        frames(1, frameWidth = 342)
+        assertEquals(1 to 512f / 342f, renderZooms.last())
+    }
+
+    @Test
+    fun aNewSessionOrShownWidthAsksAgain() {
+        controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1.25f))
+        frames(1, frameWidth = 428, frameMargin = 25)
+        // A fold: the shown width changes, and the zoom is clamped to the new range
+        controller.setSettings(settings.copy(showWidth = 426))
+        frames(1)
+        assertEquals(1 to 512f / 426f, renderZooms.last())
+        controller.setState(WideCameraState(session = 2, settings = settings, startZoom = 1f))
+        frames(1, frameWidth = 342)
+        assertEquals(listOf(1 to 1.25f, 1 to 512f / 426f, 2 to 1f), renderZooms)
+    }
+
+    @Test
+    fun aWrapTo1xEasesAllTheWayInBeforeTheNarrowerRenderIsAskedFor() {
+        controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 512f / 342f))
+        assertEquals(512f, frames(60, frameMargin = 48)!!.width, 0.01f)
+        controller.onZoomPress()
+        // Each frame's window zoom until the narrower render zoom is asked for
+        val zooms = mutableListOf<Float>()
+        while (renderZooms.size == 1 && zooms.size < 300) {
+            zooms.add(frames(1, frameMargin = 48)?.zoom ?: 1f)
+        }
+
+        assertEquals(listOf(1 to 512f / 342f, 1 to 1f), renderZooms)
+        // The ease ran on the wide frame: the zoom came down over several frames and was at 1x for the last few before the ask
+        assertTrue(zooms.first() > 1.2f)
+        assertTrue(zooms.size > 10)
+        assertTrue(zooms.takeLast(WideCameraController.SHRINK_FRAMES).all { it <= 1.001f })
+        assertTrue(zooms.zipWithNext().all { (a, b) -> b <= a + 1e-5f })
+    }
+
+    @Test
+    fun aKnownGamesWrapTo1xEasesOverItsPullInBeforeTheNarrowerRender() {
+        val asked = mutableListOf<Float>()
+        val known = WideCameraController(onCameraChanged = { _, _, _ -> }, gameScene = { scene }, onRenderZoomNeeded = { _, zoom -> asked.add(zoom) })
+        known.setState(WideCameraState(session = 1, settings = settings, startZoom = 512f / 342f))
+        fun play(count: Int) = (1..count).map { now += 16_666_667L; known.onFrame(now, 512, 48, 192) }.last()
+        assertEquals(512f, play(180)!!.width, 0.01f)
+        known.onZoomPress()
+        val zooms = mutableListOf<Float>()
+        while (asked.size == 1 && zooms.size < 300) {
+            zooms.add(play(1)?.zoom ?: 1f)
+        }
+
+        assertEquals(listOf(512f / 342f, 1f), asked)
+        // The 0.42 s pull-in ease, then the frames a narrower one holds
+        assertTrue(zooms.size >= (WideCamera.PULL_IN_SECONDS * 60f).toInt())
+        assertTrue(zooms[zooms.size / 4] > 1.1f)
+        assertTrue(zooms.takeLast(WideCameraController.SHRINK_FRAMES).all { it <= 1.001f })
+    }
+
+    @Test
+    fun aScriptsZoomWobblingAcrossAStepDoesntResizeEveryFrame() {
+        controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1.25f))
+        frames(60, frameWidth = 428, frameMargin = 25)
+        repeat(120) {
+            controller.setScriptRequest(WideCameraRequest(zoom = if (it % 2 == 0) 1.26f else 1.24f))
+            frames(1, frameMargin = 48)
+        }
+        // The start zoom's, then one wider for 1.26, and no narrower one back and forth
+        assertEquals(listOf(1 to 1.25f, 1 to 512f / 342f), renderZooms)
+    }
+
+    @Test
+    fun aStartZoomPastTheRangeAsksForTheWidestEvenWhileHeld() {
+        controller.setScriptRequest(WideCameraRequest(holdNative = true))
+        controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 2f))
+        assertEquals(1f, frames(30, frameWidth = 428, frameMargin = 25)!!.zoom, 0f)
+        assertEquals(listOf(1 to 512f / 342f), renderZooms)
     }
 }

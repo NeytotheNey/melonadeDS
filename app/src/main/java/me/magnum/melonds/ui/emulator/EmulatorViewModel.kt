@@ -221,6 +221,9 @@ class EmulatorViewModel @Inject constructor(
     val wideCameraState = _wideCameraState.asStateFlow()
     // The ROM the camera's picks are remembered for, the one this camera session launched; main thread only
     private var wideCameraRom: Rom? = null
+    // The zoom the core renders the camera's window for (WideCameraController's onRenderZoomNeeded): the remembered start zoom at launch, then
+    // whatever the camera asks for. The render width follows it (WidescreenLaunch.getRenderWidth)
+    private val wideCameraRenderZoom = MutableStateFlow(1f)
 
     init {
         // Here and in onCleared() rather than in the activity, since this outlives a recreated activity and every way into a game goes through here
@@ -314,8 +317,10 @@ class EmulatorViewModel @Inject constructor(
         startObservingEmulatorEvents()
         startObservingAchievementEvents()
         val widescreenLaunch = getWidescreenLaunch(rom)
+        // The game starts as wide as its remembered zoom needs, so one that starts zoomed out isn't resized right after boot
+        val launchRenderZoom = wideCameraRenderZoom.value
         startObservingLayoutForRom(rom, widescreenLaunch.wideLayoutId)
-        startObservingWideViewWidth(widescreenLaunch)
+        startObservingWideViewWidth(widescreenLaunch, launchRenderZoom)
         startRetroAchievementsSession(rom)
 
         val romInfo = getRomInfo(rom)
@@ -331,9 +336,9 @@ class EmulatorViewModel @Inject constructor(
             luaScripts,
             rom.config.mods.luaScriptFolder,
             emulatorSession.areSaveStateLoadsAllowed(),
-            // With the camera on the core renders wider (and taller) than the layout shows
-            widescreenLaunch.getRenderWidth(widescreenLaunch.viewWidth),
-            widescreenLaunch.getRenderMargin(widescreenLaunch.viewWidth),
+            // With the camera zoomed out the core renders wider (and taller) than the layout shows
+            widescreenLaunch.getRenderWidth(widescreenLaunch.viewWidth, launchRenderZoom),
+            widescreenLaunch.getRenderMargin(widescreenLaunch.viewWidth, launchRenderZoom),
         )
         when (result) {
             is RomLaunchResult.LaunchFailedRomNotFound,
@@ -810,6 +815,7 @@ class EmulatorViewModel @Inject constructor(
         // A new session: the camera starts over, and picks still on their way from the last one are dropped
         _wideCameraState.value = WideCameraState(session = _wideCameraState.value.session + 1, settings = null, startZoom = 1f)
         wideCameraRom = null
+        wideCameraRenderZoom.value = 1f
     }
 
     private fun startObservingEmulatorEvents() {
@@ -985,47 +991,68 @@ class EmulatorViewModel @Inject constructor(
     }
 
     /**
-     * Sends the game the width the shown layout asks for whenever it changes (wider, with the camera's margin, with the camera on), in wide
-     * sessions only, and keeps the camera's settings in step with the shown width.
+     * Sends the game the width the shown layout asks for whenever it changes (wider, with the camera's margin, as the camera zooms out), in wide
+     * sessions only, and keeps the camera's settings in step with the shown width. [launchRenderZoom] is the render zoom the game was launched
+     * with, so the first layout doesn't resize it again.
      */
-    private fun startObservingWideViewWidth(widescreenLaunch: WidescreenLaunch) {
+    private fun startObservingWideViewWidth(widescreenLaunch: WidescreenLaunch, launchRenderZoom: Float) {
         if (!widescreenLaunch.isWideSession) {
             return
         }
 
         sessionCoroutineScope.launch {
-            var currentWidth = widescreenLaunch.getRenderWidth(widescreenLaunch.viewWidth)
-            var currentMargin = widescreenLaunch.getRenderMargin(widescreenLaunch.viewWidth)
+            var currentWidth = widescreenLaunch.getRenderWidth(widescreenLaunch.viewWidth, launchRenderZoom)
+            var currentMargin = widescreenLaunch.getRenderMargin(widescreenLaunch.viewWidth, launchRenderZoom)
             _wideCameraState.update { it.copy(settings = getWideCameraSettings(widescreenLaunch, widescreenLaunch.viewWidth)) }
             // The provider can still hold the previous session's layout, so only one matching the session's counts
-            combine(_layout, uiLayoutProvider.currentLayoutWithConfiguration) { sessionLayout, providerLayout ->
+            val shownLayouts = combine(_layout, uiLayoutProvider.currentLayoutWithConfiguration) { sessionLayout, providerLayout ->
                 providerLayout?.takeIf { sessionLayout != null && it.first == sessionLayout }
-            }.collect {
-                val (layoutConfiguration, layout) = it ?: return@collect
+            }
+            combine(shownLayouts, wideCameraRenderZoom) { shownLayout, renderZoom -> shownLayout?.let { it to renderZoom } }.collect {
+                val (shownLayout, renderZoom) = it ?: return@collect
+                val (layoutConfiguration, layout) = shownLayout
                 val showWidth = widescreenLaunch.getViewWidth(layoutConfiguration, layout)
-                val width = widescreenLaunch.getRenderWidth(showWidth)
-                val margin = widescreenLaunch.getRenderMargin(showWidth)
+                val settings = getWideCameraSettings(widescreenLaunch, showWidth)
+                if (settings == null) {
+                    // The camera comes back on at its start zoom, so the render zoom waits there instead of resizing to the old one first
+                    wideCameraRenderZoom.value = _wideCameraState.value.startZoom
+                }
+                val width = widescreenLaunch.getRenderWidth(showWidth, renderZoom)
+                val margin = widescreenLaunch.getRenderMargin(showWidth, renderZoom)
                 if (width != currentWidth || margin != currentMargin) {
                     currentWidth = width
                     currentMargin = margin
                     emulatorManager.setWideView(width, margin)
                 }
-                _wideCameraState.update { it.copy(settings = getWideCameraSettings(widescreenLaunch, showWidth)) }
+                _wideCameraState.update { it.copy(settings = settings) }
             }
         }
     }
 
     /**
      * The camera's settings for a layout shown [showWidth] wide, or null while it's off, the shown variant isn't wide, or the max zoom-out is no
-     * wider than the shown width (no room to zoom out or pan, so the camera would do nothing)
+     * wider than the shown width (no room to zoom out or pan, so the camera would do nothing). The room comes from the camera's widest view, not
+     * the width the core renders at now, which is the shown width at 1x
      */
     private fun getWideCameraSettings(widescreenLaunch: WidescreenLaunch, showWidth: Int): WideCameraSettings? {
-        val hasRoom = showWidth > 0 && widescreenLaunch.getRenderWidth(showWidth) > showWidth
+        val maxWidth = widescreenLaunch.getMaxRenderWidth(showWidth)
+        val hasRoom = showWidth > 0 && maxWidth > showWidth
         return if (widescreenLaunch.isCameraOn && hasRoom) {
-            WideCameraSettings(showWidth, widescreenLaunch.cameraReturnsToCenter, widescreenLaunch.cameraZoomsInOnText)
+            WideCameraSettings(showWidth, widescreenLaunch.cameraReturnsToCenter, widescreenLaunch.cameraZoomsInOnText, maxWidth)
         } else {
             null
         }
+    }
+
+    /**
+     * The camera in camera session [session] needs the core to render for [zoom] (a hotkey step, see WideCameraController): the render width
+     * follows it. One from an earlier session (it was on its way during a ROM switch) is dropped
+     */
+    fun onWideCameraRenderZoomNeeded(session: Int, zoom: Float) {
+        if (session != _wideCameraState.value.session) {
+            return
+        }
+        wideCameraRenderZoom.value = zoom
     }
 
     /**
@@ -1059,6 +1086,7 @@ class EmulatorViewModel @Inject constructor(
         // The camera's remembered zoom from the newest config, since the last session may have picked one after this rom was read
         val startZoom = (getLibraryRom(rom) ?: rom).config.mods.validWideCameraZoom
         _wideCameraState.update { it.copy(startZoom = startZoom) }
+        wideCameraRenderZoom.value = startZoom
         wideCameraRom = rom
         return WidescreenLaunch.resolve(mods, wideLayout, isWideRenderer)
     }

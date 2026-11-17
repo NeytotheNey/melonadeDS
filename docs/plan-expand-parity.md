@@ -92,29 +92,23 @@ Sizes are in lines and phone steps.
 - Phase 1 is committed as `a347b827` on `feature/expand-parity-phase1`.
 - It isn't pushed and no PR is open; the user wants to hold that for now. When it goes, it's the app branch only (the core didn't change), as a PR into `material3` on Forgejo.
 
-**1. The camera's render cost (do this first, on the same branch).**
-- Found in another session's Compute 8x run on the Fold (`perf_logs/2026-11-17-compute8x-camera/REPORT.md`, local only, with a pointer in PERF-NOTES.md).
-- While the camera is on, the core always renders the camera's widest zoom-out. `WidescreenLaunch.getRenderWidth` ([WidescreenLaunch.kt:37](../app/src/main/java/me/magnum/melonds/domain/model/rom/config/WidescreenLaunch.kt)) returns `max(shown width, cameraMaxWidth)`, plus the stage 2 margin rows.
-- That holds even at 1x, at the title, and while pulled in.
+**1. The camera's render cost: done (11-17, same branch, Fold-tested, logs in `perf_logs/2026-11-17-render-width-fold/`).**
+- While the camera was on, the core always rendered the camera's widest zoom-out (512 + 20 rows for White 2's 20:9 layout), even at 1x and pulled in. Found in `perf_logs/2026-11-17-compute8x-camera/REPORT.md`.
+- Now the render width follows the zoom the player picked (hotkey, pinch, remembered zoom, script zoom), rounded up to 0.25 steps. Pull-ins don't resize. How it works is in MODS.md, Camera, "Two widths".
 
-| Fold, Compute 8x | Core render | fps | GPU M cycles/frame |
+| Fold, Compute 8x, W2 title | Core render | fps | GPU M cycles/frame |
 |---|---|---|---|
-| Camera on | 512 wide + 20 rows | 46.6 / 43.0 | 24.5 / 23.6 |
-| Camera off | 426 wide | 55.6 | 17.1 |
+| Camera on, before | 512 wide + 20 rows | 46.6 / 43.0 | 24.5 / 23.6 |
+| Camera off | 426 wide | 58.2 | 16.7 |
+| Camera on at 1x, now | 426 wide | 57.7 | 17.6 |
+| Camera on at the widest, now | 512 wide + 20 rows | 45.0 | 23.1 |
 
-- The cost dates from camera stage 1 (11-15), not Phase 1. Camera off matches the 11-15 426-wide run, so nothing else got slower.
-- Plan, app only, a few dozen lines:
-  - The render width follows the zoom the player picked (hotkey, pinch, or the remembered per-game zoom), not `cameraMaxWidth`. At 1x, camera on costs the same as camera off.
-  - The automatic pull-ins (text, battle, menu, swapped screens, `hold_native`) don't change the render width, so they can't cause a resize hitch.
-  - The vertical margin follows the same width.
-- Risk: on Compute a width change recompiles its 33 shaders. A hotkey zoom step may then stutter once, and a pinch would make many width changes, so round the pinch's render width to fixed steps (for example the hotkey steps) and only resize when the step changes.
-- Phone check on the Fold, Compute 8x and OpenGL, same scene as the report:
-  - fps with the camera on at 1x should match camera off;
-  - a hotkey zoom step and a pinch: note any hitch;
-  - zoomed out, fps should still match the old camera-on number.
-- If zoomed-out play is still too slow, the next step is stage 1b ([plan-widemelon.md](plan-widemelon.md), "Camera"): render only the window, with the off-axis projection. It needs core changes.
+- Left open:
+  - Each zoom step on Compute stutters once (110–300 ms) while the core rebuilds its targets and shaders. OpenGL doesn't. If players notice, keep Compute's targets allocated at the max width and only change the view (core work).
+  - The pinch isn't phone-tested (adb can't inject multi-touch); try it by hand.
+  - Zoomed-out play still costs the full width. If that's too slow, the next step is stage 1b ([plan-widemelon.md](plan-widemelon.md), "Camera"): render only the window, with the off-axis projection (core changes).
 
-**2. Check the 4:3 question first (quick).** Every screenshot in that report shows the top screen as a 4:3 box, yet the core renders 426 or 512 wide. If that layout really is 4:3, we're rendering wide for nothing even with the camera off, which would be a separate and bigger waste. Find out which layout the report's runs used and what `getViewWidth` returns for it.
+**2. The 4:3 question: no waste.** The report's runs used the "Pokemon-wide" layout, whose inner-screen variant is 20:9, so `getViewWidth` gives 426 correctly. The 4:3 box in the screenshots is the title's content filling only the middle 256 columns.
 
 **3. Phone items Phase 1 hasn't covered:**
 - look-around with a controller (the walking spring and stick follow);

@@ -713,4 +713,129 @@ class WideCameraTest {
         val window = camera.update(frame.copy(gameScene = GameScene.FIELD), WideCameraInput(pinchScale = 1.25f / 1.4f, isTouching = true), WideCameraRequest.NONE, 1f / 60f)!!
         assertEquals(1.4f, window.zoom, 1e-4f)
     }
+
+    // The render width follows the player's zoom (WidescreenLaunch.getRenderWidth): the widest view is 512, but the core renders only as wide
+    // as the zoom needs, so frames can be narrower than that. 342 shown at 1x renders at 342; 1.25x renders 428 wide with 25 rows of margin
+    private val oneXFrame = frame.copy(frameWidth = 342, maxWidth = 512)
+    private val stepFrame = frame.copy(frameWidth = 428, frameMargin = 25, maxWidth = 512)
+    private val widestFrame = frame.copy(frameMargin = 48, maxWidth = 512)
+
+    private fun settleOn(camera: WideCamera, sceneFrame: WideCameraFrame, input: WideCameraInput = WideCameraInput()): WideWindow? {
+        var window: WideWindow? = null
+        repeat(60) { window = camera.update(sceneFrame, input, WideCameraRequest.NONE, 0.05f) }
+        return window
+    }
+
+    @Test
+    fun theRenderZoomIsTheNextStepAtOrAboveTheZoom() {
+        val maxZoom = 512 / 342f
+        assertEquals(1f, WideCamera.getRenderZoom(1f, maxZoom), 0f)
+        assertEquals(1.25f, WideCamera.getRenderZoom(1.1f, maxZoom), 0f)
+        assertEquals(1.25f, WideCamera.getRenderZoom(1.25f, maxZoom), 0f)
+        // A float error past a step isn't the next one
+        assertEquals(1f, WideCamera.getRenderZoom(1.0001f, maxZoom), 0f)
+        assertEquals(1.25f, WideCamera.getRenderZoom(1.2501f, maxZoom), 0f)
+        // Capped at the widest view, and never under 1
+        assertEquals(maxZoom, WideCamera.getRenderZoom(1.3f, maxZoom), 0f)
+        assertEquals(maxZoom, WideCamera.getRenderZoom(3f, maxZoom), 0f)
+        assertEquals(1f, WideCamera.getRenderZoom(0.5f, maxZoom), 0f)
+    }
+
+    @Test
+    fun aFrameAtTheShownWidthGivesNoWindowButTheHotkeyStillZoomsOut() {
+        val camera = WideCamera()
+        settleOn(camera, oneXFrame)
+        val input = WideCameraInput(zoomPresses = 1)
+        // Drawn as without a camera, but the press counts, so the core can be asked for a wider frame
+        assertNull(camera.update(oneXFrame, input, WideCameraRequest.NONE, 0.016f))
+        assertEquals(0, input.zoomPresses)
+        assertEquals(1.25f, camera.playerZoom, 0f)
+        assertEquals(1.25f, camera.takePickedZoom()!!, 0f)
+    }
+
+    @Test
+    fun theHotkeyZoomsOutPastTheFramesWidthToTheWidestView() {
+        val camera = WideCamera()
+        settleOn(camera, stepFrame)
+        // From 1x on a frame that's only 1.25x wide: the range comes from the widest view, not the frame
+        camera.update(stepFrame, WideCameraInput(zoomPresses = 2), WideCameraRequest.NONE, 0.016f)
+        assertEquals(512f / 342f, camera.playerZoom, 1e-5f)
+        // And round to 1x after it
+        camera.update(stepFrame, WideCameraInput(zoomPresses = 1), WideCameraRequest.NONE, 0.016f)
+        assertEquals(1f, camera.playerZoom, 0f)
+    }
+
+    @Test
+    fun whileTheWiderFrameIsOnItsWayTheWindowShowsAllOfTheOneThereIs() {
+        val camera = WideCamera()
+        settleOn(camera, stepFrame, WideCameraInput(stickX = 1f, stickY = 1f))
+        camera.update(stepFrame, WideCameraInput(zoomPresses = 2), WideCameraRequest.NONE, 0.016f)
+        val pending = settleOn(camera, stepFrame, WideCameraInput(stickX = 1f, stickY = 1f))!!
+
+        // The whole 428 columns and the rows that keep the pixel shape, inside the frame's 242
+        assertEquals(0f, pending.x, 0f)
+        assertEquals(428f, pending.width, 0.01f)
+        assertEquals(192f * 428f / 342f, pending.height, 0.01f)
+        assertTrue(pending.y >= 0f && pending.y + pending.height <= 242f)
+
+        // The widest frame comes: the zoom eases on from the frame instead of jumping to the end
+        val first = camera.update(widestFrame, WideCameraInput(), WideCameraRequest.NONE, 0.016f)!!
+        assertTrue(first.zoom > 428f / 342f - 1e-4f && first.zoom < 1.45f)
+        val window = settleOn(camera, widestFrame)!!
+        assertEquals(512f, window.width, 0.01f)
+        assertEquals(192f * 512f / 342f, window.height, 0.01f)
+    }
+
+    @Test
+    fun aKnownGamesZoomOutAheadOfTheFrameStartsItsEaseOnceTheFrameComes() {
+        val camera = WideCamera().apply { setPlayerZoom(512f / 342f) }
+        // Off the field, then the field on a frame that's only 1.25x wide
+        play(camera, GameScene.OFF, 1f, sceneFrame = stepFrame)
+        assertEquals(428f / 342f, play(camera, GameScene.FIELD, 2f, sceneFrame = stepFrame)!!.zoom, 1e-4f)
+        // The widest frame: a fresh 0.65 s ease from the frame's zoom, not a jump
+        val first = play(camera, GameScene.FIELD, 1f / 60f, sceneFrame = widestFrame)!!.zoom
+        assertTrue(first < 1.27f)
+        assertEquals(512f / 342f, play(camera, GameScene.FIELD, 1f, sceneFrame = widestFrame)!!.zoom, 1e-4f)
+    }
+
+    @Test
+    fun pullInsLeaveThePlayersZoomAlone() {
+        // No wing lines in an unknown game
+        val camera = WideCamera().apply { setPlayerZoom(1.25f) }
+        settleOn(camera, stepFrame)
+        assertEquals(1f, camera.update(stepFrame.copy(topWingLines = 0), WideCameraInput(), WideCameraRequest.NONE, 0.016f)!!.zoom, 0f)
+        assertEquals(1.25f, camera.playerZoom, 0f)
+        // Swapped screens and a script's hold
+        camera.update(stepFrame.copy(areScreensSwapped = true), WideCameraInput(), WideCameraRequest.NONE, 0.016f)
+        camera.update(stepFrame, WideCameraInput(), WideCameraRequest(holdNative = true), 0.016f)
+        assertEquals(1.25f, camera.playerZoom, 0f)
+
+        // A known game's text box, battle and menu
+        val known = WideCamera().apply { setPlayerZoom(1.25f) }
+        play(known, GameScene.FIELD, 2f, sceneFrame = stepFrame)
+        for (scene in listOf(GameScene.TEXT, GameScene.BATTLE, GameScene.MENU, GameScene.OFF)) {
+            assertEquals(1f, play(known, scene, 1f, sceneFrame = stepFrame)!!.zoom, 0f)
+            assertEquals(1.25f, known.playerZoom, 0f)
+        }
+    }
+
+    @Test
+    fun aScriptsZoomIsThePlayersZoomToo() {
+        // So a script's zoom-out gets a frame wide enough for it
+        val camera = readyCamera()
+        camera.update(stepFrame, WideCameraInput(), WideCameraRequest(zoom = 1.4f), 0.016f)
+        assertEquals(1.4f, camera.playerZoom, 1e-5f)
+    }
+
+    @Test
+    fun aKnownRangeClampsThePlayersZoomEvenWhileHeld() {
+        val camera = WideCamera().apply { setPlayerZoom(2f) }
+        // Held to 1x by a script and by a frame from before the wide one: the player's zoom is still kept inside the range
+        camera.update(stepFrame, WideCameraInput(), WideCameraRequest(holdNative = true), 0.016f)
+        assertEquals(512f / 342f, camera.playerZoom, 0f)
+        assertEquals(1f, camera.shownZoom, 0f)
+        camera.setPlayerZoom(2f)
+        assertNull(camera.update(stepFrame.copy(frameWidth = 256), WideCameraInput(), WideCameraRequest.NONE, 0.016f))
+        assertEquals(512f / 342f, camera.playerZoom, 0f)
+    }
 }
