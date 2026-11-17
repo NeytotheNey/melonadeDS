@@ -37,6 +37,9 @@
 #include <sys/system_properties.h>
 #include "debug/DebugProperties.h"
 #endif
+#ifdef MELONADE_PGO_GENERATE
+#include "perf/PgoDump.h"
+#endif
 
 enum GbaSlotType {
     NONE = 0,
@@ -137,6 +140,9 @@ Java_me_magnum_melonds_MelonEmulator_setupEmulator(JNIEnv* env, jobject thiz, jo
     u32* screenshotBufferPointer = (u32*) env->GetDirectBufferAddress(screenshotBuffer);
 
     MelonDSAndroid::setConfiguration(std::move(finalEmulatorConfiguration));
+#ifdef MELONADE_PGO_GENERATE
+    PgoDump::init(MelonDSAndroid::internalFilesDir);
+#endif
     MelonDSAndroid::setup(androidCameraHandler, std::move(androidEventMessenger), screenshotBufferPointer, 0);
     paused = false;
 }
@@ -711,6 +717,10 @@ Java_me_magnum_melonds_MelonEmulator_stopEmulation(JNIEnv* env, jobject thiz)
     }
 
     MelonDSAndroid::cleanup();
+#ifdef MELONADE_PGO_GENERATE
+    // After the emulator thread has ended
+    PgoDump::dump("stop");
+#endif
 
     env->DeleteGlobalRef(globalCameraManager);
 
@@ -1098,6 +1108,10 @@ void* emulate(void*)
             pthread_mutex_unlock(&emuThreadMutex);
             MelonDSAndroid::flushLuaStorage();
             MelonDSAndroid::finishRewindScreenshot();
+#ifdef MELONADE_PGO_GENERATE
+            // Here rather than in pauseEmulation(), so the core's counters are written between frames
+            PgoDump::dump("pause");
+#endif
             pthread_mutex_lock(&emuThreadMutex);
         }
         if (paused) {

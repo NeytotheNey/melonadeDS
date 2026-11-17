@@ -50,6 +50,18 @@ android {
                     "-DMELONADE_LTO=${nativeFlag("nativeLto")}",
                     "-DMELONADE_ARMV82=${nativeFlag("nativeArmv82")}",
                 )
+                // Profile-guided optimization on arm64-v8a (tools/pgo/README.md): -PnativePgo=generate builds the instrumented APK, -PnativePgo=use builds
+                // with the profile (app/pgo/arm64-v8a.profdata, or -PnativePgoProfile=<path> relative to the repo root). Off passes nothing, so the default
+                // build keeps its .cxx folder
+                val nativePgo = providers.gradleProperty("nativePgo").getOrElse("off").lowercase()
+                require(nativePgo in listOf("off", "generate", "use")) { "-PnativePgo must be off, generate or use, not '$nativePgo'" }
+                if (nativePgo != "off") {
+                    arguments("-DMELONADE_PGO=$nativePgo")
+                }
+                if (nativePgo == "use") {
+                    val profile = rootProject.file(providers.gradleProperty("nativePgoProfile").getOrElse("app/pgo/arm64-v8a.profdata"))
+                    arguments("-DMELONADE_PGO_PROFILE=${profile.invariantSeparatorsPath}")
+                }
             }
         }
     }

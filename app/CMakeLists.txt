@@ -26,6 +26,36 @@ if(MELONADE_ARMV82 AND ANDROID_ABI STREQUAL "arm64-v8a")
     add_compile_options(-march=armv8.2-a)
 endif()
 
+# Profile-guided optimization, arm64-v8a only (tools/pgo/README.md): generate instruments every native target and links the profile runtime, use
+# builds with the merged profile. Other ABIs build as if it were off
+set(MELONADE_PGO "off" CACHE STRING "Profile-guided optimization: off, generate or use")
+set(MELONADE_PGO_PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/pgo/arm64-v8a.profdata" CACHE FILEPATH "Merged profile for MELONADE_PGO=use")
+if(NOT MELONADE_PGO MATCHES "^(off|generate|use)$")
+    message(FATAL_ERROR "MELONADE_PGO must be off, generate or use, not '${MELONADE_PGO}'")
+endif()
+if(NOT MELONADE_PGO STREQUAL "off" AND NOT ANDROID_ABI STREQUAL "arm64-v8a")
+    message(STATUS "MELONADE_PGO=${MELONADE_PGO} ignored on ${ANDROID_ABI} (arm64-v8a only)")
+elseif(MELONADE_PGO STREQUAL "generate")
+    # The frontend dumps the counters itself on pause and stop (perf/PgoDump.h), since Android kills the process before atexit runs
+    add_compile_options(-fprofile-generate)
+    add_link_options(-fprofile-generate)
+    add_compile_definitions(MELONADE_PGO_GENERATE)
+elseif(MELONADE_PGO STREQUAL "use")
+    file(TO_CMAKE_PATH "${MELONADE_PGO_PROFILE}" MELONADE_PGO_PROFILE_PATH)
+    if(NOT EXISTS "${MELONADE_PGO_PROFILE_PATH}")
+        message(FATAL_ERROR "MELONADE_PGO=use, but the profile ${MELONADE_PGO_PROFILE_PATH} doesn't exist. Collect and merge one first (tools/pgo/README.md), "
+                "or pass -PnativePgoProfile=<path>")
+    endif()
+    # The profile is applied at compile time (before ThinLTO, which keeps the branch weights in the bitcode), so the link doesn't need it. Clang doesn't
+    # list the profile as a dependency, so a new profile re-runs this configure and its hash in the flags makes ninja recompile everything
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${MELONADE_PGO_PROFILE_PATH}")
+    file(MD5 "${MELONADE_PGO_PROFILE_PATH}" MELONADE_PGO_PROFILE_MD5)
+    add_compile_options("-fprofile-use=${MELONADE_PGO_PROFILE_PATH}" -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date
+            -Wno-profile-instr-missing -Wno-backend-plugin)
+    add_compile_definitions(MELONADE_PGO_PROFILE_MD5=${MELONADE_PGO_PROFILE_MD5})
+    message(STATUS "MELONADE_PGO=use with ${MELONADE_PGO_PROFILE_PATH} (md5 ${MELONADE_PGO_PROFILE_MD5})")
+endif()
+
 set(BUILD_QT_SDL OFF)
 set(ENABLE_GDBSTUB OFF)
 
