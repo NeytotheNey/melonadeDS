@@ -13,7 +13,7 @@ Notes for working on melonadeDS. The user-facing overview is the [README](../REA
 - [plan-k4-output-cap.md](plan-k4-output-cap.md): the output-resolution cap (K4), as built.
 - [plan-deband-outcap.md](plan-deband-outcap.md): cheaper Deband and the cap's part B, as built. Open: the external-display check.
 - [plan-widemelon.md](plan-widemelon.md): improving WideMelon, mainly 2D in the wings. Steps 1 to 3 and camera stages 1 and 2 merged; wide 2D waits for the GPU 2D renderer.
-- [plan-expand-parity.md](plan-expand-parity.md): everything PokeDaisy's EXPAND does that WideMelon doesn't yet (game-aware auto zoom, field and battle 2D in the margins), in phases. Not started.
+- [plan-expand-parity.md](plan-expand-parity.md): everything PokeDaisy's EXPAND does that WideMelon doesn't yet (game-aware auto zoom, field and battle 2D in the margins), in phases. Phase 1 (game-aware auto zoom) built and phone-checked on `feature/expand-parity-phase1`, not pushed. Next: the camera's render-width cost.
 - [plan-widemelon-polylist.md](plan-widemelon-polylist.md): the bigger polygon list (WidePolys, on since 11-14), as built.
 - [plan-precise-depth.md](plan-precise-depth.md): the White 2 Castelia pier depth fights, what was ruled out, and the Precise depth setting (11-18).
 - [plan-pc-mod-runner.md](plan-pc-mod-runner.md): running per-game Lua mods on the PC.

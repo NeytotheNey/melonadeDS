@@ -73,7 +73,7 @@ Sizes are in lines and phone steps.
 **Phase 4: polish and leftovers.**
 - 4:3 blurred backdrop for menus, the ZOOM touch button, camera off on fault.
 - Check the seam and cracks, and add `GrowPolygon` if the cracks show.
-- Stage 1b only if fill cost shows.
+- Stage 1b if the render-width fix (see "Next") isn't enough. The fill cost has now shown up.
 
 **Phase 5, only for the PokeDaisy swap:** WideMelon on the soft renderer at 1x.
 
@@ -86,6 +86,44 @@ Sizes are in lines and phone steps.
   - Leaving a SoulSilver building, our zoom blipped: after the fade the scene reads as text for about 0.8 s. The side-by-side on 11-17 showed PokeDaisy (v1.5.0.1) doesn't do this, so it's fixed here (see Status).
 - **Soft at 1x.** PokeDaisy runs 1x on the soft renderer. If they switch to WideMelon without it, 1x players lose widescreen unless PokeDaisy moves 1x to OpenGL (GLES 3.2). Decide before pitching, not before Phase 1.
 
+## Next (11-17)
+
+**Where things stand.**
+- Phase 1 is committed as `a347b827` on `feature/expand-parity-phase1`.
+- It isn't pushed and no PR is open; the user wants to hold that for now. When it goes, it's the app branch only (the core didn't change), as a PR into `material3` on Forgejo.
+
+**1. The camera's render cost (do this first, on the same branch).**
+- Found in another session's Compute 8x run on the Fold (`perf_logs/2026-11-17-compute8x-camera/REPORT.md`, local only, with a pointer in PERF-NOTES.md).
+- While the camera is on, the core always renders the camera's widest zoom-out. `WidescreenLaunch.getRenderWidth` ([WidescreenLaunch.kt:37](../app/src/main/java/me/magnum/melonds/domain/model/rom/config/WidescreenLaunch.kt)) returns `max(shown width, cameraMaxWidth)`, plus the stage 2 margin rows.
+- That holds even at 1x, at the title, and while pulled in.
+
+| Fold, Compute 8x | Core render | fps | GPU M cycles/frame |
+|---|---|---|---|
+| Camera on | 512 wide + 20 rows | 46.6 / 43.0 | 24.5 / 23.6 |
+| Camera off | 426 wide | 55.6 | 17.1 |
+
+- The cost dates from camera stage 1 (11-15), not Phase 1. Camera off matches the 11-15 426-wide run, so nothing else got slower.
+- Plan, app only, a few dozen lines:
+  - The render width follows the zoom the player picked (hotkey, pinch, or the remembered per-game zoom), not `cameraMaxWidth`. At 1x, camera on costs the same as camera off.
+  - The automatic pull-ins (text, battle, menu, swapped screens, `hold_native`) don't change the render width, so they can't cause a resize hitch.
+  - The vertical margin follows the same width.
+- Risk: on Compute a width change recompiles its 33 shaders. A hotkey zoom step may then stutter once, and a pinch would make many width changes, so round the pinch's render width to fixed steps (for example the hotkey steps) and only resize when the step changes.
+- Phone check on the Fold, Compute 8x and OpenGL, same scene as the report:
+  - fps with the camera on at 1x should match camera off;
+  - a hotkey zoom step and a pinch: note any hitch;
+  - zoomed out, fps should still match the old camera-on number.
+- If zoomed-out play is still too slow, the next step is stage 1b ([plan-widemelon.md](plan-widemelon.md), "Camera"): render only the window, with the off-axis projection. It needs core changes.
+
+**2. Check the 4:3 question first (quick).** Every screenshot in that report shows the top screen as a 4:3 box, yet the core renders 426 or 512 wide. If that layout really is 4:3, we're rendering wide for nothing even with the camera off, which would be a separate and bigger waste. Find out which layout the report's runs used and what `getViewWidth` returns for it.
+
+**3. Phone items Phase 1 hasn't covered:**
+- look-around with a controller (the walking spring and stick follow);
+- Fly;
+- White 2 conversations, doors and battles;
+- a sign read right after leaving a building (the 1.5 s window could make it late).
+
+**4. Then Phase 2**, once the Shadow2D OnePlus stall is settled.
+
 ## Status
 
 **Fold run (11-17, `perf_logs/2026-11-17-expand-phase1-fold/`) passed:** text boxes, X menu, party and bag, yes/no, holding the zoom through a SoulSilver door fade, battle pull-in, the setting off, swapped screens, state loads, and unsupported games (Platinum rev 0, Mario Kart DS). No crashes. The zoom-out that first looked too fast came from the test script's own `set_zoom`, which uses the script ease on purpose. Not covered yet: White 2 conversations, doors and battles, Fly, look-around with a controller, and a side-by-side with PokeDaisy (its library on the Fold is empty).
@@ -94,7 +132,7 @@ Sizes are in lines and phone steps.
 
 One quirk from PokeDaisy's own logic stays under the parity rule: the X menu reads as text in both games, so with the setting off it stays zoomed out too.
 
-**Fixes after the side-by-side (11-17, not phone-tested yet):**
+**Fixes after the side-by-side (11-17, phone-checked in the Pixel recheck below):**
 - **SoulSilver exit blip.** Leaving a building, HG/SS runs the wipe-in as a field task while the town's name banner is on BG3 (160 tiles), which is the field read's TEXT rule, so it read as text for 46 frames after the fade (reproduced on the desktop, `logs/expand-phase1-ss-exit-debug.log`; the Pixel's exit did the same). PokeDaisy's code at HEAD and v1.5.0.1 reads the same scenes, and nothing in its loop filters them that we found, so why its Fold build doesn't pump is still open. Ours: text straight after a fade, with no field frame between, decides nothing for its first 1.5 s (`WideCamera.AFTER_FADE_TEXT_SECONDS`); text after any field frame, or past 1.5 s, pulls in as before.
 - **Battle timing.** A battle now pulls in over 0.42 s, as on PokeDaisy's DS path (which calls a battle OFF); the 0.55 s was its GBA battle-start timing.
 
