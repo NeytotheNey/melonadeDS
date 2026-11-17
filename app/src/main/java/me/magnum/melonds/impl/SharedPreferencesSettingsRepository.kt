@@ -28,6 +28,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream
+import me.magnum.melonds.BuildConfig
 import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.common.uridelegates.UriHandler
 import me.magnum.melonds.domain.model.AudioBitrate
@@ -208,6 +209,7 @@ class SharedPreferencesSettingsRepository(
             dsiNandUri = dsiDirDocument?.findFile("nand.bin")?.uri,
             internalDirectory = context.filesDir.absolutePath,
             cacheDirectory = context.cacheDir.absolutePath,
+            pgoDumpDirectory = if (BuildConfig.PGO_GENERATE) (context.getExternalFilesDir(null) ?: context.filesDir).absolutePath else null,
             fastForwardSpeedMultiplier = getFastForwardSpeedMultiplier(),
             framePacingVsyncEnabled = isFramePacingVsyncEnabled(),
             framePacingBufferEnabled = isFramePacingBufferEnabled(),

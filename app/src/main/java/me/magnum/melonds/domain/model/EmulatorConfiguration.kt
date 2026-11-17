@@ -15,6 +15,9 @@ data class EmulatorConfiguration(
         val internalDirectory: String,
         // Private storage Android may clear, for the compute renderer's program cache
         val cacheDirectory: String,
+        // Where -PnativePgo=generate builds write their .profraw files (tools/pgo/README.md): the external files dir, which adb reads without run-as,
+        // so non-debuggable release builds can be collected too. Null in every other build
+        val pgoDumpDirectory: String? = null,
         val fastForwardSpeedMultiplier: Float,
         val framePacingVsyncEnabled: Boolean,
         val framePacingBufferEnabled: Boolean,

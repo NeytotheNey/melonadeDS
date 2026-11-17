@@ -12,6 +12,9 @@ plugins {
     alias(libs.plugins.room)
 }
 
+// Set below when a release build is the PGO training build or -PsideloadRelease; androidComponents then names its APK *-pgo.apk
+var releaseApkIsPgo = false
+
 android {
     signingConfigs {
         create("release") {
@@ -24,6 +27,33 @@ android {
             keyAlias = props["MELONDS_KEY_ALIAS"] as String? ?: ""
             keyPassword = props["MELONDS_KEY_PASSWORD"] as String? ?: ""
         }
+    }
+
+    // Profile-guided optimization on arm64-v8a (tools/pgo/README.md). -PnativePgo=generate builds the instrumented APK, use builds with the profile,
+    // off builds without. Release defaults to use with the committed app/pgo/arm64-v8a-release.profdata, debug to off (its profile,
+    // app/pgo/arm64-v8a.profdata, isn't committed). -PnativePgoProfile=<path> (relative to the repo root) picks another profile. Off passes nothing to
+    // CMake, so an off build keeps its .cxx folder. Other ABIs ignore all of it in app/CMakeLists.txt
+    val nativePgoProperty = providers.gradleProperty("nativePgo").orNull?.lowercase()
+    require(nativePgoProperty == null || nativePgoProperty in listOf("off", "generate", "use")) {
+        "-PnativePgo must be off, generate or use, not '$nativePgoProperty'"
+    }
+    fun nativePgoProfile(defaultProfile: String) = rootProject.file(providers.gradleProperty("nativePgoProfile").getOrElse(defaultProfile))
+    fun nativePgoMode(buildType: String, defaultProfile: String): String {
+        nativePgoProperty?.let { return it }
+        if (buildType == "debug") return "off"
+        // Release with no -PnativePgo: use the committed profile. Without one (before the first release profile is committed) build as before
+        // rather than fail, so CI keeps building. The warning only shows when a release task was asked for, so debug builds stay quiet
+        val profile = nativePgoProfile(defaultProfile)
+        if (profile.exists()) return "use"
+        if (gradle.startParameter.taskNames.any { it.contains(buildType, ignoreCase = true) }) {
+            logger.warn("w: $buildType builds without PGO: $profile doesn't exist (tools/pgo/README.md, \"Release builds\")")
+        }
+        return "off"
+    }
+    fun nativePgoArguments(mode: String, defaultProfile: String): List<String> = when (mode) {
+        "off" -> emptyList()
+        "generate" -> listOf("-DMELONADE_PGO=generate")
+        else -> listOf("-DMELONADE_PGO=use", "-DMELONADE_PGO_PROFILE=${nativePgoProfile(defaultProfile).invariantSeparatorsPath}")
     }
 
     namespace = "me.magnum.melonds"
@@ -50,18 +80,6 @@ android {
                     "-DMELONADE_LTO=${nativeFlag("nativeLto")}",
                     "-DMELONADE_ARMV82=${nativeFlag("nativeArmv82")}",
                 )
-                // Profile-guided optimization on arm64-v8a (tools/pgo/README.md): -PnativePgo=generate builds the instrumented APK, -PnativePgo=use builds
-                // with the profile (app/pgo/arm64-v8a.profdata, or -PnativePgoProfile=<path> relative to the repo root). Off passes nothing, so the default
-                // build keeps its .cxx folder
-                val nativePgo = providers.gradleProperty("nativePgo").getOrElse("off").lowercase()
-                require(nativePgo in listOf("off", "generate", "use")) { "-PnativePgo must be off, generate or use, not '$nativePgo'" }
-                if (nativePgo != "off") {
-                    arguments("-DMELONADE_PGO=$nativePgo")
-                }
-                if (nativePgo == "use") {
-                    val profile = rootProject.file(providers.gradleProperty("nativePgoProfile").getOrElse("app/pgo/arm64-v8a.profdata"))
-                    arguments("-DMELONADE_PGO_PROFILE=${profile.invariantSeparatorsPath}")
-                }
             }
         }
     }
@@ -80,14 +98,33 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
+            val pgo = nativePgoMode("release", "app/pgo/arm64-v8a-release.profdata")
+            // The release training build (tools/pgo/README.md), and any release build with -PsideloadRelease (to A/B a use build against it on a phone),
+            // install beside a real install under their own ID, signed with the debug key so they need no release keystore. Neither reaches the native
+            // compile, so the profile matches the shipped release build's code
+            // -PsideloadRelease alone (an empty value) counts as on
+            val sideload = providers.gradleProperty("sideloadRelease").orNull?.let { it.isEmpty() || it.toBoolean() } ?: false
+            if (pgo == "generate" || sideload) {
+                applicationIdSuffix = ".pgo"
+                signingConfig = signingConfigs.getByName("debug")
+                releaseApkIsPgo = true
+            }
+            buildConfigField("boolean", "PGO_GENERATE", (pgo == "generate").toString())
+            externalNativeBuild {
+                cmake {
+                    arguments(*nativePgoArguments(pgo, "app/pgo/arm64-v8a-release.profdata").toTypedArray())
+                }
+            }
         }
         getByName("debug") {
             applicationIdSuffix = ".dev"
             // Debug builds are optimized (RelWithDebInfo) for on-device perf tests; -PnativeBuildType=Debug gives -O0, and MELONADE_DEBUG_TOOLS turns on native debug-only tools
             val nativeBuildType = providers.gradleProperty("nativeBuildType").getOrElse("RelWithDebInfo")
+            val pgo = nativePgoMode("debug", "app/pgo/arm64-v8a.profdata")
+            buildConfigField("boolean", "PGO_GENERATE", (pgo == "generate").toString())
             externalNativeBuild {
                 cmake {
-                    arguments("-DCMAKE_BUILD_TYPE=$nativeBuildType", "-DMELONADE_DEBUG_TOOLS=ON")
+                    arguments("-DCMAKE_BUILD_TYPE=$nativeBuildType", "-DMELONADE_DEBUG_TOOLS=ON", *nativePgoArguments(pgo, "app/pgo/arm64-v8a.profdata").toTypedArray())
                 }
             }
         }
@@ -139,6 +176,16 @@ androidComponents {
     // Compress dex in debug APKs, which are not minified and double in size otherwise
     onVariants(selector().withBuildType("debug")) { variant ->
         variant.packaging.dex.useLegacyPackaging.set(true)
+    }
+    // A .pgo release APK (debug-signed, not for shipping) gets its own file name, so it can't be taken for the shipping APK at the same path
+    onVariants(selector().withBuildType("release")) { variant ->
+        if (releaseApkIsPgo) {
+            // AGP's default name (app-gitHub-prod-release.apk) plus -pgo
+            val name = (listOf(project.name) + variant.productFlavors.map { it.second } + listOfNotNull(variant.buildType, "pgo")).joinToString("-") + ".apk"
+            variant.outputs.forEach { output ->
+                (output as com.android.build.api.variant.impl.VariantOutputImpl).outputFileName.set(name)
+            }
+        }
     }
 }
 

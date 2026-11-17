@@ -3,3 +3,6 @@
 
 # Patches must keep their exact bytes, or git apply fails
 *.patch -text
+
+# PGO profiles (tools/pgo/README.md) are llvm-profdata output; no line-ending conversion or text diffs
+*.profdata binary

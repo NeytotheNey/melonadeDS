@@ -36,8 +36,11 @@ endif()
 if(NOT MELONADE_PGO STREQUAL "off" AND NOT ANDROID_ABI STREQUAL "arm64-v8a")
     message(STATUS "MELONADE_PGO=${MELONADE_PGO} ignored on ${ANDROID_ABI} (arm64-v8a only)")
 elseif(MELONADE_PGO STREQUAL "generate")
-    # The frontend dumps the counters itself on pause and stop (perf/PgoDump.h), since Android kills the process before atexit runs
+    # The frontend dumps the counters itself on pause and stop (perf/PgoDump.cpp), since Android kills the process before atexit runs
     add_compile_options(-fprofile-generate)
+    # The profile names static functions <source file>;<name>, and the source file is an absolute path, so a profile merged here would miss them in
+    # another checkout (CI). Name them by the file name alone; use builds must do the same
+    add_compile_options("SHELL:-mllvm -static-func-full-module-prefix=false")
     add_link_options(-fprofile-generate)
     add_compile_definitions(MELONADE_PGO_GENERATE)
 elseif(MELONADE_PGO STREQUAL "use")
@@ -52,6 +55,8 @@ elseif(MELONADE_PGO STREQUAL "use")
     file(MD5 "${MELONADE_PGO_PROFILE_PATH}" MELONADE_PGO_PROFILE_MD5)
     add_compile_options("-fprofile-use=${MELONADE_PGO_PROFILE_PATH}" -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date
             -Wno-profile-instr-missing -Wno-backend-plugin)
+    # As in generate, so static functions match in any checkout
+    add_compile_options("SHELL:-mllvm -static-func-full-module-prefix=false")
     add_compile_definitions(MELONADE_PGO_PROFILE_MD5=${MELONADE_PGO_PROFILE_MD5})
     message(STATUS "MELONADE_PGO=use with ${MELONADE_PGO_PROFILE_PATH} (md5 ${MELONADE_PGO_PROFILE_MD5})")
 endif()
@@ -116,6 +121,7 @@ add_library(
         ${ANDROID-CPP}/debug/DebugLog.cpp
         ${ANDROID-CPP}/debug/DebugProperties.cpp
         ${ANDROID-CPP}/debug/LogQueue.cpp
+        ${ANDROID-CPP}/perf/PgoDump.cpp
         ${ANDROID-CPP}/performancehint/JniPerformanceHintManager.cpp
         ${ANDROID-CPP}/performancehint/NdkPerformanceHintManager.cpp
         ${ANDROID-CPP}/performancehint/PerformanceHintManagerFactory.cpp

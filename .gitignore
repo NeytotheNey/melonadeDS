@@ -14,5 +14,6 @@
 # tools/jitverify builds
 /build-jitverify
 
-# PGO profiles (tools/pgo/README.md), not committed while PGO is off
-/app/pgo/
+# PGO profiles (tools/pgo/README.md): the release profile is committed (release builds use it), debug ones stay local
+/app/pgo/*
+!/app/pgo/arm64-v8a-release.profdata
