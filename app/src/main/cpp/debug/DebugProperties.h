@@ -107,6 +107,9 @@ namespace melonDS { class NDS; }
  *                  2 (the default in every build) skips the render instead while two or more are and keeps the last 3D image, and waits like 1
  *                  when a display capture may read the render, halfcam or Smooth 30 FPS is on and the game swaps every other frame (see
  *                  computeopt 64) or the last render is half a second old. Setting it also logs a COMPPACE line once a second (GPU::ComputePace)
+ *   glpace N       OpenGL: the same safety net for its frames, by a fence after each Blit. 0 off (the old behavior), 1 (the default in every
+ *                  build for now) waits before a Blit (100 ms at most) until at most one earlier frame is unfinished, so a GPU that falls
+ *                  behind costs fps instead of piling up delay. No skipping. Setting it also logs a GLPACE line once a second (GPU::GLPace)
  *   computetile N  compute: 8, 16 or 32 forces that tile size at any scale, for A/B runs; anything else is the default (8 px up to 4x, 16 px
  *                  from 5x). A size that can't work for a target falls back to the default with one log line. It costs a second shader
  *                  compile at the first frame (GPU::ComputeTileSize)

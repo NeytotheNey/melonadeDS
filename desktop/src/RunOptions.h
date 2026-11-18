@@ -87,6 +87,7 @@ inline const BoolSwitch kBoolSwitches[] = {
     {"ComputePeaks", &melonDS::GPU::ComputePeaks},
     {"ComputeSync", &melonDS::GPU::ComputeSync},
     {"ComputePaceLog", &melonDS::GPU::ComputePaceLog},
+    {"GLPaceLog", &melonDS::GPU::GLPaceLog},
     {"ComputeWhy", &melonDS::GPU::ComputeWhy},
     {"BlitFlushCapture", &melonDS::GPU::BlitFlushCapture},
     {"LateBlit", &melonDS::GPU::LateBlit},
@@ -103,6 +104,7 @@ inline const BoolSwitch kBoolSwitches[] = {
 
 inline const IntSwitch kIntSwitches[] = {
     {"CaptureSpinUs", &melonDS::GPU::CaptureSpinUs},
+    {"GLPace", &melonDS::GPU::GLPace},
     {"HiresCaptureDebug", &melonDS::GPU::HiresCaptureDebug},
     {"GLTransSkip", &melonDS::GPU::GLTransSkip},
     {"GLEdgeSkip", &melonDS::GPU::GLEdgeSkip},

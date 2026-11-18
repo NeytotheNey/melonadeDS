@@ -21,6 +21,7 @@ Facts about the code that you can't easily see from reading it.
 
 - `app/src/main/cpp/renderer/FramePacing.h` (`DisplayVsyncTracker`, `VsyncFramePacer`), `emulate()` in `MelonDSAndroidJNI.cpp`, `FrameQueue::getPresentFrame`, the Choreographer renderers. 60 Hz lock: `EmulatorActivity.updateDisplayModeLock`.
 - Pacing only runs with no fast-forward, a recent vsync, and refresh/60 close to a whole number 1–4; otherwise it falls back to the old timer. Constants (0.5 ms grid offset, 2% clamp, 1/8 gain, P/2 tolerance) are untuned; re-check in a simulation if the logic changes.
+- The presenter's waits on the emulator's frames are GPU-side (`eglWaitSyncKHR`), so nothing there makes the emulator thread wait for the GPU. That's the core's job: `GPU::ComputePace` (a fence per Compute render) and `GPU::GLPace` (a fence per OpenGL Blit, `GLRenderer::UpdatePace`/`WaitForPace`) hold the emulator thread while two frames are unfinished, fast-forward included. Capture readback maps already sync, so the pace waits only matter in frames without one.
 
 ## Core
 
