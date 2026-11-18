@@ -300,6 +300,13 @@ namespace melonDS { class NDS; }
  *                  (the span's left end, the factor and its divide still computed), 4 a float-reciprocal linear factor instead of the
  *                  perspective divide where it runs (not on z-buffered linear spans). 1 makes every texel opaque, so it understates the
  *                  texture's cost where cut-outs are common. 0, the default, draws as before. Recompiles at the next render (GPU::ComputeProbe)
+ *   computevis N   compute, Phase 2 of docs/plan-compute-efficiency.md: the visibility pass, a sum of bits, each meant to draw
+ *                  exactly what 0 does. 1 (stage 1a): a new pass (OpaqueVis) resolves the opaque prefix (the polygons before the
+ *                  first translucent, shadow, shadow mask or cut-out one, COMPVIS's precut) on polygon indices, Rasterise shades
+ *                  only the polygon each layer of a pixel ends up with there, and DepthBlend starts from that and walks only the
+ *                  polygons after the prefix, in tiles that have any. Two more programs (35), and the result buffer gets 4 bytes
+ *                  a pixel. 0, the default, is the old path. Recompiles at the next render (GPU::ComputeVis). COMPTIME's vis= is
+ *                  the new pass; COMPDEPTH with it on only sees the polygons after the prefix
  *   cpusemu L      pin the emulator thread (and the core threads it creates) to the CPUs in the comma-separated list L (MelonDSAndroidJNI.cpp)
  *   cpus2d L       pin the core's 2D render thread to the CPUs in L (MelonDSAndroidJNI.cpp)
  *   heldworker N   threaded 2D, OpenGL/compute: draw held capture lines on the 2D thread too, a sum of bits. 1 (with bnohold) queues
