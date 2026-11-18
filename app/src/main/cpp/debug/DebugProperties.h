@@ -306,7 +306,17 @@ namespace melonDS { class NDS; }
  *                  only the polygon each layer of a pixel ends up with there, and DepthBlend starts from that and walks only the
  *                  polygons after the prefix, in tiles that have any. Two more programs (35), and the result buffer gets 4 bytes
  *                  a pixel. 0, the default, is the old path. Recompiles at the next render (GPU::ComputeVis). COMPTIME's vis= is
- *                  the new pass; COMPDEPTH with it on only sees the polygons after the prefix
+ *                  the new pass; COMPDEPTH with it on only sees the polygons after the prefix. If a program built with it fails
+ *                  to compile, the renderer logs COMPVISFAIL and runs as with 0 until it's made again. A frame only takes the
+ *                  new path when the prefix has computevisgate's share of the work tiles; the others run the old programs.
+ *                  Tiles without a prefix polygon skip the new pass. The batch is 51 programs with it (33 without)
+ *   computevisgate N  compute, with computevis: the share of the frame's work tiles (percent, by the CPU's bound) the opaque
+ *                  prefix needs for the frame to take the visibility path; below it the frame runs the old programs, which
+ *                  draw the same. 25, the default; 0 takes the path whenever there's a prefix (GPU::ComputeVisGate). COMPVIS's
+ *                  vis_f counts the frames that took it
+ *   computepoison 1 compute, a check: the result buffer (with computevis's winner words) and the tile memory are filled with
+ *                  0xDEADBEEF where they're allocated and before every render, so a pass that reads what no pass of the render
+ *                  wrote shows it on any GPU. Slow; for hash checks only (GPU::ComputePoison)
  *   cpusemu L      pin the emulator thread (and the core threads it creates) to the CPUs in the comma-separated list L (MelonDSAndroidJNI.cpp)
  *   cpus2d L       pin the core's 2D render thread to the CPUs in L (MelonDSAndroidJNI.cpp)
  *   heldworker N   threaded 2D, OpenGL/compute: draw held capture lines on the 2D thread too, a sum of bits. 1 (with bnohold) queues

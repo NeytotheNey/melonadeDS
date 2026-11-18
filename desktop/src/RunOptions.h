@@ -99,6 +99,7 @@ inline const BoolSwitch kBoolSwitches[] = {
     {"ComputeDepthStats", &melonDS::GPU::ComputeDepthStats},
     {"ComputeVisStats", &melonDS::GPU::ComputeVisStats},
     {"ComputeSSBO", &melonDS::GPU::ComputeSSBO},
+    {"ComputePoison", &melonDS::GPU::ComputePoison},
     {"WidePolys", &melonDS::GPU::WidePolys},
     {"WideY", &melonDS::GPU::WideY},
     // the frontend's deband flag (GPU::OutputCap): the window doesn't deband, so this stands in for the app's
@@ -131,6 +132,7 @@ inline const IntSwitch kIntSwitches[] = {
     {"ComputeFlat", &melonDS::GPU::ComputeFlat},
     {"ComputeProbe", &melonDS::GPU::ComputeProbe},
     {"ComputeVis", &melonDS::GPU::ComputeVis},
+    {"ComputeVisGate", &melonDS::GPU::ComputeVisGate},
     {"ComputePace", &melonDS::GPU::ComputePace},
     {"HeldTo2DThread", &melonDS::GPU::HeldTo2DThread},
 };
