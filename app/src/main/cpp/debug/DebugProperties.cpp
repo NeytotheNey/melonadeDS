@@ -340,7 +340,7 @@ Overrides apply(NDS& nds)
     gpu.SetShadow2D(gpu2dMode, gpu2dLog, gpu2dCheck, gpu2dWide);
     int gpu2dAffine = 0;
     if (read("gpu2daffine", value))
-        gpu2dAffine = std::clamp(atoi(value), 0, 2);
+        gpu2dAffine = std::clamp(atoi(value), -1, 2);
     if (gpu.Shadow2D)
         gpu.Shadow2D->AffineDebug = gpu2dAffine;
 

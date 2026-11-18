@@ -93,7 +93,7 @@ struct Options
     int Filter2D = 0;          // GPU::Filter2D: 0 off, 1 on, 2 the 2x map only, 3 identity
     int Gpu2D = 0;             // the GPU 2D shadow renderer (GPU::SetShadow2D): 0 off, 1, 2 all, 3 all + log, 4 check
     int Gpu2DWide = 0;         // debug.melonade.gpu2dwide: 1 lets every layer draw past the edge
-    int Gpu2DAffine = 0;       // debug.melonade.gpu2daffine: 1-2 draw rotated BGs with the plain composite
+    int Gpu2DAffine = 0;       // debug.melonade.gpu2daffine: 1-2 draw rotated BGs with the plain composite, -1 lifts the 6x cap
     bool Threaded2D = true;
     bool ThreadedSoft3D = true;
     bool HalfCamera = false;
@@ -137,7 +137,8 @@ void Usage()
         "                              GPU2D log line, 4 check (gl/compute)\n"
         "  --gpu2d-wide                with --gpu2d, every 2D layer draws past the edge (debug.melonade.gpu2dwide 1)\n"
         "  --gpu2d-affine N            with --gpu2d, rotated BGs drawn with the plain composite: 1 with the affine\n"
-        "                              stack still written, 2 without it (debug.melonade.gpu2daffine)\n"
+        "                              stack still written, 2 without it, -1 lifts the 6x cap on sharp rotated\n"
+        "                              BGs (debug.melonade.gpu2daffine)\n"
         "  --smooth30                  gl/compute: in-between frames for 30 fps games (half camera)\n"
         "  --halfcam N                 debug.melonade.halfcam N, 1-5 (3 and up log HALFCAM lines), replaces --smooth30\n"
         "  --no-threaded2d             2D on the emulator thread\n"
@@ -228,7 +229,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--filter2d-mode") opts.Filter2D = std::clamp(atoi(next().c_str()), 0, 3);
         else if (arg == "--gpu2d") opts.Gpu2D = std::clamp(atoi(next().c_str()), 0, 4);
         else if (arg == "--gpu2d-wide") opts.Gpu2DWide = 1;
-        else if (arg == "--gpu2d-affine") opts.Gpu2DAffine = std::clamp(atoi(next().c_str()), 0, 2);
+        else if (arg == "--gpu2d-affine") opts.Gpu2DAffine = std::clamp(atoi(next().c_str()), -1, 2);
         else if (arg == "--smooth30") opts.HalfCamera = true;
         else if (arg == "--halfcam") opts.HalfCameraMode = std::clamp(atoi(next().c_str()), 0, 5);
         else if (arg == "--no-threaded2d") opts.Threaded2D = false;
