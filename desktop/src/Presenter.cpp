@@ -311,7 +311,9 @@ void Presenter::Draw(NDS& nds, int windowW, int windowH, int topWidth, Layout la
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_STENCIL_TEST);
     glDisable(GL_CULL_FACE);
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    // draw buffer 0 only, as the app's frontend leaves the others: the core's passes must set their own
+    // masks (the GPU 2D shadow's StackTex is draw buffer 1, which the OpenGL 3D renderer leaves masked)
+    glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glViewport(0, 0, windowW, windowH);
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);

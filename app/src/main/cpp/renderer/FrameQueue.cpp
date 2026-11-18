@@ -1,5 +1,6 @@
 #include "FrameQueue.h"
 #include <algorithm>
+#include <cstring>
 #include <vector>
 #include <Platform.h>
 #ifdef MELONADE_DEBUG_TOOLS
@@ -174,6 +175,41 @@ int FrameQueue::findDueFrameIndex(int64_t vsyncTimeNs, int64_t dueToleranceNs)
     return -1;
 }
 
+typedef void (GL_APIENTRY* ColorMaskiFn)(GLuint, GLboolean, GLboolean, GLboolean, GLboolean);
+
+// glColorMaski on GLES 3.2, the EXT or OES one on 3.0/3.1 with indexed draw buffers, null otherwise. Read once, with a context current: every
+// context the app makes is a client version 3 one on the same display, so they all give the same answer
+static ColorMaskiFn getColorMaski()
+{
+    static const ColorMaskiFn colorMaski = []() -> ColorMaskiFn
+    {
+        GLint major = 0, minor = 0;
+        glGetIntegerv(GL_MAJOR_VERSION, &major);
+        glGetIntegerv(GL_MINOR_VERSION, &minor);
+        if (major > 3 || (major == 3 && minor >= 2))
+            return glColorMaski;
+        // one name at a time with glGetStringi, compared whole (as GPU3D_OpenGL.cpp does for framebuffer fetch)
+        GLint numExtensions = 0;
+        glGetIntegerv(GL_NUM_EXTENSIONS, &numExtensions);
+        for (GLint e = 0; e < numExtensions; e++)
+        {
+            const char* extension = (const char*) glGetStringi(GL_EXTENSIONS, (GLuint) e);
+            const char* entryPoint = nullptr;
+            if (extension && strcmp(extension, "GL_EXT_draw_buffers_indexed") == 0)
+                entryPoint = "glColorMaskiEXT";
+            else if (extension && strcmp(extension, "GL_OES_draw_buffers_indexed") == 0)
+                entryPoint = "glColorMaskiOES";
+            if (entryPoint)
+            {
+                if (auto function = (ColorMaskiFn) eglGetProcAddress(entryPoint))
+                    return function;
+            }
+        }
+        return nullptr;
+    }();
+    return colorMaski;
+}
+
 // Clears all of [texture] to 0 (transparent black) with a draw-framebuffer clear, on the emulator thread with its GL context current. That's
 // the context the frame is then rendered in, after the present fence wait in MelonInstance::runFrame, so the clear comes after the last present's
 // reads and before the frame's own draws and its render fence, which the presenter waits on before it reads the texture. The framebuffer is
@@ -195,10 +231,20 @@ static bool clearTexture(GLuint texture)
         glGetBooleanv(GL_COLOR_WRITEMASK, colorMask);
         if (scissor)
             glDisable(GL_SCISSOR_TEST);
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        // draw buffer 0's mask only (GL_COLOR_WRITEMASK reads it): glColorMask would set every buffer's and put buffer 0's back on all of
+        // them, overwriting the masks the core's passes left on the others. Without indexed masks (below GLES 3.2, neither extension) the app
+        // only offers the software renderer, so no other buffer has a mask to keep
+        ColorMaskiFn colorMaski = getColorMaski();
+        if (colorMaski)
+            colorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        else
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         const GLfloat zero[4] {};
         glClearBufferfv(GL_COLOR, 0, zero);
-        glColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
+        if (colorMaski)
+            colorMaski(0, colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
+        else
+            glColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
         if (scissor)
             glEnable(GL_SCISSOR_TEST);
     }
