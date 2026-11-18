@@ -17,6 +17,8 @@ data class RendererConfiguration(
     private val internalResolutionScaling: Int,
     // Draw the games' edge marking, the outlines around 3D models (OpenGL/compute; software always does; read natively by name)
     val edgeMarking: Boolean = true,
+    // Draw rotated and scaled 2D layers at the internal resolution, the GPU 2D shadow in mode 1 (OpenGL/compute at 2x to 6x, read natively)
+    val sharperRotated2d: Boolean = false,
 ) {
 
     // Dither polygon color gradients instead of banding them: compute only, with deband, which took over its switch. A field, as it's read

@@ -103,8 +103,9 @@ class SharedPreferencesSettingsRepository(
         setDefaultMacAddressIfRequired()
         moveColorDitheringIntoDeband()
 
-        // combine() takes at most 5 typed flows, so the 4 look settings (filter, deband, colors and shadow), the 2 threading ones and the 3
-        // GPU extras (hi-res capture, filtered 2D and edge marking) are grouped first. Compute's dithering follows deband (RendererConfiguration)
+        // combine() takes at most 5 typed flows, so the 4 look settings (filter, deband, colors and shadow), the 2 threading ones and the 4
+        // GPU extras (hi-res capture, filtered 2D, edge marking and sharper rotated 2D) are grouped first. Compute's dithering follows deband
+        // (RendererConfiguration)
         val lookSettingsFlow = combine(
             getVideoFiltering(),
             isDebandEnabled(),
@@ -123,8 +124,9 @@ class SharedPreferencesSettingsRepository(
             isHiresCaptureEnabled(),
             isFilter2dEnabled(),
             isEdgeMarkingEnabled(),
-        ) { hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled ->
-            Triple(hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled)
+            isSharperRotated2dEnabled(),
+        ) { hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled ->
+            GpuExtras(hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled)
         }
         renderConfigurationFlow = combine(
             getVideoRenderer(),
@@ -132,11 +134,10 @@ class SharedPreferencesSettingsRepository(
             threadingSettingsFlow,
             gpuExtrasFlow,
             getVideoInternalResolutionScaling(),
-        ) { renderer, look, (threadedRenderingEnabled, threaded2dRenderingEnabled), (hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled),
-            resolutionScaling ->
+        ) { renderer, look, (threadedRenderingEnabled, threaded2dRenderingEnabled), gpuExtras, resolutionScaling ->
             RendererConfiguration(
                 renderer, look.filtering, look.deband, look.dsScreenColors, look.screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled,
-                hiresCaptureEnabled, filter2dEnabled, resolutionScaling, edgeMarkingEnabled,
+                gpuExtras.hiresCapture, gpuExtras.filter2d, resolutionScaling, gpuExtras.edgeMarking, gpuExtras.sharperRotated2d,
             )
         }.conflate().shareIn(preferencesCoroutineScope, SharingStarted.Lazily, replay = 1)
     }
@@ -451,6 +452,12 @@ class SharedPreferencesSettingsRepository(
     override fun isFilter2dEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_FILTER_2D) {
             preferences.getBoolean(PreferenceKeys.VIDEO_FILTER_2D, false)
+        }
+    }
+
+    override fun isSharperRotated2dEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_SHARPER_ROTATED_2D) {
+            preferences.getBoolean(PreferenceKeys.VIDEO_SHARPER_ROTATED_2D, false)
         }
     }
 
@@ -797,4 +804,12 @@ private data class LookSettings(
     val deband: Boolean,
     val dsScreenColors: Boolean,
     val screenShadow: Boolean,
+)
+
+// The OpenGL and compute extras of a RendererConfiguration, grouped for combine()
+private data class GpuExtras(
+    val hiresCapture: Boolean,
+    val filter2d: Boolean,
+    val edgeMarking: Boolean,
+    val sharperRotated2d: Boolean,
 )

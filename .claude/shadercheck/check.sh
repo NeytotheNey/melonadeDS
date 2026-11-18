@@ -21,7 +21,7 @@ rc=0
 for f in *.vert *.frag *.comp; do
   if ! glslangValidator "$f" >"$f.log" 2>&1; then echo "FAIL $f"; cat "$f.log"; rc=1; else echo "ok   $f"; fi
 done
-for p in RenderZ RenderW ClearBitmap Clear Compositor CompositorWide HiresCapture Filter2DKey Filter2DMmpx CompositorFilter2D CompositorWideFilter2D Shadow2D Shadow2DWide Shadow2DPlanes Shadow2DPlanesWide Shadow2DObj; do
+for p in RenderZ RenderW ClearBitmap Clear Compositor CompositorWide HiresCapture Filter2DKey Filter2DMmpx CompositorFilter2D CompositorWideFilter2D Shadow2D Shadow2DWide Shadow2DPlanes Shadow2DPlanesWide Shadow2DAffine Shadow2DAffineWide Shadow2DObj; do
   v=$p.vert; f=$p.frag; [ "$p" = Clear ] && v=ClearVS.vert && f=ClearFS.frag
   [ "$p" = ClearBitmap ] && v=ClearBitmapVS.vert && f=ClearBitmapFS.frag
   [ "$p" = Compositor ] && v=CompositorVS.vert && f=CompositorFS_Nearest.frag
@@ -35,6 +35,8 @@ for p in RenderZ RenderW ClearBitmap Clear Compositor CompositorWide HiresCaptur
   [ "$p" = Shadow2DWide ] && v=Shadow2DVS.vert && f=Shadow2DWideFS.frag
   [ "$p" = Shadow2DPlanes ] && v=Shadow2DVS.vert && f=Shadow2DPlanesFS.frag
   [ "$p" = Shadow2DPlanesWide ] && v=Shadow2DVS.vert && f=Shadow2DPlanesWideFS.frag
+  [ "$p" = Shadow2DAffine ] && v=Shadow2DVS.vert && f=Shadow2DAffineFS.frag
+  [ "$p" = Shadow2DAffineWide ] && v=Shadow2DVS.vert && f=Shadow2DAffineWideFS.frag
   [ "$p" = Shadow2DObj ] && v=Shadow2DObjVS.vert && f=Shadow2DObjFS.frag
   if ! glslangValidator -l "$v" "$f" >"$p.link.log" 2>&1; then echo "FAIL link $p"; cat "$p.link.log"; rc=1; else echo "ok   link $p"; fi
 done

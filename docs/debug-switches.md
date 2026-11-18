@@ -33,7 +33,7 @@ Set with `adb shell setprop debug.melonade.<name> <value>` before starting a gam
 
 ## 2D
 
-- `gpu2d` (OpenGL/compute): the GPU 2D shadow renderer. `0` off, `1` only lines that gain something, `all` every eligible line, `check` all plus a 1x readback compared with CPU 2D every 30 frames, `log` adds a once-a-second `GPU2D` line. `gpu2dwide` 1: every layer draws past the screen edge (test only). See `docs/plan-gpu-2d-shadow.md`. Desktop: `--gpu2d N` (0, 1, 2 all, 3 all with the `GPU2D` line, 4 check) and `--gpu2d-wide`.
+- `gpu2d` (OpenGL/compute): the GPU 2D shadow renderer. `0` off, `1` only lines that gain something, `all` every eligible line, `check` all plus a 1x readback compared with CPU 2D every 30 frames, `log` adds a once-a-second `GPU2D` line. Any of these, `0` too, replaces the "Sharper rotated 2D" setting (mode `1`) for that game; unset, the setting decides. `gpu2dwide` 1: every layer draws past the screen edge (test only). See `docs/plan-gpu-2d-shadow.md`. Desktop: `--gpu2d N` (0, 1, 2 all, 3 all with the `GPU2D` line, 4 check) and `--gpu2d-wide`.
 - `filter2d` (OpenGL/compute): `0` off, `1` on (overrides "Smooth 2D edges"), `2` only the 2x MMPX pass, `3` all passes with identity output, which must match off. See `docs/plan-gpu-2d.md`.
 - `filter2drows` (OpenGL and compute, experiment K3), default 1 since 11-11 (`0` redraws the whole map): with filtered 2D, a frame whose keys changed on only some lines redraws only the map rows they can reach. `2` checks: every 30th partial redraw is compared with a full one (`rowchecks` and `rowmismatches` on the `FILTER2D` line). Desktop: `--set Filter2DRows=N` (`--set Filter2DLogging=1` for the line, `--filter2d-mode N` for the `filter2d` modes).
 

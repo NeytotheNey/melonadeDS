@@ -21,6 +21,7 @@
 #include "Args.h"
 #include "SPI_Firmware.h"
 #include "GPU.h"
+#include "GPU_Shadow2D.h"
 #include "GPU3D_Soft.h"
 #include "GPU3D_OpenGL.h"
 #include "GPU3D_Compute.h"
@@ -92,6 +93,7 @@ struct Options
     int Filter2D = 0;          // GPU::Filter2D: 0 off, 1 on, 2 the 2x map only, 3 identity
     int Gpu2D = 0;             // the GPU 2D shadow renderer (GPU::SetShadow2D): 0 off, 1, 2 all, 3 all + log, 4 check
     int Gpu2DWide = 0;         // debug.melonade.gpu2dwide: 1 lets every layer draw past the edge
+    int Gpu2DAffine = 0;       // debug.melonade.gpu2daffine: 1-2 draw rotated BGs with the plain composite, -1 lifts the 6x cap
     bool Threaded2D = true;
     bool ThreadedSoft3D = true;
     bool HalfCamera = false;
@@ -134,6 +136,9 @@ void Usage()
         "  --gpu2d N                   GPU 2D shadow renderer: 0 off, 1 lines that gain, 2 all, 3 all with the\n"
         "                              GPU2D log line, 4 check (gl/compute)\n"
         "  --gpu2d-wide                with --gpu2d, every 2D layer draws past the edge (debug.melonade.gpu2dwide 1)\n"
+        "  --gpu2d-affine N            with --gpu2d, rotated BGs drawn with the plain composite: 1 with the affine\n"
+        "                              stack still written, 2 without it, -1 lifts the 6x cap on sharp rotated\n"
+        "                              BGs (debug.melonade.gpu2daffine)\n"
         "  --smooth30                  gl/compute: in-between frames for 30 fps games (half camera)\n"
         "  --halfcam N                 debug.melonade.halfcam N, 1-5 (3 and up log HALFCAM lines), replaces --smooth30\n"
         "  --no-threaded2d             2D on the emulator thread\n"
@@ -151,9 +156,10 @@ void Usage()
         "  --boot-screen               boot through the firmware instead of directly\n"
         "  --fixed-time                the RTC starts at 2026-01-01 12:00, for runs to compare\n"
         "  --set NAME=VALUE            a core debug switch, e.g. --set LateBlit=0 (see --list-sets)\n"
-        "  --at F:reset|state|save=FILE|NAME=VALUE\n"
+        "  --at F:reset|state|save=FILE|scale=N|renderer=R|shot=FILE|NAME=VALUE\n"
         "                              before frame F: a reset, the --state loaded again, a savestate\n"
-        "                              written to FILE, or a --set\n"
+        "                              written to FILE, the scale or renderer (soft, gl, compute) changed, the last\n"
+        "                              frame saved as FILE.bmp (as --screenshot), or a --set\n"
         "  --list-sets                 list the switches --set knows\n"
         "  --widedrops                 log a WIDEDROPS line once a second (WideMelon's dropped polygons)\n"
         "\n"
@@ -223,6 +229,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--filter2d-mode") opts.Filter2D = std::clamp(atoi(next().c_str()), 0, 3);
         else if (arg == "--gpu2d") opts.Gpu2D = std::clamp(atoi(next().c_str()), 0, 4);
         else if (arg == "--gpu2d-wide") opts.Gpu2DWide = 1;
+        else if (arg == "--gpu2d-affine") opts.Gpu2DAffine = std::clamp(atoi(next().c_str()), -1, 2);
         else if (arg == "--smooth30") opts.HalfCamera = true;
         else if (arg == "--halfcam") opts.HalfCameraMode = std::clamp(atoi(next().c_str()), 0, 5);
         else if (arg == "--no-threaded2d") opts.Threaded2D = false;
@@ -298,6 +305,7 @@ public:
     RendererType Current = RendererType::Software;
     RendererType Requested = RendererType::Software;
     bool RendererDirty = true;
+    bool Shadow2DSet = false;
     Frontend::Presenter Present;
 
     bool Create()
@@ -529,7 +537,15 @@ public:
         Nds->GPU.SetThreaded2D(Opts.Threaded2D);
         Nds->GPU.SetHiresCapture(Opts.HiresCapture);
         Nds->GPU.Filter2D = Opts.Filter2D;
-        Nds->GPU.SetShadow2D(std::min(Opts.Gpu2D, 2), Opts.Gpu2D >= 3, Opts.Gpu2D == 4, Opts.Gpu2DWide);
+        // the app sets the shadow's mode once, when the game starts (DebugProperties::apply), and it
+        // stays through renderer and scale changes, so here too: a new SetShadow2D would reset the recorder
+        if (!Shadow2DSet)
+        {
+            Nds->GPU.SetShadow2D(std::min(Opts.Gpu2D, 2), Opts.Gpu2D >= 3, Opts.Gpu2D == 4, Opts.Gpu2DWide);
+            if (Nds->GPU.Shadow2D)
+                Nds->GPU.Shadow2D->AffineDebug = Opts.Gpu2DAffine;
+            Shadow2DSet = true;
+        }
         // the app's rule: OpenGL and compute draw the in-between scenes, and --halfcam replaces the setting
         if (Opts.HalfCameraMode == 0)
             Nds->GPU.GPU3D.SetHalfCameraSmoothing(Opts.HalfCamera && Current != RendererType::Software);
@@ -917,6 +933,19 @@ int main(int argc, char** argv)
                 }
                 else if (at.Action.rfind("save=", 0) == 0)
                     emu.SaveState(at.Action.substr(5));
+                else if (at.Action.rfind("scale=", 0) == 0)
+                {
+                    opts.Scale = std::clamp(atoi(at.Action.c_str() + 6), 1, 16);
+                    emu.RendererDirty = true;
+                }
+                else if (at.Action.rfind("shot=", 0) == 0)
+                    screenshot(at.Action.substr(5));
+                else if (at.Action == "renderer=soft" || at.Action == "renderer=gl" || at.Action == "renderer=compute")
+                {
+                    emu.Requested = at.Action == "renderer=gl" ? RendererType::OpenGL
+                                  : at.Action == "renderer=compute" ? RendererType::Compute : RendererType::Software;
+                    emu.RendererDirty = true;
+                }
                 else if (!ApplySet(emu.Nds->GPU, at.Action))
                     fprintf(stderr, "unknown --at %u:%s (see --list-sets)\n", at.Frame, at.Action.c_str());
                 printf("at frame %u: %s\n", at.Frame, at.Action.c_str());

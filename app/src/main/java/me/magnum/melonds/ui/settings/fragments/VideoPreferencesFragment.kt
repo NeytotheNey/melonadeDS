@@ -21,10 +21,12 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         const val GLES_3_2 = 0x30002
     }
 
-    // Only the OpenGL and compute renderers have an internal resolution, upscaled display capture and 2D smoothing
+    // Only the OpenGL and compute renderers have an internal resolution, upscaled display capture, 2D smoothing and the sharper rotated 2D
     private lateinit var internalResolutionPreference: Preference
     private lateinit var hiresCapturePreference: Preference
-    private lateinit var filter2dPreference: Preference
+    // Smooth 2D edges and sharper rotated 2D are exclusive, as the lines the shadow draws lose the smoothing: turning one on turns the other off
+    private lateinit var filter2dPreference: SwitchPreference
+    private lateinit var sharperRotated2dPreference: SwitchPreference
     private lateinit var edgeMarkingPreference: Preference
     private lateinit var renderingCategory: PreferenceCategory
     // Threaded 3D rendering is only used by the software renderer
@@ -39,7 +41,18 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         internalResolutionPreference = findPreference("video_internal_resolution")!!
         hiresCapturePreference = findPreference(PreferenceKeys.VIDEO_HIRES_CAPTURE)!!
         filter2dPreference = findPreference(PreferenceKeys.VIDEO_FILTER_2D)!!
+        sharperRotated2dPreference = findPreference(PreferenceKeys.VIDEO_SHARPER_ROTATED_2D)!!
         edgeMarkingPreference = findPreference(PreferenceKeys.VIDEO_EDGE_MARKING)!!
+        filter2dPreference.setOnPreferenceChangeListener { _, newValue ->
+            if (newValue == true)
+                sharperRotated2dPreference.isChecked = false
+            true
+        }
+        sharperRotated2dPreference.setOnPreferenceChangeListener { _, newValue ->
+            if (newValue == true)
+                filter2dPreference.isChecked = false
+            true
+        }
         threadedRenderingPreference = findPreference("enable_threaded_rendering")!!
         smooth30FpsPreference = findPreference(PreferenceKeys.FRAME_PACING_SMOOTH_30FPS)!!
 
@@ -71,6 +84,7 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         internalResolutionPreference.isVisible = !isSoftwareRenderer
         hiresCapturePreference.isVisible = !isSoftwareRenderer
         filter2dPreference.isVisible = !isSoftwareRenderer
+        sharperRotated2dPreference.isVisible = !isSoftwareRenderer
         edgeMarkingPreference.isVisible = !isSoftwareRenderer
         smooth30FpsPreference.isEnabled = !isSoftwareRenderer
         threadedRenderingPreference.isEnabled = isSoftwareRenderer

@@ -10,6 +10,7 @@
 #include <vector>
 #include <sys/system_properties.h>
 #include "GPU.h"
+#include "GPU_Shadow2D.h"
 #include "NDS.h"
 #include "MelonLog.h"
 
@@ -314,12 +315,15 @@ Overrides apply(NDS& nds)
 
     gpu.GPU3D.SetWideDropLogging(readBool("widedrops") == 1);
 
-    // the GPU 2D shadow renderer: 1 = mode 1, 2 = all; log and check add the GPU2D line, check the readback
+    // the GPU 2D shadow renderer: 1 = mode 1, 2 = all; log and check add the GPU2D line, check the readback. any of these (0 too) replaces
+    // the "Sharper rotated 2D" setting, which MelonInstance::updateRenderer applies when this leaves overrides.gpu2d at -1
     int gpu2dMode = 0;
     bool gpu2dLog = false, gpu2dCheck = false;
     if (read("gpu2d", value))
     {
-        if (strcmp(value, "1") == 0)
+        if (strcmp(value, "0") == 0)
+            overrides.gpu2d = 0;
+        else if (strcmp(value, "1") == 0)
             gpu2dMode = 1;
         else if (strcmp(value, "all") == 0)
             gpu2dMode = 2;
@@ -334,9 +338,22 @@ Overrides apply(NDS& nds)
             gpu2dLog = true;
             gpu2dCheck = true;
         }
+        if (gpu2dMode > 0)
+            overrides.gpu2d = gpu2dMode;
     }
     int gpu2dWide = readBool("gpu2dwide") == 1 ? 1 : 0;
-    gpu.SetShadow2D(gpu2dMode, gpu2dLog, gpu2dCheck, gpu2dWide);
+    int gpu2dAffine = 0;
+    if (read("gpu2daffine", value))
+        gpu2dAffine = std::clamp(atoi(value), -1, 2);
+    overrides.gpu2dWide = gpu2dWide;
+    overrides.gpu2dAffine = gpu2dAffine;
+    // only when set: otherwise the setting's mode, applied on the first frame, stays
+    if (overrides.gpu2d >= 0)
+    {
+        gpu.SetShadow2D(gpu2dMode, gpu2dLog, gpu2dCheck, gpu2dWide);
+        if (gpu.Shadow2D)
+            gpu.Shadow2D->AffineDebug = gpu2dAffine;
+    }
 
     // ARM64 JIT: multi-register loads on the fastmem path (on in the core), 0 for the old store-only path.
     // Set here, right after the NDS is made, so no block is compiled before it
@@ -363,9 +380,9 @@ Overrides apply(NDS& nds)
     int length = snprintf(summary, sizeof(summary), "Debug switches:");
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
         length += snprintf(summary + length, sizeof(summary) - length, " %s=%d", boolSwitch.name, gpu.*boolSwitch.target ? 1 : 0);
-    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d glpace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d gltimers=%d scenestats=%d gltrans=%d gledgeskip=%d gledgemark=%d gledgefast=%d glclear=%d glnodiscard=%d gltexprobe=%d gltexcache=%d compclear=%d comp1x=%d filter2drows=%d outcap=%d outcapneed=%d outcap3d=%d computecheck=%d computebin=%d computecalc=%d computeflat=%d ldmfast=%d ldmdirect=%d ldmstats=%d jitdispatch=%d heldworker=%d",
+    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d glpace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d gpu2daffine=%d gltimers=%d scenestats=%d gltrans=%d gledgeskip=%d gledgemark=%d gledgefast=%d glclear=%d glnodiscard=%d gltexprobe=%d gltexcache=%d compclear=%d comp1x=%d filter2drows=%d outcap=%d outcapneed=%d outcap3d=%d computecheck=%d computebin=%d computecalc=%d computeflat=%d ldmfast=%d ldmdirect=%d ldmstats=%d jitdispatch=%d heldworker=%d",
              gpu.ShadowLogFrames, gpu.CaptureSpinUs, gpu.ComputePace, gpu.GLPace, gpu.ComputeTileSize, gpu.ComputeOpt, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.filter2d, captureReads ? 1 : 0, gpu2dStats ? 1 : 0, gpu.GPU3D.GetWideDropLogging() ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), overrides.halfCamera,
-             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : "0", gpu2dWide, gpu.GLTimers, gpu.SceneStats, gpu.GLTransSkip, gpu.GLEdgeSkip, overrides.edgeMark, gpu.GLEdgeFast, gpu.GLClearFast, gpu.GLNoDiscard, gpu.GLTexProbe, gpu.GLTexCache, gpu.CompClear, gpu.Comp1x, gpu.Filter2DRows, gpu.OutputCap, gpu.OutputCapNeed, gpu.OutputCap3D, gpu.ComputeCheck, gpu.ComputeBin, gpu.ComputeCalc, gpu.ComputeFlat, nds.JIT.FastBlockLoadsEnabled() ? 1 : 0, nds.JIT.DirectBlockTransfersEnabled() ? 1 : 0, nds.JIT.LdmStatsEnabled() ? 1 : 0, nds.JIT.JitDispatchEnabled() ? 1 : 0, gpu.HeldTo2DThread);
+             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : overrides.gpu2d == 0 ? "0" : "-1", gpu2dWide, gpu2dAffine, gpu.GLTimers, gpu.SceneStats, gpu.GLTransSkip, gpu.GLEdgeSkip, overrides.edgeMark, gpu.GLEdgeFast, gpu.GLClearFast, gpu.GLNoDiscard, gpu.GLTexProbe, gpu.GLTexCache, gpu.CompClear, gpu.Comp1x, gpu.Filter2DRows, gpu.OutputCap, gpu.OutputCapNeed, gpu.OutputCap3D, gpu.ComputeCheck, gpu.ComputeBin, gpu.ComputeCalc, gpu.ComputeFlat, nds.JIT.FastBlockLoadsEnabled() ? 1 : 0, nds.JIT.DirectBlockTransfersEnabled() ? 1 : 0, nds.JIT.LdmStatsEnabled() ? 1 : 0, nds.JIT.JitDispatchEnabled() ? 1 : 0, gpu.HeldTo2DThread);
     LOG_INFO(LOG_TAG_DEBUG, "%s", summary);
     // what was set, and where from: the app's Debug switches setting or setprop
     std::string active = describeActive();

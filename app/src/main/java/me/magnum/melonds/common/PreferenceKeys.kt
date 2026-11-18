@@ -9,6 +9,7 @@ object PreferenceKeys {
     const val VIDEO_THREADED_2D = "video_threaded_2d"
     const val VIDEO_HIRES_CAPTURE = "video_hires_capture"
     const val VIDEO_FILTER_2D = "video_filter_2d"
+    const val VIDEO_SHARPER_ROTATED_2D = "video_sharper_rotated_2d"
     const val VIDEO_EDGE_MARKING = "video_edge_marking"
     const val VIDEO_DS_SCREEN_COLORS = "video_ds_screen_colors"
     const val VIDEO_DEBAND = "video_deband"

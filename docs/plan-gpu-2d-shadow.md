@@ -117,7 +117,7 @@ Phone proof for every increment: `check` at 1x and 4x with 0 mismatches on OpenG
    - Files: `GPU_Shadow2D.cpp` and shaders (about 250), plus a harness `--shadow-replay` (about 150 tool lines). Every 16th line it keeps a full copy of the flats and palette, then at the Blit compares them with what the base plus the log rebuilds for that line.
    - Proof: replay passes from savestates (Golden Sun, Contra 4, Kirby, White 2). `check` gives 0 on scenes with `bgv` changes, and the log shows those lines kept on the GPU.
    - 1 phone step.
-2. **Affine BGs, hi-res.** `DrawBG_Affine` and the tiled `DrawBG_Extended` (the kind most rotated games use), including the no-wrap and ext palette cases.
+2. **Affine BGs, hi-res. Done**, results below. `DrawBG_Affine` and the tiled `DrawBG_Extended` (the kind most rotated games use), including the no-wrap and ext palette cases.
    - Files: shaders and recorder rules, about 230.
    - Proof: `check` at 1x on Advance Wars A (plain affine), then Metal Slug 7 B, Mario Kart B, Advance Wars B and Kirby B. At 4x and 8x, only the rotated layers differ from off (a diff mask), and they look sharp. The Mario Kart state used so far is all text BGs, not the rotated race scene.
    - 2 phone steps.
@@ -155,6 +155,19 @@ Decisions taken with it (the plan's defaults): the page log counts physical page
 **WideMelon 342:** `gpu2dwide 0` keeps the wings identical to `0`. `gpu2dwide 1` draws policy `1` lines with the middle exact, and Advance Wars' intro letters, bars and banner carry into the wings. In Kirby and White 2 the wings looked the same as off; that's worth a look in WideMelon step 4.
 
 **Cost:** the recorder averages 0.39 ms a frame on the OnePlus at OpenGL 4x (95–153 µs on the Fold), under the 1 ms stop line. Uploads average 45 KB a frame when drawing (max 104).
+
+### Increment 2 results (11-18)
+
+Core about +1100/−230 (with the harness), app setting about +130. Affine and tiled extended BGs (`DrawBG_Affine`, 16-bit tilemap `DrawBG_Extended`, no-wrap, ext palettes) no longer stay CPU as `bgtype`; bitmap and large BGs, mosaic and rotated sprites still do.
+
+- **How it draws:** at 1x the planes pass draws them exactly like the CPU, from the latched reference point in the line state block plus nx steps of A and C. At 2x and up a BG with a real rotation or scale is drawn sharp: the planes pass also writes `StackTex` (draw buffer 1: the pixel's stack without those BGs, plus where each would slot in), and an affine composite samples those BGs per output pixel at `ref + nx*A + floordiv(sx*A + fy*B, S)` and merges them in. Everything else stays once per native pixel. Affine line constants are per-run uniforms (at most 8 runs a screen, then per-line reads). A full-scale planes target was rejected (25 MB at 4x, 100 MB at 8x, and a per-output-pixel stack like the one that stalled the OnePlus).
+- **Cap at 6x** (`Shadow2D::MaxSharpAffineScale`): the sharp composite is per-pixel work (OnePlus GPU timers: about 2.5 ms a frame at 4x, 8.3 ms at 8x). Uncapped on the OnePlus at OpenGL: 5x and 6x hold 59.9 presented fps (same as the shadow off), 7x is borderline (59.4, 1% low 44), 8x falls to 33. Above 6x the per-line hires bits are cleared, so rotated BGs use the plain composite (pixel-identical to `gpu2daffine 2`). The Pixel 8 showed no cost even uncapped at 8x.
+- **Bugs fixed on the way:** OnePlus 8x black bands (affine constants moved off flat varyings, fixed draw buffers, one quad buffer per pass). Frozen bottom-screen icons and a garbage band in Mario Kart at 2x+ (all GPUs): nothing set draw buffer 1's write mask, and the OpenGL 3D renderer leaves it masked, so `StackTex` went unwritten. `RunShadow2DPlanes` now sets both masks every frame, and the app's `FrameQueue` and the desktop `Presenter` only touch buffer 0's mask, so the desktop reproduces this kind of bug now. `check` reads back `PlanesTex` only, so it can't see `StackTex`; worth adding.
+- **Device-free:** replay on 29 scenes with and without `--bnohold`, 0 mismatches, 0 stale, 0 stack mismatches; stack-merge closed form 262,144 cases, 0 bad; HASH2D, `wide_check.sh`, shadercheck GL half pass. Desktop `check` 0 in all runs (Mario Kart, Advance Wars, Metal Slug 7, Animal Crossing; OpenGL and Compute; 1x to 8x, 342 view). Resize compares (1x↔2x, 4x↔8x, 6x↔8x mid-race) match runs started at that scale. Logs in `logs/gpu2d-shadow/inc2/`.
+- **Eligible lines in the replay, before → after:** Mario Kart demo 75% → 96%, NSMB boot 59% → 99%, Metal Slug 7 mission 44% → 83%, Animal Crossing boot 82% → 95%, Rune Factory 81% → 95%. Kirby, TWEWY, Phantom Hourglass and White 1 unchanged (bitmap BGs).
+- **Phones:** `check` 0 on the OnePlus and Pixel 8 (OpenGL and Compute, 1x, 4x, 8x), 0 black rows at 8x, bottom screen animating. The Fold passed by eye with the mask fix and the 6x cap. Logs: `perf_logs/2026-11-18-shadow2d-*`, `2026-11-18-sharper2d-setting/`.
+- **User setting "Sharper rotated 2D"** (see Switches): mode 1 at 2x–6x, OpenGL and Compute. OnePlus 60 fps at 4x and 6x with it on, render +0.1 ms at 4x.
+- **Not proven:** Advance Wars' rotating ring only on the desktop (phone taps never reached it); the Fold hasn't run `check`.
 
 ### Increment 4 results (11-17)
 
@@ -218,7 +231,7 @@ On the phones, drawn lines went from 27% to 93% on White 2's title, 65% to 93% o
 
   It isn't called `shadow2d`, because `shadowlog` already means 3D shadows.
 - **`debug.melonade.gpu2dwide`:** `1` makes every layer draw past the edge. Test only.
-- **No user setting** until increments 2, 4 and 5 make something visible. Then "Sharper rotated 2D" under Settings → Display, OpenGL and compute, default off, hidden on software, plumbed like "Smooth 2D edges".
+- **User setting:** "Sharper rotated 2D" under Settings → Display (`video_sharper_rotated_2d`, default off, hidden on software, plumbed like "Smooth 2D edges"). It runs mode `1` on OpenGL and compute at an internal resolution of 2x to 6x (`Shadow2D::MaxSharpAffineScale`; `gpu2daffine -1` lifts the top), and `MelonInstance::updateRenderer` turns it on and off between frames as the renderer, the resolution or the setting changes. It's exclusive with "Smooth 2D edges": turning one on in the settings turns the other off, and if a prefs file has both on, Smooth 2D edges wins. `debug.melonade.gpu2d`, when set (`0` too), replaces it for the game.
 - **Compute** runs the same code, since `ComputeRenderer::Blit` uses the same `GLCompositor`. It's GPU-bound on the OnePlus, so it stays opt-in there.
 
 ## Risks and when to stop
