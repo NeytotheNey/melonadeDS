@@ -1,0 +1,38 @@
+# Handoff: GPU 2D shadow increment 2 (affine BGs), 11-17
+
+Branch `feature/shadow2d-affine` in both the app and the core (`melonDS-android-lib`), off material3 / melonade `4cb43d80` (windows, increment 4, already merged). **Nothing is committed or pushed.** Core diff is about +1090/−230; app has `DebugProperties.cpp/.h`, `desktop/src/main.cpp` and `.claude/shadercheck` changes. Plan: `docs/plan-gpu-2d-shadow.md`, increment 2 (not yet updated with these results).
+
+## What's built
+
+- At 1x, affine and tiled extended BGs (`DrawBG_Affine`, 16-bit tilemap `DrawBG_Extended`, no-wrap, ext palettes) are drawn exactly like the CPU in the planes pass, from the latched reference point in the line state block plus nx steps of A and C. They no longer stay CPU as `bgtype`. Bitmap and large BGs, mosaic and rotated sprites still do.
+- At 2x and up, a BG with a real rotation or scale is drawn sharp: the planes pass also writes `StackTex` (the pixel's stack without those BGs, plus where each would slot in), and an affine composite samples those BGs per output pixel at `ref + nx*A + floordiv(sx*A + fy*B, S)` and merges them in. Everything else stays once per native pixel. A full-scale planes target was rejected (25 MB at 4x, 100 MB at 8x, and the per-output-pixel stack that stalled the OnePlus).
+- After the OnePlus 8x band bug, the affine line constants moved from flat varyings on one quad per line into 3 extra texels per line in `LineStateTex` (11 a line, `PackAffineLine`), the planes pass always writes both targets with fixed draw buffers, and quads go up in one buffer per pass.
+- Debug switch `debug.melonade.gpu2daffine` (desktop `--gpu2d-affine N`): `1` draws rotated lines with the plain composite while `StackTex` is still written, `2` also drops `StackTex`. The GPU2D log line ends with `hires=`.
+- Desktop: `--at F:scale=N`, `--at F:renderer=gl|compute|soft`, `--at F:shot=FILE.bmp`; the shadow mode is set once, as in the app. `logs/gpu2d-shadow/inc2/desktop.sh` has an `mkrace` scene (real Grand Prix, Figure-8 Circuit, rank swaps at frames 2440–2830). Example: `sh desktop.sh OUT mkrace gl 1 0 3410 256 --at 2000:scale=2 --at 2500:shot=x.bmp`.
+
+## Verified (APK `a5ff5c9f`, built 21:54)
+
+- Device-free: replay on 29 scenes with and without `--bnohold`, 0 mismatches, 0 stale, 0 stack mismatches; stack-merge closed form 262,144 cases, 0 bad; HASH2D, `wide_check.sh`, shadercheck GL half pass; planted bugs caught (two insertion-order ones only by the closed form). Desktop `check` 0 in 28 runs (Mario Kart, Advance Wars, Metal Slug 7, Animal Crossing; OpenGL and Compute; 1x, 4x, 8x, 342 view). At 8x the top screens differ from `0` in the baseline too (an existing 3D-sampling difference).
+- Eligible lines: Mario Kart demo 75% → 96%, NSMB boot 59% → 99%, Metal Slug 7 mission 44% → 83%, Animal Crossing boot 82% → 95%, Rune Factory 81% → 95%. Kirby, TWEWY, Phantom Hourglass, White 1 unchanged (bitmap BGs). Metal Slug 7's new `hires` reason (6%) is expected: lines that show a hi-res capture.
+- Phones, first build `075df493` (`perf_logs/2026-11-18-shadow2d-inc2/`): `check` 0 in 28 runs (OnePlus + Pixel 8, OpenGL + Compute, 1x + 4x). No cost at 4x on either phone (OnePlus cx_shadow 3.9 ms, cx_sobj 2.3 ms in Mario Kart, but presented fps and render ms unchanged).
+- OnePlus, `a5ff5c9f` (`perf_logs/2026-11-18-shadow2d-inc2-fix/`): the 8x black bands are gone (0 black rows in 76 shots, 4 tracks), `check` 0 at 8x.
+- Sharpness crops: `logs/gpu2d-shadow/inc2/crops/mkds-s8-detail-off-on.png` (desktop), `perf_logs/2026-11-18-shadow2d-inc2-fix/oneplus/crops/`.
+
+## Open
+
+1. **Freeze bug (Fold, Adreno 750, OpenGL, shadow `all`, still in `a5ff5c9f`).** After changing internal resolution mid-race in Mario Kart, the bottom map's racer icons freeze while the map keeps moving, and a band of multicolored garbage shows while the rank list animates a position swap. 2x and up only; 1x is fine. Gone with the shadow off, and gone with `gpu2daffine 1` and with `2`. So it's in the affine composite draw: it reads something the resize leaves stale (a binding or sampler on the deleted old `StackTex`, uniforms set once, `PackAffineLine` texels from the old scale or ViewWidth) and draws over CPU lines (rank-swap lines use a rotated sprite, so the planes pass never writes their `StackTex` rows). The desktop didn't reproduce it with the shadow off; it hasn't been tried with the shadow on (`all` + `--at F:scale=N`, then `check` and a frame compare against a run that started at that scale). It's not visible in screenshots on the phone (too short), so the user checks it by eye on the Fold.
+2. **8x cost on the OnePlus (`a5ff5c9f`).** OpenGL 8x Mario Kart race: `0` 59.9/59.9 fps, render 2.1 ms; `all` 46–48 emulated / 31 presented, render 28 ms mean (21 median), 1% low 25–26, twice. `gpu2daffine 1` is back to 59.9 fps / 1.67 ms. The banded build showed 58.7/57.2 fps, but its bands may have been lines it skipped. Find whether 28 ms is inherent (4x cx_shadow 3.9 ms → maybe ~16 ms at 8x) or something in the new path (rows drawn by both composites, per-fragment line-constant fetches, a stall from re-uploading `LineStateTex` or the quad buffer mid-pass). If inherent, options to bring to the user: sharp rotated layers only up to 4x, or mode `1` skipping affine above 4x on weak GPUs. Don't change the policy without asking.
+3. **Unverified edits.** The core files `GPU_OpenGL.cpp/.h`, `GPU_OpenGL_shaders.h` (22:27) and `GPU_Shadow2D.h` (22:20) changed after the `a5ff5c9f` APK. The agent was mid-way through the 8x cost work and had just rebuilt the desktop (`desktop-build9.log`) and run shadercheck and a replay (`replay-fix4*`). Read the diff and re-run the checks before trusting them; nothing on a phone has this code.
+4. Not run yet: the Fold for `check` (it was locked or unplugged both times), Advance Wars' rotating ring on a phone (taps never reached it; desktop covers it), the "Sharper rotated 2D" setting (plan: Settings → Display, OpenGL and Compute, default off, once increments 2, 4 and 5 are in).
+
+## Device state
+
+- Fold (`192.168.1.32`, port changes; `adb mdns services`): has `a5ff5c9f`; `debug.melonade.gpu2d all`, `debug.melonade.gpu2daffine` at the user's last test value (1 or 2), `glpace` back to default. Reset: `setprop debug.melonade.gpu2d 0` and `setprop debug.melonade.gpu2daffine 0`. In PowerShell, don't pass `'""'` to clear a prop; it does nothing.
+- Leftovers the user may delete: `/data/local/tmp/sh2d4` on the OnePlus (`192.168.1.214:5555`) and Pixel 8 (`39071FDJH002W8`); a new Metal Slug 7 `.sav` on the OnePlus. The Fold has `/data/local/tmp/sh2d4` from the windows run.
+
+## Next steps
+
+1. Review the uncommitted diff; decide whether the post-21:54 edits stay.
+2. Fix the freeze bug (desktop repro with the shadow on first), then the 8x cost, keeping all device-free checks passing. Agents: at most about 6 heavy jobs at once.
+3. Phone: OnePlus 8x cost and bands, the Fold by eye for the freeze, `check` on the Fold and the Pixel.
+4. Write the increment 2 results into the plan, delete this file, and commit and merge through PRs (core into melonade first, merge commit).

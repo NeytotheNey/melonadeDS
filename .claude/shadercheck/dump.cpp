@@ -32,13 +32,15 @@ static void dumpGL(){
   w("Filter2DKeyFS.frag", kFilter2DKeyFS); w("Filter2DMmpxFS.frag", kFilter2DMmpxFS);
   w("CompositorFilter2DFS.frag", define(compFS, "#define FILTER2D\n"));
   w("CompositorWideFilter2DFS.frag", define(compFS, "#define WIDE\n#define FILTER2D\n"));
-  // GLCompositor::Shadow2DFS and Shadow2DObjFS: the GPU 2D shadow programs (the composite in the middle and wide, the planes pass in the 256 view and wide) and the OBJ pass
+  // GLCompositor::Shadow2DFS and Shadow2DObjFS: the GPU 2D shadow programs (the composite in the middle and wide, the planes pass in the 256 view and wide, the affine composite in the middle and wide) and the OBJ pass
   std::string shadowFS = std::string(kCompositorFS_Nearest_Head) + kCompositePixelFS + kCompositorFS_Nearest_Main + kShadow2DMemFS + kShadow2DFS_Main;
   w("Shadow2DVS.vert", kShadow2DVS);
   w("Shadow2DFS.frag", define(shadowFS, "#define SHADOW2D\n"));
   w("Shadow2DWideFS.frag", define(shadowFS, "#define WIDE\n#define SHADOW2D\n"));
   w("Shadow2DPlanesFS.frag", define(shadowFS, "#define SHADOW2D\n#define SHADOW2D_PLANES\n"));
   w("Shadow2DPlanesWideFS.frag", define(shadowFS, "#define WIDE\n#define SHADOW2D\n#define SHADOW2D_PLANES\n"));
+  w("Shadow2DAffineFS.frag", define(shadowFS, "#define SHADOW2D\n#define SHADOW2D_AFFINE\n"));
+  w("Shadow2DAffineWideFS.frag", define(shadowFS, "#define WIDE\n#define SHADOW2D\n#define SHADOW2D_AFFINE\n"));
   w("Shadow2DObjVS.vert", kShadow2DObjVS);
   w("Shadow2DObjFS.frag", std::string(kShadow2DObjFS_Head) + kShadow2DMemFS + kShadow2DObjFS_Main);
 }
