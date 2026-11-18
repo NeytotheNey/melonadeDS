@@ -2,7 +2,7 @@
 
 The goal is less GPU time, less graphics memory and less battery from the Compute 3D renderer, mainly for older Adreno phones. The test case is the OnePlus 7 Pro (Adreno 640) at 4x. 60 FPS there is the aim but not a hard target: any gain counts.
 
-Phase 1 (11-09 to 11-11, branch `compute-efficiency`) is merged into `material3` / `melonade`. Phase 2, a visibility pass, is planned below. Stage 0 (instruments) is done on `feature/compute-vis-stage0` and its results are under "Stage 0 results (11-18)"; stage 1a is in progress on `feature/compute-vis-1a`. The short version of the numbers is in `PERF-NOTES.md` under "Compute efficiency on the OnePlus 7 Pro"; raw logs are in `perf_logs/2026-11-09-compute-timers/` (`summary*.txt`, one folder per run under `runs/`), `perf_logs/2026-11-11-rooms/` and `perf_logs/2026-11-11-warmup/`.
+Phase 1 (11-09 to 11-11, branch `compute-efficiency`) is merged into `material3` / `melonade`. Phase 2, a visibility pass, is planned below. Stage 0 (instruments) is done on `feature/compute-vis-stage0` and its results are under "Stage 0 results (11-18)". Stage 1a was built on `feature/compute-vis-1a` and is **parked**: it draws exactly right but is slower on both phones (see "Stage 1a results (11-18): parked"). Stages 1b–5 build on the same pass, so Phase 2 needs a new plan before more code. The short version of the numbers is in `PERF-NOTES.md` under "Compute efficiency on the OnePlus 7 Pro"; raw logs are in `perf_logs/2026-11-09-compute-timers/` (`summary*.txt`, one folder per run under `runs/`), `perf_logs/2026-11-11-rooms/` and `perf_logs/2026-11-11-warmup/`.
 
 ## Phase 1: what was built
 
@@ -53,7 +53,7 @@ HASH2D matched on every overlapping frame for every change, on both phones, and 
 All `debug.melonade.<name>`, read at game start; the full text is in `DebugProperties.h`. `computepace`, `computeopt` (0 is the old shaders and skips; 95 the old three tile buffers; 479 one tile buffer; 255 turns the repeated-scene skip on), `computegrow`, `computerooms`, `computewarm`, `shadercache`, `computetile N` (force 8, 16 or 32 px tiles), and the logging ones: `computewhy` (`COMPWHY`, why each render wasn't skipped), `computesync` (`COMPSYNC`), `computepeaks` (`COMPPEAK`), `computetimers` (`COMPTIME`). Always logged in debug builds: `COMPTILES` (with `maxblock`, the GPU's storage block limit: 512 MB on the OnePlus, 2 GB on the Fold), `FRAMEQ`, `COMPGROW`, `COMPSLOW` (phase timings of any Compute frame over 30 ms), `COMPGLERR`, and `COMPROOMS`, `COMPWARM` and `COMPSHADER` while `computerooms`, `computewarm` and `shadercache` are on (the default).
 
 - `computetimers` reads zero for compute passes on Adreno (640 and the Fold); only the compositor buckets mean anything.
-- `computesync` inflates everything about 2.5x, so read shares only. `computepeaks` syncs every frame; ignore FPS. `computewhy` and `computetimers` cost nothing measurable.
+- `computesync` inflates everything about 2.5x, so read shares only. **On the OnePlus it also changes the clock regime** (11-18 perfetto: the GPU median drops from ~570 to ~213 MHz at a third of the utilization), so a pass that saves math but adds memory traffic looks faster under sync than it runs freely. Confirm any per-pass conclusion with a free-running FPS or cycles A/B. `computepeaks` syncs every frame; ignore FPS. `computewhy` and `computetimers` cost nothing measurable.
 - `computewarm` debug builds glFinish around the warm-up to time it, so debug grows cost a bit more than release; set it to 0 for A/Bs against logs from before 11-11.
 
 ### Testing notes
@@ -204,7 +204,54 @@ Numbers are in `PERF-NOTES.md` under "Compute baseline before Phase 2" and "Comp
 - **On Adreno at the 4x title, Rasterise's math is small** (texture −2.5%, interpolation +3.6%, divide +5.2% fps), so there the gain has to come from fewer visits and less memory traffic, which is V and Resolve skipping the prefix.
 - **Stage 3 looks bigger than ranked:** 27–28% of translucent fragments are behind the opaque bound at the title, 66–71% in the overworld (with the full, 1b prefix).
 - The alpha 1–30 counter was 0 everywhere. No equal-test, shadow, mask, wireframe, bitmap clear or AlphaRef frames in White 2; Mario Kart has about 9 shadows and 9 masks a frame, all after the prefix.
-- **Order now:** 1a, then 1b, then 1c, then 3, then 2.
+- **Order then:** 1a, then 1b, then 1c, then 3, then 2. Superseded by the 1a results below.
+
+### Stage 1a results (11-18): parked
+
+Built on `feature/compute-vis-1a` (core and app), behind `computevis` (default 0, debug builds only). Details and numbers: `PERF-NOTES.md`, "Compute Phase 2 stage 1a"; logs in `perf_logs/2026-11-18-compute-1a/`.
+
+**It's exact.** HASH3DF and HASH2D match `computevis 0` on every frame: the desktop sweep (21 games, 1x/4x/8x/12x, result buffers filled with garbage), the OnePlus 4x title (4922 frames) and the Pixel 4x title (6600 frames, 2792 distinct images).
+
+**It's slower where it's meant to win**, White 2's title, the only scene with a large 1a prefix:
+
+| Title | `computevis 0` | `computevis 1` |
+|---|---|---|
+| OnePlus 7 Pro, 4x | 33.9 fps | 31.3 fps (−7.6%, +7% GPU cycles, +6% memory traffic) |
+| Pixel 8, 8x | 17.33 Mcyc, 43.9 fps | 20.08 Mcyc, 37.9 fps (+16% cycles) |
+
+The overworld (prefix ~5–9 polygons) takes the old path through the gate and is unchanged.
+
+**Why it loses.** On the OnePlus, the 2.49 ms of extra work a frame splits into:
+- 1.32 ms for the second-layer handoff (`computevisprobe 1`);
+- 0.34 ms for the extra pass and barrier (`computevisprobe 2`);
+- about 0.8 ms neither probe covers, most likely V's per-visit loads (polygon plus 7–11 span words a visit, against DepthBlend's 1–2).
+
+`computepace 1` doesn't change the gap, so lost overlap between frames isn't the cause. V writes about 28 B per pixel and Resolve reads 24 B back, which outweighs the shading it saves: about 83 B per pixel against about 57. Compute passes on these tile-based GPUs pay for memory traffic, and the shading saved is cheap, especially on Adreno.
+
+**What went wrong on the way, so it doesn't happen again:**
+- **The first build broke the off path on Mali.** It moved DepthBlend code into a shared helper that used `gl_GlobalInvocationID` above the `layout(local_size_x ...)` line. Mali-G715 refused to compile DepthBlend, so the Pixel drew no 3D with `computevis 0` either. COMPSHADER still said `rejected=0`, and Nvidia and Adreno accepted the code.
+- **Now:**
+  - a failed program logs `COMPFAIL` and is never dispatched;
+  - `computevis 0` compiles byte-identical source to stage 0, checked by diffing `MELONADE_SHADER_DUMP` output;
+  - `tools/shadercheck/glslcheck.py` runs every dumped program through glslc plus the built-in-order check.
+- **Per-pass `computesync` timings showed 1a 11% faster on the OnePlus** while it ran 7.6% slower freely (see "Debug switches").
+
+**Left on the branch:** the visibility pass; the per-frame gate (`computevisgate`, default 25%); the per-tile skip; the compile fallback (`COMPVISFAIL`); `computepoison`, `computevisprobe`, and the source-dump and break hooks.
+
+**Not tried:**
+- a narrower handoff (V writes only the first layer while the second is empty). That recovers at most about half the gap on the OnePlus.
+- skipping prefix work tiles with no winner.
+
+Neither looks likely to turn a 16% loss on the Pixel into a win.
+
+**What this means for Phase 2:**
+- 1b, 1c, 2, 3 and 5 all build on V and its per-pixel handoff, so the stage table above is on hold.
+- The data points at cutting bytes, not per-fragment math. Candidates:
+  - fewer passes that write and then read back the same pixels;
+  - smaller tile buffers (stage 2's goal, without V);
+  - a cheap per-tile depth bound (C2) in place of a full visibility pass;
+  - whole-tile occlusion at bin time.
+- Re-plan before coding, measuring with free-running cycles, not `computesync`.
 
 **Open:** whether any game puts alpha-31 shadow polygons early in the opaque group (it would shorten the prefix); whether V's per-visit cost on Adreno comes in under DepthBlend's memory-bound visit. **Other risks:** particle-heavy translucent scenes gain little before stage 5; `prevIsShadowMask` is easy to break (stage 3, Mario Kart's shadows); 3–8 more programs and the hard-coded counts and keys; the grow-and-skip safety valve stays inexact when it triggers, as today. Code map: `GPU3D_Compute_shaders.h` (Rasterise ~:1240–1561, DepthBlend ~:1563–1837, BinCombined ~:954–1149, FinalPass ~:1839), `GPU3D_Compute.cpp` (RenderFrame ~:2244–3100, ResizeTargets/BuffersFit ~:766–1025, QueueHash3D ~:1731), `GPU3D_Soft.cpp` and `GPU3D.cpp` for the rules and the opaque-first sort.
 
