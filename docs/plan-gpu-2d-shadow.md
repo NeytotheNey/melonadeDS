@@ -2,7 +2,7 @@
 
 Plan for step 3 of [plan-gpu-2d.md](plan-gpu-2d.md), written 11-08. CPU 2D stays the real result. The shadow pass redraws lines it can prove it matches, at output resolution, on the GPU, for display only. Nothing in `GPU2D_Soft.cpp` changes, so CPU output, HASH2D, capture and threaded 2D can't change. It has to draw X outside 0..255 from the start for WideMelon steps 4–7 ([plan-widemelon.md](plan-widemelon.md)), and it builds on WideMelon's pieces: the block after `AccelWingPlanesStart`, `WingPixel` and `WingPlanesTex`, the hold order and the window edge patch.
 
-**Status (11-17):** phase 0, increment 1 (core `e4b893bb`) and increment 5 (blending, core `aa597f11`) are done, phone-checked and in `material3` / core `melonade`; the `gpu-2d-shadow` and `widemelon` branches are merged and gone. The OnePlus display stall in mode `all` is fixed and merged (the planes pass, below; core `f65efa1a`, app PR #9). GLTIME no longer drops sets while the shadow runs (app PR #10), and OpenGL has render pacing, `GPU::GLPace` (app PR #11); both in "Fixed", below. Next: windows (increment 4).
+**Status (11-17):** phase 0, increment 1 (core `e4b893bb`) and increment 5 (blending, core `aa597f11`) are done, phone-checked and in `material3` / core `melonade`; the `gpu-2d-shadow` and `widemelon` branches are merged and gone. The OnePlus display stall in mode `all` is fixed and merged (the planes pass, below; core `f65efa1a`, app PR #9). GLTIME no longer drops sets while the shadow runs (app PR #10), and OpenGL has render pacing, `GPU::GLPace` (app PR #11); both in "Fixed", below. Increment 4 (windows) is done, phone-checked and merged (core PR #5, app PR #12; results below). Next: affine BGs (increment 2).
 
 ## Phase 0: gameplay counters (done, 11-09)
 
@@ -63,7 +63,7 @@ What this changed in the plan:
    - It draws instance quads into `ObjTex` (`RG32UI`, ViewWidth × 384 at ObjScale) with a 16-bit depth buffer.
    - R holds the CPU's `OBJLine` pixel format exactly: color or palette index, 0x8000/0x1000 for direct and standard palette, priority 0x30000, opaque 0x40000, mosaic 0x100000, and the flag byte.
    - Depth is `prio*128 + index` with `GL_LESS`, which is the "lowest (priority, index) wins" rule of `SoftRenderer::DrawSpritePixel`. Upstream's `2DSpriteVS.glsl` uses the same key.
-   - OBJ-window sprites (increment 4) are a second draw into G only (`glColorMaski`, depth off), then `glInvalidateFramebuffer` on the depth. Increment 1 left them out: they can't matter with windows off, and per-channel `glColorMaski` on RG32UI is a driver risk.
+   - OBJ-window sprites (increment 4): `ObjTex` is 768 rows, sprite pixels in rows 0–383 (R) and the OBJ window in rows 384–767 (G), in the same instanced draw and depth test. A window texel is an OR of opaque pixels, so a fragment that fails depth lands on a texel already set. No `glColorMaski` (a driver risk on RG32UI), no extra target or unit.
    - ObjScale is 1 until increment 3. From then it's the 3D scale, capped at 4, on frames with a visible rotated sprite.
 2. **Planes pass** (`SHADOW2D_PLANES`, `RunShadow2DPlanes`), right after the OBJ pass, also before the output is bound. It draws the drawn row runs at 1x into `PlanesTex` (`RGBA32UI`, ViewWidth × 384, no gap between the screens, the wings too on lines that draw them).
    - Each fragment is one native pixel. It evaluates the layers in the CPU's priority order (`DrawScanlineBGMode<N>`) and pushes a 3-entry stack the way `DrawPixel_Accel` does, including the backdrop, the 3D placeholder 0x40000000 and sprites through the `InterleaveSprites` palette lookup.
@@ -77,7 +77,7 @@ What this changed in the plan:
 
 ### GPU or CPU per line
 
-- **Feature-eligible** is decided by the recorder from the line's state, for the increments that have landed. The base rules: display mode 1, enabled, not forced blank, VCount == Line, not capture-armed (engine A), screens on. With increments 1 and 5: text BGs only, no windows (`DispCnt & 0xE000`), no BG or OBJ mosaic (decided from the mosaic bit alone, whatever the size), and no rotated sprite on the line. Hi-res display lines are display mode 2 or bitmap BGs, so `dispmode` or `bgtype` catches them before the `hires` reason.
+- **Feature-eligible** is decided by the recorder from the line's state, for the increments that have landed. The base rules: display mode 1, enabled, not forced blank, VCount == Line, not capture-armed (engine A), screens on. With increments 1, 4 and 5: text BGs only (windows allowed since increment 4; stray `Win*Active` bits from a savestate still stay `window`), no BG or OBJ mosaic (decided from the mosaic bit alone, whatever the size), and no rotated sprite on the line. Hi-res display lines are display mode 2 or bitmap BGs, so `dispmode` or `bgtype` catches them before the `hires` reason.
 - **Drawn** is decided at the Blit, in the compositor's uploaded copy of word 0 (bit 31). A line is drawn if it's feature-eligible, the page log covers it, and it isn't a hi-res display line (`HiresDisplayFlag` after `PrepareHiresDisplay`), held or white. Then the mode's policy applies:
   - `1`: only lines that gain something: scale 2 or more with a real rotation or scale on a BG or sprite, or 2D the wide config sends into the wings;
   - `all`: every feature-eligible line.
@@ -125,7 +125,7 @@ Phone proof for every increment: `check` at 1x and 4x with 0 mismatches on OpenG
    - Files: about 200.
    - Proof: Kirby A (`sprrot` up to 4) and Mario Kart B, `check` 0, plus a cost check of `ObjTex` at 8x wide.
    - 1–2 phone steps.
-4. **Windows.** A closed form of `CalculateWindowMask`'s scan (carry-in from `Win0Active`/`Win1Active`, x2 checked before x1), the OBJ window from `ObjTex.g`, WINOUT, and the edge patch under WideView or WideCheck. The window mask is a constant `0xFF` in the shader today, so this only has to compute it per pixel.
+4. **Windows. Done**, results below. A closed form of `CalculateWindowMask`'s scan (carry-in from `Win0Active`/`Win1Active`, x2 checked before x1), the OBJ window from `ObjTex.g`, WINOUT, and the edge patch under WideView or WideCheck. The window mask is a constant `0xFF` in the shader today, so this only has to compute it per pixel.
    - Files: about 150.
    - Proof: Metal Slug 7 B, Kirby B and Advance Wars' dialogs, `check` 0, exact pairs.
    - 1 phone step.
@@ -155,6 +155,15 @@ Decisions taken with it (the plan's defaults): the page log counts physical page
 **WideMelon 342:** `gpu2dwide 0` keeps the wings identical to `0`. `gpu2dwide 1` draws policy `1` lines with the middle exact, and Advance Wars' intro letters, bars and banner carry into the wings. In Kirby and White 2 the wings looked the same as off; that's worth a look in WideMelon step 4.
 
 **Cost:** the recorder averages 0.39 ms a frame on the OnePlus at OpenGL 4x (95–153 µs on the Fold), under the 1 ms stop line. Uploads average 45 KB a frame when drawing (max 104).
+
+### Increment 4 results (11-17)
+
+Core about +215/−69 (core `0eaa44fa`). `InsideWindow`/`WindowMask` in the planes shader and the replay: the X state starts from the line's carry-in (bit 1 of `Win0Active`/`Win1Active`), the later edge at or left of x decides, x1 only opens when x1 != x2, and the mask goes WINOUT, OBJ window, WIN1, WIN0. A pixel takes the mask of column `clamp(nx, 0, 255)`, or `clamp(nx, 1, 254)` with the edge patch (new flag bit 17, `F_WinEdge`). The line state block already held the window registers, so its size didn't change. OBJ-window sprites become instances (sharing the 2048 cap), with mosaic ignored as the CPU does.
+
+- **Device-free:** the closed form against a copy of the CPU loop, 697M cases, 0 bad. Replay on 27 scenes with and without `--bnohold`, 11.7M lines (745K with windows, 2,656 with OBJ-window pixels), 0 mismatches, 0 stale. HASH2D, `wide_check.sh` and shadercheck (GL half; the compute half doesn't build, before or after) pass. Desktop `check` 0 mismatches in 12 runs (OpenGL and Compute, 1x and 4x, 256 and 342 views). Planted bugs are caught (x1 first, x1/x2 swap, WININ/WINOUT swap, edge patch off, OBJ window ignored), except an ignored carry-in, which only the closed-form test covers since no scene has a wrapping window. Logs in `logs/gpu2d-shadow/inc4/`.
+- **Eligible lines in the replay, before → after:** TWEWY boot 57% → 93%, Animal Crossing 54% → 82%, Mario Kart demo 55% → 75%, Advance Wars 85% → 97%, Rune Factory 77% → 81%, Kirby 70% → 73%. The `window` reason is 0 in every scene.
+- **Phones (`perf_logs/2026-11-17-shadow2d-inc4/`):** `check` 0 mismatches and 0 failures in all 56 runs (OnePlus and Fold: TWEWY, Animal Crossing, Advance Wars, Mario Kart at 1x and 4x, OpenGL and Compute; Pixel 8: TWEWY and Advance Wars at 4x). No GL errors. `window` 0 everywhere. OnePlus `all` vs `0` at 4x: TWEWY's window segment matched pixel for pixel in 11 of 12 shots (the 12th was a different moment); Advance Wars' differences were only frame alignment (cursor, a text banner). Cost, OnePlus OpenGL 4x (unplugged): presented fps and render ms unchanged in TWEWY, Mario Kart and NSMB; TWEWY's emulation thread does about 0.7 ms more work.
+- **Not proven:** the Fold's scripted input may not have reached the games (its layout has no on-screen buttons), so its window segments are less certain; Advance Wars' OBJ-window frames are covered by `check` and the desktop, not by an exact pair. Affine OBJ-window sprites stay CPU (`rotsprite`). `ObjTex` doubled (1.5–2.6 MB at ObjScale 1) and will scale with increment 3.
 
 ### Increment 5 results (11-09)
 
