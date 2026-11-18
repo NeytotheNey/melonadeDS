@@ -2,7 +2,7 @@
 
 The goal is less GPU time, less graphics memory and less battery from the Compute 3D renderer, mainly for older Adreno phones. The test case is the OnePlus 7 Pro (Adreno 640) at 4x. 60 FPS there is the aim but not a hard target: any gain counts.
 
-Phase 1 (11-09 to 11-11, branch `compute-efficiency`) is merged into `material3` / `melonade`. Phase 2, a visibility pass, is planned below and not started. The short version of the numbers is in `PERF-NOTES.md` under "Compute efficiency on the OnePlus 7 Pro"; raw logs are in `perf_logs/2026-11-09-compute-timers/` (`summary*.txt`, one folder per run under `runs/`), `perf_logs/2026-11-11-rooms/` and `perf_logs/2026-11-11-warmup/`.
+Phase 1 (11-09 to 11-11, branch `compute-efficiency`) is merged into `material3` / `melonade`. Phase 2, a visibility pass, is planned below. Stage 0 (instruments) is done on `feature/compute-vis-stage0` and its results are under "Stage 0 results (11-18)"; stage 1a is in progress on `feature/compute-vis-1a`. The short version of the numbers is in `PERF-NOTES.md` under "Compute efficiency on the OnePlus 7 Pro"; raw logs are in `perf_logs/2026-11-09-compute-timers/` (`summary*.txt`, one folder per run under `runs/`), `perf_logs/2026-11-11-rooms/` and `perf_logs/2026-11-11-warmup/`.
 
 ## Phase 1: what was built
 
@@ -80,7 +80,7 @@ All `debug.melonade.<name>`, read at game start; the full text is in `DebugPrope
 
 ### Open
 
-- **The OnePlus:** a 4x run of the current build with graphics PSS, since the warm-up now makes the whole room resident there.
+- ~~**The OnePlus:** a 4x run of the current build with graphics PSS.~~ Done 11-18: 156 MB at the 4x title, but meminfo there doesn't count the compute buffers at all (155–164 MB at every scale), so it can't be measured on this phone.
 - **The Fold's packing confirm run** of the default-on build (low risk; the OnePlus's passed). Also not done there: a run unplugged, and the main screen (all Phase 1 runs were on the cover screen).
 - **The user's eyes on skipped frames.** Pacing leaves the previous 3D image up for about 7 frames a second on NSMB's map (up to 21 in Mario Kart's demo), with 2D still updating. Nobody has judged whether it looks juddery; `screenrecord` is blocked over adb on the OnePlus. If it does, `computepace 1` is the fallback.
 - **Why `computeopt` bit 32 stutters.** White 2's overworld, Smooth on: 60 → 30 renders a second and the GPU ends about 9 °C cooler, but FPS drops 59.97 → 58.36 with about 100 long frames per 30 s. The long frames are pacing waits (0.91 correlation with `wait_ms`); with `computepace 0` they become dropped presents instead (55.8 presented). So the GPU falls behind when half the renders are skipped. The guess is its clock drops in the gaps. A perfetto `gpu.counters` trace of `computeopt 127` against 95 would say. It's the remaining battery win for 30 FPS games with Smooth 30 FPS on.
@@ -166,7 +166,7 @@ Wireframe, bitmap clear, AlphaRef and opaque A5I3 texels: find them with census 
 
 ### Cheaper wins, ranked
 
-1. **`computetile 8` at 8x on the Fold.** No code, one phone step. 8x uses 16 px tiles and wastes about a third of its 256 threads (3.95 visits vs ~2.6 colored); fits the work-tile limits at the 256 view.
+1. ~~**`computetile 8` at 8x on the Fold.**~~ Ruled out 11-18: slower on the OnePlus (11.3 vs 11.5 fps) and the Pixel (+3% cycles) at the 8x title, and roughly double the tile memory. The Fold wasn't tried. No code, one phone step. 8x uses 16 px tiles and wastes about a third of its 256 threads (3.95 visits vs ~2.6 colored); fits the work-tile limits at the 256 view.
 2. **Stage 0's probes and census**, which decide whether 1a pays in W frames and whether 1a or 1b comes first. If most opaque work comes before the first cut-out polygon, 1a alone is most of the win at ~60% of the lines.
 3. **1c**, ~15 lines on top of V.
 4. **Stage 3**, ~60 lines, needs V.
@@ -193,6 +193,18 @@ Not worth it: splitting texture sampling out of Rasterise (Compute already sampl
 3. `computetile 8` at 8x.
 4. On Mali: `GL_MAX_TEXTURE_BUFFER_SIZE`, and whether a DepthBlend-sized shader spills.
 5. How much of the 935 MB is tile memory at the 8x title (`COMPROOMS`, `COMPGROW` lines), before stage 2.
+
+### Stage 0 results (11-18)
+
+Numbers are in `PERF-NOTES.md` under "Compute baseline before Phase 2" and "Compute Phase 2 stage 0". Switches (`hash3dfull`, `computevisstats`, `computedepth`'s new fields, `computeprobe`) are in `docs/debug-switches.md`. The Fold wasn't connected, so its scenes (fog area, NSMB's map, the 8x title under `computesync`) are still to do.
+
+- **1a only pays at the title.** The title has no cut-outs, so the 1a prefix is 64% of its tile work. White 2's overworld puts a cut-out at polygon 5–9 every frame, leaving 1a 0.3%; on the desktop Platinum keeps 16% and Mario Kart 0%. So 1b is what makes the pass worth it in gameplay, and 1a and 1b should ship together.
+- **Winners are about 1 per pixel** against 2.7 prefix visits at the title and up to 2.9 in the overworld. That's the shading V removes.
+- **The divide matters on Mali:** removing it cuts 19% of cycles at the title and 22% in the overworld (Pixel 8x). V still divides per covered fragment, so **1c** (skip depth and the divide for fragments that can't win) moves up: 27% of prefix visits fail depth at the title, 43% in the overworld.
+- **On Adreno at the 4x title, Rasterise's math is small** (texture −2.5%, interpolation +3.6%, divide +5.2% fps), so there the gain has to come from fewer visits and less memory traffic, which is V and Resolve skipping the prefix.
+- **Stage 3 looks bigger than ranked:** 27–28% of translucent fragments are behind the opaque bound at the title, 66–71% in the overworld (with the full, 1b prefix).
+- The alpha 1–30 counter was 0 everywhere. No equal-test, shadow, mask, wireframe, bitmap clear or AlphaRef frames in White 2; Mario Kart has about 9 shadows and 9 masks a frame, all after the prefix.
+- **Order now:** 1a, then 1b, then 1c, then 3, then 2.
 
 **Open:** whether any game puts alpha-31 shadow polygons early in the opaque group (it would shorten the prefix); whether V's per-visit cost on Adreno comes in under DepthBlend's memory-bound visit. **Other risks:** particle-heavy translucent scenes gain little before stage 5; `prevIsShadowMask` is easy to break (stage 3, Mario Kart's shadows); 3–8 more programs and the hard-coded counts and keys; the grow-and-skip safety valve stays inexact when it triggers, as today. Code map: `GPU3D_Compute_shaders.h` (Rasterise ~:1240–1561, DepthBlend ~:1563–1837, BinCombined ~:954–1149, FinalPass ~:1839), `GPU3D_Compute.cpp` (RenderFrame ~:2244–3100, ResizeTargets/BuffersFit ~:766–1025, QueueHash3D ~:1731), `GPU3D_Soft.cpp` and `GPU3D.cpp` for the rules and the opaque-first sort.
 
