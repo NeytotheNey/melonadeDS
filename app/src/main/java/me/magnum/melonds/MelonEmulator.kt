@@ -212,6 +212,17 @@ object MelonEmulator {
     external fun getActiveDebugSwitches(): String
 
     /**
+     * Debug builds only (a no-op in release builds): sets the OpenGL floor seams fix (GPU::GLSeams, 0 off, 3 the full fix) for the running game,
+     * applied before the next frame. It starts at the glseams debug switch.
+     */
+    external fun setGLSeams(value: Int)
+
+    /**
+     * Debug builds only (0 in release builds): the OpenGL floor seams fix the running game has, as [setGLSeams] or the glseams switch set it.
+     */
+    external fun getGLSeams(): Int
+
+    /**
      * Copies pending frame samples into [buffer] and returns how many, each [PERF_FRAME_SAMPLE_FIELDS] entries in this order:
      * frame end timestamp (ns, CLOCK_MONOTONIC), work duration (ns), sleep duration (ns), interval since the previous frame end (ns), emulated line
      * count, flags ([PERF_FRAME_FLAG_FAST_FORWARD], [PERF_FRAME_FLAG_AFTER_PAUSE], [PERF_FRAME_FLAG_PACING_LOCKED], the refresh divisor at

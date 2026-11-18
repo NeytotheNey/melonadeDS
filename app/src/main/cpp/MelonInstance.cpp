@@ -88,6 +88,7 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
 
 #ifdef MELONADE_DEBUG_TOOLS
     debugOverrides = DebugProperties::apply(*nds);
+    glSeams = nds->GPU.GLSeams;
 #endif
 
     if (configuration->userInternalFirmwareAndBios)
@@ -361,6 +362,11 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             computeRenderer.SetViewMargin(wideViewMargin);
         }
     }
+
+#ifdef MELONADE_DEBUG_TOOLS
+    // The pause menu's seam fix toggle (setGLSeams); the GL renderer reads it as the frame starts, and builds the frame's vertices for it
+    nds->GPU.GLSeams = glSeams.load(std::memory_order_relaxed);
+#endif
 
     // Cleared first, so a configuration that arrives during updateRenderer() is applied on the next frame
     if (isRenderConfigurationDirty.exchange(false))
