@@ -366,6 +366,8 @@
     <string name="hires_capture">Upscaled display capture</string>
     <string name="filter_2d">Smooth 2D edges</string>
     <string name="filter_2d_summary">Rounds off the jagged edges of 2D graphics while 3D stays sharp. Needs an internal resolution of 2x or higher, and costs some GPU time</string>
+    <string name="sharper_rotated_2d">Sharper rotated 2D</string>
+    <string name="sharper_rotated_2d_summary">Draws rotated and scaled 2D layers at the internal resolution (2x to 6x) instead of upscaling them. Turns off Smooth 2D edges</string>
     <string name="edge_marking">Edge marking</string>
     <string name="edge_marking_summary">Draw the outlines games add around 3D models</string>
     <string name="deband">Smooth gradients</string>

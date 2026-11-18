@@ -15,6 +15,8 @@
 #include "DSiSupport.h"
 #include "DSi_I2C.h"
 #include "GPU3D_OpenGL.h"
+// Shadow2D::MaxSharpAffineScale for the "Sharper rotated 2D" setting, and Shadow2DRecorder::AffineDebug for debug.melonade.gpu2daffine
+#include "GPU_Shadow2D.h"
 #include "MelonDS.h"
 #include "MelonInstance.h"
 #include "NDS.h"
@@ -984,6 +986,8 @@ void MelonInstance::updateRenderer()
         nds->GPU.SetRenderer3D(std::move(renderer));
     }
 
+    // The internal resolution the OpenGL and compute renderers are asked for, for the GPU 2D shadow below
+    int renderScale = 1;
     switch (currentRenderer)
     {
         case Renderer::Software:
@@ -1004,6 +1008,7 @@ void MelonInstance::updateRenderer()
             glRenderer.SetViewWidth(wideViewWidth);
             glRenderer.SetViewMargin(wideViewMargin);
             glRenderer.SetRenderSettings(glRenderSettings.betterPolygons, glRenderSettings.scale);
+            renderScale = glRenderSettings.scale;
             break;
         }
         case Renderer::Compute:
@@ -1015,6 +1020,7 @@ void MelonInstance::updateRenderer()
             computeRenderer.SetViewMargin(wideViewMargin);
             computeRenderer.SetRenderSettings(computeRenderSettings.scale,computeRenderSettings.highResCoordinates);
             computeRenderer.SetColorDither(computeRenderSettings.colorDithering);
+            renderScale = computeRenderSettings.scale;
             break;
         }
         default: __builtin_unreachable();
@@ -1043,15 +1049,46 @@ void MelonInstance::updateRenderer()
     // Read by the OpenGL and compute renderers at their next frame; software always marks edges
     nds->GPU.GLEdgeMark = edgeMark;
 
+    // Only the OpenGL and compute renderers can draw the in-between scenes or the GPU 2D shadow, so software doesn't pay for them
+    bool isGpuRenderer = currentRenderer == Renderer::OpenGl || currentRenderer == Renderer::Compute;
+
+    // "Sharper rotated 2D": the GPU 2D shadow in mode 1, the lines with a rotated or scaled BG (GPU_Shadow2D.h). Between frames, which is where
+    // a savestate load resets it too. Only from 2x, where those lines gain something, up to the scale the compositor still draws them sharp at
+    // (Shadow2D::MaxSharpAffineScale; above it they'd cost the shadow for native pixels). A resolution change comes through here, so it turns on
+    // and off with it
+    bool isShadow2DOverridden = false;
+    int shadow2DWide = 0;
+    bool isSharpAffineCapLifted = false;
+#ifdef MELONADE_DEBUG_TOOLS
+    // debug.melonade.gpu2d: DebugProperties::apply already set the mode (with its log and check) for this game, and it stays through renderer
+    // and setting changes
+    isShadow2DOverridden = debugOverrides.gpu2d >= 0;
+    shadow2DWide = debugOverrides.gpu2dWide;
+    // gpu2daffine -1 lifts the compositor's cap, so the setting runs above it too
+    isSharpAffineCapLifted = debugOverrides.gpu2dAffine < 0;
+#endif
+    bool isShadow2DScale = renderScale >= 2 && (renderScale <= Shadow2D::MaxSharpAffineScale || isSharpAffineCapLifted);
+    // Smooth 2D edges wins when both are on (an old prefs file or a backup), as the lines the shadow draws would lose its smoothing. The
+    // settings screen turns one off when the other's turned on
+    bool wantsShadow2D = configuration->sharperRotated2d && filter2d == 0 && isGpuRenderer && isShadow2DScale;
+    // Only on a change, as SetShadow2D resets the recorder, which leaves that frame's 2D on the CPU
+    if (!isShadow2DOverridden && wantsShadow2D != (nds->GPU.Shadow2D != nullptr))
+    {
+        nds->GPU.SetShadow2D(wantsShadow2D ? 1 : 0, false, false, shadow2DWide);
+#ifdef MELONADE_DEBUG_TOOLS
+        if (nds->GPU.Shadow2D)
+            nds->GPU.Shadow2D->AffineDebug = debugOverrides.gpu2dAffine;
+#endif
+    }
+
     bool isHalfCameraOverridden = false;
 #ifdef MELONADE_DEBUG_TOOLS
     // DebugProperties::apply already set the mode for this game, and it stays through renderer changes
     isHalfCameraOverridden = debugOverrides.halfCamera >= 0;
 #endif
-    // Also between frames. Only the OpenGL and compute renderers can draw the in-between scenes, so software doesn't pay for them
-    bool canDrawInBetween = currentRenderer == Renderer::OpenGl || currentRenderer == Renderer::Compute;
+    // Also between frames
     if (!isHalfCameraOverridden)
-        nds->GPU.GPU3D.SetHalfCameraSmoothing(configuration->framePacingSmooth30Fps && canDrawInBetween);
+        nds->GPU.GPU3D.SetHalfCameraSmoothing(configuration->framePacingSmooth30Fps && isGpuRenderer);
 }
 
 void MelonInstance::logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs)

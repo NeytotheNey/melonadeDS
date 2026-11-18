@@ -36,6 +36,13 @@
                 android:summary="@string/filter_2d_summary"
                 android:defaultValue="false" />
 
+        <!-- OpenGL and compute only, so it's hidden for software (set up in VideoPreferencesFragment) -->
+        <SwitchPreference
+                android:key="video_sharper_rotated_2d"
+                android:title="@string/sharper_rotated_2d"
+                android:summary="@string/sharper_rotated_2d_summary"
+                android:defaultValue="false" />
+
         <!-- OpenGL and compute only (software always draws it), so it's hidden for software (set up in VideoPreferencesFragment) -->
         <SwitchPreference
                 android:key="video_edge_marking"

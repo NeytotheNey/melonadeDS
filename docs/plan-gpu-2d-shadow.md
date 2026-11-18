@@ -218,7 +218,7 @@ On the phones, drawn lines went from 27% to 93% on White 2's title, 65% to 93% o
 
   It isn't called `shadow2d`, because `shadowlog` already means 3D shadows.
 - **`debug.melonade.gpu2dwide`:** `1` makes every layer draw past the edge. Test only.
-- **No user setting** until increments 2, 4 and 5 make something visible. Then "Sharper rotated 2D" under Settings → Display, OpenGL and compute, default off, hidden on software, plumbed like "Smooth 2D edges".
+- **User setting:** "Sharper rotated 2D" under Settings → Display (`video_sharper_rotated_2d`, default off, hidden on software, plumbed like "Smooth 2D edges"). It runs mode `1` on OpenGL and compute at an internal resolution of 2x to 6x (`Shadow2D::MaxSharpAffineScale`; `gpu2daffine -1` lifts the top), and `MelonInstance::updateRenderer` turns it on and off between frames as the renderer, the resolution or the setting changes. It's exclusive with "Smooth 2D edges": turning one on in the settings turns the other off, and if a prefs file has both on, Smooth 2D edges wins. `debug.melonade.gpu2d`, when set (`0` too), replaces it for the game.
 - **Compute** runs the same code, since `ComputeRenderer::Blit` uses the same `GLCompositor`. It's GPU-bound on the OnePlus, so it stays opt-in there.
 
 ## Risks and when to stop

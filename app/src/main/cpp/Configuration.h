@@ -109,6 +109,9 @@ typedef struct
     bool hiresCapture;
     // OpenGL and compute, at internal resolution 2x and up: the compositor smooths 2D edges (GPU::Filter2D)
     bool filter2d;
+    // OpenGL and compute, at internal resolution 2x to 6x: rotated and scaled 2D layers drawn at that resolution, the GPU 2D shadow in mode 1
+    // (GPU::SetShadow2D, GPU_Shadow2D.h), applied in MelonInstance::updateRenderer()
+    bool sharperRotated2d;
     // OpenGL and compute: draw the games' edge marking (GPU::GLEdgeMark 1, or 0 when off). Software always draws it
     bool edgeMarking;
     // Puts the Lua scripts' drawings into savestate and rewind pictures

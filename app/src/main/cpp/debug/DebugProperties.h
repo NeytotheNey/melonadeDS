@@ -136,12 +136,15 @@ namespace melonDS { class NDS; }
  *                  3 run every pass but write identity coordinates (output must match 0 byte for byte). 1-3 also log a FILTER2D line once a second
  *   gpu2d V        OpenGL/compute, the GPU 2D shadow renderer (GPU_Shadow2D.h, docs/plan-gpu-2d-shadow.md): 0 off (the default), 1 redraws
  *                  only the lines that gain something, `all` every line it can, `log` is 1 plus a GPU2D line once a second, `check` is
- *                  all plus the log and a 1x readback every 30 frames compared word for word with the CPU's planes
- *   gpu2dwide N    with gpu2d: 1 lets every 2D layer draw past the edge into WideMelon's wings (a test mode, default 0)
- *   gpu2daffine N  with gpu2d, to tell the affine composite (rotated or scaled BGs at 2x and up) apart from what it needs:
+ *                  all plus the log and a 1x readback every 30 frames compared word for word with the CPU's planes. When set to any
+ *                  of these, it replaces the "Sharper rotated 2D" setting (mode 1) for the game, so 0 forces it off; unset or anything
+ *                  else leaves it to the setting
+ *   gpu2dwide N    with gpu2d or the setting: 1 lets every 2D layer draw past the edge into WideMelon's wings (a test mode, default 0)
+ *   gpu2daffine N  with gpu2d or the setting, to tell the affine composite (rotated or scaled BGs at 2x and up) apart from what it needs:
  *                  1 draws those lines with the plain composite (native BG pixels) while the planes pass still writes
  *                  the affine stack, 2 the same without the stack, -1 lifts the cap that draws them plain above 6x on
- *                  every GPU (Shadow2D::MaxSharpAffineScale) to test the sharp composite there (default 0)
+ *                  every GPU (Shadow2D::MaxSharpAffineScale) to test the sharp composite there, and lets the setting run
+ *                  above 6x (default 0)
  *   vertexid N     1 logs a VERTEXID line once a second on vertex identity between 3D scenes, 2 a line per scene as well, no effect on emulation (GPU3D_VertexId.h)
  *   halfcam N      experiment: in-between 3D scenes from a halfway camera, 1 camera only, 2 plus characters, 3 same as 2 with a HALFCAM cam line per scene and a diag line per second, 4 same as 3 plus billboards following the camera, 5 same as 4 with a HALFCAM pair line per scene; OpenGL and compute renderers only (GPU3D_HalfCamera.h). When set, it replaces the Smooth 30 FPS setting, so 0 forces it off
  *   gltimers N     OpenGL: 1 logs a GLTIME line once a second with the GPU µs of each pass per timed render, capture readback and Blit (upload,
@@ -324,6 +327,11 @@ struct Overrides
     int halfCamera = -1;
     // gledgemark, over the "Edge marking" setting (GPU::GLEdgeMark)
     int edgeMark = -1;
+    // gpu2d, over the "Sharper rotated 2D" setting: the GPU::SetShadow2D mode apply already set (0 off, 1, 2 all), -1 when the setting decides
+    int gpu2d = -1;
+    // gpu2dwide and gpu2daffine as read (0 when unset), for a shadow the setting turns on later
+    int gpu2dWide = 0;
+    int gpu2dAffine = 0;
 };
 
 /**
