@@ -126,6 +126,7 @@ inline const IntSwitch kIntSwitches[] = {
     {"ComputeBin", &melonDS::GPU::ComputeBin},
     {"ComputeCalc", &melonDS::GPU::ComputeCalc},
     {"ComputeFlat", &melonDS::GPU::ComputeFlat},
+    {"ComputeOpt", &melonDS::GPU::ComputeOpt},
     {"HeldTo2DThread", &melonDS::GPU::HeldTo2DThread},
 };
 
