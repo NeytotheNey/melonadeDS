@@ -314,6 +314,12 @@ namespace melonDS { class NDS; }
  *                  prefix needs for the frame to take the visibility path; below it the frame runs the old programs, which
  *                  draw the same. 25, the default; 0 takes the path whenever there's a prefix (GPU::ComputeVisGate). COMPVIS's
  *                  vis_f counts the frames that took it
+ *   computevisprobe N compute, timing probes for computevis, a sum of bits; bit 1 RENDERS WRONG on purpose. 1 (with computevis 1):
+ *                  OpaqueVis doesn't write the second layer (depth, attributes, a sentinel's color) and Resolve doesn't read it
+ *                  back, to time the layer hand-off (recompiles the vis programs). 2: a frame that doesn't take the visibility
+ *                  path (computevis 0, or under the gate) gets an empty dispatch with OpaqueVis's thread count and the storage
+ *                  barrier after it, between SortWork and Rasterise, to time what the extra pass costs beyond its work (exact).
+ *                  0, the default, is off. Never for hashes with bit 1 (GPU::ComputeVisProbe)
  *   computepoison 1 compute, a check: the result buffer (with computevis's winner words) and the tile memory are filled with
  *                  0xDEADBEEF where they're allocated and before every render, so a pass that reads what no pass of the render
  *                  wrote shows it on any GPU. Slow; for hash checks only (GPU::ComputePoison)
