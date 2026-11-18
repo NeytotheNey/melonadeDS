@@ -256,6 +256,9 @@ Overrides apply(NDS& nds)
         gpu.GLClearFast = std::clamp(atoi(value), 0, 3);
     if (read("glnodiscard", value))
         gpu.GLNoDiscard = std::clamp(atoi(value), 0, 7);
+    // the floor seams fix (docs/plan-gl-floor-seams.md), off by default until the phones have checked it
+    if (read("glseams", value))
+        gpu.GLSeams = std::clamp(atoi(value), 0, 3);
     // a measurement probe that renders wrong (T2), 0 everywhere unless set
     if (read("gltexprobe", value))
         gpu.GLTexProbe = std::clamp(atoi(value), 0, 4);
@@ -380,9 +383,9 @@ Overrides apply(NDS& nds)
     int length = snprintf(summary, sizeof(summary), "Debug switches:");
     for (const BoolSwitch& boolSwitch : BOOL_SWITCHES)
         length += snprintf(summary + length, sizeof(summary) - length, " %s=%d", boolSwitch.name, gpu.*boolSwitch.target ? 1 : 0);
-    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d glpace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d gpu2daffine=%d gltimers=%d scenestats=%d gltrans=%d gledgeskip=%d gledgemark=%d gledgefast=%d glclear=%d glnodiscard=%d gltexprobe=%d gltexcache=%d compclear=%d comp1x=%d filter2drows=%d outcap=%d outcapneed=%d outcap3d=%d computecheck=%d computebin=%d computecalc=%d computeflat=%d ldmfast=%d ldmdirect=%d ldmstats=%d jitdispatch=%d heldworker=%d",
+    snprintf(summary + length, sizeof(summary) - length, " shadowlog=%d capspin=%d computepace=%d glpace=%d computetile=%d computeopt=%d hirescap=%d hirescapdebug=%d filter2d=%d capreads=%d gpu2dstats=%d widedrops=%d threaded2d=%d vertexid=%d halfcam=%d gpu2d=%s gpu2dwide=%d gpu2daffine=%d gltimers=%d scenestats=%d gltrans=%d gledgeskip=%d gledgemark=%d gledgefast=%d glclear=%d glnodiscard=%d glseams=%d gltexprobe=%d gltexcache=%d compclear=%d comp1x=%d filter2drows=%d outcap=%d outcapneed=%d outcap3d=%d computecheck=%d computebin=%d computecalc=%d computeflat=%d ldmfast=%d ldmdirect=%d ldmstats=%d jitdispatch=%d heldworker=%d",
              gpu.ShadowLogFrames, gpu.CaptureSpinUs, gpu.ComputePace, gpu.GLPace, gpu.ComputeTileSize, gpu.ComputeOpt, overrides.hiresCapture, gpu.HiresCaptureDebug, overrides.filter2d, captureReads ? 1 : 0, gpu2dStats ? 1 : 0, gpu.GPU3D.GetWideDropLogging() ? 1 : 0, overrides.threaded2d, gpu.GPU3D.GetVertexIdLogging(), overrides.halfCamera,
-             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : overrides.gpu2d == 0 ? "0" : "-1", gpu2dWide, gpu2dAffine, gpu.GLTimers, gpu.SceneStats, gpu.GLTransSkip, gpu.GLEdgeSkip, overrides.edgeMark, gpu.GLEdgeFast, gpu.GLClearFast, gpu.GLNoDiscard, gpu.GLTexProbe, gpu.GLTexCache, gpu.CompClear, gpu.Comp1x, gpu.Filter2DRows, gpu.OutputCap, gpu.OutputCapNeed, gpu.OutputCap3D, gpu.ComputeCheck, gpu.ComputeBin, gpu.ComputeCalc, gpu.ComputeFlat, nds.JIT.FastBlockLoadsEnabled() ? 1 : 0, nds.JIT.DirectBlockTransfersEnabled() ? 1 : 0, nds.JIT.LdmStatsEnabled() ? 1 : 0, nds.JIT.JitDispatchEnabled() ? 1 : 0, gpu.HeldTo2DThread);
+             gpu2dCheck ? "check" : gpu2dLog ? "log" : gpu2dMode == 2 ? "all" : gpu2dMode == 1 ? "1" : overrides.gpu2d == 0 ? "0" : "-1", gpu2dWide, gpu2dAffine, gpu.GLTimers, gpu.SceneStats, gpu.GLTransSkip, gpu.GLEdgeSkip, overrides.edgeMark, gpu.GLEdgeFast, gpu.GLClearFast, gpu.GLNoDiscard, gpu.GLSeams, gpu.GLTexProbe, gpu.GLTexCache, gpu.CompClear, gpu.Comp1x, gpu.Filter2DRows, gpu.OutputCap, gpu.OutputCapNeed, gpu.OutputCap3D, gpu.ComputeCheck, gpu.ComputeBin, gpu.ComputeCalc, gpu.ComputeFlat, nds.JIT.FastBlockLoadsEnabled() ? 1 : 0, nds.JIT.DirectBlockTransfersEnabled() ? 1 : 0, nds.JIT.LdmStatsEnabled() ? 1 : 0, nds.JIT.JitDispatchEnabled() ? 1 : 0, gpu.HeldTo2DThread);
     LOG_INFO(LOG_TAG_DEBUG, "%s", summary);
     // what was set, and where from: the app's Debug switches setting or setprop
     std::string active = describeActive();

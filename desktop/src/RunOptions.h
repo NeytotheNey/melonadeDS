@@ -112,6 +112,7 @@ inline const IntSwitch kIntSwitches[] = {
     {"GLEdgeFast", &melonDS::GPU::GLEdgeFast},
     {"GLClearFast", &melonDS::GPU::GLClearFast},
     {"GLNoDiscard", &melonDS::GPU::GLNoDiscard},
+    {"GLSeams", &melonDS::GPU::GLSeams},
     {"GLTexProbe", &melonDS::GPU::GLTexProbe},
     {"GLTexCache", &melonDS::GPU::GLTexCache},
     {"CompClear", &melonDS::GPU::CompClear},
