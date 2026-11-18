@@ -80,9 +80,19 @@ namespace melonDS { class NDS; }
  *                  downscale, compute the low res image display capture reads, software its color buffer; all three are read late without
  *                  waiting (OpenGL and compute through a ring of pixel buffers, so a frame the ring had no room for logs `dropped=ringfull`).
  *                  It costs a blit and a 192 KB readback a frame on the GPU renderers (GPU::Hash3DLogging, GPU3D_Hash3D.h, default 0)
+ *   hash3dfull     compute: log `HASH3DF frame=<n> hash=<hex> size=<w>x<h>` per frame, the same FNV-1a over the final pass's RGBA8
+ *                  image at full resolution (the output's columns and rows, not the tile rounding), numbered like HASH3D, read late through
+ *                  its own ring. The check for Phase 2 of docs/plan-compute-efficiency.md, as HASH3D only sees 1 pixel in 64 at 8x. It
+ *                  reads the whole image back every frame (12 MB at 8x) and hashes it on the emulator thread, so it's slow (GPU::Hash3DFullLogging, default 0)
  *   computedepth   compute: log a COMPDEPTH line once a second on what DepthBlend does per pixel: polygons walked, colored, failing the depth
- *                  test. DepthBlend is rebuilt with counters (shared-memory atomics, one SSBO add per work group), so it runs slower
- *                  (GPU::ComputeDepthStats, GPU3D_GLStats.h, default 0)
+ *                  test, and the same for the opaque prefix (see computevisstats), how many of the two layers a prefix polygon holds after
+ *                  it (winners), colored fragments after it behind its depth (behind) and prefix fragments with an alpha of 1-30 (palpha,
+ *                  a count that must be 0). DepthBlend is rebuilt with counters (shared-memory atomics, one SSBO add per work group), so it
+ *                  runs slower (GPU::ComputeDepthStats, GPU3D_GLStats.h, default 0)
+ *   computevisstats compute: log a COMPVIS line once a second, a census of the opaque prefix (polygons before the first translucent or
+ *                  shadow/mask one) from the CPU's polygons: its length and share of the work tiles, cut-out polygons and where the
+ *                  first one sits, equal-test, shadow, mask and wireframe polygons, clear bitmap, alpha test and W-buffer frames. No effect
+ *                  on emulation; the fields are with ComputeVisCensus in GPU3D_GLStats.h (GPU::ComputeVisStats, default 0)
  *   computessbo    compute, Mali diagnostics (docs/compute-on-mali.md): InterpXSpans reads the setup indices from the same buffer
  *                  bound as a std430 storage buffer instead of through the RGBA16UI texture buffer. Recompiles at the next render
  *                  (GPU::ComputeSSBO, default 0)
@@ -284,6 +294,10 @@ namespace melonDS { class NDS; }
  *                  atomic on a uvec4 element's component to element 0, so the per-variant work counts all land in variant 0.
  *                  1, the default in every build, has them as a flat uint array with the same bytes. Recompiles at the next
  *                  render (GPU::ComputeFlat)
+ *   computeprobe N compute, a measurement probe that RENDERS WRONG on purpose, a sum of bits, to split Rasterise's cost (time it with
+ *                  computesync): 1 no texture sample (an opaque texel made from the texcoords), 2 no color or texcoord interpolation
+ *                  (the span's left end, the factor and its divide still computed), 4 a float-reciprocal linear factor instead of the
+ *                  perspective divide. 0, the default, draws as before. Recompiles at the next render (GPU::ComputeProbe)
  *   cpusemu L      pin the emulator thread (and the core threads it creates) to the CPUs in the comma-separated list L (MelonDSAndroidJNI.cpp)
  *   cpus2d L       pin the core's 2D render thread to the CPUs in L (MelonDSAndroidJNI.cpp)
  *   heldworker N   threaded 2D, OpenGL/compute: draw held capture lines on the 2D thread too, a sum of bits. 1 (with bnohold) queues

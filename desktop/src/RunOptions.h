@@ -95,6 +95,9 @@ inline const BoolSwitch kBoolSwitches[] = {
     {"Filter2DLogging", &melonDS::GPU::Filter2DLogging},
     {"Hash2DLogging", &melonDS::GPU::Hash2DLogging},
     {"Hash3DLogging", &melonDS::GPU::Hash3DLogging},
+    {"Hash3DFullLogging", &melonDS::GPU::Hash3DFullLogging},
+    {"ComputeDepthStats", &melonDS::GPU::ComputeDepthStats},
+    {"ComputeVisStats", &melonDS::GPU::ComputeVisStats},
     {"ComputeSSBO", &melonDS::GPU::ComputeSSBO},
     {"WidePolys", &melonDS::GPU::WidePolys},
     {"WideY", &melonDS::GPU::WideY},
@@ -126,6 +129,8 @@ inline const IntSwitch kIntSwitches[] = {
     {"ComputeBin", &melonDS::GPU::ComputeBin},
     {"ComputeCalc", &melonDS::GPU::ComputeCalc},
     {"ComputeFlat", &melonDS::GPU::ComputeFlat},
+    {"ComputeProbe", &melonDS::GPU::ComputeProbe},
+    {"ComputePace", &melonDS::GPU::ComputePace},
     {"HeldTo2DThread", &melonDS::GPU::HeldTo2DThread},
 };
 
