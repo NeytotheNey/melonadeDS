@@ -58,8 +58,8 @@ public:
     int getSceneForScript(melonDS::NDS* nds);
 
     /**
-     * Whether the cart is a Gen 4 game whose battles WideMelon draws wide (PokeDaisy's pk_nds_battle_margins: HG/SS and Platinum battles are
-     * 2D, with only the Pokemon in 3D; Gen 5's are all 3D and get the 3D wings like the field); any thread
+     * Whether the cart is a Gen 4 game whose battles WideMelon draws wide (PokeDaisy's pk_nds_battle_margins: HG/SS, Platinum and Diamond
+     * battles are 2D, with only the Pokemon in 3D; Gen 5's are all 3D and get the 3D wings like the field); any thread
      */
     bool hasWideBattles() const;
     /**

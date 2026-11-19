@@ -1,5 +1,7 @@
 #include "GameState.h"
 
+#include <cstring>
+
 #include "NDS.h"
 #include "GPU_Shadow2D.h"
 #include "pk_nds_field.h"
@@ -22,9 +24,54 @@ static uint32_t mainRead32(uint32_t addr)
         ((uint32_t) m[(addr + 3) & mask] << 24);
 }
 
+// melonadeDS's own carts, not PokeDaisy's (its tables stay verbatim in pk_nds_field.cpp; these are looked up before them).
+//
+// Diamond (ADAE rev 5, the US cart, and rev 13, a European cart): from pret/pokediamond, whose US Diamond build these carts' ARM9 and
+// every overlay match byte for byte (module SHA-1s against arm9/pokediamond.us.sha1), so its address-named symbols are the carts' own.
+// The FieldSystem is Platinum's ancestor: the process manager { parent, child, pause, kill } at 0, the field task at 0x10, the player
+// avatar at 0x38 (its state at 0x18, a word before Platinum's), the field map's running flag at 0x64 (field_system.h, sub_020373AC,
+// set by the field map's init), the location at 0x1C. The battle's child process runs UNK_020F2D94 (its main the battle overlay's
+// state machine) and its data is the battle system, the battle context at 0x30 and its command at 8 as in Platinum (ov11_0222DF4C,
+// ov11_0223D238). The field text box is on BG3 (sub_020545B8), Platinum's. Not mapped: the wild encounter rates and the sound (unused
+// here: nothing writes RAM and nothing waits on the music). Pearl's ARM9 and field / battle overlays differ, so it isn't covered.
+static const PkNdsFieldGame DIAMOND = {
+    "Diamond (USA rev 5 / Europe rev 13)",
+    0x021C5A08,   // the FieldSystem pointer (UNK_021C5A08)
+    0x020F2D94,   // the battle's OverlayManagerTemplate (UNK_020F2D94)
+    0x00, 0x10, 0x38, 0x64,
+    0x18,
+    0, 0, 0,      // no wild encounter rates
+    0x1C,
+    0x021D767D,   // the field map's main (ov05_021F64C8's)
+    0, 0,         // no sound
+    0,
+    0,            // no pk_nds_call functions
+    0x30,
+    0x08,
+};
+
+// The cart's field read: ours first, then PokeDaisy's
+static const PkNdsFieldGame* findGame(const melonDS::u8* rom, melonDS::u32 romLength)
+{
+    if (!rom)
+        return nullptr;
+    if (romLength >= 0x20)
+    {
+        int revision = rom[0x1E];
+        if (std::memcmp(rom + 0xC, "ADAE", 4) == 0 && (revision == 5 || revision == 13))
+            return &DIAMOND;
+        // US Platinum rev 0 is rev 1's code: pret/pokeplatinum builds both, and its checksums (platinum.us/sbins_*.sha1) share the ARM9
+        // and every overlay but the GTS one, which only changes an argument (checked against the cart: ARM9 and all 122 overlays match).
+        // So it's PokeDaisy's rev 1 table as it is, touch rules too
+        if (std::memcmp(rom + 0xC, "CPUE", 4) == 0 && revision == 0)
+            return pk_nds_field_game("CPUE", 1);
+    }
+    return pk_nds_field_game_rom(rom, romLength);
+}
+
 void GameState::setCart(const melonDS::u8* rom, melonDS::u32 romLength)
 {
-    game.store(rom ? pk_nds_field_game_rom(rom, romLength) : nullptr, std::memory_order_relaxed);
+    game.store(findGame(rom, romLength), std::memory_order_relaxed);
     isScriptWanted = false;
     framesSincePoll.store(kPollFrames, std::memory_order_relaxed);
     reset();
