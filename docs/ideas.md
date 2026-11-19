@@ -16,6 +16,7 @@
 ## App features
 
 - **Cheat search.** Search memory for values, narrow the results, and turn them into cheats.
+- **Custom folder for save backups.** Like PokeDaisy's `CHANGE FOLDER` / `USE DEFAULT` under Settings > `FOLDERS` > `SAVE BACKUPS`: one folder the user picks for every game's backups, instead of a `save-backups` folder next to each save. Backups that already exist stay where they are, and the restore list still finds them. Two games with the same `.sav` name from different folders would collide in a shared folder, so the names need something extra, like the save folder or a ROM hash. Builds on `SaveBackupManager`.
 - **Game library revamp and RetroAchievements metadata.** Built (grid and mosaic views, a metadata sheet, art from the user's Web API key); see [plan-launcher.md](plan-launcher.md) for the phone checks and what's left.
 
 ## Bugs to look at
