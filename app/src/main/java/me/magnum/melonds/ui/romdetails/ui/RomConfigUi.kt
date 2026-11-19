@@ -41,6 +41,7 @@ import me.magnum.melonds.ui.romdetails.model.RomConfigUiState
 import me.magnum.melonds.ui.romdetails.model.RomConfigUpdateEvent
 import me.magnum.melonds.ui.romdetails.model.RomGbaSlotConfigUiModel
 import me.magnum.melonds.ui.romdetails.model.RomModsUiModel
+import me.magnum.melonds.ui.romdetails.model.SaveBackupsUiState
 import me.magnum.melonds.ui.theme.MelonTheme
 import java.util.Date
 import java.util.UUID
@@ -51,6 +52,7 @@ fun RomConfigUi(
     contentPadding: PaddingValues,
     rom: Rom,
     romConfigUiState: RomConfigUiState,
+    saveBackupsUiState: SaveBackupsUiState,
     onConfigUpdate: (RomConfigUpdateEvent) -> Unit,
 ) {
     when (romConfigUiState) {
@@ -60,6 +62,7 @@ fun RomConfigUi(
             contentPadding = contentPadding,
             rom = rom,
             romConfig = romConfigUiState.romConfigUiModel,
+            saveBackupsUiState = saveBackupsUiState,
             onConfigUpdate = onConfigUpdate,
         )
     }
@@ -81,6 +84,7 @@ private fun Content(
     contentPadding: PaddingValues,
     rom: Rom,
     romConfig: RomConfigUiModel,
+    saveBackupsUiState: SaveBackupsUiState,
     onConfigUpdate: (RomConfigUpdateEvent) -> Unit,
 ) {
     Column(
@@ -190,6 +194,12 @@ private fun Content(
                 )
             }
         }
+
+        SaveBackupsItem(
+            saveBackupsUiState = saveBackupsUiState,
+            onShown = { onConfigUpdate(RomConfigUpdateEvent.SaveBackupsShown) },
+            onRestore = { onConfigUpdate(RomConfigUpdateEvent.SaveBackupRestore(it)) },
+        )
     }
 }
 
@@ -218,6 +228,7 @@ private fun PreviewRomConfigUi() {
                 ),
                 RomModsUiModel(),
             ),
+            saveBackupsUiState = SaveBackupsUiState.Ready(emptyList()),
             onConfigUpdate = { },
         )
     }

@@ -38,4 +38,12 @@ sealed class RomConfigUpdateEvent {
      * Deletes what the script [fileName] saved with melon.storage for this game
      */
     data class LuaScriptDataClear(val fileName: String) : RomConfigUpdateEvent()
+    /**
+     * The save backups list was opened, so it's read again
+     */
+    data object SaveBackupsShown : RomConfigUpdateEvent()
+    /**
+     * Restores the backup [fileName] over the game's save
+     */
+    data class SaveBackupRestore(val fileName: String) : RomConfigUpdateEvent()
 }

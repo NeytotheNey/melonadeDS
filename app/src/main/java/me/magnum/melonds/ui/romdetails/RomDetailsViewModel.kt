@@ -43,12 +43,17 @@ import me.magnum.melonds.impl.LuaScriptDataStore
 import me.magnum.melonds.impl.LuaScriptFolderSync
 import me.magnum.melonds.impl.LuaScriptStorage
 import me.magnum.melonds.impl.RomIconProvider
+import me.magnum.melonds.impl.emulator.SaveBackup
+import me.magnum.melonds.impl.emulator.SaveBackupManager
 import me.magnum.melonds.parcelables.RomParcelable
 import me.magnum.melonds.ui.romdetails.model.LuaScriptEvent
 import me.magnum.melonds.ui.romdetails.model.RomConfigUiState
 import me.magnum.melonds.ui.romdetails.model.RomConfigUpdateEvent
 import me.magnum.melonds.ui.romdetails.model.RomGbaSlotConfigUiModel
 import me.magnum.melonds.ui.romdetails.model.RomModsUiModel
+import me.magnum.melonds.ui.romdetails.model.SaveBackupEvent
+import me.magnum.melonds.ui.romdetails.model.SaveBackupUiModel
+import me.magnum.melonds.ui.romdetails.model.SaveBackupsUiState
 import me.magnum.melonds.ui.romlist.RomIcon
 import javax.inject.Inject
 
@@ -64,6 +69,7 @@ class RomDetailsViewModel @Inject constructor(
     private val luaScriptDataStore: LuaScriptDataStore,
     private val romFileProcessorFactory: RomFileProcessorFactory,
     private val layoutsRepository: LayoutsRepository,
+    private val saveBackupManager: SaveBackupManager,
     romMetadataRepository: RomMetadataRepository,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -90,6 +96,16 @@ class RomDetailsViewModel @Inject constructor(
     // Buffered until the screen collects it, since a picker result can arrive before that (after the process was killed, for example)
     private val _luaScriptEvent = Channel<LuaScriptEvent>(Channel.UNLIMITED)
     val luaScriptEvent = _luaScriptEvent.receiveAsFlow()
+
+    private val _saveBackups = MutableStateFlow<SaveBackupsUiState>(SaveBackupsUiState.Loading)
+    val saveBackups = _saveBackups.asStateFlow()
+    // The backups last listed, by file name, for the restore
+    private var listedSaveBackups: Map<String, SaveBackup> = emptyMap()
+    private var saveBackupsJob: Job? = null
+    private var isRestoringSaveBackup = false
+
+    private val _saveBackupEvent = Channel<SaveBackupEvent>(Channel.UNLIMITED)
+    val saveBackupEvent = _saveBackupEvent.receiveAsFlow()
 
     /**
      * @param folderUri The folder that was read; the rest only applies while the ROM is still linked to it
@@ -198,6 +214,14 @@ class RomDetailsViewModel @Inject constructor(
                 clearLuaScriptData(event.fileName)
                 null
             }
+            RomConfigUpdateEvent.SaveBackupsShown -> {
+                loadSaveBackups()
+                null
+            }
+            is RomConfigUpdateEvent.SaveBackupRestore -> {
+                restoreSaveBackup(event.fileName)
+                null
+            }
         }
 
         newRomConfig?.let { applyRomConfig(it) }
@@ -302,6 +326,43 @@ class RomDetailsViewModel @Inject constructor(
             null
         }
         return LuaScriptDataStore.getGameKey(gameCode, rom.uri.toString())?.also { luaDataGameKey = it }
+    }
+
+    private fun loadSaveBackups() {
+        saveBackupsJob?.cancel()
+        _saveBackups.value = SaveBackupsUiState.Loading
+        saveBackupsJob = viewModelScope.launch {
+            val rom = _rom.value
+            val result = withContext(Dispatchers.IO) { saveBackupManager.listBackups(rom) }
+            _saveBackups.value = when (result) {
+                is SaveBackupManager.ListResult.Found -> {
+                    listedSaveBackups = result.backups.associateBy { it.fileName }
+                    SaveBackupsUiState.Ready(result.backups.map { SaveBackupUiModel(it.fileName, it.time, it.size) })
+                }
+                SaveBackupManager.ListResult.Failed -> SaveBackupsUiState.Failed
+            }
+        }
+    }
+
+    private fun restoreSaveBackup(fileName: String) {
+        val backup = listedSaveBackups[fileName] ?: return
+        if (isRestoringSaveBackup) {
+            return
+        }
+        isRestoringSaveBackup = true
+        val rom = _rom.value
+        viewModelScope.launch {
+            // Finished even if the screen closes meanwhile, so the result is always the whole restore or none of it
+            val result = withContext(NonCancellable + Dispatchers.IO) { saveBackupManager.restoreBackup(rom, backup) }
+            isRestoringSaveBackup = false
+            val event = when (result) {
+                SaveBackupManager.RestoreResult.RESTORED -> SaveBackupEvent.RESTORED
+                SaveBackupManager.RestoreResult.GAME_RUNNING -> SaveBackupEvent.GAME_RUNNING
+                SaveBackupManager.RestoreResult.BACKUP_FAILED -> SaveBackupEvent.BACKUP_FAILED
+                SaveBackupManager.RestoreResult.FAILED -> SaveBackupEvent.FAILED
+            }
+            _saveBackupEvent.trySend(event)
+        }
     }
 
     private fun updateLuaScriptFolder(newFolderUri: Uri?) {
