@@ -85,12 +85,6 @@ public:
 #ifdef MELONADE_DEBUG_TOOLS
     // Takes the capture readback stats the 3D renderer summed since the last call (compute renderer only) and zeroes them; emulator thread only
     void takeCaptureStats(CaptureStats& stats);
-    /**
-     * GPU::GLSeams (the OpenGL floor seams fix) for the running game, from any thread: the emulator thread gives it to the GPU before the next
-     * frame, and the GL renderer picks it up there (RenderFrame works it out each frame). It starts at the glseams debug switch
-     */
-    void setGLSeams(int value) { glSeams.store(std::clamp(value, 0, 3), std::memory_order_relaxed); }
-    int getGLSeams() const { return glSeams.load(std::memory_order_relaxed); }
 #endif
 
     void updateConfiguration(std::shared_ptr<EmulatorConfiguration> newConfiguration);
@@ -195,8 +189,6 @@ private:
 #ifdef MELONADE_DEBUG_TOOLS
     // The debug.melonade.* switches that override settings (see DebugProperties.h)
     DebugProperties::Overrides debugOverrides;
-    // GPU::GLSeams as setGLSeams() last asked, from any thread; the emulator thread copies it to the GPU before each frame (runFrame)
-    std::atomic_int glSeams = 0;
 #endif
     int frame;
     // The frame of the rewind state whose screenshot is still being read back, or -1

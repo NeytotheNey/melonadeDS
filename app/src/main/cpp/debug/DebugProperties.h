@@ -196,7 +196,8 @@ namespace melonDS { class NDS; }
  *                  fraction at scales above 1x instead of truncating them to whole target pixels; 2 gives opaque polygons
  *                  (not lines, translucent, wireframe, depth-equal or shadow polygons) a skirt a target pixel wide (half a DS
  *                  pixel at 1x), drawn after the opaque pass and only over the clear plane, copying the DS's inclusive edges,
- *                  so T-junction cracks in Pokemon Gen 4 floors close. 0, the default, draws as before (GPU::GLSeams)
+ *                  so T-junction cracks in Pokemon Gen 4 floors close. 0 draws as before (GPU::GLSeams). When set, it
+ *                  overrides the "Fix floor seams" setting (off 0, on 3)
  *   gltexprobe N   OpenGL, a measurement probe for experiment T2 (docs/plan-gpu-discovery.md) that RENDERS WRONG on purpose: 1 makes
  *                  the render programs' texture lookup one texelFetch from the palette texture at the texcoord, alpha 1 (no wrap, no
  *                  decode), 2 a constant 1.0 with no fetch, to bound what a decoded texture cache could save in GPU time. Passes and
@@ -332,6 +333,8 @@ struct Overrides
     int halfCamera = -1;
     // gledgemark, over the "Edge marking" setting (GPU::GLEdgeMark)
     int edgeMark = -1;
+    // glseams, over the "Fix floor seams" setting (GPU::GLSeams)
+    int glSeams = -1;
     // gpu2d, over the "Sharper rotated 2D" setting: the GPU::SetShadow2D mode apply already set (0 off, 1, 2 all), -1 when the setting decides
     int gpu2d = -1;
     // gpu2dwide and gpu2daffine as read (0 when unset), for a shadow the setting turns on later

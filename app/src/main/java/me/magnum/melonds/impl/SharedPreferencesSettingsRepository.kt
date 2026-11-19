@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -103,9 +104,9 @@ class SharedPreferencesSettingsRepository(
         setDefaultMacAddressIfRequired()
         moveColorDitheringIntoDeband()
 
-        // combine() takes at most 5 typed flows, so the 4 look settings (filter, deband, colors and shadow), the 2 threading ones and the 4
-        // GPU extras (hi-res capture, filtered 2D, edge marking and sharper rotated 2D) are grouped first. Compute's dithering follows deband
-        // (RendererConfiguration)
+        // combine() takes at most 5 typed flows, so the 4 look settings (filter, deband, colors and shadow), the 2 threading ones and the 5
+        // GPU extras (hi-res capture, filtered 2D, edge marking, sharper rotated 2D and the floor seams fix) are grouped first. Compute's
+        // dithering follows deband (RendererConfiguration)
         val lookSettingsFlow = combine(
             getVideoFiltering(),
             isDebandEnabled(),
@@ -125,8 +126,9 @@ class SharedPreferencesSettingsRepository(
             isFilter2dEnabled(),
             isEdgeMarkingEnabled(),
             isSharperRotated2dEnabled(),
-        ) { hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled ->
-            GpuExtras(hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled)
+            isGlSeamsEnabled(),
+        ) { hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled, glSeamsEnabled ->
+            GpuExtras(hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled, glSeamsEnabled)
         }
         renderConfigurationFlow = combine(
             getVideoRenderer(),
@@ -138,6 +140,7 @@ class SharedPreferencesSettingsRepository(
             RendererConfiguration(
                 renderer, look.filtering, look.deband, look.dsScreenColors, look.screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled,
                 gpuExtras.hiresCapture, gpuExtras.filter2d, resolutionScaling, gpuExtras.edgeMarking, gpuExtras.sharperRotated2d,
+                gpuExtras.glSeams,
             )
         }.conflate().shareIn(preferencesCoroutineScope, SharingStarted.Lazily, replay = 1)
     }
@@ -407,10 +410,10 @@ class SharedPreferencesSettingsRepository(
         }
     }
 
+    // The "DS screen colors" switch (video_ds_screen_colors) is gone from the settings, so it reads as off even where an old prefs file or a
+    // backup still has it on. The stored value is left alone
     override fun isDsScreenColorsEnabled(): Flow<Boolean> {
-        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_DS_SCREEN_COLORS) {
-            preferences.getBoolean(PreferenceKeys.VIDEO_DS_SCREEN_COLORS, false)
-        }
+        return flowOf(false)
     }
 
     override fun isDebandEnabled(): Flow<Boolean> {
@@ -458,6 +461,12 @@ class SharedPreferencesSettingsRepository(
     override fun isSharperRotated2dEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_SHARPER_ROTATED_2D) {
             preferences.getBoolean(PreferenceKeys.VIDEO_SHARPER_ROTATED_2D, false)
+        }
+    }
+
+    override fun isGlSeamsEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_GL_SEAMS) {
+            preferences.getBoolean(PreferenceKeys.VIDEO_GL_SEAMS, false)
         }
     }
 
@@ -806,10 +815,11 @@ private data class LookSettings(
     val screenShadow: Boolean,
 )
 
-// The OpenGL and compute extras of a RendererConfiguration, grouped for combine()
+// The OpenGL and compute extras of a RendererConfiguration, grouped for combine() (the floor seams fix is OpenGL only)
 private data class GpuExtras(
     val hiresCapture: Boolean,
     val filter2d: Boolean,
     val edgeMarking: Boolean,
     val sharperRotated2d: Boolean,
+    val glSeams: Boolean,
 )

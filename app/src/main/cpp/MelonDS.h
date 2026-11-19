@@ -71,14 +71,6 @@ namespace MelonDSAndroid {
      * A new width and margin for the top screen's 3D view during play (see MelonInstance::setWideView)
      */
     extern void setWideView(int width, int margin);
-#ifdef MELONADE_DEBUG_TOOLS
-    /**
-     * GPU::GLSeams, the OpenGL floor seams fix, for the running game from any thread, applied before the next frame (see
-     * MelonInstance::setGLSeams); 0 while no game runs
-     */
-    extern void setGLSeams(int value);
-    extern int getGLSeams();
-#endif
     /**
      * Gives the instance the game's Lua scripts and the modules and images they can use, after setup() and before the emulator starts;
      * [areStateLoadsAllowed] is false when savestates can't be loaded (RetroAchievements hardcore), which melon.state.load() checks too
