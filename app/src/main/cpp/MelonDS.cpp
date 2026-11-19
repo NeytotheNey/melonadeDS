@@ -247,6 +247,19 @@ namespace MelonDSAndroid
             instance->setWideView(width, margin);
     }
 
+#ifdef MELONADE_DEBUG_TOOLS
+    void setGLSeams(int value)
+    {
+        if (instance)
+            instance->setGLSeams(value);
+    }
+
+    int getGLSeams()
+    {
+        return instance ? instance->getGLSeams() : 0;
+    }
+#endif
+
     void setLuaScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent, bool areStateLoadsAllowed)
     {
         if (instance)

@@ -192,6 +192,11 @@ namespace melonDS { class NDS; }
  *                  when none of their texels comes out under alpha 31, cached until texture VRAM under them changes, so
  *                  3 is steps 1 and 2; 4 is a check that drops that cache every frame (7 vs 3 must hash the same). any
  *                  nonzero value turns step 1 on, so 2 acts as 3
+ *   glseams N      OpenGL, the floor seams fix (docs/plan-gl-floor-seams.md), a sum of bits: 1 keeps the hi-res vertex positions'
+ *                  fraction at scales above 1x instead of truncating them to whole target pixels; 2 gives opaque polygons
+ *                  (not lines, translucent, wireframe, depth-equal or shadow polygons) a skirt a target pixel wide (half a DS
+ *                  pixel at 1x), drawn after the opaque pass and only over the clear plane, copying the DS's inclusive edges,
+ *                  so T-junction cracks in Pokemon Gen 4 floors close. 0, the default, draws as before (GPU::GLSeams)
  *   gltexprobe N   OpenGL, a measurement probe for experiment T2 (docs/plan-gpu-discovery.md) that RENDERS WRONG on purpose: 1 makes
  *                  the render programs' texture lookup one texelFetch from the palette texture at the texcoord, alpha 1 (no wrap, no
  *                  decode), 2 a constant 1.0 with no fetch, to bound what a decoded texture cache could save in GPU time. Passes and

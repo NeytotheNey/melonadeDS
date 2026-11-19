@@ -420,6 +420,24 @@ Java_me_magnum_melonds_MelonEmulator_setDebugSwitches(JNIEnv* env, jobject thiz,
 #endif
 }
 
+JNIEXPORT void JNICALL
+Java_me_magnum_melonds_MelonEmulator_setGLSeams(JNIEnv* env, jobject thiz, jint value)
+{
+#ifdef MELONADE_DEBUG_TOOLS
+    MelonDSAndroid::setGLSeams(value);
+#endif
+}
+
+JNIEXPORT jint JNICALL
+Java_me_magnum_melonds_MelonEmulator_getGLSeams(JNIEnv* env, jobject thiz)
+{
+#ifdef MELONADE_DEBUG_TOOLS
+    return MelonDSAndroid::getGLSeams();
+#else
+    return 0;
+#endif
+}
+
 JNIEXPORT jstring JNICALL
 Java_me_magnum_melonds_MelonEmulator_getActiveDebugSwitches(JNIEnv* env, jobject thiz)
 {

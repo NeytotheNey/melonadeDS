@@ -217,6 +217,9 @@
     <string name="pause">Pause</string>
     <string name="achievements">Achievements</string>
     <string name="swap_screens">Swap screens</string>
+    <!-- Debug builds only: the pause menu's toggle for the OpenGL floor seams fix (GPU::GLSeams), and the toast after flipping it -->
+    <string name="seam_fix_on">Seam fix: on</string>
+    <string name="seam_fix_off">Seam fix: off</string>
     <string name="reset">Reset</string>
     <string name="exit">Exit</string>
 
