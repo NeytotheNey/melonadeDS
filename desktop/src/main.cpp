@@ -976,7 +976,7 @@ int main(int argc, char** argv)
                 hasCart = true;
             }
             for (const auto& at : opts.Ats)
-                if (at.Frame == frame)
+                if (at.Frame == frame && (at.Action == "reset" || at.Action == "state"))
                     gameState.reset();
             if (opts.WideBattles)
             {
