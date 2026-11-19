@@ -87,6 +87,7 @@ struct Options
     bool FastMem = false;
     int LdmDirect = -1;        // debug.melonade.ldmdirect (ARMJIT::SetDirectBlockTransfers), -1 keeps the core's default
     bool BetterPolygons = false;
+    bool PreciseDepth = false; // GPU::PreciseDepth, the app's "Precise depth" setting
     bool HighResCoordinates = true;
     bool ColorDither = false;
     bool HiresCapture = false;
@@ -128,6 +129,7 @@ void Usage()
         "  --wide W                    WideMelon top screen width, even, 256-768 (default 256, off)\n"
         "  --wide-margin M             with --wide, M more 3D rows above and below the top screen (0-128)\n"
         "  --better-polygons           OpenGL: better polygon splitting\n"
+        "  --precise-depth             3D depth at full precision, not the DS's 0x200 steps (GPU::PreciseDepth)\n"
         "  --no-high-res-coords        Compute: native-resolution vertex coordinates\n"
         "  --dither                    Compute: smooth gradients (color dithering)\n"
         "  --hires-capture             upscaled display capture (gl/compute)\n"
@@ -222,6 +224,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         }
         else if (arg == "--wide-margin") opts.WideMargin = std::clamp(atoi(next().c_str()), 0, 128);
         else if (arg == "--better-polygons") opts.BetterPolygons = true;
+        else if (arg == "--precise-depth") opts.PreciseDepth = true;
         else if (arg == "--no-high-res-coords") opts.HighResCoordinates = false;
         else if (arg == "--dither") opts.ColorDither = true;
         else if (arg == "--hires-capture") opts.HiresCapture = true;
@@ -338,6 +341,8 @@ public:
 
         Nds = std::make_unique<NDS>(std::move(args), &Frontend::App);
 
+        // before the --set ones, so --set PreciseDepth=0 still turns it off
+        Nds->GPU.PreciseDepth = Opts.PreciseDepth;
         for (const std::string& set : Opts.Sets)
         {
             if (!ApplySet(Nds->GPU, set))

@@ -36,6 +36,7 @@ internal object DiagnosticsInfo {
             "filter_2d" to renderer.filter2d.toString(),
             "sharper_rotated_2d" to renderer.sharperRotated2d.toString(),
             "edge_marking" to renderer.edgeMarking.toString(),
+            "precise_depth" to renderer.preciseDepth.toString(),
             "color_dithering" to renderer.colorDithering.toString(),
             "jit_enabled" to settingsRepository.isJitEnabled().toString(),
             "sustained_performance_mode" to settingsRepository.isSustainedPerformanceModeEnabled().toString(),

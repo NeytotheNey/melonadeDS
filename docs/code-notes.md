@@ -27,6 +27,7 @@ Facts about the code that you can't easily see from reading it.
 
 - The TWEWY fix (core `2385ca5d`) came from WatermelonDS's core commit `845587e0`; we left out its SPI save rework, extra jump-cycle changes and DSi SCFG changes. Old savestates log "section NDCF not found" once.
 - Loading a save state rewrites the game's real `.sav` (`CartRetail::DoSavestate` calls `Platform::WriteNDSSave`). Back up the `.sav` before any test that loads a state.
+- Precise depth (`video_precise_depth`, `GPU::PreciseDepth`, desktop `--precise-depth`): Z-buffered vertex depth is `(Z * 0x800000) / W + 0x7FFE00` instead of GBATEK's `((Z * 0x4000) / W + 0x3FFF) * 0x200`, computed once in `GPU3D::SubmitPolygon`, so soft and Compute get it through `Polygon::FinalZ`. OpenGL packs depth into 16 bits plus a shift, which drops up to 8 low bits; with the setting on, `GLRenderer`'s `PackDepth` puts them in spare bits of the attribute word and `kRenderVS` adds them back. Off is bit-exact with the old code on all three renderers. Latched at the polygon RAM swap with the view width (`GPU3D::PreciseDepthOn`) and kept per polygon (`Polygon::PreciseDepth`), not in savestates. Nobody knows if the DS keeps more precision, which is why it's an opt-in enhancement.
 
 ## Known issues left alone
 

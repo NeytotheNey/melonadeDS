@@ -49,6 +49,13 @@
                 android:title="@string/edge_marking"
                 android:summary="@string/edge_marking_summary"
                 android:defaultValue="true" />
+
+        <!-- Every renderer, so it's always shown -->
+        <SwitchPreference
+                android:key="video_precise_depth"
+                android:title="@string/precise_depth"
+                android:summary="@string/precise_depth_summary"
+                android:defaultValue="false" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/settings_section_threading">

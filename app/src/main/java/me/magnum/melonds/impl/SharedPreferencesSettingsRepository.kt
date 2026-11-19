@@ -103,9 +103,9 @@ class SharedPreferencesSettingsRepository(
         setDefaultMacAddressIfRequired()
         moveColorDitheringIntoDeband()
 
-        // combine() takes at most 5 typed flows, so the 4 look settings (filter, deband, colors and shadow), the 2 threading ones and the 4
-        // GPU extras (hi-res capture, filtered 2D, edge marking and sharper rotated 2D) are grouped first. Compute's dithering follows deband
-        // (RendererConfiguration)
+        // combine() takes at most 5 typed flows, so the 4 look settings (filter, deband, colors and shadow), the 2 threading ones and the 5
+        // GPU extras (hi-res capture, filtered 2D, edge marking, sharper rotated 2D and precise depth) are grouped first. Compute's dithering
+        // follows deband (RendererConfiguration)
         val lookSettingsFlow = combine(
             getVideoFiltering(),
             isDebandEnabled(),
@@ -125,8 +125,9 @@ class SharedPreferencesSettingsRepository(
             isFilter2dEnabled(),
             isEdgeMarkingEnabled(),
             isSharperRotated2dEnabled(),
-        ) { hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled ->
-            GpuExtras(hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled)
+            isPreciseDepthEnabled(),
+        ) { hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled, preciseDepthEnabled ->
+            GpuExtras(hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled, preciseDepthEnabled)
         }
         renderConfigurationFlow = combine(
             getVideoRenderer(),
@@ -138,6 +139,7 @@ class SharedPreferencesSettingsRepository(
             RendererConfiguration(
                 renderer, look.filtering, look.deband, look.dsScreenColors, look.screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled,
                 gpuExtras.hiresCapture, gpuExtras.filter2d, resolutionScaling, gpuExtras.edgeMarking, gpuExtras.sharperRotated2d,
+                gpuExtras.preciseDepth,
             )
         }.conflate().shareIn(preferencesCoroutineScope, SharingStarted.Lazily, replay = 1)
     }
@@ -458,6 +460,12 @@ class SharedPreferencesSettingsRepository(
     override fun isSharperRotated2dEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_SHARPER_ROTATED_2D) {
             preferences.getBoolean(PreferenceKeys.VIDEO_SHARPER_ROTATED_2D, false)
+        }
+    }
+
+    override fun isPreciseDepthEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_PRECISE_DEPTH) {
+            preferences.getBoolean(PreferenceKeys.VIDEO_PRECISE_DEPTH, false)
         }
     }
 
@@ -806,10 +814,11 @@ private data class LookSettings(
     val screenShadow: Boolean,
 )
 
-// The OpenGL and compute extras of a RendererConfiguration, grouped for combine()
+// The 3D and 2D extras of a RendererConfiguration, grouped for combine(): all OpenGL and compute only but precise depth, which every renderer has
 private data class GpuExtras(
     val hiresCapture: Boolean,
     val filter2d: Boolean,
     val edgeMarking: Boolean,
     val sharperRotated2d: Boolean,
+    val preciseDepth: Boolean,
 )

@@ -19,6 +19,8 @@ data class RendererConfiguration(
     val edgeMarking: Boolean = true,
     // Draw rotated and scaled 2D layers at the internal resolution, the GPU 2D shadow in mode 1 (OpenGL/compute at 2x to 6x, read natively)
     val sharperRotated2d: Boolean = false,
+    // Compute 3D depth at full precision instead of the DS's steps (GPU::PreciseDepth, any renderer, read natively)
+    val preciseDepth: Boolean = false,
 ) {
 
     // Dither polygon color gradients instead of banding them: compute only, with deband, which took over its switch. A field, as it's read
