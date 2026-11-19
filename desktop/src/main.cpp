@@ -109,6 +109,7 @@ struct Options
     bool Hidden = false;
     bool GpuSync = false;      // glFinish after each frame, so the work time includes the GPU's
     bool GameState = false;    // print the app's game state scene (app/src/main/cpp/gamestate) when it changes
+    bool WideBattles = true;   // the app's WideMelon Gen 4 battles (GameState::applyWideBattle), with --wide on gl/compute
     Frontend::Layout Layout = Frontend::Layout::Vertical;
     int WindowScale = 2;
     u32 Frames = 0;            // 0 runs until the window is closed
@@ -174,7 +175,9 @@ void Usage()
         "  --unthrottled               run as fast as possible (benchmarks)\n"
         "  --no-audio\n"
         "  --frames N                  quit after N frames (prints timing stats)\n"
-        "  --game-state                print the app's Pokemon game state scene whenever it changes\n"
+        "  --game-state                print the app's Pokemon game state scene whenever it changes, and the\n"
+        "                              GPU 2D shadow's mode, which a Gen 4 game's battles turn on and off\n"
+        "  --no-wide-battles           with --wide, Gen 4 Pokemon battles stop at the edge as in other games\n"
         "  --screenshot FILE.bmp       save the last frame at the internal resolution when quitting\n"
         "  --window-shot-linear        draw the window shot with linear filtering (the run keeps --linear's)\n"
         "  --hidden                  no visible window (with --frames)\n"
@@ -287,6 +290,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--no-audio") opts.Audio = false;
         else if (arg == "--frames") opts.Frames = strtoul(next().c_str(), nullptr, 0);
         else if (arg == "--game-state") opts.GameState = true;
+        else if (arg == "--no-wide-battles") opts.WideBattles = false;
         else if (arg == "--screenshot") opts.ScreenshotPath = next();
         else if (arg == "--window-shot") opts.WindowShotPath = next();
         else if (arg == "--window-shot-linear") opts.WindowShotLinear = true;
@@ -963,24 +967,42 @@ int main(int argc, char** argv)
                 break;
 
             auto workStart = std::chrono::steady_clock::now();
+            // The app's game state shim; the cart is looked up on the first frame, and --at's resets and state loads start it over
+            static MelonDSAndroid::GameState gameState;
+            static bool hasCart = false;
+            if (!hasCart)
+            {
+                auto cart = emu.Nds->NDSCartSlot.GetCart();
+                gameState.setCart(cart ? cart->GetROM() : nullptr, cart ? cart->GetROMLength() : 0);
+                hasCart = true;
+            }
+            for (const auto& at : opts.Ats)
+                if (at.Frame == frame && (at.Action == "reset" || at.Action == "state"))
+                    gameState.reset();
+            if (opts.WideBattles)
+            {
+                // MelonInstance::applyShadow2DMode: the shadow in mode 3 around a Gen 4 game's battles, unless --gpu2d set a mode, then the
+                // battle's wide modes; before emu.RunFrame's SetOutputNeed, as the output cap follows them
+                bool isWideBattle = gameState.updateWideBattle(opts.WideWidth > 256);
+                if (opts.Gpu2D == 0)
+                {
+                    bool canWideBattles = emu.Current != RendererType::Software && opts.Filter2D == 0 && gameState.hasWideBattles();
+                    int mode = canWideBattles && isWideBattle ? 3 : 0;
+                    if (mode != (emu.Nds->GPU.Shadow2D ? emu.Nds->GPU.Shadow2D->Mode : 0))
+                    {
+                        emu.Nds->GPU.SetShadow2D(mode, false, false, opts.Gpu2DWide);
+                        if (opts.GameState)
+                            printf("frame %u: GPU 2D shadow mode %d\n", frame, mode);
+                    }
+                }
+                gameState.applyWideBattle(emu.Nds.get());
+            }
             emu.RunFrame();
+            gameState.update(emu.Nds.get());
             if (opts.GameState)
             {
-                // The app's shim, polled every frame as the camera does; the cart is looked up on the first frame, and --at's resets and
-                // state loads start it over
-                static MelonDSAndroid::GameState gameState;
-                static bool hasCart = false;
+                // Polled every frame, as the camera does
                 static int lastScene = -2;
-                if (!hasCart)
-                {
-                    auto cart = emu.Nds->NDSCartSlot.GetCart();
-                    gameState.setCart(cart ? cart->GetROM() : nullptr, cart ? cart->GetROMLength() : 0);
-                    hasCart = true;
-                }
-                for (const auto& at : opts.Ats)
-                    if (at.Frame == frame)
-                        gameState.reset();
-                gameState.update(emu.Nds.get());
                 int scene = gameState.pollScene();
                 if (scene != lastScene)
                 {

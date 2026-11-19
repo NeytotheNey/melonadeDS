@@ -69,6 +69,7 @@ Sizes are in lines and phone steps.
 - Replaces plan-widemelon step 7.
 - Size: about 800–1,200 lines; the largest phase.
 - Phone check: HG and Platinum battle intros and switch-ins against PokeDaisy.
+- **Built 11-19** on `feature/expand-parity-gen4-battles` (app) and `feature/gen4-wide-battles` (core), not pushed; see Status. It came before Phase 2: it needed the Repeat mode, which it built, but not the fog tile-out.
 
 **Phase 4: polish and leftovers.**
 - 4:3 blurred backdrop for menus, the ZOOM touch button, camera off on fault.
@@ -116,9 +117,21 @@ Sizes are in lines and phone steps.
 - White 2 conversations, doors and battles;
 - a sign read right after leaving a building (the 1.5 s window could make it late).
 
-**4. Then Phase 2.** The Shadow2D OnePlus stall is fixed and merged (11-17), so nothing blocks it.
+**4. Then Phase 2.** The Shadow2D OnePlus stall is fixed and merged (11-17), so nothing blocks it. Phase 3 went first (11-19, see Status) and built the Repeat mode; the fog tile-out and the field edge carry-over are left.
 
 ## Status
+
+**Phase 3, Gen 4 wide battles (11-19).** How it works is in MODS.md, Camera, "Gen 4 wide battles". Built on top of the Phase 1 branch, which was rebased onto `material3` the same day.
+- Covers every known Gen 4 cart: HG/SS (US, DE, FR, EU rev 10, ES, IT, KR, JP), Platinum (US rev 0 and 1, FR, ES) and Diamond (ADAE rev 5 and 13). PokeDaisy has no Diamond/Pearl; the two US/EU carts of our own are mapped from pret's decomps, whose checksums match the carts module for module (GameState.cpp comments). Pearl isn't mapped.
+- PokeDaisy pulls in for a DS battle too, but its 1x fills the view's height, so on the Fold it's about 500 DS px wide, like the screenshot the user sent. Our 1x is the layout's full width, so the camera rule didn't change.
+- Desktop (OpenGL and Compute, `logs/gen4-battles/`, `logs/gen4-fixes/`, `logs/gen4-new-carts/`): SoulSilver, Platinum rev 0 and Diamond battles look like PokeDaisy's; everything outside battles and in other games is byte-identical to `material3`, the output cap included.
+- A review found the output cap held off all game in these titles (the recorder ran all game); fixed by running the recorder only around battles. Smaller fixes: carry memory reset between battles, wings-only lines keep the sprite-overflow and hi-res checks, the carry's row search made linear.
+- Pixel 8 (`perf_logs/2026-11-19-gen4-battles-pixel/`, `2026-11-19-gen4-fixes-pixel/`): shaders compile on Mali, the look matches, no black wings in about 1,790 frames per renderer (the old build had them every frame), no HP box flicker, 60 fps with emulation time unchanged, the output cap back in the field, no crashes. HG/SS's intro shows two white boxes in the wings for two frames (untextured 3D quads before the textures load); PokeDaisy draws them too, so they stay (`logs/gen4-intro-boxes/`).
+- Not done yet: the Fold (Adreno) run, and a phone pass for Platinum rev 0 and Diamond. Desktop-made states don't load on the phone ("Failed to load state file", cause unknown), so phone battles have to be reached by walking.
+- Known: the modes come from the previous frame's scene (a frame late at the start, one frame past the end on the exit fade); an HP box pixel over a platform in the wing hides the platform there; mosaic sprite lines fall back to the old edge for that frame; an affine sprite steady on the edge for 8 frames can get a short carry stub, as in PokeDaisy (its carry loop counts affine sprites, `pk_nds_wide.cpp` edgeObjL/R).
+- Pixel 8 pass on Platinum rev 0 and Diamond (`perf_logs/2026-11-19-gen4-newcarts-pixel8/`) found two bugs, fixed on the desktop the same day (`logs/gen4-throw-door/`):
+  - **Black wings during the Poke Ball throw** ("Go! CHIMCHAR!"), about 42 frames in the rows of the trainer and the ball, OpenGL and Compute. The thrown ball is an affine sprite, so those lines kept the R_RotSprite reason and went back to the CPU, wings and all. PokeDaisy's margins leave affine sprites out and keep drawing the rows, so these lines are now wings-only too (`F_WingsOnly`, as for a mid-frame memory change): the CPU draws the middle with the ball, the wings go on without it. Not for an affine OBJ window sprite with the OBJ window on. SoulSilver's send-out showed no such lines (its lead Pokemon walks out, no throw).
+  - **Diamond exit zoom dip, Compute only.** Diamond's map name banner is on BG3, the text box's BG, so walking out of a door read as text for 42-70 frames after the fade. At Compute's ~33 fps on the Pixel that's over the 1.5 s after-fade window (`AFTER_FADE_TEXT_SECONDS`), at OpenGL's 60 fps it's under. Diamond's text read now counts only the BG3 map rows under the banner (rows 3-23; the text box is rows 18-23), so the exit reads as field. HG/SS and Platinum read as before. The window itself is wall time, so HG/SS's 46-frame exit text would outlast it below about 31 fps; counting game frames would fix that for every cart but needs a frame count passed to the camera, so it's left as is for now.
 
 **Fold run (11-17, `perf_logs/2026-11-17-expand-phase1-fold/`) passed:** text boxes, X menu, party and bag, yes/no, holding the zoom through a SoulSilver door fade, battle pull-in, the setting off, swapped screens, state loads, and unsupported games (Platinum rev 0, Mario Kart DS). No crashes. The zoom-out that first looked too fast came from the test script's own `set_zoom`, which uses the script ease on purpose. Not covered yet: White 2 conversations, doors and battles, Fly, look-around with a controller, and a side-by-side with PokeDaisy (its library on the Fold is empty).
 
@@ -147,4 +160,4 @@ Left out or changed from PokeDaisy, and why:
 - **Our controls stay.** Our pan speed (300 px/s, not 150), dead zone, touch drag, pinch and the 0.25-step zoom stay. Standing with the stick uses our eased pan; the springs move the shown pan directly, as PokeDaisy's do.
 - **Swapped screens and `hold_native`** still snap to 1x at once; in a known game the player's zoom then comes back like after any close-up (0.5 s, eased) rather than our 0.25 s.
 - **Copied code kept whole.** The touch rules, WILD ENCOUNTERS, BGM settle and X-menu keep code in `pk_nds_field.cpp` is unused but stays, since it pulls in nothing (no `pk_nds_call`), to keep the file diffable. Nothing writes RAM: the write callback is null.
-- **US Platinum rev 0 isn't known.** PokeDaisy's tables have US Platinum rev 1 only (pret's build); the test library's Platinum is rev 0 (CPUE, revision byte 0), so it keeps the generic rules until someone maps rev 0.
+- **Two carts of our own** (`GameState.cpp`, before PokeDaisy's tables). US Platinum rev 0 (CPUE, revision byte 0) uses PokeDaisy's rev 1 table as it is: pret/pokeplatinum's checksums show both revisions share the ARM9 and every overlay but GTS. Diamond (ADAE rev 5, and rev 13, the library's European cart) has its own table from pret/pokediamond, whose US build matches the cart module for module. Both checked on the desktop build (field, text, X menu, party, a door's fade, a wild battle drawn wide; `logs/gen4-new-carts/`). Pearl isn't mapped: its ARM9 and field and battle overlays differ from Diamond's, and there's no Pearl cart to read them from.
