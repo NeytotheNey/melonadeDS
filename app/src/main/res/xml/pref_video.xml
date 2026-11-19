@@ -4,7 +4,7 @@
 
     <PreferenceCategory
             android:key="category_display_3d_rendering"
-            android:title="@string/settings_section_3d_rendering">
+            android:title="@string/settings_section_renderer">
 
         <ListPreference
                 android:key="video_renderer"
@@ -14,6 +14,7 @@
                 android:entryValues="@array/video_renderer_values"
                 android:defaultValue="software"/>
 
+        <!-- OpenGL and compute only, so it's hidden for software (set up in VideoPreferencesFragment) -->
         <ListPreference
                 android:key="video_internal_resolution"
                 android:title="@string/internal_resolution"
@@ -21,27 +22,33 @@
                 android:entries="@array/video_internal_resolution_options"
                 android:entryValues="@array/video_internal_resolution_values"
                 android:defaultValue="1"/>
+    </PreferenceCategory>
 
-        <!-- OpenGL and compute only, so it's hidden for software (set up in VideoPreferencesFragment) -->
+    <!-- All OpenGL and compute only, so the section is hidden for software (set up in VideoPreferencesFragment) -->
+    <PreferenceCategory
+            android:key="category_display_enhancements"
+            android:title="@string/settings_section_enhancements">
+
         <SwitchPreference
                 android:key="video_hires_capture"
                 android:title="@string/hires_capture"
                 android:summary="@string/hires_capture_summary"
                 android:defaultValue="true" />
 
-        <!-- OpenGL and compute only, so it's hidden for software (set up in VideoPreferencesFragment) -->
         <SwitchPreference
                 android:key="video_filter_2d"
                 android:title="@string/filter_2d"
                 android:summary="@string/filter_2d_summary"
                 android:defaultValue="false" />
 
-        <!-- OpenGL and compute only, so it's hidden for software (set up in VideoPreferencesFragment) -->
         <SwitchPreference
                 android:key="video_sharper_rotated_2d"
                 android:title="@string/sharper_rotated_2d"
                 android:summary="@string/sharper_rotated_2d_summary"
                 android:defaultValue="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/settings_section_accuracy">
 
         <!-- OpenGL and compute only (software always draws it), so it's hidden for software (set up in VideoPreferencesFragment) -->
         <SwitchPreference
@@ -49,21 +56,12 @@
                 android:title="@string/edge_marking"
                 android:summary="@string/edge_marking_summary"
                 android:defaultValue="true" />
-    </PreferenceCategory>
 
-    <PreferenceCategory android:title="@string/settings_section_threading">
-
-        <!-- Only used by the software renderer, so it's turned off for the others (set up in VideoPreferencesFragment) -->
+        <!-- OpenGL only (GPU::GLSeams), so it's grayed out for software and compute (set up in VideoPreferencesFragment) -->
         <SwitchPreference
-                android:key="enable_threaded_rendering"
-                android:title="@string/threaded_rendering"
-                android:summary="@string/threaded_rendering_summary"
-                android:defaultValue="true" />
-
-        <SwitchPreference
-                android:key="video_threaded_2d"
-                android:title="@string/threaded_2d_rendering"
-                android:summary="@string/threaded_2d_rendering_summary"
+                android:key="video_gl_seams"
+                android:title="@string/gl_seams"
+                android:summary="@string/gl_seams_summary"
                 android:defaultValue="false" />
     </PreferenceCategory>
 
@@ -82,23 +80,6 @@
                 android:key="video_deband"
                 android:title="@string/deband"
                 android:summary="@string/deband_summary"
-                android:defaultValue="false" />
-
-        <SwitchPreference
-                android:key="video_ds_screen_colors"
-                android:title="@string/ds_screen_colors"
-                android:defaultValue="false" />
-
-        <SwitchPreference
-                android:key="video_screen_shadow"
-                android:title="@string/screen_shadow"
-                android:summary="@string/screen_shadow_summary"
-                android:defaultValue="false" />
-
-        <SwitchPreference
-                android:key="video_lua_drawings_in_state_pictures"
-                android:title="@string/lua_drawings_in_state_pictures"
-                android:summary="@string/lua_drawings_in_state_pictures_summary"
                 android:defaultValue="false" />
     </PreferenceCategory>
 

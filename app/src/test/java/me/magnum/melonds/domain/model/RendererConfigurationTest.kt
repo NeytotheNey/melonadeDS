@@ -31,6 +31,14 @@ class RendererConfigurationTest {
         assertEquals(false, configuration(VideoRenderer.SOFTWARE, 1, deband = true).colorDithering)
     }
 
+    // The native side reads glSeams as a boolean field by name (MelonDSAndroidConfiguration::buildEmulatorConfiguration)
+    @Test
+    fun glSeamsIsABooleanFieldAndOffByDefault() {
+        val field = RendererConfiguration::class.java.getDeclaredField("glSeams")
+        assertEquals(Boolean::class.javaPrimitiveType, field.type)
+        assertEquals(false, configuration(VideoRenderer.OPENGL, 4).glSeams)
+    }
+
     // The native side reads colorDithering as a boolean field by name, so it has to stay a field, not just a getter
     @Test
     fun colorDitheringIsABooleanField() {

@@ -28,21 +28,24 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
     private lateinit var filter2dPreference: SwitchPreference
     private lateinit var sharperRotated2dPreference: SwitchPreference
     private lateinit var edgeMarkingPreference: Preference
-    private lateinit var renderingCategory: PreferenceCategory
-    // Threaded 3D rendering is only used by the software renderer
-    private lateinit var threadedRenderingPreference: SwitchPreference
+    // Only the OpenGL renderer has the floor seams fix
+    private lateinit var glSeamsPreference: Preference
+    private lateinit var rendererCategory: PreferenceCategory
+    private lateinit var enhancementsCategory: PreferenceCategory
     // Only the OpenGL and compute renderers can draw the in-between frames
     private lateinit var smooth30FpsPreference: Preference
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.pref_video, rootKey)
-        renderingCategory = findPreference(PreferenceKeys.CATEGORY_DISPLAY_3D_RENDERING)!!
+        rendererCategory = findPreference(PreferenceKeys.CATEGORY_DISPLAY_3D_RENDERING)!!
+        enhancementsCategory = findPreference(PreferenceKeys.CATEGORY_DISPLAY_ENHANCEMENTS)!!
 
         internalResolutionPreference = findPreference("video_internal_resolution")!!
         hiresCapturePreference = findPreference(PreferenceKeys.VIDEO_HIRES_CAPTURE)!!
         filter2dPreference = findPreference(PreferenceKeys.VIDEO_FILTER_2D)!!
         sharperRotated2dPreference = findPreference(PreferenceKeys.VIDEO_SHARPER_ROTATED_2D)!!
         edgeMarkingPreference = findPreference(PreferenceKeys.VIDEO_EDGE_MARKING)!!
+        glSeamsPreference = findPreference(PreferenceKeys.VIDEO_GL_SEAMS)!!
         filter2dPreference.setOnPreferenceChangeListener { _, newValue ->
             if (newValue == true)
                 sharperRotated2dPreference.isChecked = false
@@ -53,7 +56,6 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
                 filter2dPreference.isChecked = false
             true
         }
-        threadedRenderingPreference = findPreference("enable_threaded_rendering")!!
         smooth30FpsPreference = findPreference(PreferenceKeys.FRAME_PACING_SMOOTH_30FPS)!!
 
         val rendererPreference = findPreference<ListPreference>("video_renderer")!!
@@ -86,13 +88,12 @@ class VideoPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentTit
         filter2dPreference.isVisible = !isSoftwareRenderer
         sharperRotated2dPreference.isVisible = !isSoftwareRenderer
         edgeMarkingPreference.isVisible = !isSoftwareRenderer
+        glSeamsPreference.isEnabled = newRenderer == VideoRenderer.OPENGL
         smooth30FpsPreference.isEnabled = !isSoftwareRenderer
-        threadedRenderingPreference.isEnabled = isSoftwareRenderer
-        threadedRenderingPreference.setSummary(
-            if (isSoftwareRenderer) R.string.threaded_rendering_summary else R.string.threaded_rendering_software_only
-        )
-        // The renderer option is hidden on devices without GLES 3.2, which can leave the section empty
-        updateGroupVisibility(renderingCategory)
+        // The renderer option is hidden on devices without GLES 3.2, which can leave the section empty, and every enhancement is hidden for
+        // software
+        updateGroupVisibility(rendererCategory)
+        updateGroupVisibility(enhancementsCategory)
     }
 
     override fun getTitle(): String {

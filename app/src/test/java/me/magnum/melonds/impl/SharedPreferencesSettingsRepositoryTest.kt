@@ -6,6 +6,8 @@ import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.common.uridelegates.UriHandler
@@ -108,5 +110,34 @@ class SharedPreferencesSettingsRepositoryTest {
 
         assertTrue(repositorySource.contains("framePacingSmooth30FpsEnabled = isFramePacingSmooth30FpsEnabled()"))
         assertTrue(nativeSource.contains("\"framePacingSmooth30FpsEnabled\""))
+    }
+
+    @Test
+    fun glSeamsIsOffByDefault() = runBlocking {
+        assertFalse(repository(FakeSharedPreferences()).isGlSeamsEnabled().first())
+    }
+
+    @Test
+    fun glSeamsFollowsThePreference() = runBlocking {
+        val preferences = FakeSharedPreferences(mapOf(PreferenceKeys.VIDEO_GL_SEAMS to true))
+
+        assertTrue(repository(preferences).isGlSeamsEnabled().first())
+    }
+
+    // The native side reads it from RendererConfiguration by name, and a wrong name would crash at game start
+    @Test
+    fun glSeamsIsReadByNativeCode() {
+        val nativeSource = File(moduleDir, "src/main/cpp/MelonDSAndroidConfiguration.cpp").readText()
+
+        assertTrue(nativeSource.contains("\"glSeams\", \"Z\""))
+    }
+
+    // "DS screen colors" left the settings: an old "on" reads as off, and the stored value stays as it was
+    @Test
+    fun dsScreenColorsReadsAsOffAndKeepsTheStoredValue() = runBlocking {
+        val preferences = FakeSharedPreferences(mapOf("video_ds_screen_colors" to true))
+
+        assertFalse(repository(preferences).isDsScreenColorsEnabled().first())
+        assertTrue(preferences.getBoolean("video_ds_screen_colors", false))
     }
 }

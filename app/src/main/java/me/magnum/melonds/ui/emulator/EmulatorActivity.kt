@@ -682,8 +682,6 @@ class EmulatorActivity : AppCompatActivity() {
                         ToastEvent.CannotSwitchRetroAchievementsMode -> R.string.retro_achievements_relaunch_to_apply_settings to Toast.LENGTH_LONG
                         ToastEvent.GbaModeNotSupported -> R.string.emulator_stop_gba_mode_unsupported to Toast.LENGTH_SHORT
                         ToastEvent.InternalError -> R.string.emulator_stop_internal_error to Toast.LENGTH_LONG
-                        ToastEvent.SeamFixOn -> R.string.seam_fix_on to Toast.LENGTH_SHORT
-                        ToastEvent.SeamFixOff -> R.string.seam_fix_off to Toast.LENGTH_SHORT
                     }
 
                     Toast.makeText(this@EmulatorActivity, message, duration).show()

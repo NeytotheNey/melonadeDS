@@ -39,7 +39,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import me.magnum.melonds.BuildConfig
 import me.magnum.melonds.MelonEmulator
 import me.magnum.melonds.common.romprocessors.RomFileProcessorFactory
 import me.magnum.melonds.common.runtime.ScreenshotFrameBufferProvider
@@ -570,8 +569,6 @@ class EmulatorViewModel @Inject constructor(
                     RomPauseMenuOption.MODS -> _uiEvent.tryEmit(EmulatorUiEvent.ShowLuaScripts(emulatorManager.getLuaScripts()))
                     RomPauseMenuOption.VIEW_ACHIEVEMENTS -> _uiEvent.tryEmit(EmulatorUiEvent.ShowAchievementList)
                     RomPauseMenuOption.SWAP_SCREENS -> swapScreensFromPauseMenu()
-                    RomPauseMenuOption.SEAM_FIX_ON -> setSeamFixFromPauseMenu(false)
-                    RomPauseMenuOption.SEAM_FIX_OFF -> setSeamFixFromPauseMenu(true)
                     RomPauseMenuOption.RESET -> resetEmulator()
                     RomPauseMenuOption.EXIT -> exitEmulator(force = false)
                 }
@@ -606,16 +603,6 @@ class EmulatorViewModel @Inject constructor(
     private fun swapScreensFromPauseMenu() {
         _uiEvent.tryEmit(EmulatorUiEvent.SwapScreens)
         // Like a reset, it's done straight from the menu, so the game goes on
-        resumeEmulator()
-    }
-
-    /**
-     * Debug builds only: turns the OpenGL floor seams fix (GPU::GLSeams) on (3, the full fix) or off for the running game, from the next frame,
-     * and the game goes on so the two can be compared.
-     */
-    private fun setSeamFixFromPauseMenu(enabled: Boolean) {
-        MelonEmulator.setGLSeams(if (enabled) 3 else 0)
-        _toastEvent.tryEmit(if (enabled) ToastEvent.SeamFixOn else ToastEvent.SeamFixOff)
         resumeEmulator()
     }
 
@@ -1460,9 +1447,6 @@ class EmulatorViewModel @Inject constructor(
             // Only while this session loaded a script, even if they have all been switched off since
             RomPauseMenuOption.MODS -> emulatorManager.getLuaScripts().isNotEmpty()
             RomPauseMenuOption.VIEW_ACHIEVEMENTS -> emulatorSession.areRetroAchievementsEnabled()
-            // Debug builds only, the entry that shows the fix's current state (any of glseams' bits counts as on)
-            RomPauseMenuOption.SEAM_FIX_ON -> BuildConfig.DEBUG && MelonEmulator.getGLSeams() != 0
-            RomPauseMenuOption.SEAM_FIX_OFF -> BuildConfig.DEBUG && MelonEmulator.getGLSeams() == 0
             else -> true
         }
     }

@@ -11,12 +11,14 @@ import me.magnum.melonds.R
 import me.magnum.melonds.common.DirectoryAccessValidator
 import me.magnum.melonds.common.PreferenceKeys
 import me.magnum.melonds.common.UriPermissionManager
+import me.magnum.melonds.domain.model.VideoRenderer
 import me.magnum.melonds.extensions.isSustainedPerformanceModeAvailable
 import me.magnum.melonds.impl.diagnostics.DebugSwitches
 import me.magnum.melonds.impl.diagnostics.LogFolder
 import me.magnum.melonds.ui.settings.PreferenceFragmentHelper
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
 import me.magnum.melonds.ui.settings.preferences.StoragePickerPreference
+import me.magnum.melonds.utils.enumValueOfIgnoreCaseOrNull
 import me.magnum.melonds.utils.supportsJit
 import javax.inject.Inject
 
@@ -46,6 +48,24 @@ class PerformancePreferencesFragment : BasePreferenceFragment(), PreferenceFragm
 
         setupPerformanceLogDirectoryPreference()
         setupDebugSwitchesPreference()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateThreadedRenderingPreference()
+    }
+
+    // Threaded 3D rendering is only used by the software renderer, which is picked on the Display page, so this reads the saved renderer each
+    // time the page shows
+    private fun updateThreadedRenderingPreference() {
+        val threadedRenderingPreference = findPreference<SwitchPreference>("enable_threaded_rendering")!!
+        val rendererValue = preferenceManager.sharedPreferences?.getString("video_renderer", "software")
+        val renderer = enumValueOfIgnoreCaseOrNull<VideoRenderer>(rendererValue) ?: VideoRenderer.SOFTWARE
+        val isSoftwareRenderer = renderer == VideoRenderer.SOFTWARE
+        threadedRenderingPreference.isEnabled = isSoftwareRenderer
+        threadedRenderingPreference.setSummary(
+            if (isSoftwareRenderer) R.string.threaded_rendering_summary else R.string.threaded_rendering_software_only
+        )
     }
 
     // Debug builds only: the switches the next game start applies (DebugSwitches), shown as they'll be read

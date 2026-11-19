@@ -5,6 +5,7 @@ data class RendererConfiguration(
     val videoFiltering: VideoFiltering,
     // Deband in front of or inside the filter (any renderer); the "Smooth gradients" switch, which also turns on colorDithering
     val deband: Boolean,
+    // Always false: the "DS screen colors" switch is gone from the settings (SharedPreferencesSettingsRepository.isDsScreenColorsEnabled)
     val dsScreenColors: Boolean,
     val screenShadow: Boolean,
     val threadedRendering: Boolean,
@@ -19,6 +20,8 @@ data class RendererConfiguration(
     val edgeMarking: Boolean = true,
     // Draw rotated and scaled 2D layers at the internal resolution, the GPU 2D shadow in mode 1 (OpenGL/compute at 2x to 6x, read natively)
     val sharperRotated2d: Boolean = false,
+    // The OpenGL floor seams fix, "Fix floor seams" (GPU::GLSeams 3; read natively, which ignores it for software and compute)
+    val glSeams: Boolean = false,
 ) {
 
     // Dither polygon color gradients instead of banding them: compute only, with deband, which took over its switch. A field, as it's read

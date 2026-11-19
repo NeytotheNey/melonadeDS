@@ -88,7 +88,6 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
 
 #ifdef MELONADE_DEBUG_TOOLS
     debugOverrides = DebugProperties::apply(*nds);
-    glSeams = nds->GPU.GLSeams;
 #endif
 
     if (configuration->userInternalFirmwareAndBios)
@@ -362,11 +361,6 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             computeRenderer.SetViewMargin(wideViewMargin);
         }
     }
-
-#ifdef MELONADE_DEBUG_TOOLS
-    // The pause menu's seam fix toggle (setGLSeams); the GL renderer reads it as the frame starts, and builds the frame's vertices for it
-    nds->GPU.GLSeams = glSeams.load(std::memory_order_relaxed);
-#endif
 
     // Cleared first, so a configuration that arrives during updateRenderer() is applied on the next frame
     if (isRenderConfigurationDirty.exchange(false))
@@ -1036,9 +1030,13 @@ void MelonInstance::updateRenderer()
     bool hiresCapture = configuration->hiresCapture;
     int filter2d = configuration->filter2d ? 1 : 0;
     int edgeMark = configuration->edgeMarking ? 1 : 0;
+    // The full fix (both of its bits), and only for the renderer that draws it: OpenGL, not the software fallback after a failed New()
+    int glSeams = configuration->glSeams && currentRenderer == Renderer::OpenGl ? 3 : 0;
 #ifdef MELONADE_DEBUG_TOOLS
     if (debugOverrides.edgeMark >= 0)
         edgeMark = debugOverrides.edgeMark;
+    if (debugOverrides.glSeams >= 0)
+        glSeams = debugOverrides.glSeams;
     if (debugOverrides.threaded2d >= 0)
         threaded2d = debugOverrides.threaded2d == 1;
     if (debugOverrides.hiresCapture >= 0)
@@ -1054,6 +1052,8 @@ void MelonInstance::updateRenderer()
     nds->GPU.Filter2D = filter2d;
     // Read by the OpenGL and compute renderers at their next frame; software always marks edges
     nds->GPU.GLEdgeMark = edgeMark;
+    // Read by the OpenGL renderer as each frame starts (a change draws the frame again); software and compute ignore it
+    nds->GPU.GLSeams = glSeams;
 
     // Only the OpenGL and compute renderers can draw the in-between scenes or the GPU 2D shadow, so software doesn't pay for them
     bool isGpuRenderer = currentRenderer == Renderer::OpenGl || currentRenderer == Renderer::Compute;

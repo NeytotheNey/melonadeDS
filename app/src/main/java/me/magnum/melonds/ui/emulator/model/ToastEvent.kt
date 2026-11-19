@@ -15,6 +15,4 @@ sealed class ToastEvent {
     data object CannotSwitchRetroAchievementsMode : ToastEvent()
     data object GbaModeNotSupported : ToastEvent()
     data object InternalError : ToastEvent()
-    data object SeamFixOn : ToastEvent()
-    data object SeamFixOff : ToastEvent()
 }

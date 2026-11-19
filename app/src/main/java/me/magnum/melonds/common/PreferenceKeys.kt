@@ -6,15 +6,13 @@ package me.magnum.melonds.common
  */
 object PreferenceKeys {
     // pref_video.xml
-    const val VIDEO_THREADED_2D = "video_threaded_2d"
     const val VIDEO_HIRES_CAPTURE = "video_hires_capture"
     const val VIDEO_FILTER_2D = "video_filter_2d"
     const val VIDEO_SHARPER_ROTATED_2D = "video_sharper_rotated_2d"
     const val VIDEO_EDGE_MARKING = "video_edge_marking"
-    const val VIDEO_DS_SCREEN_COLORS = "video_ds_screen_colors"
+    const val VIDEO_GL_SEAMS = "video_gl_seams"
     const val VIDEO_DEBAND = "video_deband"
     const val VIDEO_SCREEN_SHADOW = "video_screen_shadow"
-    const val VIDEO_LUA_DRAWINGS_IN_STATE_PICTURES = "video_lua_drawings_in_state_pictures"
     const val SHOW_STATUS_BAR = "show_status_bar"
     const val FRAME_PACING_VSYNC = "frame_pacing_vsync"
     const val FRAME_PACING_LOCK_60HZ = "frame_pacing_lock_60hz"
@@ -30,11 +28,15 @@ object PreferenceKeys {
     const val MUTE_FAST_FORWARD_AUDIO = "mute_fast_forward_audio"
 
     // pref_performance.xml
+    const val VIDEO_THREADED_2D = "video_threaded_2d"
     const val ENABLE_PERF_LOGGING = "enable_perf_logging"
     const val PERF_LOG_DIR = "perf_log_dir"
     const val ENABLE_DEBUG_LOG = "enable_debug_log"
     // Debug builds only (hidden and not applied in release builds): debug.melonade.* switches set at game start, see DebugSwitches
     const val DEBUG_SWITCHES = "debug_switches"
+
+    // pref_save_files.xml
+    const val VIDEO_LUA_DRAWINGS_IN_STATE_PICTURES = "video_lua_drawings_in_state_pictures"
 
     // pref_system.xml
     const val SYNC_RTC_TO_DEVICE = "sync_rtc_to_device"
@@ -43,7 +45,9 @@ object PreferenceKeys {
     const val DYNAMIC_COLORS = "dynamic_colors"
 
     // Section headers, which only exist in the preference screens and hold no value
+    // The Renderer section; its key is from when it was called 3D rendering
     const val CATEGORY_DISPLAY_3D_RENDERING = "category_display_3d_rendering" // pref_video.xml
+    const val CATEGORY_DISPLAY_ENHANCEMENTS = "category_display_enhancements" // pref_video.xml
     const val CATEGORY_CONTROLS_VIBRATION = "category_controls_vibration" // pref_input.xml
     const val CATEGORY_PERFORMANCE_DEVICE = "category_performance_device" // pref_performance.xml
 

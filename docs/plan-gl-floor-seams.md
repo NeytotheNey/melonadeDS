@@ -48,6 +48,8 @@ One switch, `GPU::GLSeams`, debug `glseams`, so every step can be A/B'd:
 
 Default: both bits on once the checks below pass; until then the default stays 0.
 
+Since 11-18 it's the "Fix floor seams" setting (`video_gl_seams`, Display → Accuracy, off by default, grayed out for Software and Compute): on is `3`, off `0`, applied in `MelonInstance::updateRenderer` at game start and when settings change mid-game. The debug pause menu toggle is gone; `glseams` still overrides the setting in debug builds.
+
 ## Checks
 
 1. **Desktop gap count** at 1x, 4x and 8x in Platinum and SoulSilver with each bit alone and both. Target: at or near Compute's 231 at 4x. Also eyeball the edge-mark streaks.

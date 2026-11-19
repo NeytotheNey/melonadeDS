@@ -40,6 +40,13 @@
                 android:title="@string/soft_input_opacity"
                 android:defaultValue="50"
                 android:max="100" />
+
+        <!-- The shadow is drawn around the DS screens in the layout, so it sits with the other on-screen look settings -->
+        <SwitchPreference
+                android:key="video_screen_shadow"
+                android:title="@string/screen_shadow"
+                android:summary="@string/screen_shadow_summary"
+                android:defaultValue="false" />
     </PreferenceCategory>
 
     <PreferenceCategory

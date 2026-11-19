@@ -12,6 +12,22 @@
                 android:defaultValue="true" />
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/settings_section_threading">
+
+        <!-- Only used by the software renderer, so it's turned off for the others (set up in PerformancePreferencesFragment) -->
+        <SwitchPreference
+                android:key="enable_threaded_rendering"
+                android:title="@string/threaded_rendering"
+                android:summary="@string/threaded_rendering_summary"
+                android:defaultValue="true" />
+
+        <SwitchPreference
+                android:key="video_threaded_2d"
+                android:title="@string/threaded_2d_rendering"
+                android:summary="@string/threaded_2d_rendering_summary"
+                android:defaultValue="false" />
+    </PreferenceCategory>
+
     <PreferenceCategory
             android:key="category_performance_device"
             android:title="@string/settings_section_device">
