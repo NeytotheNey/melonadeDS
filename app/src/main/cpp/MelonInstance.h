@@ -91,6 +91,8 @@ public:
     void updateConfiguration(std::shared_ptr<EmulatorConfiguration> newConfiguration);
     void requestNdsSaveWrite(const u8* saveData, u32 saveLength, u32 writeOffset, u32 writeLength);
     void requestGbaSaveWrite(const u8* saveData, u32 saveLength, u32 writeOffset, u32 writeLength);
+    void syncNdsSaveFromState(const u8* saveData, u32 saveLength);
+    void syncGbaSaveFromState(const u8* saveData, u32 saveLength);
     void requestFirmwareSaveWrite(const u8* saveData, u32 saveLength, u32 writeOffset, u32 writeLength);
     bool saveState(Savestate* state);
     bool loadState(Savestate* state);

@@ -784,6 +784,18 @@ void MelonInstance::requestGbaSaveWrite(const u8* saveData, u32 saveLength, u32 
         gbaSave->RequestFlush(saveData, saveLength, writeOffset, writeLength);
 }
 
+void MelonInstance::syncNdsSaveFromState(const u8* saveData, u32 saveLength)
+{
+    if (ndsSave)
+        ndsSave->SyncFromState(saveData, saveLength);
+}
+
+void MelonInstance::syncGbaSaveFromState(const u8* saveData, u32 saveLength)
+{
+    if (gbaSave)
+        gbaSave->SyncFromState(saveData, saveLength);
+}
+
 void MelonInstance::requestFirmwareSaveWrite(const u8* saveData, u32 saveLength, u32 writeOffset, u32 writeLength)
 {
     if (firmwareSave)

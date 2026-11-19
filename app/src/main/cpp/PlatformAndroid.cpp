@@ -490,6 +490,20 @@ namespace Platform
             emulatorInstance->requestGbaSaveWrite(savedata, savelen, writeoffset, writelen);
     }
 
+    void SyncNDSSave(const u8* savedata, u32 savelen, void* userdata)
+    {
+        auto emulatorInstance = (MelonDSAndroid::MelonInstance*) userdata;
+        if (emulatorInstance)
+            emulatorInstance->syncNdsSaveFromState(savedata, savelen);
+    }
+
+    void SyncGBASave(const u8* savedata, u32 savelen, void* userdata)
+    {
+        auto emulatorInstance = (MelonDSAndroid::MelonInstance*) userdata;
+        if (emulatorInstance)
+            emulatorInstance->syncGbaSaveFromState(savedata, savelen);
+    }
+
     void WriteFirmware(const Firmware& firmware, u32 writeoffset, u32 writelen, void* userdata)
     {
         auto emulatorInstance = (MelonDSAndroid::MelonInstance*) userdata;

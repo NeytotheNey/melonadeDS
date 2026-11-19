@@ -63,6 +63,24 @@ Sizes are in lines and phone steps.
 - Check the compose rules against EXPAND on the same scenes.
 - The Shadow2D OnePlus stall it waited on is fixed and merged (11-17, [plan-gpu-2d-shadow.md](plan-gpu-2d-shadow.md), "Fixed").
 - Size: a few hundred lines in the core.
+- Weather in the wings (user, 11-19, our own extension past PokeDaisy): see below.
+
+**Phase 2b: weather in the wings (not started, 11-19).**
+
+The user wants rain, snow, sandstorm dust, fog and the like to show in the wings; today they stop at the 256-px edge. PokeDaisy only tiles Platinum's fog, so anything beyond fog is ours, not parity.
+
+Two kinds of effect, with different fixes:
+- **Layer effects** (fog, probably sandstorm haze, maybe darkness or flash circles): a BG drawn over the whole screen. Draw that BG past the edge with Wide_Draw, or tile it if the tilemap stops at 256. Same machinery as the battle background.
+- **Particle effects** (rain drops, snowflakes, blowing sand, ash, maybe leaves): probably OAM sprites the game only spawns inside 256 columns, so the wings have none to draw. Idea: copy the screen's particle sprites into the wings at x ± 256 (or tile the particle field). Rain and snow look random enough that the repeat shouldn't show. Needs a rule for which sprites are weather (OAM index range, tiles or palette from the decomp), so the player, NPCs and other field sprites aren't copied.
+
+Field weather needs the Shadow2D recorder running in the field, which today runs only around Gen 4 battles (`GameState::updateWideBattle`, mode 3). Gate it on "weather on" from game RAM, so clear-weather maps keep the current cost and the output cap. Gen 5 (B/W, B2/W2) needs its own look.
+
+**First step: map how each game draws each weather. Research only, no code.**
+- Platinum: pret/pokeplatinum, `src/overlay005/ov5_021D5EB8.c` (about 5,500 lines, the field weather effects), `include/constants/overworld_weather.h` for the list, `src/field_overworld_weather.c` for the yearly table. A clone was in the 11-19 session's scratchpad; clone it again if gone.
+- HG/SS: pret/pokeheartgold. Diamond: pret/pokediamond. Black/White and B2/W2 have no full decomp; use the desktop build's dumps instead.
+- For each weather: BG or sprites (which BG, which OAM range, tiles and palette), blending (BLDCNT/BLDALPHA), how it scrolls, and the RAM byte that says which weather is on (the FieldSystem's map header weather, or the weather task).
+- Check on the desktop build with states in rain, snow, sandstorm and fog (Route 212 or 213 rain, Route 216/217 snow, Route 228 sand, Route 210 fog in Platinum). Dump OAM and BG per line, the way the 11-19 battle work did (`logs/gen4-intro-boxes/`, `logs/gen4-throw-door/`).
+- Then write the plan: per game and weather, layer draw versus particle copy, the weather RAM gate, cost, and what PokeDaisy does for fog to match.
 
 **Phase 3: Gen 4 battles (core plus game state).**
 - BG3 drawn wide, scenery sprites from OAM, and HP and text box carry with closing outlines, all switched on by the Phase 1 game state.

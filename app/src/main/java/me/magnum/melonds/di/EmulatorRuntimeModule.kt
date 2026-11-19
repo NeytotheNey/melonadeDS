@@ -15,7 +15,6 @@ import me.magnum.melonds.common.camera.BlackDSiCameraSource
 import me.magnum.melonds.common.camera.DSiCameraSource
 import me.magnum.melonds.common.romprocessors.RomFileProcessorFactory
 import me.magnum.melonds.common.runtime.ScreenshotFrameBufferProvider
-import me.magnum.melonds.common.uridelegates.UriHandler
 import me.magnum.melonds.domain.model.camera.DSiCameraSourceType
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.domain.services.EmulatorManager
@@ -27,6 +26,7 @@ import me.magnum.melonds.impl.camera.StaticImageDSiCameraSource
 import me.magnum.melonds.impl.emulator.AndroidEmulatorManager
 import me.magnum.melonds.impl.emulator.EmulatorSession
 import me.magnum.melonds.impl.emulator.LifecycleOwnerProvider
+import me.magnum.melonds.impl.emulator.SaveBackupManager
 import me.magnum.melonds.impl.emulator.SramProvider
 import me.magnum.melonds.impl.image.BitmapFactoryBitmapLoader
 import me.magnum.melonds.impl.image.BitmapLoader
@@ -44,12 +44,6 @@ object EmulatorRuntimeModule {
     @ActivityRetainedScoped
     fun provideFrameBufferProvider(): ScreenshotFrameBufferProvider {
         return ScreenshotFrameBufferProvider()
-    }
-
-    @Provides
-    @ActivityRetainedScoped
-    fun provideSramProvider(settingsRepository: SettingsRepository, uriHandler: UriHandler): SramProvider {
-        return SramProvider(settingsRepository, uriHandler)
     }
 
     @Provides
@@ -115,6 +109,7 @@ object EmulatorRuntimeModule {
         @ApplicationContext context: Context,
         settingsRepository: SettingsRepository,
         sramProvider: SramProvider,
+        saveBackupManager: SaveBackupManager,
         screenshotFrameBufferProvider: ScreenshotFrameBufferProvider,
         romFileProcessorFactory: RomFileProcessorFactory,
         permissionHandler: PermissionHandler,
@@ -126,6 +121,7 @@ object EmulatorRuntimeModule {
             context,
             settingsRepository,
             sramProvider,
+            saveBackupManager,
             screenshotFrameBufferProvider,
             romFileProcessorFactory,
             permissionHandler,

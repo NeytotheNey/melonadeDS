@@ -30,6 +30,8 @@ import me.magnum.melonds.domain.services.EmulatorLaunchPreconditionChecker
 import me.magnum.melonds.impl.AndroidDSiNandManager
 import me.magnum.melonds.impl.*
 import me.magnum.melonds.impl.diagnostics.DebugLogRecorder
+import me.magnum.melonds.impl.emulator.SaveBackupManager
+import me.magnum.melonds.impl.emulator.SramProvider
 import me.magnum.melonds.impl.diagnostics.ExitReasonReporter
 import me.magnum.melonds.impl.diagnostics.LogFolder
 import me.magnum.melonds.impl.diagnostics.PerformanceLogger
@@ -253,6 +255,18 @@ object MelonModule {
     @Singleton
     fun provideLuaScriptDataStore(@ApplicationContext context: Context): LuaScriptDataStore {
         return LuaScriptDataStore(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideSramProvider(settingsRepository: SettingsRepository, uriHandler: UriHandler): SramProvider {
+        return SramProvider(settingsRepository, uriHandler)
+    }
+
+    @Provides
+    @Singleton
+    fun provideSaveBackupManager(@ApplicationContext context: Context, uriHandler: UriHandler, sramProvider: SramProvider): SaveBackupManager {
+        return SaveBackupManager(context, uriHandler, sramProvider)
     }
 
     @Provides

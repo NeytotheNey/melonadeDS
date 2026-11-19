@@ -32,6 +32,7 @@ import me.magnum.melonds.ui.romdetails.model.RomConfigUpdateEvent
 import me.magnum.melonds.ui.romdetails.model.RomDetailsTab
 import me.magnum.melonds.ui.romdetails.model.RomModsUiModel
 import me.magnum.melonds.ui.romdetails.model.RomRetroAchievementsUiState
+import me.magnum.melonds.ui.romdetails.model.SaveBackupsUiState
 import me.magnum.melonds.ui.theme.MelonTheme
 import me.magnum.rcheevosapi.model.RAAchievement
 import java.util.Date
@@ -41,6 +42,7 @@ fun RomDetailsScreen(
     rom: Rom,
     romMetadata: RomLibraryMetadata?,
     romConfigUiState: RomConfigUiState,
+    saveBackupsUiState: SaveBackupsUiState,
     retroAchievementsUiState: RomRetroAchievementsUiState,
     onNavigateBack: () -> Unit,
     onLaunchRom: (Rom) -> Unit,
@@ -130,6 +132,7 @@ fun RomDetailsScreen(
                         contentPadding = padding,
                         rom = rom,
                         romConfigUiState = romConfigUiState,
+                        saveBackupsUiState = saveBackupsUiState,
                         onConfigUpdate = onRomConfigUpdate,
                     )
                 }
@@ -183,6 +186,7 @@ private fun PreviewRomScreen() {
                 RomModsUiModel(),
             ),
             romMetadata = null,
+            saveBackupsUiState = SaveBackupsUiState.Ready(emptyList()),
             retroAchievementsUiState = RomRetroAchievementsUiState.LoggedOut(null),
             onNavigateBack = { },
             onLaunchRom = { },

@@ -19,6 +19,7 @@ import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.ui.common.rom.EmulatorLaunchValidatorDelegate
 import me.magnum.melonds.ui.emulator.EmulatorActivity
 import me.magnum.melonds.ui.romdetails.model.LuaScriptEvent
+import me.magnum.melonds.ui.romdetails.model.SaveBackupEvent
 import me.magnum.melonds.ui.romdetails.ui.RomDetailsScreen
 import me.magnum.melonds.ui.theme.MelonTheme
 
@@ -54,6 +55,7 @@ class RomDetailsActivity : AppCompatActivity() {
             val rom by romDetailsViewModel.rom.collectAsState()
             val romMetadata by romDetailsViewModel.romMetadata.collectAsStateWithLifecycle()
             val romConfig by romDetailsViewModel.romConfigUiState.collectAsState()
+            val saveBackups by romDetailsViewModel.saveBackups.collectAsState()
 
             val retroAchievementsUiState by romRetroAchievementsViewModel.uiState.collectAsState()
 
@@ -72,11 +74,24 @@ class RomDetailsActivity : AppCompatActivity() {
                 }
             }
 
+            LaunchedEffect(null) {
+                romDetailsViewModel.saveBackupEvent.collect {
+                    val message = when (it) {
+                        SaveBackupEvent.RESTORED -> R.string.save_backup_restored
+                        SaveBackupEvent.GAME_RUNNING -> R.string.save_backup_restore_game_running
+                        SaveBackupEvent.BACKUP_FAILED -> R.string.save_backup_restore_backup_failed
+                        SaveBackupEvent.FAILED -> R.string.save_backup_restore_failed
+                    }
+                    Toast.makeText(this@RomDetailsActivity, message, Toast.LENGTH_LONG).show()
+                }
+            }
+
             MelonTheme {
                 RomDetailsScreen(
                     rom = rom,
                     romMetadata = romMetadata,
                     romConfigUiState = romConfig,
+                    saveBackupsUiState = saveBackups,
                     retroAchievementsUiState = retroAchievementsUiState,
                     onNavigateBack = { onNavigateUp() },
                     onLaunchRom = {
