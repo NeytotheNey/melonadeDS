@@ -63,7 +63,7 @@ Since 11-18 it's the "Fix floor seams" setting (`video_gl_seams`, Display → Ac
 Built as planned, except that bit 1 became a **skirt** instead of moving the polygon's own vertices. The first build grew the polygons in place, which closed the cracks but made a dashed line wherever two opaque polygons met on the same surface (the Twinleaf mailbox's band): each one's grown ring now overlapped the other at equal depth, and the winner changed pixel by pixel. Pushing the ring back by a depth margin didn't fix it in a way that holds for every game (2^18 worked in Platinum, 2^20 already reopened cracks against its clear depth). So now:
 
 - **Bit 0** (`HiresToPos`): positions are in 1/(1 << PosFrac) target pixels, 4 fraction bits up to 8x, 3 at 16x, fewer for wide views, scaled back by a new `uPosScale` in the UBO. 1x still uses the DS's integer positions. `WideVertexX/Y`, the BetterPolygons center and `BuildEdges` use the same units.
-- **Bit 1** (`BuildSkirt`): each opaque polygon gets a ring of new outer corners, one target pixel out (half a DS pixel at 1x) along the edge normals, miter capped at 2×. Their depth, W, color and texcoords are extrapolated from each corner's triangle plane (perspective-correct). Colors, and texcoords on repeating axes, are clamped to the polygon's range. The rings are drawn right after the opaque pass with the stencil test passing only on the clear plane (bit 7 set, `GL_LESS polyid over 0x80`), so they fill cracks and edges against the background and never touch a pixel a polygon drew. Skipped: lines, translucent, wireframe, depth-equal, shadow and mask polygons. The edge-line fallback wasn't needed.
+- **Bit 1** (`BuildSkirt`): each opaque polygon gets a ring of new outer corners, one target pixel out (half a DS pixel at 1x) along the edge normals, miter capped at 2×. Their depth, W, color and texcoords are extrapolated from each corner's triangle plane (perspective-correct). Colors are clamped to the polygon's range, and texcoords to a 16th of a texel inside it (since 11-19, see "Lines on Gen 4 battle sprites" below). The rings are drawn right after the opaque pass with the stencil test passing only on the clear plane (bit 7 set, `GL_LESS polyid over 0x80`), so they fill cracks and edges against the background and never touch a pixel a polygon drew. Skipped: lines, translucent, wireframe, depth-equal, shadow and mask polygons. The edge-line fallback wasn't needed.
 
 Platinum walk (151 shots), gap pixels, then difference from soft (box-averaged to 1x, pixels off by more than 48):
 
@@ -85,6 +85,22 @@ SoulSilver route walk (106 shots), gap pixels: 1x 1465 → 2 (`2` or `3`), 4x 58
 - Memory: room for 4 skirt corners a polygon, so the vertex, edge-info, edge-line and index buffers grew by about 1.7 MB host-side and 1.5 MB in GL buffers.
 
 Not checked: a W-buffer scene with the clear plane showing next to opaque polygons (none of the tested ones has one; skirts are built and drawn there, the stencil just never passes), and an Android build.
+
+## Lines on Gen 4 battle sprites (11-19)
+
+Branch `fix/glseams-billboard-lines` (app and core). With Fix seams on, Gen 4 wild battle intros (SoulSilver, Platinum, Diamond) showed a thin line above the opposing Pokemon and a short vertical tick right of the trainer, gone once the player's Pokemon was sent out. OpenGL only.
+
+**Cause.** The battle sprites are 3D quads cut from one 256x256 texture in 80x80 cells: in Diamond the trainer is texcoords 0..80 × 0..80 and the Pokemon 0..80 × 80..160, both on clamping axes. The skirt extrapolated texcoords past the polygon's range and only clamped them on repeating axes, so its pixels a target pixel outside a sprite read the next cell: the Pokemon's top skirt read row 79, the bottom row of the trainer's cell, and the trainer's right skirt read column 80. The quads themselves are ordinary opaque polygons; the skirt drew texels the DS never shows there. The send-out replaces the trainer's cell, which is why the lines went away. Not tied to the wide battles: it shows at width 256 on the `material3` build too.
+
+**Fix** (core `BuildSkirt`): texcoords stay a 16th of a texel inside the polygon's range on every axis, so the skirt only repeats the polygon's own edge texels. That also covers a repeating axis, where the old clamp let the skirt read the texture's other side.
+
+Desktop checks (4x unless noted, shots against the old build; evidence in `logs/glseams-lines/`):
+
+- The lines are gone in SoulSilver (`ss_appeared`) and Diamond (`dia_prethrow2`): `glseams=3` now matches `0` there pixel for pixel, at 1x, 4x and 8x and with `--wide 400` (what's left wide is bit 0's sub-pixel edges, the same with `glseams=1`).
+- Platinum and SoulSilver walks (600 frames, 1x, 4x, 8x, and 4x with BetterPolygons): every crack the old skirt filled is still filled. Under 300 pixels change over 150 shots, all single crack pixels that now take the polygon's own edge texel instead of the one past it.
+- Other games: no change in White 2's title and town or Dark Dawn. Contra 4's Konami logo has 54 changed pixels over 15 shots and Mario Kart 3 over 20, single target pixels at polygon corners against the clear plane.
+
+Still needs a Fold run: the bug was seen on Adreno and the desktop is Nvidia, though the fix is CPU-side vertex data, not shader code.
 
 ## Risks
 
