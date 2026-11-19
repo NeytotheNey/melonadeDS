@@ -14,6 +14,7 @@ Notes for working on melonadeDS. The user-facing overview is the [README](../REA
 - [plan-deband-outcap.md](plan-deband-outcap.md): cheaper Deband and the cap's part B, as built. Open: the external-display check.
 - [plan-widemelon.md](plan-widemelon.md): improving WideMelon, mainly 2D in the wings. Steps 1 to 3 and camera stages 1 and 2 merged; wide 2D waits for the GPU 2D renderer.
 - [plan-widemelon-polylist.md](plan-widemelon-polylist.md): the bigger polygon list (WidePolys, on since 11-14), as built.
+- [plan-precise-depth.md](plan-precise-depth.md): the White 2 Castelia pier depth fights, what was ruled out, and the Precise depth setting (11-18).
 - [plan-pc-mod-runner.md](plan-pc-mod-runner.md): running per-game Lua mods on the PC.
 - [plan-launcher.md](plan-launcher.md): the game library and RetroAchievements views. Built; picking a match by hand is open.
 - [plan-shield.md](plan-shield.md): the NVIDIA Shield TV (Tegra X1+, ARMv8.0), the slowest CPU we've tested. First runs done; the armv8.2 rollback is still open.

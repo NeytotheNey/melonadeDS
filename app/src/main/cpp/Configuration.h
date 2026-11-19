@@ -112,6 +112,9 @@ typedef struct
     // OpenGL and compute, at internal resolution 2x to 6x: rotated and scaled 2D layers drawn at that resolution, the GPU 2D shadow in mode 1
     // (GPU::SetShadow2D, GPU_Shadow2D.h), applied in MelonInstance::updateRenderer()
     bool sharperRotated2d;
+    // Every renderer: Z-buffered 3D depth at full precision instead of the DS's 0x200 steps (GPU::PreciseDepth, latched at the next polygon RAM
+    // swap), applied in MelonInstance::updateRenderer()
+    bool preciseDepth;
     // OpenGL and compute: draw the games' edge marking (GPU::GLEdgeMark 1, or 0 when off). Software always draws it
     bool edgeMarking;
     // OpenGL only: the floor seams fix, the "Fix floor seams" setting (GPU::GLSeams 3, or 0 when off or on another renderer), applied in

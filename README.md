@@ -13,6 +13,7 @@ A fork of the [melonDS Android port](https://github.com/rafaelvcaetano/melonDS-a
 *  Lua scripts per game that can read and change input and memory and draw on the screens (see [MODS.md](MODS.md))
 *  Upscaled display capture, so screens that games capture and show again stay sharp at higher internal resolutions
 *  Smooth gradients: blends the hard steps in gradients, textures and 2D backgrounds included, before any screen filter; with the compute renderer it also dithers 3D lighting
+*  Precise depth (optional, off by default): computes 3D depth with more precision than the DS, which fixes shadows and decals that flicker on the ground under them, like the bench shadows in Pokémon White 2
 *  Frame pacing to the display's vsync, with an optional 60 Hz lock
 *  Settings backup and restore
 *  Diagnostics logging: a performance log and a debug log

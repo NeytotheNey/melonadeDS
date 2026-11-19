@@ -10,6 +10,7 @@ object PreferenceKeys {
     const val VIDEO_FILTER_2D = "video_filter_2d"
     const val VIDEO_SHARPER_ROTATED_2D = "video_sharper_rotated_2d"
     const val VIDEO_EDGE_MARKING = "video_edge_marking"
+    const val VIDEO_PRECISE_DEPTH = "video_precise_depth"
     const val VIDEO_GL_SEAMS = "video_gl_seams"
     const val VIDEO_DEBAND = "video_deband"
     const val VIDEO_SCREEN_SHADOW = "video_screen_shadow"

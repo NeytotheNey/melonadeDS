@@ -39,7 +39,7 @@ main ones:
 | `--scale N` | internal resolution (default 4) |
 | `--wide W` | WideMelon top screen width (256 = off) |
 | `--wide-margin M` | with `--wide`, M more 3D rows above and below the top screen (camera stage 2, 0-128) |
-| `--dither`, `--hires-capture`, `--filter2d`, `--smooth30`, `--better-polygons` | the app's renderer settings |
+| `--dither`, `--hires-capture`, `--filter2d`, `--smooth30`, `--better-polygons`, `--precise-depth` | the app's renderer settings |
 | `--set Name=Value` | a core debug switch on `GPU`, e.g. `--set LateBlit=0` (`--list-sets`) |
 | `--frames N` | quit after N frames and print frame time stats |
 | `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window when quitting |

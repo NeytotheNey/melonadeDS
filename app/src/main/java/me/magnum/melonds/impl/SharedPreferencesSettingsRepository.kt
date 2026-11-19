@@ -104,9 +104,9 @@ class SharedPreferencesSettingsRepository(
         setDefaultMacAddressIfRequired()
         moveColorDitheringIntoDeband()
 
-        // combine() takes at most 5 typed flows, so the 4 look settings (filter, deband, colors and shadow), the 2 threading ones and the 5
-        // GPU extras (hi-res capture, filtered 2D, edge marking, sharper rotated 2D and the floor seams fix) are grouped first. Compute's
-        // dithering follows deband (RendererConfiguration)
+        // combine() takes at most 5 typed flows, so the 4 look settings (filter, deband, colors and shadow), the 2 threading ones and the 6
+        // GPU extras (hi-res capture, filtered 2D, edge marking, sharper rotated 2D, and precise depth with the floor seams fix as their own
+        // pair) are grouped first. Compute's dithering follows deband (RendererConfiguration)
         val lookSettingsFlow = combine(
             getVideoFiltering(),
             isDebandEnabled(),
@@ -121,14 +121,20 @@ class SharedPreferencesSettingsRepository(
         ) { threadedRenderingEnabled, threaded2dRenderingEnabled ->
             Pair(threadedRenderingEnabled, threaded2dRenderingEnabled)
         }
+        val accuracySettingsFlow = combine(
+            isPreciseDepthEnabled(),
+            isGlSeamsEnabled(),
+        ) { preciseDepthEnabled, glSeamsEnabled ->
+            Pair(preciseDepthEnabled, glSeamsEnabled)
+        }
         val gpuExtrasFlow = combine(
             isHiresCaptureEnabled(),
             isFilter2dEnabled(),
             isEdgeMarkingEnabled(),
             isSharperRotated2dEnabled(),
-            isGlSeamsEnabled(),
-        ) { hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled, glSeamsEnabled ->
-            GpuExtras(hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled, glSeamsEnabled)
+            accuracySettingsFlow,
+        ) { hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled, (preciseDepthEnabled, glSeamsEnabled) ->
+            GpuExtras(hiresCaptureEnabled, filter2dEnabled, edgeMarkingEnabled, sharperRotated2dEnabled, preciseDepthEnabled, glSeamsEnabled)
         }
         renderConfigurationFlow = combine(
             getVideoRenderer(),
@@ -140,7 +146,7 @@ class SharedPreferencesSettingsRepository(
             RendererConfiguration(
                 renderer, look.filtering, look.deband, look.dsScreenColors, look.screenShadow, threadedRenderingEnabled, threaded2dRenderingEnabled,
                 gpuExtras.hiresCapture, gpuExtras.filter2d, resolutionScaling, gpuExtras.edgeMarking, gpuExtras.sharperRotated2d,
-                gpuExtras.glSeams,
+                gpuExtras.preciseDepth, gpuExtras.glSeams,
             )
         }.conflate().shareIn(preferencesCoroutineScope, SharingStarted.Lazily, replay = 1)
     }
@@ -461,6 +467,12 @@ class SharedPreferencesSettingsRepository(
     override fun isSharperRotated2dEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_SHARPER_ROTATED_2D) {
             preferences.getBoolean(PreferenceKeys.VIDEO_SHARPER_ROTATED_2D, false)
+        }
+    }
+
+    override fun isPreciseDepthEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow(PreferenceKeys.VIDEO_PRECISE_DEPTH) {
+            preferences.getBoolean(PreferenceKeys.VIDEO_PRECISE_DEPTH, false)
         }
     }
 
@@ -815,11 +827,13 @@ private data class LookSettings(
     val screenShadow: Boolean,
 )
 
-// The OpenGL and compute extras of a RendererConfiguration, grouped for combine() (the floor seams fix is OpenGL only)
+// The 3D and 2D extras of a RendererConfiguration, grouped for combine(): all OpenGL and compute only, but precise depth, which every renderer
+// has, and the floor seams fix, which is OpenGL only
 private data class GpuExtras(
     val hiresCapture: Boolean,
     val filter2d: Boolean,
     val edgeMarking: Boolean,
     val sharperRotated2d: Boolean,
+    val preciseDepth: Boolean,
     val glSeams: Boolean,
 )

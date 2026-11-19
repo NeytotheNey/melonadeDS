@@ -57,6 +57,13 @@
                 android:summary="@string/edge_marking_summary"
                 android:defaultValue="true" />
 
+        <!-- Every renderer, so it's always shown -->
+        <SwitchPreference
+                android:key="video_precise_depth"
+                android:title="@string/precise_depth"
+                android:summary="@string/precise_depth_summary"
+                android:defaultValue="false" />
+
         <!-- OpenGL only (GPU::GLSeams), so it's grayed out for software and compute (set up in VideoPreferencesFragment) -->
         <SwitchPreference
                 android:key="video_gl_seams"

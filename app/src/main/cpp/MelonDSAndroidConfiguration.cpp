@@ -60,6 +60,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     jboolean filter2d = env->GetBooleanField(rendererConfigurationObject, env->GetFieldID(renderConfigurationClass, "filter2d", "Z"));
     jboolean edgeMarking = env->GetBooleanField(rendererConfigurationObject, env->GetFieldID(renderConfigurationClass, "edgeMarking", "Z"));
     jboolean sharperRotated2d = env->GetBooleanField(rendererConfigurationObject, env->GetFieldID(renderConfigurationClass, "sharperRotated2d", "Z"));
+    jboolean preciseDepth = env->GetBooleanField(rendererConfigurationObject, env->GetFieldID(renderConfigurationClass, "preciseDepth", "Z"));
     jboolean glSeams = env->GetBooleanField(rendererConfigurationObject, env->GetFieldID(renderConfigurationClass, "glSeams", "Z"));
     jboolean isCopy = JNI_FALSE;
     jstring dsBios7String = dsBios7Uri ? (jstring) env->CallObjectMethod(dsBios7Uri, uriToStringMethod) : nullptr;
@@ -124,6 +125,7 @@ MelonDSAndroid::EmulatorConfiguration MelonDSAndroidConfiguration::buildEmulator
     finalEmulatorConfiguration.filter2d = filter2d;
     finalEmulatorConfiguration.edgeMarking = edgeMarking;
     finalEmulatorConfiguration.sharperRotated2d = sharperRotated2d;
+    finalEmulatorConfiguration.preciseDepth = preciseDepth;
     finalEmulatorConfiguration.glSeams = glSeams;
     finalEmulatorConfiguration.dsiSdCardSettings = MelonDSAndroid::SdCardSettings { .enabled = false };
     finalEmulatorConfiguration.dldiSdCardSettings = MelonDSAndroid::SdCardSettings { .enabled = false };

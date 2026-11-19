@@ -1054,6 +1054,8 @@ void MelonInstance::updateRenderer()
     nds->GPU.GLEdgeMark = edgeMark;
     // Read by the OpenGL renderer as each frame starts (a change draws the frame again); software and compute ignore it
     nds->GPU.GLSeams = glSeams;
+    // Every renderer gets it through the polygons' depth, from the next scene the game builds (latched at the polygon RAM swap)
+    nds->GPU.PreciseDepth = configuration->preciseDepth;
 
     // Only the OpenGL and compute renderers can draw the in-between scenes or the GPU 2D shadow, so software doesn't pay for them
     bool isGpuRenderer = currentRenderer == Renderer::OpenGl || currentRenderer == Renderer::Compute;

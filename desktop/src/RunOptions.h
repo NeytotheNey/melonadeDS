@@ -98,6 +98,7 @@ inline const BoolSwitch kBoolSwitches[] = {
     {"ComputeSSBO", &melonDS::GPU::ComputeSSBO},
     {"WidePolys", &melonDS::GPU::WidePolys},
     {"WideY", &melonDS::GPU::WideY},
+    {"PreciseDepth", &melonDS::GPU::PreciseDepth},
     // the frontend's deband flag (GPU::OutputCap): the window doesn't deband, so this stands in for the app's
     {"OutputCapDeband", &melonDS::GPU::OutputCapDeband},
 };
