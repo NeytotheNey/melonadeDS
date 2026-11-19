@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import me.magnum.melonds.common.uridelegates.UriHandler
 import me.magnum.melonds.domain.model.rom.Rom
+import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.impl.ExactNameFileCreation
 import me.magnum.melonds.impl.diagnostics.DebugLog
 import java.io.File
@@ -19,14 +20,15 @@ import java.util.concurrent.atomic.AtomicReference
 data class SaveBackup(val uri: Uri, val fileName: String, val time: LocalDateTime, val size: Long)
 
 /**
- * Makes, lists, prunes and restores the save backups taken with each state load. Shared by the emulator and the ROM details screen, and
- * it knows which save the running game uses so a restore can't change it underneath. Every call does file work, so call it off the main
- * thread.
+ * Makes, lists, prunes and restores the save backups taken at game start and with each state load. Shared by the emulator and the ROM
+ * details screen, and it knows which save the running game uses so a restore can't change it underneath. Every call does file work, so
+ * call it off the main thread.
  */
 class SaveBackupManager(
     private val context: Context,
     private val uriHandler: UriHandler,
     private val sramProvider: SramProvider,
+    private val settingsRepository: SettingsRepository,
 ) {
 
     sealed class BackupResult {
@@ -95,7 +97,7 @@ class SaveBackupManager(
     }
 
     /**
-     * Backs up the running game's save, right after a state load
+     * Backs up the running game's save, at game start or right after a state load
      */
     fun backUpSave(location: SramLocation): BackupResult {
         synchronized(lock) {
@@ -166,8 +168,8 @@ class SaveBackupManager(
     }
 
     /**
-     * Copies the save to a new timestamped backup unless it matches the newest one, then deletes that game's oldest beyond
-     * [SaveBackupNames.MAX_BACKUPS]. [protectedName] is never deleted. Called under [lock].
+     * Copies the save to a new timestamped backup unless it matches the newest one, then deletes that game's oldest beyond the "Backups to
+     * keep per game" setting. [protectedName] is never deleted. Called under [lock].
      */
     private fun backUpSave(target: SramTarget, protectedName: String?): BackupResult {
         return try {
@@ -237,7 +239,9 @@ class SaveBackupManager(
     }
 
     private fun prune(newestFirst: List<SaveBackup>, vararg protectedNames: String?) {
-        SaveBackupNames.toPrune(newestFirst, isProtected = { it.fileName in protectedNames }).forEach {
+        // Read each time, so a lowered count only deletes when the next backup is made
+        val keep = settingsRepository.getSaveBackupsToKeep()
+        SaveBackupNames.toPrune(newestFirst, keep, isProtected = { it.fileName in protectedNames }).forEach {
             val deleted = try {
                 uriHandler.getUriDocument(it.uri)?.delete() == true
             } catch (e: Exception) {

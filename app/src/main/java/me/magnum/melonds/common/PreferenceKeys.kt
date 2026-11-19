@@ -38,6 +38,9 @@ object PreferenceKeys {
 
     // pref_save_files.xml
     const val VIDEO_LUA_DRAWINGS_IN_STATE_PICTURES = "video_lua_drawings_in_state_pictures"
+    const val SAVE_BACKUP_ON_GAME_START = "save_backup_on_game_start"
+    const val SAVE_BACKUP_ON_STATE_LOAD = "save_backup_on_state_load"
+    const val SAVE_BACKUPS_TO_KEEP = "save_backups_to_keep"
 
     // pref_system.xml
     const val SYNC_RTC_TO_DEVICE = "sync_rtc_to_device"

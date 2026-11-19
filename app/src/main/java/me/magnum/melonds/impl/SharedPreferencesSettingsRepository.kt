@@ -60,6 +60,7 @@ import me.magnum.melonds.domain.model.rom.Rom
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.impl.SettingsBackupFormat.CONTROLLER_FILE
 import me.magnum.melonds.impl.dtos.input.ControllerConfigurationDto
+import me.magnum.melonds.impl.emulator.SaveBackupNames
 import me.magnum.melonds.impl.input.ControllerConfigurationFactory
 import me.magnum.melonds.ui.Theme
 import me.magnum.melonds.utils.enumValueOfIgnoreCase
@@ -585,6 +586,18 @@ class SharedPreferencesSettingsRepository(
                 Uri.fromFile(saveFileDirectory)
             }
         }
+    }
+
+    override fun isSaveBackupOnGameStartEnabled(): Boolean {
+        return preferences.getBoolean(PreferenceKeys.SAVE_BACKUP_ON_GAME_START, true)
+    }
+
+    override fun isSaveBackupOnStateLoadEnabled(): Boolean {
+        return preferences.getBoolean(PreferenceKeys.SAVE_BACKUP_ON_STATE_LOAD, true)
+    }
+
+    override fun getSaveBackupsToKeep(): Int {
+        return SaveBackupNames.parseKeepCount(preferences.getString(PreferenceKeys.SAVE_BACKUPS_TO_KEEP, "10"))
     }
 
     override fun getSaveStateLocation(rom: Rom): SaveStateLocation {

@@ -12,7 +12,10 @@ import java.time.format.ResolverStyle
 object SaveBackupNames {
 
     const val FOLDER_NAME = "save-backups"
-    const val MAX_BACKUPS = 3
+    // The "Backups to keep per game" setting's default
+    const val DEFAULT_KEEP = 10
+    // Never fewer: with 1, booting right after a restore would prune both the restored backup and the one made before the restore
+    const val MIN_KEEP = 3
 
     private const val EXTENSION = ".bak"
     private val TIMESTAMP_PATTERN = Regex("""\d{8}-\d{6}""")
@@ -57,11 +60,19 @@ object SaveBackupNames {
     }
 
     /**
-     * The backups to delete so only the newest [keep] stay, from a newest-first list. Protected ones are never deleted, even when that leaves
-     * more than [keep].
+     * The "Backups to keep per game" setting's stored value as a count; anything unreadable gives the default, and anything below
+     * [MIN_KEEP] gives [MIN_KEEP]
      */
-    fun <T> toPrune(newestFirst: List<T>, keep: Int = MAX_BACKUPS, isProtected: (T) -> Boolean = { false }): List<T> {
-        return newestFirst.drop(keep).filterNot(isProtected)
+    fun parseKeepCount(value: String?): Int {
+        return (value?.toIntOrNull() ?: DEFAULT_KEEP).coerceAtLeast(MIN_KEEP)
+    }
+
+    /**
+     * The backups to delete so only the newest [keep] (at least [MIN_KEEP]) stay, from a newest-first list. Protected ones are never deleted,
+     * even when that leaves more than [keep].
+     */
+    fun <T> toPrune(newestFirst: List<T>, keep: Int, isProtected: (T) -> Boolean = { false }): List<T> {
+        return newestFirst.drop(keep.coerceAtLeast(MIN_KEEP)).filterNot(isProtected)
     }
 
     enum class ReadCheck {
