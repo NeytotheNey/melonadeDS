@@ -17,7 +17,7 @@ A Windows `.exe` you can double-click and play from the couch: a game library, a
 
 ## Architecture
 
-**One exe, two modes.** `melonade.exe` with no arguments opens the library. With a ROM it boots straight into the game. The test options (`--frames`, `--press`, `--set`, `--screenshot`, `--hidden`, `--unthrottled`, ...) still work and skip the UI, so scripted renderer checks don't change. The app links as a GUI program (no console window); test mode attaches to the parent console for output.
+**One exe, two modes.** `melonade.exe` with no arguments opens the library. With a ROM it boots straight into the game. The test options (`--frames`, `--press`, `--set`, `--screenshot`, `--hidden`, `--unthrottled`, ...) still work and skip the UI, so scripted renderer checks don't change. The app links as a GUI program (no console window); test mode attaches to the parent console for output. See [Command line](#command-line) for the rules.
 
 **Shared native layer.** The portable app C++ builds into a static library used by both the Android app and the desktop, so the desktop runs the same `MelonInstance`, saves, rewind, RA runtime and Lua engine as the phone instead of its own copy. Android changes are kept small:
 - a `GpuFence` wrapper (EGL fence on Android, `glFenceSync`/`glWaitSync` on desktop),
@@ -44,6 +44,26 @@ The Android build must stay behavior-identical; that gets a phone run before it 
 - Saves and states next to the ROM by default, like the app, with the same `.ml0`–`.ml8` slot names so state files move between phone and PC.
 
 **Other libraries.** SDL2 (already used), Dear ImGui, SQLite, nanosvg (backgrounds), tinyxml2 (cheats.xml), stb_image (art), WinHTTP for network (no extra DLL). All vendored or static, so the shipped folder is the exe, `SDL2.dll` and an `assets/` folder.
+
+## Command line
+
+Anything you can reach through the menus for a test, you can also start from one command, so a test never needs someone to click through screens.
+
+**Straight into a game, with the full app.** A ROM on the command line skips the library and boots it; the pause menu and everything else still work. The options from today's test frontend keep their names and meaning:
+
+    melonade.exe --sav C:\tmp\test.sav --state C:\tmp\battle.ml0 game.nds
+
+- `--sav F`: use this save file instead of the one next to the ROM. Since loading a state rewrites the save, point it at a copy.
+- `--state F`: load this savestate right after boot. `--slot N` loads the game's own slot N instead.
+- `--bios DIR`, `--renderer`, `--scale`, `--wide`, `--jit`, `--set Name=Value` and the renderer toggles (`--dither`, `--hires-capture`, `--precise-depth`, ...) as today.
+
+**Overrides don't stick.** Settings given on the command line apply to that run only and are never written to the settings file, so a test can't change your normal setup. Each phase adds flags for what it builds, for example `--layout NAME`, `--filter NAME`, `--mod FILE` (with `--mod-option key=value`), `--cheats on|off`, `--no-ra` / `--ra-hardcore`, `--rewind on|off`.
+
+**Separate profile for tests.** `--profile DIR` uses DIR for settings, library database, RA login and art instead of `%APPDATA%\melonadeDS`, so agents and scripts run against a throwaway profile and never touch your library or saves. A test run with no `--profile` and a `--hidden` flag gets a fresh temporary one.
+
+**Headless and scripted.** `--hidden`, `--frames N`, `--unthrottled`, `--no-audio`, `--press F[-L]:KEYS`, `--screenshot F.bmp` and `--window-shot F.bmp` work as now, with or without the UI. `--open SCREEN` (for example `settings/video`, `pause`, `mods`, `achievements`) opens a menu screen directly, and `--ui-script F` drives the menus from a file (see [Testing](#testing)), so menu checks start from one command too.
+
+`--help` lists every option. Each phase's "done when" includes that its new features can be started and checked this way.
 
 ## Phases
 
