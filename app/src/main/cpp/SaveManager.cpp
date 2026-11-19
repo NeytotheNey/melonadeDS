@@ -165,6 +165,15 @@ void SaveManager::SyncFromState(const u8* savedata, u32 savelen)
     if (Running)
     {
         CheckFlush();
+
+        // The game may still be partway through a multi-write save if its last write is under the 2 s debounce; it's written anyway
+        Platform::Mutex_Lock(SecondaryBufferLock);
+        bool pending = FlushVersion != PreviousFlushVersion;
+        time_t timeAtLastFlushRequest = TimeAtLastFlushRequest;
+        Platform::Mutex_Unlock(SecondaryBufferLock);
+        if (pending && timeAtLastFlushRequest != 0 && difftime(time(nullptr), timeAtLastFlushRequest) < 2)
+            Log(LogLevel::Warn, "SaveManager: Writing a save to %s that's under 2 s old before a state load, the game may still be saving\n", Path.c_str());
+
         if (!FlushSecondaryBuffer())
             Log(LogLevel::Error, "SaveManager: Failed to write the pending save to %s before a state load, will retry\n", Path.c_str());
     }

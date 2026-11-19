@@ -51,17 +51,21 @@ class SramProvider(
     }
 
     /**
-     * The `<save>.bak` file next to the save, made if it's missing, or null when there's nothing to back up (no save yet, or an empty one, as
-     * for DSiWare). Throws if the backup file can't be made.
+     * The save's size on disk, or 0 when it's missing (no save yet) or empty (as for DSiWare), meaning there's nothing to back up.
+     */
+    fun getSramLength(location: SramLocation): Long {
+        val sramDocument = uriHandler.getUriDocument(location.sramUri) ?: return 0
+        return if (sramDocument.exists()) sramDocument.length() else 0
+    }
+
+    /**
+     * The `<save>.bak` file next to the save, made if it's missing. Lists the save folder, so callers keep the result for the session. Throws if
+     * the backup file can't be found or made.
      */
     @Throws(SramLoadException::class)
-    fun getSramBackupUri(location: SramLocation): Uri? {
+    fun getSramBackupUri(location: SramLocation): Uri {
         val sramDocument = uriHandler.getUriDocument(location.sramUri)
-        if (sramDocument == null || !sramDocument.exists() || sramDocument.length() <= 0L) {
-            return null
-        }
-
-        val sramFileName = sramDocument.name ?: throw SramLoadException("Cannot determine SRAM file name: ${location.sramUri}")
+        val sramFileName = sramDocument?.name ?: throw SramLoadException("Cannot determine SRAM file name: ${location.sramUri}")
         val backupFileName = "$sramFileName.bak"
         val rootDocument = uriHandler.getUriTreeDocument(location.directoryUri) ?: throw SramLoadException("Cannot open save folder: ${location.directoryUri}")
 

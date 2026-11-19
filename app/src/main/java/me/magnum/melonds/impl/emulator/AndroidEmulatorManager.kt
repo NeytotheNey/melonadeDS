@@ -83,7 +83,15 @@ class AndroidEmulatorManager(
 
     // The running game's save file, backed up before each state load; null for a firmware boot
     @Volatile
-    private var currentSram: SramLocation? = null
+    private var currentSram: SramSession? = null
+
+    /**
+     * The running game's save and its backup file, found on the first backup and kept so later loads don't list the save folder again.
+     */
+    private class SramSession(val location: SramLocation) {
+        @Volatile
+        var backupUri: Uri? = null
+    }
 
     // Writes the scripts' storage snapshots, drained and written under luaDataLock so an older one can't overwrite a newer one
     private val luaDataScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -234,7 +242,7 @@ class AndroidEmulatorManager(
                 MelonEmulator.stopEmulation()
                 RomLaunchResult.LaunchFailed(loadResult)
             } else {
-                currentSram = sram
+                currentSram = SramSession(sram)
                 messageQueue.start()
                 MelonEmulator.setupCheats(cheats.toTypedArray())
                 setupLuaScripts(luaScripts, luaScriptFolder, areLuaStateLoadsAllowed) {
@@ -418,21 +426,52 @@ class AndroidEmulatorManager(
      * never blocks the load.
      */
     private fun backUpSram() {
-        val sram = currentSram ?: return
+        val session = currentSram ?: return
+        val sram = session.location
         try {
-            val backupUri = sramProvider.getSramBackupUri(sram) ?: return
-            val contentResolver = context.contentResolver
-            val copied = contentResolver.openInputStream(sram.sramUri)?.use { input ->
-                // "wt" truncates, so an older, bigger backup doesn't leave its tail behind
-                contentResolver.openOutputStream(backupUri, "wt")?.use { output -> input.copyTo(output) }
+            val expectedLength = sramProvider.getSramLength(sram)
+            if (expectedLength <= 0L) {
+                return
             }
-            if (copied == null) {
-                Log.w(DebugLog.TAG, "Could not open the save or its backup to back it up before a state load")
+
+            // Read all of it first, so a short or torn read never replaces a good older backup
+            val data = context.contentResolver.openInputStream(sram.sramUri)?.use { it.readBytes() }
+            if (data == null || data.size.toLong() != expectedLength) {
+                Log.w(DebugLog.TAG, "Not backing up the save before a state load: read ${data?.size ?: "no"} of $expectedLength bytes")
+                return
+            }
+
+            val cachedUri = session.backupUri
+            if (cachedUri != null) {
+                if (writeSramBackup(cachedUri, data)) {
+                    DebugLog.event { "Save backed up before state load (${data.size} bytes)" }
+                    return
+                }
+                // The backup can't be opened any more (deleted, say), so it's looked up again once
+                session.backupUri = null
+            }
+
+            val backupUri = sramProvider.getSramBackupUri(sram)
+            if (writeSramBackup(backupUri, data)) {
+                session.backupUri = backupUri
+                DebugLog.event { "Save backed up before state load (${data.size} bytes)" }
             } else {
-                DebugLog.event { "Save backed up before state load ($copied bytes)" }
+                Log.w(DebugLog.TAG, "Could not write the save backup before a state load")
             }
         } catch (e: Exception) {
             Log.w(DebugLog.TAG, "Could not back up the save before a state load", e)
+        }
+    }
+
+    /**
+     * Writes the backup, false if it can't be opened or written. "wt" truncates, so an older, bigger backup doesn't leave its tail behind.
+     */
+    private fun writeSramBackup(backupUri: Uri, data: ByteArray): Boolean {
+        return try {
+            context.contentResolver.openOutputStream(backupUri, "wt")?.use { it.write(data) } != null
+        } catch (e: Exception) {
+            Log.w(DebugLog.TAG, "Could not write the save backup at $backupUri", e)
+            false
         }
     }
 

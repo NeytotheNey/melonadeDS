@@ -61,8 +61,16 @@ static void KeepSave(SaveFile& save, const u8* savedata, u32 savelen)
 // a loaded savestate's save image: a pending in-game save goes to disk first, then the image is kept without writing it
 static void SyncSave(SaveFile& save, const u8* savedata, u32 savelen)
 {
-    if (save.Dirty)
+    if (save.Dirty && !save.Path.empty())
+    {
         WriteSave(save);
+        // still dirty means the write failed: keep the pending data so a later flush writes it, not the state's image
+        if (save.Dirty)
+        {
+            fprintf(stderr, "pending save to %s not written before a state load, keeping it\n", save.Path.c_str());
+            return;
+        }
+    }
     save.Data.assign(savedata, savedata + savelen);
 }
 
