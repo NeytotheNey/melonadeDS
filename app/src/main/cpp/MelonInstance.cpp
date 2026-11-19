@@ -190,6 +190,9 @@ bool MelonInstance::loadRom(std::string romPath, std::string sramPath)
 
     nds->SetNDSCart(std::move(cart));
     ndsSave = std::make_unique<SaveManager>(sramPath);
+    // The field read's tables know a few Pokemon carts by their header (and one hack by its ARM9)
+    auto loadedCart = nds->NDSCartSlot.GetCart();
+    gameState.setCart(loadedCart ? loadedCart->GetROM() : nullptr, loadedCart ? loadedCart->GetROMLength() : 0);
 
     return true;
 }
@@ -304,7 +307,7 @@ void MelonInstance::start()
     nds->Start();
 
     screenshotRenderer->init();
-    luaEngine.start(nds, MelonDSAndroid::eventMessenger, this);
+    luaEngine.start(nds, MelonDSAndroid::eventMessenger, this, &gameState);
 
     if (DebugLog::isEnabled()) [[unlikely]]
         DebugLog::logGameStart(*nds, "start", hasRomCrc32, romCrc32);
@@ -329,6 +332,7 @@ void MelonInstance::reset()
 
     rewindManager.Reset();
     retroAchievementsManager->Reset();
+    gameState.reset();
     nds->Start();
     // The emulator thread is parked, so the scripts are reloaded before the next frame instead
     luaEngine.notifyReset();
@@ -482,6 +486,8 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     nds->GPU.Comp1xFrontend = MelonDSAndroid::areHalvesAt1xSupported();
     u32 nLines = nds->RunFrame();
     retroAchievementsManager->FrameUpdate();
+    // Returns at once for a game the field read doesn't know, or one nothing asked about
+    gameState.update(nds);
 
     if (!isRendererAccelerated)
     {
@@ -807,6 +813,7 @@ bool MelonInstance::restoreState(Savestate* state)
     if (!nds->DoSavestate(state))
         return false;
 
+    gameState.reset();
     setBatteryLevels();
     setDateTime();
     return true;

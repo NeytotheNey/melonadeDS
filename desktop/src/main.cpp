@@ -28,6 +28,7 @@
 #include "OpenGLSupport.h"
 #include "Platform.h"
 #include "Savestate.h"
+#include "gamestate/GameState.h"
 
 #include "Frontend.h"
 #include "Presenter.h"
@@ -107,6 +108,7 @@ struct Options
     bool Linear = false;
     bool Hidden = false;
     bool GpuSync = false;      // glFinish after each frame, so the work time includes the GPU's
+    bool GameState = false;    // print the app's game state scene (app/src/main/cpp/gamestate) when it changes
     Frontend::Layout Layout = Frontend::Layout::Vertical;
     int WindowScale = 2;
     u32 Frames = 0;            // 0 runs until the window is closed
@@ -172,6 +174,7 @@ void Usage()
         "  --unthrottled               run as fast as possible (benchmarks)\n"
         "  --no-audio\n"
         "  --frames N                  quit after N frames (prints timing stats)\n"
+        "  --game-state                print the app's Pokemon game state scene whenever it changes\n"
         "  --screenshot FILE.bmp       save the last frame at the internal resolution when quitting\n"
         "  --window-shot-linear        draw the window shot with linear filtering (the run keeps --linear's)\n"
         "  --hidden                  no visible window (with --frames)\n"
@@ -283,6 +286,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--unthrottled") opts.Unthrottled = true;
         else if (arg == "--no-audio") opts.Audio = false;
         else if (arg == "--frames") opts.Frames = strtoul(next().c_str(), nullptr, 0);
+        else if (arg == "--game-state") opts.GameState = true;
         else if (arg == "--screenshot") opts.ScreenshotPath = next();
         else if (arg == "--window-shot") opts.WindowShotPath = next();
         else if (arg == "--window-shot-linear") opts.WindowShotLinear = true;
@@ -960,6 +964,31 @@ int main(int argc, char** argv)
 
             auto workStart = std::chrono::steady_clock::now();
             emu.RunFrame();
+            if (opts.GameState)
+            {
+                // The app's shim, polled every frame as the camera does; the cart is looked up on the first frame, and --at's resets and
+                // state loads start it over
+                static MelonDSAndroid::GameState gameState;
+                static bool hasCart = false;
+                static int lastScene = -2;
+                if (!hasCart)
+                {
+                    auto cart = emu.Nds->NDSCartSlot.GetCart();
+                    gameState.setCart(cart ? cart->GetROM() : nullptr, cart ? cart->GetROMLength() : 0);
+                    hasCart = true;
+                }
+                for (const auto& at : opts.Ats)
+                    if (at.Frame == frame)
+                        gameState.reset();
+                gameState.update(emu.Nds.get());
+                int scene = gameState.pollScene();
+                if (scene != lastScene)
+                {
+                    const char* name = MelonDSAndroid::GameState::getSceneName(scene);
+                    printf("frame %u: game state %s\n", frame, name ? name : "unknown");
+                    lastScene = scene;
+                }
+            }
             emu.Present.Draw(*emu.Nds, dw, dh, emu.TopWidth(), opts.Layout, opts.Linear);
             if (opts.GpuSync)
                 glFinish();

@@ -135,6 +135,11 @@ namespace MelonDSAndroid {
     extern Frame* getPresentationFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs);
     extern bool isSleeping();
     /**
+     * The known Pokemon game's scene for the WideMelon camera (GameState::Scene), -1 for other games or no game; asking keeps it updated
+     * (GameState::pollScene); any thread
+     */
+    extern int getGameScene();
+    /**
      * GPU::Comp1x: whether every surface presenting frames can draw a screen the compositor drew at 1x (Frame::halvesAt1x), as the render thread
      * last found after presenting; read by the emulator thread before each frame (GPU::Comp1xFrontend). Off until a presentation says so
      */

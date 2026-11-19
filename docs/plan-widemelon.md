@@ -4,6 +4,8 @@ Notes and plan for WideMelon improvements, mainly more 2D in the wings, from wha
 
 ## PokeDaisy
 
+The full gap list against EXPAND, including the camera and game-state features these notes missed, is now [plan-expand-parity.md](plan-expand-parity.md) (11-17).
+
 [lidor30/pokedaisy](https://github.com/lidor30/pokedaisy) (GPL-3.0) is an Android GB/GBC/GBA/DS player for Pokémon games with a live companion. DS uses upstream melonDS (a pinned submodule) plus one patch of about 570 lines, mostly hooks; the logic is in the app (`app/src/main/cpp/nds/pk_nds_wide.cpp`, `pk_nds_gl.cpp`). GBA uses mGBA. No Lua or other scripting: per-game support is C and Kotlin tables keyed by game code or ROM CRC, some generated from TOML at build time (`gamedata/`, `scripts/gen_wide_tables.py`). Read from their code, not run or measured.
 
 **DS 3D margins.**

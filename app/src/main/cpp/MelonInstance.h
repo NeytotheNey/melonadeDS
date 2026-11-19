@@ -19,6 +19,7 @@
 #include "net/Net.h"
 #include "debug/DebugProperties.h"
 #include "scripting/LuaEngine.h"
+#include "gamestate/GameState.h"
 
 using namespace melonDS;
 
@@ -117,6 +118,8 @@ public:
     void finishRewindScreenshot(bool wait);
     void updateLuaSticks(float leftX, float leftY, float rightX, float rightY) { luaEngine.updateSticks(leftX, leftY, rightX, rightY); }
     void updateWideCamera(float x, float zoom, float y) { luaEngine.updateWideCamera(x, zoom, y); }
+    // The known Pokemon game's scene for the WideMelon camera (GameState::pollScene), GameState::Unknown for other games; any thread
+    int pollGameScene() { return gameState.pollScene(); }
 
     // LuaSavestateHost, for melon.state; emulator thread, between frames
     bool saveLuaState(std::vector<melonDS::u8>& data) override;
@@ -155,6 +158,8 @@ private:
     std::atomic<u32> userTouch = 0;
     // While set, the emulator thread applies the input before each frame (the player's, as changed by the scripts) instead of the UI thread
     std::atomic_bool isLuaInputActive = false;
+    // Before luaEngine, which uses it until the scripts stop (melon.game.state())
+    GameState gameState;
     LuaEngine luaEngine;
     // EmulatorConfiguration::luaDrawingsInScreenshots for the emulator thread, since the configuration can be replaced on another thread
     std::atomic_bool luaDrawingsInScreenshots = false;

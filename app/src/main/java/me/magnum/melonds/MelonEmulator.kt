@@ -153,6 +153,12 @@ object MelonEmulator {
      */
     external fun updateWideCamera(x: Float, zoom: Float, y: Float)
 
+    /**
+     * What the Pokemon game the native field read knows is doing (GameScene), or GameScene.UNKNOWN for other games. Asking keeps the read
+     * running for the next few seconds of frames, so only call it while the camera wants it; any thread.
+     */
+    external fun getGameScene(): Int
+
 	fun loadRom(romUri: Uri, sramUri: Uri, gbaSlotType: GbaSlotType, gbaRomUri: Uri?, gbaSramUri: Uri?): LoadResult {
         val loadResult = loadRomInternal(romUri.toString(), sramUri.toString(), gbaSlotType.ordinal, gbaRomUri?.toString(), gbaSramUri?.toString())
         return when (loadResult) {

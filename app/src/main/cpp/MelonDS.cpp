@@ -359,6 +359,16 @@ namespace MelonDSAndroid
         return instance->isSleeping();
     }
 
+    int getGameScene()
+    {
+        // The render thread asks while presenting a frame, which already holds the (recursive) lock
+        std::lock_guard lock(presentationMutex);
+        if (!instance)
+            return GameState::Unknown;
+
+        return instance->pollGameScene();
+    }
+
     static std::atomic_bool halvesAt1xSupported = false;
 
     void setHalvesAt1xSupported(bool supported)

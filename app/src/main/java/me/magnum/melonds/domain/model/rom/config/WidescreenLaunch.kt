@@ -3,9 +3,11 @@ package me.magnum.melonds.domain.model.rom.config
 import me.magnum.melonds.domain.model.MAX_WIDE_VIEW_MARGIN
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
+import me.magnum.melonds.domain.model.camera.WideCamera
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.layout.UILayout
 import java.util.UUID
+import kotlin.math.ceil
 
 /**
  * How widescreen starts for a session; [isWideSession] is fixed at launch and the width follows the shown layout.
@@ -13,8 +15,10 @@ import java.util.UUID
  * @param automaticViewWidth The Mods tab's width for a normal layout, or 0 when the session is never wide
  * @param wideLayoutId The wide layout the game uses instead of its normal one, or null to use the normal one
  * @param viewWidth The width the game is shown at when it starts (the layout's), or 0 for the normal width
- * @param cameraMaxWidth The widest the WideMelon camera zooms out to, which the core renders at, or 0 when the camera is off
+ * @param cameraMaxWidth The widest the WideMelon camera zooms out to, the widest the core renders at (getRenderWidth follows the player's
+ * zoom up to it), or 0 when the camera is off
  * @param cameraReturnsToCenter Whether the camera eases back to the middle while the player moves
+ * @param cameraZoomsInOnText Whether a text box pulls the camera in to 1x, in the Pokemon games the native field read knows
  */
 data class WidescreenLaunch(
     val automaticViewWidth: Int,
@@ -22,6 +26,7 @@ data class WidescreenLaunch(
     val viewWidth: Int,
     val cameraMaxWidth: Int = 0,
     val cameraReturnsToCenter: Boolean = true,
+    val cameraZoomsInOnText: Boolean = true,
 ) {
 
     val isWideSession get() = automaticViewWidth > 0
@@ -29,20 +34,38 @@ data class WidescreenLaunch(
     val isCameraOn get() = isWideSession && cameraMaxWidth > 0
 
     /**
-     * The width the core renders at for a layout shown at [showWidth] (getViewWidth): the same without the camera or for a normal width, the
-     * camera's widest view otherwise (never narrower than the shown width)
+     * The widest the core renders at for a layout shown at [showWidth] (getViewWidth): the same without the camera or for a normal width, the
+     * camera's widest view otherwise (never narrower than the shown width). More than [showWidth] means the camera has room to zoom out
      */
-    fun getRenderWidth(showWidth: Int): Int {
+    fun getMaxRenderWidth(showWidth: Int): Int {
         return if (isCameraOn && showWidth > 0) maxOf(showWidth, cameraMaxWidth) else showWidth
     }
 
     /**
-     * The camera's margin for a layout shown at [showWidth] (camera stage 2): the 3D rows the core renders above and below the top screen, so the
-     * widest window (the render width) fills the screen's rect instead of being letterboxed. ceil(96 * (Wr / Wd - 1)), at most
-     * MAX_WIDE_VIEW_MARGIN (342 shown with 512 rendered gives 48), and 0 without the camera, for a normal width or with no room to zoom out
+     * The width the core renders at for a layout shown at [showWidth] while the camera's player zoom (the one it returns to after a pull-in, see
+     * WideCamera.playerZoom) is [zoom]: that zoom rounded up to the next hotkey step (WideCamera.getRenderZoom), so a pinch resizes the core
+     * only a few times, in whole even columns, between the shown width and getMaxRenderWidth. At 1x that's the shown width, the same as without
+     * the camera
      */
-    fun getRenderMargin(showWidth: Int): Int {
-        val renderWidth = getRenderWidth(showWidth)
+    fun getRenderWidth(showWidth: Int, zoom: Float): Int {
+        val maxWidth = getMaxRenderWidth(showWidth)
+        if (maxWidth <= showWidth) {
+            return showWidth
+        }
+        val renderZoom = WideCamera.getRenderZoom(zoom, maxWidth / showWidth.toFloat())
+        // Less a little, so a step that lands on a column exactly isn't rounded up by float error
+        val width = ceil(showWidth * renderZoom - 0.01f).toInt()
+        return (width + (width and 1)).coerceIn(showWidth, maxWidth)
+    }
+
+    /**
+     * The camera's margin for a layout shown at [showWidth] at player zoom [zoom] (camera stage 2): the 3D rows the core renders above and below
+     * the top screen, so the widest window the render width (getRenderWidth) allows fills the screen's rect instead of being letterboxed.
+     * ceil(96 * (Wr / Wd - 1)), at most MAX_WIDE_VIEW_MARGIN (342 shown with 512 rendered gives 48), and 0 without the camera, for a normal
+     * width, at 1x or with no room to zoom out
+     */
+    fun getRenderMargin(showWidth: Int, zoom: Float): Int {
+        val renderWidth = getRenderWidth(showWidth, zoom)
         if (!isCameraOn || showWidth <= SCREEN_WIDTH || renderWidth <= showWidth) {
             return 0
         }
@@ -83,9 +106,9 @@ data class WidescreenLaunch(
             val cameraMaxWidth = if (mods.wideCamera) mods.validWideCameraMaxWidth else 0
             return if (pickedLayout != null) {
                 val viewWidth = pickedLayout.commonWideAspect?.viewWidth ?: automaticWidth
-                WidescreenLaunch(automaticWidth, pickedLayout.id, viewWidth, cameraMaxWidth, mods.wideCameraReturnToCenter)
+                WidescreenLaunch(automaticWidth, pickedLayout.id, viewWidth, cameraMaxWidth, mods.wideCameraReturnToCenter, mods.wideCameraZoomOnText)
             } else {
-                WidescreenLaunch(automaticWidth, null, automaticWidth, cameraMaxWidth, mods.wideCameraReturnToCenter)
+                WidescreenLaunch(automaticWidth, null, automaticWidth, cameraMaxWidth, mods.wideCameraReturnToCenter, mods.wideCameraZoomOnText)
             }
         }
     }
