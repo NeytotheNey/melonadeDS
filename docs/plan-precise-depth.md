@@ -1,6 +1,6 @@
 # Precise depth (White 2 Castelia pier)
 
-Branch `fix/precise-depth` in app and core (11-18), committed, not pushed. Setting: Settings → Video → Precise depth (`video_precise_depth`, `GPU::PreciseDepth`, desktop `--precise-depth`), off by default.
+Merged into `material3` and core `melonade` on 11-18, Compute part included. Setting: Settings → Display → Accuracy → Precise depth (Experimental) (`video_precise_depth`, `GPU::PreciseDepth`, desktop `--precise-depth`), off by default.
 
 ## The bug
 
@@ -53,7 +53,7 @@ Side finding: the setting costs an extra recompile at every game start. `MelonIn
 
 ## Open
 
-- Compute on Adreno is broken with it on: see the section above. Decide before any PR.
+- Compute on Adreno is broken with it on: see the section above. Decided 11-18: it ships as is, and the setting's "(Experimental)" label covers it.
 - The Pixel 8 (Mali) compile check: the phone wasn't reachable on 11-18.
 - The software renderer still truncates Z interpolation like Compute did. The same exact interpolation could go into `Interpolator::InterpolateZ`, gated on the polygon flag.
 - Depth-equal decals (attr bit 14) with it on are untested; none of the scenes drew one.
