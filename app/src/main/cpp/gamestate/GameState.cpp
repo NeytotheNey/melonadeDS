@@ -40,7 +40,8 @@ static const PkNdsFieldGame DIAMOND = {
     0x020F2D94,   // the battle's OverlayManagerTemplate (UNK_020F2D94)
     0x00, 0x10, 0x38, 0x64,
     0x18,
-    0, 0, 0,      // no wild encounter rates
+    0, 0, 0,      // no wild encounter rates. pk_nds_field_state doesn't treat a 0 here as unmapped: with a write32 and the
+                  // WILD ENCOUNTERS option it would write into the process manager. Map these before passing a write32.
     0x1C,
     0x021D767D,   // the field map's main (ov05_021F64C8's)
     0, 0,         // no sound
