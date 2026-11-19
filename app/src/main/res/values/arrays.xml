@@ -122,7 +122,6 @@
     </string-array>
 
     <string-array name="save_backups_to_keep_values">
-        <item>1</item>
         <item>3</item>
         <item>5</item>
         <item>10</item>

@@ -467,8 +467,8 @@
     <string name="label_rom_config_gba_rom_path">GBA ROM path</string>
     <string name="label_rom_config_gba_save_path">GBA save path</string>
     <string name="save_backups">Save backups</string>
-    <string name="save_backups_summary">Your save is copied when a game starts and when you load a save state, unless it hasn\'t changed. Change this in Settings.</string>
-    <string name="save_backups_empty">No backups yet. One is made when a game starts or when you load a save state, if that\'s on in Settings.</string>
+    <string name="save_backups_summary">Your save is copied when a game starts and when you load a save state, if those are on in Settings → Saves and rewind. Unchanged saves aren\'t copied again.</string>
+    <string name="save_backups_empty">No backups yet. One is made when a game starts or when you load a save state, if those are on in Settings → Saves and rewind.</string>
     <string name="save_backup_on_game_start">Back up when a game starts</string>
     <string name="save_backup_on_game_start_summary">Copy your save before the game loads it</string>
     <string name="save_backup_on_state_load">Back up when loading a save state</string>
@@ -892,7 +892,6 @@
     </string-array>
 
     <string-array name="save_backups_to_keep_options">
-        <item>1</item>
         <item>3</item>
         <item>5</item>
         <item>10</item>

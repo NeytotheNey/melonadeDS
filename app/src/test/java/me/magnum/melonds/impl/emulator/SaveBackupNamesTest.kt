@@ -88,15 +88,13 @@ class SaveBackupNamesTest {
     fun nothingIsPrunedUpToTheKeepCount() {
         assertEquals(emptyList<String>(), SaveBackupNames.toPrune(listOf("c", "b", "a"), keep = 3))
         assertEquals(emptyList<String>(), SaveBackupNames.toPrune(emptyList<String>(), keep = 3))
-        assertEquals(emptyList<String>(), SaveBackupNames.toPrune(listOf("a"), keep = 1))
     }
 
     @Test
     fun theOldestBeyondTheKeepCountArePruned() {
-        val newestFirst = listOf("e", "d", "c", "b", "a")
-        assertEquals(listOf("d", "c", "b", "a"), SaveBackupNames.toPrune(newestFirst, keep = 1))
-        assertEquals(listOf("b", "a"), SaveBackupNames.toPrune(newestFirst, keep = 3))
-        assertEquals(emptyList<String>(), SaveBackupNames.toPrune(newestFirst, keep = 5))
+        val newestFirst = listOf("g", "f", "e", "d", "c", "b", "a")
+        assertEquals(listOf("d", "c", "b", "a"), SaveBackupNames.toPrune(newestFirst, keep = 3))
+        assertEquals(listOf("b", "a"), SaveBackupNames.toPrune(newestFirst, keep = 5))
         assertEquals(emptyList<String>(), SaveBackupNames.toPrune(newestFirst, keep = 10))
     }
 
@@ -110,9 +108,12 @@ class SaveBackupNamesTest {
     }
 
     @Test
-    fun aKeepCountBelowOneKeepsOne() {
-        assertEquals(listOf("b", "a"), SaveBackupNames.toPrune(listOf("c", "b", "a"), keep = 0))
-        assertEquals(listOf("b", "a"), SaveBackupNames.toPrune(listOf("c", "b", "a"), keep = -5))
+    fun aKeepCountBelowTheMinimumKeepsTheMinimum() {
+        assertEquals(3, SaveBackupNames.MIN_KEEP)
+        val newestFirst = listOf("e", "d", "c", "b", "a")
+        listOf(2, 1, 0, -5).forEach { keep ->
+            assertEquals("keep=$keep", listOf("b", "a"), SaveBackupNames.toPrune(newestFirst, keep))
+        }
     }
 
     @Test
@@ -132,7 +133,7 @@ class SaveBackupNamesTest {
         // A restore: "new" is the current save's backup, just made, and "old" is the one being restored
         val newestFirst = listOf("new", "e", "d", "c", "b", "a", "old")
         val protectedNames = setOf("new", "old")
-        listOf(1, 3, 5, 10, 20, 50).forEach { keep ->
+        listOf(3, 5, 10, 20, 50).forEach { keep ->
             val pruned = SaveBackupNames.toPrune(newestFirst, keep) { it in protectedNames }
             assertTrue("keep=$keep", pruned.none { it in protectedNames })
             assertEquals("keep=$keep", newestFirst.drop(keep).filterNot { it in protectedNames }, pruned)
@@ -140,25 +141,35 @@ class SaveBackupNamesTest {
     }
 
     @Test
-    fun withOneKeptARestoreLeavesBothProtectedBackups() {
-        val pruned = SaveBackupNames.toPrune(listOf("new", "b", "old"), keep = 1) { it == "new" || it == "old" }
-        assertEquals(listOf("b"), pruned)
+    fun aBootRightAfterARestoreKeepsBothRestoreBackups() {
+        // Even a stored count of 1: restoring B backs up the current save as N, then the game-start backup G is the only protected one
+        val keep = SaveBackupNames.parseKeepCount("1")
+        assertEquals(emptyList<String>(), SaveBackupNames.toPrune(listOf("G", "N", "B"), keep) { it == "G" })
+        assertEquals(listOf("x"), SaveBackupNames.toPrune(listOf("G", "N", "B", "x"), keep) { it == "G" })
     }
 
     @Test
     fun aJustWrittenBackupThatSortsOlderIsKept() {
         // The clock went back, so the new backup isn't the newest by name
-        val pruned = SaveBackupNames.toPrune(listOf("c", "b", "new", "a"), keep = 1) { it == "new" }
+        val pruned = SaveBackupNames.toPrune(listOf("e", "d", "c", "new", "b", "a"), keep = 3) { it == "new" }
         assertEquals(listOf("b", "a"), pruned)
     }
 
     @Test
     fun theKeepCountIsReadFromTheStoredValue() {
-        assertEquals(1, SaveBackupNames.parseKeepCount("1"))
+        assertEquals(3, SaveBackupNames.parseKeepCount("3"))
         assertEquals(50, SaveBackupNames.parseKeepCount("50"))
         assertEquals(SaveBackupNames.DEFAULT_KEEP, SaveBackupNames.parseKeepCount(null))
         assertEquals(SaveBackupNames.DEFAULT_KEEP, SaveBackupNames.parseKeepCount("lots"))
-        assertEquals(1, SaveBackupNames.parseKeepCount("0"))
+    }
+
+    @Test
+    fun aStoredCountBelowTheMinimumClampsToIt() {
+        // "1" was offered by a build that never shipped
+        assertEquals(3, SaveBackupNames.parseKeepCount("1"))
+        assertEquals(3, SaveBackupNames.parseKeepCount("2"))
+        assertEquals(3, SaveBackupNames.parseKeepCount("0"))
+        assertEquals(3, SaveBackupNames.parseKeepCount("-1"))
     }
 
     @Test
