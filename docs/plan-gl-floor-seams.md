@@ -100,7 +100,9 @@ Desktop checks (4x unless noted, shots against the old build; evidence in `logs/
 - Platinum and SoulSilver walks (600 frames, 1x, 4x, 8x, and 4x with BetterPolygons): every crack the old skirt filled is still filled. Under 300 pixels change over 150 shots, all single crack pixels that now take the polygon's own edge texel instead of the one past it.
 - Other games: no change in White 2's title and town or Dark Dawn. Contra 4's Konami logo has 54 changed pixels over 15 shots and Mario Kart 3 over 20, single target pixels at polygon corners against the clear plane.
 
-Still needs a Fold run: the bug was seen on Adreno and the desktop is Nvidia, though the fix is CPU-side vertex data, not shader code.
+Fold run (11-19, the user): the lines are gone.
+
+**Known gap: a 1-px line can still show on an edge that sits exactly on pixel centers.** The skirt shares its inner vertices with the rim, and the rim keeps the polygon's own texcoords, so a skirt pixel right on the polygon's hi edge (or lo edge with negative texcoords, since the shader truncates toward zero) interpolates to exactly `hi` and can read the next texel. With bit 0's sub-pixel positions that edge lands on pixel centers at 4x (DS positions on an odd 1/8) and 8x (odd 1/16); GL's top-left rule then gives that column to the skirt, the stencil passes, and float error in the perspective divide decides the texel. Never seen: the desktop (Nvidia) matched glseams 0 pixel for pixel, and the user didn't spot it on the Fold. If it shows up (a faint one-pixel line or tick by a battle sprite, at 4x or 8x with Fix seams on): give the skirt its own copies of the rim vertices, same positions, texcoords clamped to [lo+1, hi-1] like the outer ring, and raise the `MaxGLVertices` check to 2n per polygon. Separately, the clamp is per axis on the polygon's texture-space box, so a triangle's skirt corner can still pick a texel inside the box but outside the triangle; quads (the sprites) aren't affected.
 
 ## Risks
 
