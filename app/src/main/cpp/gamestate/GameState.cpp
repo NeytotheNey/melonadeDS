@@ -51,6 +51,24 @@ static const PkNdsFieldGame DIAMOND = {
     0x08,
 };
 
+// pk_nds_bg3_tiles for Diamond's field text box on BG3: the tiles in its map below the map name banner, which takes the top
+// kDiamondBannerRows rows (sub_020545B8's text box is in rows 18-23, the banner slides in over rows 0-2)
+static constexpr int kDiamondBannerRows = 3;
+
+static int diamondTextBoxTiles(melonDS::NDS* nds)
+{
+    uint32_t disp = nds->GPU.GPU2D_A.DispCnt;
+    if (!(disp & (1 << 11)) || (disp & 7) > 1)
+        return 0;   // BG3 off, or not a text BG in this mode
+    uint16_t cnt = nds->GPU.GPU2D_A.BGCnt[3];
+    uint32_t base = 0x06000000u + ((disp >> 27) & 7) * 0x10000 + ((cnt >> 8) & 0x1F) * 0x800;
+    int n = 0;
+    for (uint32_t i = kDiamondBannerRows * 32; i < 32 * 24; i++)
+        if (nds->ARM9Read16(base + i * 2) & 0x3FF)
+            n++;
+    return n;
+}
+
 // The cart's field read: ours first, then PokeDaisy's
 static const PkNdsFieldGame* findGame(const melonDS::u8* rom, melonDS::u32 romLength)
 {
@@ -131,8 +149,12 @@ int GameState::readScene(melonDS::NDS* nds, const PkNdsFieldGame* currentGame)
     readNds = nds;
     int bits = pk_nds_field_state(currentGame, mainRead32, nullptr, 0);
     readNds = nullptr;
-    // A field task alone (a warp, a door) isn't a text box: the text box's BG has to show tiles
-    if ((bits & PK_NDS_FIELD_TEXT) && !pk_nds_bg3_tiles(nds, currentGame->textBg ? currentGame->textBg : 3))
+    // A field task alone (a warp, a door) isn't a text box: the text box's BG has to show tiles. Diamond's map name banner is on that BG
+    // too, in its top rows, and stays up while the player walks out of a door (a field task), which read as a text box for 40-70 frames
+    // after the fade, longer than the camera's after-fade window once the frame rate drops (WideCamera.AFTER_FADE_TEXT_SECONDS). So in
+    // Diamond only the rows under the banner count
+    if ((bits & PK_NDS_FIELD_TEXT) && !(currentGame == &DIAMOND ? diamondTextBoxTiles(nds)
+                                                                 : pk_nds_bg3_tiles(nds, currentGame->textBg ? currentGame->textBg : 3)))
         bits &= ~PK_NDS_FIELD_TEXT;
 
     // PokeDaisy's pk_ndsm_wide_scene
