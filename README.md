@@ -16,6 +16,7 @@ A fork of the [melonDS Android port](https://github.com/rafaelvcaetano/melonDS-a
 *  Precise depth (optional, off by default): computes 3D depth with more precision than the DS, which fixes shadows and decals that flicker on the ground under them, like the bench shadows in Pokémon White 2
 *  Frame pacing to the display's vsync, with an optional 60 Hz lock
 *  Settings backup and restore
+*  Save backups: your save is copied when a game starts and when you load a save state, and a copy can be restored from the game's details screen
 *  Diagnostics logging: a performance log and a debug log
 *  English-only UI
 

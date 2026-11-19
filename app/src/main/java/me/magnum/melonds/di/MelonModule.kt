@@ -265,8 +265,8 @@ object MelonModule {
 
     @Provides
     @Singleton
-    fun provideSaveBackupManager(@ApplicationContext context: Context, uriHandler: UriHandler, sramProvider: SramProvider): SaveBackupManager {
-        return SaveBackupManager(context, uriHandler, sramProvider)
+    fun provideSaveBackupManager(@ApplicationContext context: Context, uriHandler: UriHandler, sramProvider: SramProvider, settingsRepository: SettingsRepository): SaveBackupManager {
+        return SaveBackupManager(context, uriHandler, sramProvider, settingsRepository)
     }
 
     @Provides

@@ -82,7 +82,7 @@ class AndroidEmulatorManager(
     @Volatile
     private var romWideViewMargin = 0
 
-    // The running game's save file, backed up with each state load; null for a firmware boot
+    // The running game's save file, backed up at game start and with each state load; null for a firmware boot
     @Volatile
     private var currentSram: SramSession? = null
 
@@ -219,6 +219,10 @@ class AndroidEmulatorManager(
 
             // Set before the game reads its .sav, so a restore from the ROM details screen waits for it or is refused
             currentSram = SramSession(sram, saveBackupManager.markGameRunning(rom, sram))
+
+            // Before the core reads the .sav, so nothing is writing it: this game's SaveManager doesn't exist yet, and the last game's wrote its
+            // final flush when its instance was destroyed, in stopEmulator() or at the latest in setupEmulator() above
+            backUpSram("at game start") { settingsRepository.isSaveBackupOnGameStartEnabled() }
 
             val gbaSlotRomConfig = rom.config.gbaSlotConfig
             val gbaSlotType = when (gbaSlotRomConfig) {
@@ -422,22 +426,26 @@ class AndroidEmulatorManager(
         // After the load, not before: the load doesn't write the .sav, and it writes any pending in-game save to disk itself
         // (SaveManager::SyncFromState), so the save writer is idle now and the backup can't catch it halfway through a write. Callers resume
         // the game only after this returns. Done whether or not the load worked
-        backUpSram()
+        backUpSram("after a state load") { settingsRepository.isSaveBackupOnStateLoadEnabled() }
         success
     }
 
     /**
-     * Backs up the game's .sav to its save-backups folder, so a state load can't cost the player their real save. A failed backup is only
-     * logged, so it never changes the load's result.
+     * Backs up the game's .sav to its save-backups folder, so a state load or a bad session can't cost the player their real save. A failed
+     * backup is only logged, so it never changes the launch's or the load's result. [isEnabled] is that moment's setting, and [moment] is for
+     * the log.
      */
-    private fun backUpSram() {
+    private fun backUpSram(moment: String, isEnabled: () -> Boolean) {
         try {
             val session = currentSram ?: return
+            if (!isEnabled()) {
+                return
+            }
             if (saveBackupManager.backUpSave(session.location) == SaveBackupManager.BackupResult.Failed) {
-                Log.w(DebugLog.TAG, "Could not back up the save after a state load")
+                Log.w(DebugLog.TAG, "Could not back up the save $moment")
             }
         } catch (e: Exception) {
-            Log.w(DebugLog.TAG, "Could not back up the save after a state load", e)
+            Log.w(DebugLog.TAG, "Could not back up the save $moment", e)
         }
     }
 

@@ -76,6 +76,9 @@ interface SettingsRepository {
     fun getSaveFileDirectory(rom: Rom): Uri
     fun getSaveStateLocation(rom: Rom): SaveStateLocation
     fun getSaveStateDirectory(rom: Rom): Uri?
+    fun isSaveBackupOnGameStartEnabled(): Boolean
+    fun isSaveBackupOnStateLoadEnabled(): Boolean
+    fun getSaveBackupsToKeep(): Int
 
     fun getControllerConfiguration(): ControllerConfiguration
     fun observeControllerConfiguration(): StateFlow<ControllerConfiguration>

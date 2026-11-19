@@ -467,8 +467,14 @@
     <string name="label_rom_config_gba_rom_path">GBA ROM path</string>
     <string name="label_rom_config_gba_save_path">GBA save path</string>
     <string name="save_backups">Save backups</string>
-    <string name="save_backups_summary">Your save is copied each time you load a save state, unless it hasn\'t changed. The last 3 are kept.</string>
-    <string name="save_backups_empty">No backups yet. One is made each time you load a save state.</string>
+    <string name="save_backups_summary">Your save is copied when a game starts and when you load a save state, unless it hasn\'t changed. Change this in Settings.</string>
+    <string name="save_backups_empty">No backups yet. One is made when a game starts or when you load a save state, if that\'s on in Settings.</string>
+    <string name="save_backup_on_game_start">Back up when a game starts</string>
+    <string name="save_backup_on_game_start_summary">Copy your save before the game loads it</string>
+    <string name="save_backup_on_state_load">Back up when loading a save state</string>
+    <string name="save_backup_on_state_load_summary">Copy your save each time you load a save state</string>
+    <string name="save_backups_to_keep">Backups to keep per game</string>
+    <string name="save_backups_to_keep_summary">Keeps the newest %s. Lowering this deletes older ones the next time a backup is made.</string>
     <string name="save_backups_unreadable">Couldn\'t read the backups</string>
     <string name="save_backup_size">%1$d KB</string>
     <string name="save_backup_restore_title">Restore this backup?</string>
@@ -883,6 +889,15 @@
         <item>Fit left</item>
         <item>Fit bottom</item>
         <item>Fit right</item>
+    </string-array>
+
+    <string-array name="save_backups_to_keep_options">
+        <item>1</item>
+        <item>3</item>
+        <item>5</item>
+        <item>10</item>
+        <item>20</item>
+        <item>50</item>
     </string-array>
 
     <string-array name="rewind_window_position_options">

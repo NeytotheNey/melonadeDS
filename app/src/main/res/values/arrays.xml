@@ -121,6 +121,15 @@
         <item>internal_dir</item>
     </string-array>
 
+    <string-array name="save_backups_to_keep_values">
+        <item>1</item>
+        <item>3</item>
+        <item>5</item>
+        <item>10</item>
+        <item>20</item>
+        <item>50</item>
+    </string-array>
+
     <string-array name="rewind_window_position_values">
         <item>top</item>
         <item>bottom</item>
