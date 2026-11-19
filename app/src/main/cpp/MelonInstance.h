@@ -127,6 +127,8 @@ public:
 
 private:
     void updateRenderer();
+    // Sets the GPU 2D shadow's mode from what updateRenderer() worked out and the top screen's width, on a change only; emulator thread
+    void applyShadow2DMode();
     void setBatteryLevels();
     void setDateTime();
     void saveRewindState(RewindSaveState* rewindSaveState);
@@ -191,6 +193,12 @@ private:
     std::optional<Renderer> failedRenderer;
     // Set by updateConfiguration() from other threads, after it replaced the configuration
     std::atomic_bool isRenderConfigurationDirty;
+    // The GPU 2D shadow's mode (GPU::SetShadow2D) the "Sharper rotated 2D" setting wants (0 or 1), whether WideMelon's Gen 4 battles can have
+    // mode 3 without it, whether debug.melonade.gpu2d decides instead, and gpu2dwide; from updateRenderer(), for applyShadow2DMode()
+    int shadow2DSettingMode = 0;
+    bool canShadow2DWideBattles = false;
+    bool isShadow2DOverridden = false;
+    int shadow2DWide = 0;
 #ifdef MELONADE_DEBUG_TOOLS
     // The debug.melonade.* switches that override settings (see DebugProperties.h)
     DebugProperties::Overrides debugOverrides;

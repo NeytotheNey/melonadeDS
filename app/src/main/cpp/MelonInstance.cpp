@@ -369,6 +369,8 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     // Cleared first, so a configuration that arrives during updateRenderer() is applied on the next frame
     if (isRenderConfigurationDirty.exchange(false))
         updateRenderer();
+    else
+        applyShadow2DMode();
 
     if (hasPendingRewindSettings.load(std::memory_order_acquire)) [[unlikely]]
         applyRewindSettings();
@@ -484,6 +486,8 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 
     // GPU::Comp1x: the compositor only draws a screen at 1x when every surface can show it (the render thread's last word on it)
     nds->GPU.Comp1xFrontend = MelonDSAndroid::areHalvesAt1xSupported();
+    // A Gen 4 battle's 2D past the screen's edges, from the last frame's scene; nothing for other games or with the shadow off
+    gameState.applyWideBattle(nds, wideViewWidth > 256);
     u32 nLines = nds->RunFrame();
     retroAchievementsManager->FrameUpdate();
     // Returns at once for a game the field read doesn't know, or one nothing asked about
@@ -1071,8 +1075,8 @@ void MelonInstance::updateRenderer()
     // a savestate load resets it too. Only from 2x, where those lines gain something, up to the scale the compositor still draws them sharp at
     // (Shadow2D::MaxSharpAffineScale; above it they'd cost the shadow for native pixels). A resolution change comes through here, so it turns on
     // and off with it
-    bool isShadow2DOverridden = false;
-    int shadow2DWide = 0;
+    isShadow2DOverridden = false;
+    shadow2DWide = 0;
     bool isSharpAffineCapLifted = false;
 #ifdef MELONADE_DEBUG_TOOLS
     // debug.melonade.gpu2d: DebugProperties::apply already set the mode (with its log and check) for this game, and it stays through renderer
@@ -1086,15 +1090,11 @@ void MelonInstance::updateRenderer()
     // Smooth 2D edges wins when both are on (an old prefs file or a backup), as the lines the shadow draws would lose its smoothing. The
     // settings screen turns one off when the other's turned on
     bool wantsShadow2D = configuration->sharperRotated2d && filter2d == 0 && isGpuRenderer && isShadow2DScale;
-    // Only on a change, as SetShadow2D resets the recorder, which leaves that frame's 2D on the CPU
-    if (!isShadow2DOverridden && wantsShadow2D != (nds->GPU.Shadow2D != nullptr))
-    {
-        nds->GPU.SetShadow2D(wantsShadow2D ? 1 : 0, false, false, shadow2DWide);
-#ifdef MELONADE_DEBUG_TOOLS
-        if (nds->GPU.Shadow2D)
-            nds->GPU.Shadow2D->AffineDebug = debugOverrides.gpu2dAffine;
-#endif
-    }
+    shadow2DSettingMode = wantsShadow2D ? 1 : 0;
+    // WideMelon's Gen 4 battles (GameState::applyWideBattle) are drawn by the shadow too, at any scale: without the setting, in mode 3, which
+    // only draws the lines with a layer past the edge. Smooth 2D edges wins here as well
+    canShadow2DWideBattles = filter2d == 0 && isGpuRenderer && gameState.hasWideBattles();
+    applyShadow2DMode();
 
     bool isHalfCameraOverridden = false;
 #ifdef MELONADE_DEBUG_TOOLS
@@ -1104,6 +1104,23 @@ void MelonInstance::updateRenderer()
     // Also between frames
     if (!isHalfCameraOverridden)
         nds->GPU.GPU3D.SetHalfCameraSmoothing(configuration->framePacingSmooth30Fps && isGpuRenderer);
+}
+
+void MelonInstance::applyShadow2DMode()
+{
+    if (isShadow2DOverridden)
+        return;
+    // Mode 3 only while the top screen is wide, so a Gen 4 game at 256 doesn't pay for the recorder
+    int mode = shadow2DSettingMode ? shadow2DSettingMode : (canShadow2DWideBattles && wideViewWidth > 256 ? 3 : 0);
+    int currentMode = nds->GPU.Shadow2D ? nds->GPU.Shadow2D->Mode : 0;
+    // Only on a change, as SetShadow2D resets the recorder, which leaves that frame's 2D on the CPU
+    if (mode == currentMode)
+        return;
+    nds->GPU.SetShadow2D(mode, false, false, shadow2DWide);
+#ifdef MELONADE_DEBUG_TOOLS
+    if (nds->GPU.Shadow2D)
+        nds->GPU.Shadow2D->AffineDebug = debugOverrides.gpu2dAffine;
+#endif
 }
 
 void MelonInstance::logDebugFrameState(bool isFastForward, float fps, int64_t lastFrameWorkNs)

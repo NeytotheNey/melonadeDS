@@ -57,6 +57,19 @@ public:
      */
     int getSceneForScript(melonDS::NDS* nds);
 
+    /**
+     * Whether the cart is a Gen 4 game whose battles WideMelon draws wide (PokeDaisy's pk_nds_battle_margins: HG/SS and Platinum battles are
+     * 2D, with only the Pokemon in 3D; Gen 5's are all 3D and get the 3D wings like the field); any thread
+     */
+    bool hasWideBattles() const;
+    /**
+     * WideMelon's Gen 4 battles, PokeDaisy's EXPAND battle margins on the GPU 2D shadow: before each frame, unit A's wide modes from the last
+     * frame's scene. In a battle the background (BG3) goes on past the screen with the sprites behind the Pokemon (platforms, trainers), and
+     * the text box's rows repeat the screen's edge; anywhere else nothing does. [isWideView] is whether the top screen is wider than 256.
+     * Polls the scene, so it stays updated while this wants it; emulator thread
+     */
+    void applyWideBattle(melonDS::NDS* nds, bool isWideView);
+
     static const char* getSceneName(int scene);
 
 private:

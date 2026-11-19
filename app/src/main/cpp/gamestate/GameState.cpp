@@ -1,6 +1,7 @@
 #include "GameState.h"
 
 #include "NDS.h"
+#include "GPU_Shadow2D.h"
 #include "pk_nds_field.h"
 
 namespace MelonDSAndroid
@@ -103,6 +104,26 @@ int GameState::readScene(melonDS::NDS* nds, const PkNdsFieldGame* currentGame)
     if (!(bits & PK_NDS_FIELD_SCREEN))
         return Off;
     return (bits & PK_NDS_FIELD_TEXT) ? Text : Field;
+}
+
+bool GameState::hasWideBattles() const
+{
+    const PkNdsFieldGame* currentGame = game.load(std::memory_order_relaxed);
+    return currentGame && pk_nds_battle_margins(currentGame);
+}
+
+void GameState::applyWideBattle(melonDS::NDS* nds, bool isWideView)
+{
+    using namespace melonDS::Shadow2D;
+    // PokeDaisy's battle compose (pk_nds_wide.cpp, pk_nds_wide_frame): BG3 is the battle's background, drawn on with its scroll, BLDCNT
+    // fades and the master brightness (the shadow's composite has all three); a sprite behind the 3D is a platform or a trainer, drawn on from
+    // its tiles; and a BG over BG3 showing at the screen's edge (the text box's dark frame) repeats the edge on its rows. The HP boxes aren't
+    // carried yet
+    static constexpr melonDS::u32 kBattleModes = WideModes(Wide_Off, Wide_Repeat, Wide_Repeat, Wide_Draw, Wide_Behind3D);
+    static constexpr melonDS::u32 kBattleExtents = 0xFFu << 24;
+
+    bool isBattle = isWideView && hasWideBattles() && pollScene() == Battle;
+    nds->GPU.SetShadow2DWide(isBattle ? kBattleModes : 0, isBattle ? kBattleExtents : 0, isBattle ? kBattleExtents : 0);
 }
 
 const char* GameState::getSceneName(int scene)
