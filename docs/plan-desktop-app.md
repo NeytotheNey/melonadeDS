@@ -4,6 +4,8 @@
 
 Plan only, nothing built. Decided: Dear ImGui menus on the existing SDL2 + GLES 3.2 window, full controller navigation, and every feature the Android app has, built in phases. The current `desktop/` test frontend becomes this app; its scripted-run options keep working.
 
+UI mockup (seven screens: library, game details, pause menu, save states, video settings, input setup, in game): https://claude.ai/artifact/Pq7RMiy7XqRLTVKk7NNU4n. Made-up games and art; private, so it has to be shared before anyone else can open it.
+
 ## Goal
 
 A Windows `.exe` you can double-click and play from the couch: a game library, a pause menu, settings, save states, controller mapping, and then everything else the app has (layouts and filters, Lua mods, RetroAchievements, rewind, cheats, DSi). Every screen works with a controller alone, with keyboard and mouse as well.
