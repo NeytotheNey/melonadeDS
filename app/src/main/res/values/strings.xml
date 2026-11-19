@@ -294,7 +294,7 @@
     <string name="dynamic_colors">Dynamic colors</string>
     <string name="dynamic_colors_summary">Use colors based on your wallpaper (Material You)</string>
     <string name="fast_forward_max_speed">Fast-forward max speed</string>
-    <string name="rewind_description">When enabled, a save-state is periodically saved automatically. Whenever you want to go back on your progress by a short amount of time, just open the rewind screen and select the state that you want to resume from.\n\nBe aware that by enabling this feature, you may experience occasional stutters if your device is not powerful enough. A considerable amount of memory is also used depending on how often you want the state to be captured and for how long it should be kept.</string>
+    <string name="rewind_description">Saves a state every few seconds so you can jump back a little. Uses extra memory and may stutter on slower devices.</string>
     <string name="rewind_save_period">Save period</string>
     <string name="rewind_length">Rewind length</string>
     <string name="rewind_max_memory_usage">Max. memory usage: %1$s</string>
