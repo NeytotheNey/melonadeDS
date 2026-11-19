@@ -37,9 +37,23 @@ Off is bit-exact on soft, OpenGL and Compute (HASH3D on W2, Platinum, SoulSilver
 - **Desktop after `61834c32`:** the ship is clean on Compute at 4x and 8x and matches OpenGL. The raster pass costs about +2–4% at 8x on the RTX.
 - **Phones:** the OnePlus 7 Pro (Adreno 640) and the Fold compile both renderers with it on and off, with the same FPS. Neither tester run caught the flicker on video, but the user sees it by eye.
 
+## Compute on Adreno (shelved 11-18)
+
+With Precise depth on, `61834c32` breaks Compute on the Fold (Adreno 840). In Platinum's overworld, whole panels of tall grass fold and unfold as you walk, black wedges show at the top corners of the grass, and geometry near the top of the screen is squashed. With it off it's fine. OpenGL with it on is fine. The desktop (RTX 5090) can't reproduce it, even with the Fold's exact switches (`gpu2d=all`, opt 223, tile 8, WideMelon 768, Smooth 30).
+
+What we know:
+- All programs compile on the Fold. The 9 precise programs compile fresh, and the driver rejects none of them.
+- A depth check in `RunCheck` (COMPCHECKZ, `computecheck=30`) compares each X span's Z ends and each drawn pixel's Z against exact CPU interpolation. Desktop: 0 mismatches. Fold: up to 15k span mismatches and 520k pixel mismatches per check. Pixels are off by 1 to 0x38 and span ends by about 0xB1, so the Adreno precise InterpSpans and Rasterise programs compute wrong depth.
+- Three versions of `InterpolateZPrecise` failed on the Fold: the committed umulExtended chain, an fp32 estimate with a 32-bit correction, and that same fp32 version with every product over 32 bits moved to `umulExtended`. All three are exact on the CPU (tens of millions of cases with perturbed float ops) and on the desktop. So the theory that a plain overflowing multiply was the cause didn't hold.
+- The check's GPU readback costs about 100 ms, so with `computecheck` on the game hangs every second.
+
+The last two versions plus the check are in `logs/precise-depth/shelved-compute-adreno.patch` (against `61834c32`). Not tried: the DS-shaped split (`disp >> 9` and `disp & 0x1FF` through the DS's own multiply, within about 2 units of exact); exact interpolation only in Rasterise with DS edges in InterpSpans; whether the Fold's DS path with precise vertex depth (the build before `61834c32`) also mismatches; and the OnePlus (Adreno 640). Until this is solved, Compute with Precise depth on is broken on Adreno. The options are to gate the Compute part off on Adreno, or to drop it and keep `a5828dcc`'s DS interpolation.
+
+Side finding: the setting costs an extra recompile at every game start. `MelonInstance::updateRenderer` calls `SetRenderSettings` (Reset) before it sets `GPU.PreciseDepth`, so Reset compiles with it off and the first RenderFrame recompiles the 9 programs.
+
 ## Open
 
-- The Fold check of the Compute fix (`61834c32`): the APK is installed as `me.magnum.melonds.dev`. Look at the ship's windows and the FPS at the user's scale.
+- Compute on Adreno is broken with it on: see the section above. Decide before any PR.
 - The Pixel 8 (Mali) compile check: the phone wasn't reachable on 11-18.
 - The software renderer still truncates Z interpolation like Compute did. The same exact interpolation could go into `Interpolator::InterpolateZ`, gated on the polygon flag.
 - Depth-equal decals (attr bit 14) with it on are untested; none of the scenes drew one.
