@@ -112,7 +112,20 @@ bool GameState::hasWideBattles() const
     return currentGame && pk_nds_battle_margins(currentGame);
 }
 
-void GameState::applyWideBattle(melonDS::NDS* nds, bool isWideView)
+bool GameState::updateWideBattle(bool isWideView)
+{
+    // The scene read after the last frame ran, so the frame after a battle's last one still has its modes (and the output at the battle's
+    // scale). Left as it is, as it doesn't show where we've seen a battle end (running from a SoulSilver wild battle): the scene stays a battle
+    // until the top screen has faded to black, so that frame is black either way, as are the frames the shadow and the cap switch on
+    isWideBattle = isWideView && hasWideBattles() && pollScene() == Battle;
+    if (isWideBattle)
+        wideBattleHold = kWideBattleHoldFrames;
+    else if (wideBattleHold > 0)
+        wideBattleHold--;
+    return wideBattleHold > 0;
+}
+
+void GameState::applyWideBattle(melonDS::NDS* nds) const
 {
     using namespace melonDS::Shadow2D;
     // PokeDaisy's battle compose (pk_nds_wide.cpp, pk_nds_wide_frame): BG3 is the battle's background, drawn on with its scroll, BLDCNT
@@ -122,8 +135,7 @@ void GameState::applyWideBattle(melonDS::NDS* nds, bool isWideView)
     static constexpr melonDS::u32 kBattleModes = WideModes(Wide_Off, Wide_Repeat, Wide_Repeat, Wide_Draw, Wide_Behind3D) | Wide_CarryBoxes;
     static constexpr melonDS::u32 kBattleExtents = 0xFFu << 24;
 
-    bool isBattle = isWideView && hasWideBattles() && pollScene() == Battle;
-    nds->GPU.SetShadow2DWide(isBattle ? kBattleModes : 0, isBattle ? kBattleExtents : 0, isBattle ? kBattleExtents : 0);
+    nds->GPU.SetShadow2DWide(isWideBattle ? kBattleModes : 0, isWideBattle ? kBattleExtents : 0, isWideBattle ? kBattleExtents : 0);
 }
 
 const char* GameState::getSceneName(int scene)

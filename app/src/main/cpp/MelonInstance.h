@@ -127,7 +127,8 @@ public:
 
 private:
     void updateRenderer();
-    // Sets the GPU 2D shadow's mode from what updateRenderer() worked out and the top screen's width, on a change only; emulator thread
+    // Before each frame: the GPU 2D shadow's mode from what updateRenderer() worked out, the top screen's width and whether the last frame was
+    // a Gen 4 battle (a change only), then that battle's wide modes (GameState::applyWideBattle); emulator thread
     void applyShadow2DMode();
     void setBatteryLevels();
     void setDateTime();

@@ -175,7 +175,8 @@ void Usage()
         "  --unthrottled               run as fast as possible (benchmarks)\n"
         "  --no-audio\n"
         "  --frames N                  quit after N frames (prints timing stats)\n"
-        "  --game-state                print the app's Pokemon game state scene whenever it changes\n"
+        "  --game-state                print the app's Pokemon game state scene whenever it changes, and the\n"
+        "                              GPU 2D shadow's mode, which a Gen 4 game's battles turn on and off\n"
         "  --no-wide-battles           with --wide, Gen 4 Pokemon battles stop at the edge as in other games\n"
         "  --screenshot FILE.bmp       save the last frame at the internal resolution when quitting\n"
         "  --window-shot-linear        draw the window shot with linear filtering (the run keeps --linear's)\n"
@@ -980,16 +981,21 @@ int main(int argc, char** argv)
                     gameState.reset();
             if (opts.WideBattles)
             {
-                // MelonInstance::applyShadow2DMode: the shadow in mode 3 for a Gen 4 game's battles, unless --gpu2d set a mode
+                // MelonInstance::applyShadow2DMode: the shadow in mode 3 around a Gen 4 game's battles, unless --gpu2d set a mode, then the
+                // battle's wide modes; before emu.RunFrame's SetOutputNeed, as the output cap follows them
+                bool isWideBattle = gameState.updateWideBattle(opts.WideWidth > 256);
                 if (opts.Gpu2D == 0)
                 {
-                    bool canWideBattles = emu.Current != RendererType::Software && opts.Filter2D == 0 && opts.WideWidth > 256
-                        && gameState.hasWideBattles();
-                    int mode = canWideBattles ? 3 : 0;
+                    bool canWideBattles = emu.Current != RendererType::Software && opts.Filter2D == 0 && gameState.hasWideBattles();
+                    int mode = canWideBattles && isWideBattle ? 3 : 0;
                     if (mode != (emu.Nds->GPU.Shadow2D ? emu.Nds->GPU.Shadow2D->Mode : 0))
+                    {
                         emu.Nds->GPU.SetShadow2D(mode, false, false, opts.Gpu2DWide);
+                        if (opts.GameState)
+                            printf("frame %u: GPU 2D shadow mode %d\n", frame, mode);
+                    }
                 }
-                gameState.applyWideBattle(emu.Nds.get(), opts.WideWidth > 256);
+                gameState.applyWideBattle(emu.Nds.get());
             }
             emu.RunFrame();
             gameState.update(emu.Nds.get());
