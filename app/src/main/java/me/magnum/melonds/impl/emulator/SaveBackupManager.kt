@@ -11,6 +11,7 @@ import me.magnum.melonds.impl.ExactNameFileCreation
 import me.magnum.melonds.impl.diagnostics.DebugLog
 import java.io.File
 import java.time.LocalDateTime
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * A backup of a game's .sav in the save-backups folder next to it (names in [SaveBackupNames])
@@ -18,7 +19,7 @@ import java.time.LocalDateTime
 data class SaveBackup(val uri: Uri, val fileName: String, val time: LocalDateTime, val size: Long)
 
 /**
- * Makes, lists, prunes and restores the save backups taken before each state load. Shared by the emulator and the ROM details screen, and
+ * Makes, lists, prunes and restores the save backups taken with each state load. Shared by the emulator and the ROM details screen, and
  * it knows which save the running game uses so a restore can't change it underneath. Every call does file work, so call it off the main
  * thread.
  */
@@ -64,8 +65,8 @@ class SaveBackupManager(
 
     // Taken by restores and by a game starting, so a game never reads its .sav halfway through a restore
     private val lock = Any()
-    @Volatile
-    private var runningGame: RunningGame? = null
+    // Cleared without the lock, so stopping a game on the main thread never waits for a restore
+    private val runningGame = AtomicReference<RunningGame?>(null)
     // The last save-backups folder used, so each state load doesn't list the save folder again
     @Volatile
     private var cachedFolder: CachedFolder? = null
@@ -76,7 +77,7 @@ class SaveBackupManager(
     fun markGameRunning(rom: Rom, location: SramLocation): RunningGame {
         val game = RunningGame(rom.uri, location.directoryUri, location.sramFileName)
         synchronized(lock) {
-            runningGame = game
+            runningGame.set(game)
         }
         return game
     }
@@ -85,20 +86,16 @@ class SaveBackupManager(
      * Clears [game] if it's still the running one, so a late call from an older session can't clear a newer one
      */
     fun markGameStopped(game: RunningGame) {
-        synchronized(lock) {
-            if (runningGame === game) {
-                runningGame = null
-            }
-        }
+        runningGame.compareAndSet(game, null)
     }
 
     private fun isRunning(rom: Rom, target: SramTarget): Boolean {
-        val game = runningGame ?: return false
+        val game = runningGame.get() ?: return false
         return game.romUri == rom.uri || (game.directoryUri == target.directoryUri && game.sramFileName == target.sramFileName)
     }
 
     /**
-     * Backs up the running game's save before a state load
+     * Backs up the running game's save, right after a state load
      */
     fun backUpSave(location: SramLocation): BackupResult {
         synchronized(lock) {
@@ -118,6 +115,7 @@ class SaveBackupManager(
             ListResult.Found(toBackups(target.sramFileName, children))
         } catch (e: Exception) {
             Log.w(DebugLog.TAG, "Could not list the save backups", e)
+            cachedFolder = null
             ListResult.Failed
         }
     }
@@ -134,10 +132,10 @@ class SaveBackupManager(
                 }
 
                 // Read before the new backup is made, so pruning can't take it first
-                val expectedLength = getLength(backup.uri)
+                val reportedLength = getReportedLength(backup.uri)
                 val data = readFully(backup.uri)
-                if (data == null || expectedLength <= 0L || data.size.toLong() != expectedLength) {
-                    Log.w(DebugLog.TAG, "Not restoring the save backup: read ${data?.size ?: "no"} of $expectedLength bytes")
+                if (data == null || SaveBackupNames.checkRead(data, reportedLength) { true } != SaveBackupNames.ReadCheck.USABLE) {
+                    Log.w(DebugLog.TAG, "Not restoring the save backup: read ${data?.size ?: "no"} of $reportedLength bytes")
                     return RestoreResult.FAILED
                 }
 
@@ -147,6 +145,7 @@ class SaveBackupManager(
                     Thread.sleep(1000)
                     backupResult = backUpSave(target, protectedName = backup.fileName)
                 }
+                // A save is only overwritten once it's in a backup; NothingToBackUp means it's missing or read as empty
                 when (backupResult) {
                     BackupResult.Failed, BackupResult.Skipped -> return RestoreResult.BACKUP_FAILED
                     BackupResult.Created, BackupResult.Unchanged, BackupResult.NothingToBackUp -> Unit
@@ -173,24 +172,27 @@ class SaveBackupManager(
     private fun backUpSave(target: SramTarget, protectedName: String?): BackupResult {
         return try {
             val sramUri = target.sramUri ?: return BackupResult.NothingToBackUp
-            val expectedLength = getLength(sramUri)
-            if (expectedLength <= 0L) {
-                return BackupResult.NothingToBackUp
+            // All of it first, judged by what was read, so a short or torn read never becomes a backup and an unreadable save never counts
+            // as empty
+            val reportedLength = getReportedLength(sramUri)
+            val readData = readFully(sramUri)
+            when (SaveBackupNames.checkRead(readData, reportedLength) { fileExists(sramUri) }) {
+                SaveBackupNames.ReadCheck.NOTHING_TO_BACK_UP -> return BackupResult.NothingToBackUp
+                SaveBackupNames.ReadCheck.UNUSABLE -> {
+                    Log.w(DebugLog.TAG, "Not backing up the save: read ${readData?.size ?: "no"} of $reportedLength bytes")
+                    return BackupResult.Failed
+                }
+                SaveBackupNames.ReadCheck.USABLE -> Unit
             }
-
-            // All of it first, so a short or torn read never becomes a backup
-            val data = readFully(sramUri)
-            if (data == null || data.size.toLong() != expectedLength) {
-                Log.w(DebugLog.TAG, "Not backing up the save: read ${data?.size ?: "no"} of $expectedLength bytes")
-                return BackupResult.Failed
-            }
+            val data = readData ?: return BackupResult.Failed
 
             val folder = getBackupFolder(target.directoryUri, create = true) ?: return BackupResult.Failed
             val children = listBackupFolder(target.directoryUri, folder, create = true) ?: return BackupResult.Failed
             val backups = toBackups(target.sramFileName, children)
 
             val newest = backups.firstOrNull()
-            val newestData = newest?.takeIf { it.size == data.size.toLong() }?.let { readFully(it.uri) }
+            // A listed size of 0 can mean unknown, so that one is read too
+            val newestData = newest?.takeIf { it.size <= 0L || it.size == data.size.toLong() }?.let { readFully(it.uri) }
             if (SaveBackupNames.isSameAsNewest(data, newestData)) {
                 prune(backups, protectedName)
                 return BackupResult.Unchanged
@@ -228,6 +230,8 @@ class SaveBackupManager(
             BackupResult.Created
         } catch (e: Exception) {
             Log.w(DebugLog.TAG, "Could not back up the save", e)
+            // The cached folder may be what failed, so the next backup looks it up again
+            cachedFolder = null
             BackupResult.Failed
         }
     }
@@ -285,7 +289,8 @@ class SaveBackupManager(
     }
 
     /**
-     * Lists the backup folder; a cached folder that can't be listed (deleted, say) is looked up again once
+     * Lists the backup folder; a cached folder that can't be listed (deleted, say) is looked up again once. Without [create], a folder that's
+     * gone lists as empty.
      */
     private fun listBackupFolder(directoryUri: Uri, folder: DocumentFile, create: Boolean): List<Child>? {
         listChildren(folder)?.let { return it }
@@ -293,7 +298,7 @@ class SaveBackupManager(
             return null
         }
         cachedFolder = null
-        val freshFolder = getBackupFolder(directoryUri, create) ?: return null
+        val freshFolder = getBackupFolder(directoryUri, create) ?: return if (create) null else emptyList()
         return listChildren(freshFolder)
     }
 
@@ -323,7 +328,14 @@ class SaveBackupManager(
             DocumentsContract.Document.COLUMN_MIME_TYPE,
             DocumentsContract.Document.COLUMN_SIZE,
         )
-        return context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+        // SAF throws for a folder that was deleted rather than returning nothing
+        val query = try {
+            context.contentResolver.query(childrenUri, projection, null, null, null)
+        } catch (e: Exception) {
+            Log.w(DebugLog.TAG, "Could not list $folderUri", e)
+            null
+        }
+        return query?.use { cursor ->
             val extras = cursor.extras
             if (extras?.getBoolean(DocumentsContract.EXTRA_LOADING) == true || extras?.getString(DocumentsContract.EXTRA_ERROR) != null) {
                 return null
@@ -341,11 +353,25 @@ class SaveBackupManager(
     }
 
     /**
-     * The file's size, or 0 when it's missing or empty
+     * The size the provider reports, or 0 when it's unknown, missing or empty
      */
-    private fun getLength(uri: Uri): Long {
-        val document = uriHandler.getUriDocument(uri) ?: return 0
-        return if (document.exists()) document.length() else 0
+    private fun getReportedLength(uri: Uri): Long {
+        return try {
+            uriHandler.getUriDocument(uri)?.length() ?: 0
+        } catch (e: Exception) {
+            0
+        }
+    }
+
+    /**
+     * True unless the provider says the file isn't there; asked only after a failed read, so when in doubt it counts as there
+     */
+    private fun fileExists(uri: Uri): Boolean {
+        return try {
+            uriHandler.getUriDocument(uri)?.exists() != false
+        } catch (e: Exception) {
+            true
+        }
     }
 
     private fun readFully(uri: Uri): ByteArray? {

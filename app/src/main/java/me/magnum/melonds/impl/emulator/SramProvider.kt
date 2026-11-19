@@ -7,7 +7,7 @@ import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.impl.ExactNameFileCreation
 
 /**
- * A ROM's save file and the folder it's in, kept for the session so the save can be backed up before a state load.
+ * A ROM's save file and the folder it's in, kept for the session so the save can be backed up with each state load.
  */
 data class SramLocation(val sramUri: Uri, val directoryUri: Uri, val sramFileName: String)
 

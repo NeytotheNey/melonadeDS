@@ -108,6 +108,46 @@ class SaveBackupNamesTest {
     }
 
     @Test
+    fun aFullReadIsUsable() {
+        assertEquals(SaveBackupNames.ReadCheck.USABLE, SaveBackupNames.checkRead(ByteArray(512), 512) { true })
+    }
+
+    @Test
+    fun anUnknownLengthIsNotCheckedAgainst() {
+        // COLUMN_SIZE is optional, so a provider can report 0 for a full save
+        assertEquals(SaveBackupNames.ReadCheck.USABLE, SaveBackupNames.checkRead(ByteArray(512), 0) { true })
+    }
+
+    @Test
+    fun aShortReadIsUnusable() {
+        assertEquals(SaveBackupNames.ReadCheck.UNUSABLE, SaveBackupNames.checkRead(ByteArray(256), 512) { true })
+        assertEquals(SaveBackupNames.ReadCheck.UNUSABLE, SaveBackupNames.checkRead(ByteArray(0), 512) { true })
+    }
+
+    @Test
+    fun anEmptyFileHasNothingToBackUp() {
+        assertEquals(SaveBackupNames.ReadCheck.NOTHING_TO_BACK_UP, SaveBackupNames.checkRead(ByteArray(0), 0) { true })
+    }
+
+    @Test
+    fun aFailedReadOfAFileThatsThereIsUnusable() {
+        assertEquals(SaveBackupNames.ReadCheck.UNUSABLE, SaveBackupNames.checkRead(null, 0) { true })
+        assertEquals(SaveBackupNames.ReadCheck.UNUSABLE, SaveBackupNames.checkRead(null, 512) { true })
+    }
+
+    @Test
+    fun aFailedReadOfAMissingFileHasNothingToBackUp() {
+        assertEquals(SaveBackupNames.ReadCheck.NOTHING_TO_BACK_UP, SaveBackupNames.checkRead(null, 0) { false })
+    }
+
+    @Test
+    fun existenceIsOnlyAskedWhenTheReadFailed() {
+        var asked = false
+        SaveBackupNames.checkRead(ByteArray(512), 0) { asked = true; true }
+        assertFalse(asked)
+    }
+
+    @Test
     fun sameBytesAsTheNewestMeansNoNewBackup() {
         assertTrue(SaveBackupNames.isSameAsNewest(byteArrayOf(1, 2, 3), byteArrayOf(1, 2, 3)))
     }

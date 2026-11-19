@@ -82,7 +82,7 @@ class AndroidEmulatorManager(
     @Volatile
     private var romWideViewMargin = 0
 
-    // The running game's save file, backed up before each state load; null for a firmware boot
+    // The running game's save file, backed up with each state load; null for a firmware boot
     @Volatile
     private var currentSram: SramSession? = null
 
@@ -416,20 +416,28 @@ class AndroidEmulatorManager(
     }
 
     override suspend fun loadState(saveStateFileUri: Uri): Boolean = withContext(Dispatchers.IO) {
-        backUpSram()
-        MelonEmulator.loadState(saveStateFileUri).also {
+        val success = MelonEmulator.loadState(saveStateFileUri).also {
             DebugLog.event { "Save state loaded from ${getSaveStateName(saveStateFileUri)} (success=$it)" }
         }
+        // After the load, not before: the load doesn't write the .sav, and it writes any pending in-game save to disk itself
+        // (SaveManager::SyncFromState), so the save writer is idle now and the backup can't catch it halfway through a write. Callers resume
+        // the game only after this returns. Done whether or not the load worked
+        backUpSram()
+        success
     }
 
     /**
      * Backs up the game's .sav to its save-backups folder, so a state load can't cost the player their real save. A failed backup is only
-     * logged, so it never blocks the load.
+     * logged, so it never changes the load's result.
      */
     private fun backUpSram() {
-        val session = currentSram ?: return
-        if (saveBackupManager.backUpSave(session.location) == SaveBackupManager.BackupResult.Failed) {
-            Log.w(DebugLog.TAG, "Could not back up the save before a state load")
+        try {
+            val session = currentSram ?: return
+            if (saveBackupManager.backUpSave(session.location) == SaveBackupManager.BackupResult.Failed) {
+                Log.w(DebugLog.TAG, "Could not back up the save after a state load")
+            }
+        } catch (e: Exception) {
+            Log.w(DebugLog.TAG, "Could not back up the save after a state load", e)
         }
     }
 
@@ -461,7 +469,7 @@ class AndroidEmulatorManager(
     }
 
     override fun cleanEmulator() {
-        endSramSession()
+        // The running mark stays: this path doesn't stop the native emulator, so stopEmulator() and the next loadRom() clear it
         cameraManager.dispose()
         messageQueue.cleanup()
     }

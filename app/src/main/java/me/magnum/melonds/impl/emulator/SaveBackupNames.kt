@@ -64,6 +64,28 @@ object SaveBackupNames {
         return newestFirst.drop(keep).filterNot(isProtected)
     }
 
+    enum class ReadCheck {
+        USABLE,
+        /** No file, or an empty one: nothing that a restore could lose */
+        NOTHING_TO_BACK_UP,
+        /** The file is there but couldn't be read, or read short */
+        UNUSABLE,
+    }
+
+    /**
+     * Judges a whole-file read by the bytes read, since a provider's reported length is optional and can be 0. [reportedLength] is only
+     * checked when it isn't 0, and [fileExists] is only asked when the read failed.
+     */
+    fun checkRead(data: ByteArray?, reportedLength: Long, fileExists: () -> Boolean): ReadCheck {
+        if (data == null) {
+            return if (fileExists()) ReadCheck.UNUSABLE else ReadCheck.NOTHING_TO_BACK_UP
+        }
+        if (reportedLength > 0L && data.size.toLong() != reportedLength) {
+            return ReadCheck.UNUSABLE
+        }
+        return if (data.isEmpty()) ReadCheck.NOTHING_TO_BACK_UP else ReadCheck.USABLE
+    }
+
     /**
      * True when the save is the same as the newest backup, so no new one is needed
      */
