@@ -158,6 +158,30 @@ void SaveManager::CheckFlush()
     Platform::Mutex_Unlock(SecondaryBufferLock);
 }
 
+void SaveManager::SyncFromState(const u8* savedata, u32 savelen)
+{
+    // Get a pending in-game save onto disk now, before the state's image replaces it in Buffer. If this write fails the data stays pending in
+    // SecondaryBuffer, and the writer thread retries it.
+    if (Running)
+    {
+        CheckFlush();
+        if (!FlushSecondaryBuffer())
+            Log(LogLevel::Error, "SaveManager: Failed to write the pending save to %s before a state load, will retry\n", Path.c_str());
+    }
+
+    // Take the whole image, not just a range: the game's next partial write then lands on the state's data instead of mixing it with the old
+    // file's blocks
+    if (Length != savelen)
+    {
+        Length = savelen;
+        Buffer = Length ? std::make_unique<u8[]>(Length) : nullptr;
+    }
+    if (Length)
+        memcpy(Buffer.get(), savedata, Length);
+
+    // No FlushRequested here, so nothing reaches the disk until the game saves
+}
+
 void SaveManager::run()
 {
     u32 failedAttempts = 0;

@@ -41,6 +41,10 @@ public:
     void RequestFlush(const u8* savedata, u32 savelen, u32 writeoffset, u32 writelen);
     void CheckFlush();
 
+    // Takes the save image from a loaded savestate as the in-memory copy without writing it to disk; the game's next save writes it out. A pending
+    // in-game save is written first so the load can't drop it.
+    void SyncFromState(const u8* savedata, u32 savelen);
+
     // Returns false if the data could not be flushed (a failed file flush leaves it pending to be retried), true if there was nothing to flush.
     bool FlushSecondaryBuffer();
 

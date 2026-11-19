@@ -81,6 +81,10 @@ class AndroidEmulatorManager(
     @Volatile
     private var romWideViewMargin = 0
 
+    // The running game's save file, backed up before each state load; null for a firmware boot
+    @Volatile
+    private var currentSram: SramLocation? = null
+
     // Writes the scripts' storage snapshots, drained and written under luaDataLock so an older one can't overwrite a newer one
     private val luaDataScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val luaDataLock = Any()
@@ -197,6 +201,7 @@ class AndroidEmulatorManager(
             DebugLog.logConfiguration("rom launch", rom, configuration, cheats.size, settingsRepository)
             setupEmulator(configuration)
 
+            currentSram = null
             val sram = try {
                 sramProvider.getSramForRom(rom)
             } catch (exception: RomFolderUnreadableException) {
@@ -218,7 +223,7 @@ class AndroidEmulatorManager(
 
             val loadResult = MelonEmulator.loadRom(
                 romUri = romUri,
-                sramUri = sram,
+                sramUri = sram.sramUri,
                 gbaSlotType = gbaSlotType,
                 gbaRomUri = (gbaSlotRomConfig as? RomGbaSlotConfig.GbaRom)?.romPath,
                 gbaSramUri = (gbaSlotRomConfig as? RomGbaSlotConfig.GbaRom)?.savePath
@@ -229,6 +234,7 @@ class AndroidEmulatorManager(
                 MelonEmulator.stopEmulation()
                 RomLaunchResult.LaunchFailed(loadResult)
             } else {
+                currentSram = sram
                 messageQueue.start()
                 MelonEmulator.setupCheats(cheats.toTypedArray())
                 setupLuaScripts(luaScripts, luaScriptFolder, areLuaStateLoadsAllowed) {
@@ -242,6 +248,7 @@ class AndroidEmulatorManager(
     }
 
     override suspend fun loadFirmware(consoleType: ConsoleType): FirmwareLaunchResult {
+        currentSram = null
         return withContext(Dispatchers.IO) {
             val configuration = getFirmwareEmulatorConfiguration(consoleType)
             DebugLog.logConfiguration("firmware launch", null, configuration, null, settingsRepository)
@@ -400,8 +407,32 @@ class AndroidEmulatorManager(
     }
 
     override suspend fun loadState(saveStateFileUri: Uri): Boolean = withContext(Dispatchers.IO) {
+        backUpSram()
         MelonEmulator.loadState(saveStateFileUri).also {
             DebugLog.event { "Save state loaded from ${getSaveStateName(saveStateFileUri)} (success=$it)" }
+        }
+    }
+
+    /**
+     * Copies the game's .sav to .sav.bak next to it, so a state load can't cost the player their real save. A failed backup is only logged, so it
+     * never blocks the load.
+     */
+    private fun backUpSram() {
+        val sram = currentSram ?: return
+        try {
+            val backupUri = sramProvider.getSramBackupUri(sram) ?: return
+            val contentResolver = context.contentResolver
+            val copied = contentResolver.openInputStream(sram.sramUri)?.use { input ->
+                // "wt" truncates, so an older, bigger backup doesn't leave its tail behind
+                contentResolver.openOutputStream(backupUri, "wt")?.use { output -> input.copyTo(output) }
+            }
+            if (copied == null) {
+                Log.w(DebugLog.TAG, "Could not open the save or its backup to back it up before a state load")
+            } else {
+                DebugLog.event { "Save backed up before state load ($copied bytes)" }
+            }
+        } catch (e: Exception) {
+            Log.w(DebugLog.TAG, "Could not back up the save before a state load", e)
         }
     }
 
@@ -419,6 +450,7 @@ class AndroidEmulatorManager(
     override fun stopEmulator() {
         DebugLog.event { "Stop" }
         MelonEmulator.stopEmulation()
+        currentSram = null
         // Written before this returns, so the ROM details screen shown next sees the newest data and a Clear there can't be undone by a late write
         saveLuaData()
         clearLuaScripts()
