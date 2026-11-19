@@ -67,6 +67,56 @@ Anything you can reach through the menus for a test, you can also start from one
 
 `--help` lists every option. Each phase's "done when" includes that its new features can be started and checked this way.
 
+## Game metadata
+
+**ScreenScraper is shelved (2026-11-18).** There are no developer credentials, and ScreenScraper only allows its API in free apps that are distributed, which melonadeDS isn't yet. Until that changes, phase 2 uses RetroAchievements (as the app does) with libretro thumbnails as the fallback. The hashing, libretro and cache parts below apply to that as well; the ScreenScraper parts are kept for when the app goes public.
+
+The plan for then: ScreenScraper becomes the main source, the same one Cocoon credits for its metadata (Cocoon's platform list, `C:\Dev\CocoonFE\android\nds.yaml`, maps DS to ScreenScraper system 15). Researched 2026-11-18 from ScreenScraper's API doc (https://www.screenscraper.fr/webapi2.php, French, marked beta and subject to change) and the Skyscraper, ES-DE and RomM clients; anything marked unverified needs a real call to confirm.
+
+**Sources, in order:**
+
+| Source | Needs | Gives |
+|---|---|---|
+| ScreenScraper API v2 | our developer credentials; the user's ScreenScraper login is optional and raises their quota | titles per region, synopsis per language, publisher, developer, genres, release dates, players, rating; box 2D/3D, screenshots, title screens, logos (`wheel`), fan art, video, manuals |
+| libretro thumbnails | nothing | box art, a screenshot and a title screen as PNGs, by No-Intro name. Fallback art when ScreenScraper has none, is down, or the user's quota ran out |
+| RetroAchievements | an RA login (achievements), a Web API key (art, as in the app) | achievement counts and the RA art; its header-based hash also matches trimmed ROMs, so it can name a game the other two miss |
+
+**Developer credentials.** ScreenScraper gives a `devid`/`devpassword` to an app's developer after a request on its developer forum (https://www.screenscraper.fr/forumsujets.php?frub=12); it won't give them to end users. The API may only be built into free apps that are distributed, unless they authorize otherwise. Skyscraper and ES-DE build theirs into the binary scrambled, so we do the same: the values sit in a git-ignored file that `build.sh` turns into a header, never in the repo, and `softname` is `melonadeDS-<version>`. Breaking the rules gets the app blacklisted (HTTP 426), so never borrow another app's credentials. Registering is your step.
+
+**Finding the game.**
+- One pass over the decompressed `.nds` (zip and 7z are unpacked first) computes CRC32, MD5 and SHA1, plus the size, the file name and the header's game code and region. Saved in the library database so it runs once per file.
+- ScreenScraper `jeuInfos.php`: `systemeid=15`, `romtype=rom`, all three hashes, `romtaille`, `romnom` (file name only; a path gives HTTP 400), `output=json`. A 404 means not found. The response doesn't say whether it matched by hash or by name, so compare the hashes it returns with ours and count a mismatch as a name match.
+- Trimmed ROMs will almost always miss on hash, because the reference dumps are full size. They fall back to the file name, then to the RA hash, then to the manual match. Whether `serialnum` takes the header game code, and in what form, is unverified; test it with a known game before relying on it. Whether DSi has its own system id is unverified too; DSiWare starts on 15.
+- libretro: the No-Intro DS DAT from libretro-database maps CRC to name (its entries carry full sizes and the 4-letter serial, so a trimmed ROM can match by serial, preferring the entry for its region). It's downloaded on the first sync, not bundled, since no license is stated. Image URL: `https://thumbnails.libretro.com/Nintendo - Nintendo DS/Named_Boxarts/<name>.png`, URL-encoded, with each of `&*/:`<>?\|"` in the name replaced by `_`.
+- "Fix match" from the launcher plan (section 4) uses ScreenScraper's `jeuRecherche.php?recherche=<name>`, which returns up to 30 likely games.
+
+**Picking region and language.** Settings for a region order and a language. Names, dates and media try the user's region, then `wor`, `us`, `eu`, `jp`, then whatever exists, like ES-DE; video and fan art have no region. The synopsis uses the user's language, then English.
+
+**Media.** By default box 2D (tiles and details), title screen (mosaic wide tiles), screenshots (details gallery) and the logo. Box 3D, video and manuals are off by default and can be turned on in settings. Images are requested through `mediaJeu.php` with `maxwidth` (512 for boxes, 640 for screenshots) to save bandwidth. A refresh sends the hash of the file we already have, and ScreenScraper answers `CRCOK`/`MD5OK`/`SHA1OK` instead of sending it again.
+
+**Quotas and errors.** ScreenScraper requires clients to handle its quotas, and the limits differ by account, so they're read from the `ssuser` block that comes back with every response (`maxthreads`, `maxrequestspermin`, `maxrequestsperday`, `requeststoday`, `requestskotoday`, `maxrequestskoperday`), never hardcoded. A basic registered account was seen at 1 thread, 20,000 requests a day and 2,000 not-found a day. We run at most `maxthreads` requests at once, no faster than `maxrequestspermin` and no closer than 1.2 s apart, as Skyscraper does.
+
+| HTTP | Meaning | What we do |
+|---|---|---|
+| 400 | bad parameters | log it, skip the game (a bug on our side) |
+| 401 | closed to guests while the server is busy | pause the sync a few minutes, suggest a ScreenScraper login |
+| 403 | bad developer credentials | stop, report it |
+| 404 | not found | mark the game not found; no retry until a manual refresh |
+| 423 | API closed | stop for this session |
+| 426 | app blacklisted or too old | stop, tell the user to update |
+| 429 | thread or per-minute limit | back off a few seconds, retry |
+| 430 / 431 | daily quota / too many not-found today | stop until tomorrow, libretro art still fills in |
+
+The body is checked as well as the status, as Skyscraper does. Not-found counts against its own daily limit, so a game that missed is never asked about again on its own.
+
+**Cache.** Results in the library database keyed by SHA1 (ScreenScraper game id, the chosen fields, fetch time and status). Media in `<profile>\media\<source>\<game id>\<type>_<region>.<ext>`, kept until the user clears it. No sync while a game is running, like the app.
+
+**Terms.** ScreenScraper's site content is CC BY-NC-SA 4.0, and nothing says caching for display in a free app is a problem. Downloaded media is never redistributed (no pre-scraped packs). The details screen and About credit "Data and media: ScreenScraper.fr". libretro art belongs to its publishers and gets a credit line too. Worth confirming on the forum when registering.
+
+**Settings.** ScreenScraper login (optional, stored like a password, with a test button that shows the account's quota), region order, language, media types, "Scrape now", "Refresh metadata", "Clear downloaded media", and the RetroAchievements Web API key as in the app.
+
+The Android app could move to the same source later, using the same developer credentials, but that's a separate decision.
+
 ## Phases
 
 Each phase ends with something usable and is a separate `feature/desktop-*` branch. Sizes are rough lines of new or ported code.
@@ -93,7 +143,7 @@ Each phase ends with something usable and is a separate `feature/desktop-*` bran
 
 - ROM folders in settings, scanning (`.nds`, `.dsi`, zip and 7z), header parse, the RA hash (port of `RomProcessor.kt`) and banner icons (`RomIconBuilder`).
 - List, Grid and Mosaic views with sort, filter and search, following `docs/plan-launcher.md`; game details sheet with Play and per-game settings (`RomConfig`: console type, GBA slot, widescreen, mic, mods).
-- RetroAchievements metadata and art through the Web API key, with the app's caching and back-off rules (`RomMetadataSync*`), art cached on disk.
+- Metadata and art from RetroAchievements through the Web API key, with the app's caching and back-off rules (`RomMetadataSync*`), and libretro thumbnails as the fallback that needs no account; art cached on disk. ScreenScraper is shelved, see [Game metadata](#game-metadata).
 - Done when: the library opens with art on first launch after a sync, and controller focus works across all three views.
 
 ### Phase 3: presentation parity (about 4k lines)
@@ -147,4 +197,5 @@ Android home-screen shortcuts, the external display presentation and Performance
 
 - Is the PC build just for you, or will it be shared? That decides an installer, auto-update, and how much first-run help it needs.
 - Exe and folder name: `melonade.exe` and `melonadeDS` assumed here.
+- ScreenScraper (shelved): needs developer credentials from its forum and a public, free release first.
 - Shaders: copy them now (with the drift check) and move both platforms to shared `.glsl` files later, or move them in phase 3 at the cost of an Android change and a phone run.
