@@ -40,9 +40,13 @@ add_executable(melonade-desktop
     src/Presenter.cpp
     src/Presenter.h
     gl/pc_gl_loader.cpp
-    gl/pc_gl.h)
+    gl/pc_gl.h
+    # The app's Pokemon game state (--game-state)
+    ../app/src/main/cpp/gamestate/GameState.cpp
+    ../app/src/main/cpp/gamestate/pk_nds_field.cpp
+    ../app/src/main/cpp/gamestate/pk_nds_field_gpu.cpp)
 
-target_include_directories(melonade-desktop PRIVATE "${CORE_LIB}/src")
+target_include_directories(melonade-desktop PRIVATE "${CORE_LIB}/src" ../app/src/main/cpp)
 # Windows 10 APIs (SetProcessInformation for power throttling)
 target_compile_definitions(melonade-desktop PRIVATE _WIN32_WINNT=0x0A00)
 target_link_libraries(melonade-desktop PRIVATE core SDL2::SDL2main SDL2::SDL2 winmm)

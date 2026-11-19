@@ -3,6 +3,7 @@ package me.magnum.melonds.impl.dtos.rom
 import com.google.gson.Gson
 import me.magnum.melonds.domain.model.rom.config.RomLuaScript
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RomModsConfigDtoTest {
@@ -26,5 +27,17 @@ class RomModsConfigDtoTest {
 
         val reloaded = gson.fromJson(gson.toJson(RomModsConfigDto.fromModel(config)), RomModsConfigDto::class.java).toModel()
         assertEquals(config, reloaded)
+    }
+
+    @Test
+    fun autoZoomOnTextIsOnForOldConfigsAndKeepsItsValue() {
+        val gson = Gson()
+        val old = gson.fromJson("""{"wideCamera":true}""", RomModsConfigDto::class.java).toModel()
+        assertEquals(true, old.wideCameraZoomOnText)
+
+        val off = old.copy(wideCameraZoomOnText = false)
+        val json = gson.toJson(RomModsConfigDto.fromModel(off))
+        assertTrue(json.contains("\"wideCameraZoomOnText\":false"))
+        assertEquals(off, gson.fromJson(json, RomModsConfigDto::class.java).toModel())
     }
 }

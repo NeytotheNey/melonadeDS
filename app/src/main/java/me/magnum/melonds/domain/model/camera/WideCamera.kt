@@ -3,8 +3,11 @@ package me.magnum.melonds.domain.model.camera
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.exp
 import kotlin.math.floor
+import kotlin.math.max
+import kotlin.math.pow
 import kotlin.math.sign
 
 /**
@@ -66,6 +69,27 @@ data class WideCameraRequest(val zoom: Float? = null, val pan: Float? = null, va
 }
 
 /**
+ * What a Pokemon game the native field read knows is doing (cpp/gamestate/GameState.h, which runs PokeDaisy's pk_nds_field.cpp), as
+ * MelonEmulator.getGameScene returns it. The numbers are PokeDaisy's WideCamera.SCENE_*; BATTLE is its SCENE_BATTLE_START's, which ours sends
+ * for the whole battle (PokeDaisy's DS build calls a battle OFF)
+ */
+object GameScene {
+    // Not a game the field read knows (or not read yet): the camera keeps its generic rules
+    const val UNKNOWN = -1
+    // The overworld with nothing over it
+    const val FIELD = 0
+    // The overworld with a text box up: a conversation, a sign, a yes/no prompt
+    const val TEXT = 1
+    const val BATTLE = 3
+    // Off the field: the title, the intro, any screen that isn't the overworld
+    const val OFF = 4
+    // The top screen faded all the way to black or white, between two maps or screens; it decides nothing, so the zoom holds through a door
+    const val FADE = 5
+    // A menu screen over the field (the party, the bag), and Gen 5's X menu
+    const val MENU = 6
+}
+
+/**
  * What the camera sees of one presented frame (WideCamera.update takes these one by one too, so the render thread allocates nothing for them).
  *
  * @param showWidth The layout's width (Wd)
@@ -73,6 +97,9 @@ data class WideCameraRequest(val zoom: Float? = null, val pan: Float? = null, va
  * @param topWingLines The DS top screen's lines with 3D wings this frame, the dual-screen wing hold's held lines included
  * @param areScreensSwapped Whether the DS bottom screen is the wide one, which keeps the camera at 1x
  * @param frameMargin The frame's rows of 3D above and below the top screen (camera stage 2), so it's SCREEN_HEIGHT + 2 * frameMargin tall
+ * @param gameScene What a known Pokemon game is doing (GameScene), or GameScene.UNKNOWN for other games
+ * @param maxWidth The widest the camera zooms out to (the Mods tab's widest view), or 0 for the frame's width. The core renders only as wide as
+ * the player's zoom needs (WidescreenLaunch.getRenderWidth), so the frame can be narrower than this
  */
 data class WideCameraFrame(
     val showWidth: Int,
@@ -80,6 +107,8 @@ data class WideCameraFrame(
     val topWingLines: Int,
     val areScreensSwapped: Boolean,
     val frameMargin: Int = 0,
+    val gameScene: Int = GameScene.UNKNOWN,
+    val maxWidth: Int = 0,
 )
 
 /**
@@ -110,6 +139,13 @@ data class WideCameraInput(
  * The WideMelon camera (docs/plan-widemelon.md, "Camera: pan and zoom"): which window of the render-size frame the wide screen shows. The game's
  * own camera never moves; zooming out widens the window up to the render width (and heightens it into the margin rows, stage 2) and panning
  * slides it, clamped to the frame. No Android here, so it's unit-tested; not thread-safe (WideCameraController locks around it).
+ *
+ * The zoom's range comes from the widest view (maxWidth), but the core renders only as wide as the player's zoom needs ([playerZoom], see
+ * WidescreenLaunch.getRenderWidth), so a zoom-out can be ahead of the frame for a frame or two while the wider one is on its way. The window
+ * never leaves the frame it's given: until the wider frame comes, it shows all of the one there is.
+ *
+ * In a Pokemon game the native field read knows (a GameScene other than UNKNOWN), the scene decides when to pull in to 1x instead of the wing
+ * lines, and the zoom and the look-around move the way PokeDaisy's WideCamera.kt does (docs/plan-expand-parity.md, Phase 1; updateForScene).
  */
 class WideCamera {
 
@@ -123,6 +159,24 @@ class WideCamera {
     private var panY = 0f
     // How long the frame has been free to leave 1x, so a frame or two of wings after a menu doesn't zoom back out
     private var freeSeconds = 0f
+    // Known games: whether the scene wants the close-up at 1x, and for how long it hasn't (PokeDaisy's closeOverSince). Close from the start, so
+    // the player's zoom comes back once the field shows
+    private var isCloseWanted = true
+    private var closeFreeSeconds = 0f
+    // Known games: a fade was the last scene that wasn't TEXT, and the seconds of TEXT since it. Leaving a building in HG/SS reads as TEXT for
+    // about 0.8 s after the fade (the wipe-in runs as a field task while the town's name banner is on the text box's BG), so TEXT that follows
+    // a fade with no FIELD frame between decides nothing for AFTER_FADE_TEXT_SECONDS
+    private var isAfterFade = false
+    private var afterFadeTextSeconds = 0f
+    // Known games: the zoom's eased move from tweenFrom to tweenTarget over tweenSeconds, tweenElapsed into it (PokeDaisy's tween); a NaN
+    // target makes the next one start from wherever the zoom is
+    private var tweenFrom = 1f
+    private var tweenTarget = Float.NaN
+    private var tweenElapsed = 0f
+    private var tweenSeconds = 0f
+    // Known games: the last scene that wasn't UNKNOWN, used while the read gives UNKNOWN for a frame (a reset, a state load, the first poll
+    // after the camera comes on), so a known game never drops to the wing-line rules; reset() forgets it, which a new session does
+    private var lastKnownScene = GameScene.UNKNOWN
     // The last window handed out, handed out again while nothing moves
     private var lastWindow: WideWindow? = null
 
@@ -134,13 +188,28 @@ class WideCamera {
 
     var returnsToCenter = true
 
+    // Known games: whether a text box (GameScene.TEXT) pulls in to 1x
+    var zoomsInOnText = true
+
     fun update(frame: WideCameraFrame, input: WideCameraInput, request: WideCameraRequest, deltaSeconds: Float): WideWindow? {
-        return update(frame.showWidth, frame.frameWidth, frame.frameMargin, frame.topWingLines, frame.areScreensSwapped, input, request, deltaSeconds)
+        return update(
+            frame.showWidth,
+            frame.frameWidth,
+            frame.frameMargin,
+            frame.topWingLines,
+            frame.areScreensSwapped,
+            input,
+            request,
+            deltaSeconds,
+            frame.gameScene,
+            frame.maxWidth,
+        )
     }
 
     /**
      * Moves the camera on by [deltaSeconds] for a frame (see WideCameraFrame) and returns the window to show, or null when the frame isn't wider
-     * than the show width (the screen is then drawn the way it is without a camera).
+     * than the show width (the screen is then drawn the way it is without a camera). A frame as wide as the show width (the core at 1x) still
+     * moves the camera when [maxWidth] leaves room to zoom out, so the player can zoom out from it.
      */
     fun update(
         showWidth: Int,
@@ -151,18 +220,47 @@ class WideCamera {
         input: WideCameraInput,
         request: WideCameraRequest,
         deltaSeconds: Float,
+        gameScene: Int = GameScene.UNKNOWN,
+        maxWidth: Int = 0,
     ): WideWindow? {
-        if (showWidth <= SCREEN_WIDTH || frameWidth <= showWidth) {
-            // A frame from before the wide one (at launch, or a width change on its way): back to the middle, keeping the player's zoom
+        val maxZoom = getMaxZoom(showWidth, frameWidth, maxWidth)
+        if (maxWidth > 0 && showWidth > 0) {
+            // A known range clamps the player's zoom even on frames that go no further (a hold, a frame before the wide one), so the render zoom
+            // asked for from it (playerZoom) is always one the range allows. Without one, the range is the frame's, which may not be here yet
+            targetZoom = targetZoom.coerceIn(1f, max(1f, maxZoom))
+        }
+        if (showWidth <= SCREEN_WIDTH || frameWidth < showWidth || maxZoom <= 1f) {
+            // A frame from before the wide one (at launch, or a width change on its way), or no room to zoom out: back to the middle, keeping
+            // the player's zoom
             zoom = 1f
             resetPan()
             freeSeconds = 0f
+            tweenTarget = Float.NaN
             return null
         }
 
+        val window = move(showWidth, frameWidth, frameMargin, topWingLines, areScreensSwapped, input, request, deltaSeconds, gameScene, maxZoom)
+        // At 1x the core renders the show width, which is drawn as without a camera
+        return if (frameWidth > showWidth) window else null
+    }
+
+    // update once the frame is at least the show width and there's room to zoom out
+    private fun move(
+        showWidth: Int,
+        frameWidth: Int,
+        frameMargin: Int,
+        topWingLines: Int,
+        areScreensSwapped: Boolean,
+        input: WideCameraInput,
+        request: WideCameraRequest,
+        deltaSeconds: Float,
+        gameScene: Int,
+        maxZoom: Float,
+    ): WideWindow {
         val frameHeight = SCREEN_HEIGHT + 2 * frameMargin.coerceAtLeast(0)
         val dt = deltaSeconds.coerceIn(0f, MAX_DELTA_SECONDS)
-        val maxZoom = frameWidth / showWidth.toFloat()
+        // The widest this frame can show, less than maxZoom while a wider frame is on its way
+        val frameZoom = frameWidth / showWidth.toFloat()
         // The hotkey's presses count even while 1x is held (in a menu, say), so the picked step shows once the hold ends; while a script sets
         // the zoom they're dropped
         if (input.zoomPresses > 0) {
@@ -173,15 +271,28 @@ class WideCamera {
             input.zoomPresses = 0
         }
         // Dual-screen 3D games aren't held: the core counts the wing hold's held lines, so their top screen has wings on every frame. Once a game
-        // drops its 3D, the holds end within 2 frames
-        val isHeldNative = request.holdNative || areScreensSwapped || topWingLines < MIN_WING_LINES
+        // drops its 3D, the holds end within 2 frames. In a known game the scene takes the wing lines' place (updateForScene)
+        if (gameScene != GameScene.UNKNOWN) {
+            lastKnownScene = gameScene
+        }
+        val scene = lastKnownScene
+        val isKnownGame = scene != GameScene.UNKNOWN
+        val isHeldNative = request.holdNative || areScreensSwapped || (!isKnownGame && topWingLines < MIN_WING_LINES)
         if (isHeldNative) {
             // Straight to 1x and the middle, since the wings are black or don't belong to this screen; the player's zoom comes back after
             zoom = 1f
             resetPan()
             freeSeconds = 0f
+            tweenTarget = Float.NaN
+            // In a known game it comes back like after any close-up, CLOSE_RETURN_SECONDS after the hold ends, eased
+            isCloseWanted = true
+            closeFreeSeconds = 0f
             return getCenteredWindow(showWidth, frameWidth, frameHeight)
         }
+        if (isKnownGame) {
+            return updateForScene(showWidth, frameWidth, frameHeight, scene, input, request, dt, maxZoom, frameZoom)
+        }
+        tweenTarget = Float.NaN
         freeSeconds += dt
         if (freeSeconds < RESUME_SECONDS) {
             return getCenteredWindow(showWidth, frameWidth, frameHeight)
@@ -194,8 +305,9 @@ class WideCamera {
             targetZoom /= input.pinchScale
         }
         targetZoom = targetZoom.coerceIn(1f, maxZoom)
-        // A pinch follows the fingers
+        // A pinch follows the fingers. Either way no wider than the frame, so a zoom-out ahead of the frame eases on from it once it's wider
         zoom = if (input.isTouching && request.zoom == null) targetZoom else approach(zoom, targetZoom, ZOOM_SECONDS, dt, ZOOM_SNAP)
+        zoom = zoom.coerceAtMost(frameZoom)
 
         // Pan, each axis on its own: the script's, or the stick, a drag and the drift back to the middle
         val isStickIdle = abs(input.stickX) <= STICK_DEAD_ZONE && abs(input.stickY) <= STICK_DEAD_ZONE
@@ -234,11 +346,166 @@ class WideCamera {
     }
 
     /**
+     * [update] for a known Pokemon game, after the holds every game has (a script's hold_native, swapped screens): PokeDaisy's WideCamera.frame,
+     * with our stick speed, dead zone, touch drag, pinch and script requests kept.
+     *
+     * - The scene says when to pull in to 1x: a battle, a menu screen and anything off the field always do, a text box if [zoomsInOnText], the
+     *   plain field never, and a fade decides nothing (the zoom holds through a door). The player's zoom comes back CLOSE_RETURN_SECONDS after
+     *   the close-up was last wanted. Ours only: a text box straight after a fade, with no field between, decides nothing for its first
+     *   AFTER_FADE_TEXT_SECONDS (HG/SS's building exits; see isAfterFade).
+     * - The zoom eases with smoothstep in log space: PULL_IN_SECONDS in (a battle too, as on PokeDaisy's DS path), ZOOM_OUT_SECONDS out. A pinch
+     *   still follows the fingers, and a script's zoom eases as in other games.
+     * - Pulled in, the look-around springs back to the middle (LOOK_SECONDS). Walking with [returnsToCenter] on, it springs back to the middle
+     *   (WALK_RETURN_SECONDS), or with the right stick held follows the stick, keeping the middle PLAYER_KEEP DS pixels inside the window
+     *   (LOOK_SECONDS). Standing, the stick and a drag pan as in other games, and the view stays where it's left.
+     */
+    private fun updateForScene(
+        showWidth: Int,
+        frameWidth: Int,
+        frameHeight: Int,
+        gameScene: Int,
+        input: WideCameraInput,
+        request: WideCameraRequest,
+        dt: Float,
+        maxZoom: Float,
+        frameZoom: Float,
+    ): WideWindow {
+        when (gameScene) {
+            GameScene.FADE -> {
+                isAfterFade = true
+                afterFadeTextSeconds = 0f
+            }
+            GameScene.TEXT -> if (isAfterFade) afterFadeTextSeconds += dt
+            else -> isAfterFade = false
+        }
+        val isFadeText = gameScene == GameScene.TEXT && isAfterFade && afterFadeTextSeconds < AFTER_FADE_TEXT_SECONDS
+        val wantsClose = when {
+            gameScene == GameScene.FIELD -> false
+            // Decides nothing: still close if it was, and the time since the close-up keeps running if it wasn't
+            gameScene == GameScene.FADE || isFadeText -> isCloseWanted
+            gameScene == GameScene.TEXT -> zoomsInOnText
+            else -> true
+        }
+        if (wantsClose) {
+            isCloseWanted = true
+            closeFreeSeconds = 0f
+        } else {
+            isCloseWanted = false
+            closeFreeSeconds = (closeFreeSeconds + dt).coerceAtMost(CLOSE_RETURN_SECONDS)
+        }
+        val isClose = isCloseWanted || closeFreeSeconds < CLOSE_RETURN_SECONDS
+        // Kept meaningful for the wing-line rules: held while pulled in, free to leave 1x otherwise
+        freeSeconds = if (isClose) 0f else RESUME_SECONDS
+
+        // Zoom: the script's, or the player's pinches (the hotkey's steps are in update), left alone while pulled in
+        if (!isClose) {
+            if (request.zoom != null) {
+                targetZoom = request.zoom
+            } else if (input.pinchScale > 0f && input.pinchScale != 1f) {
+                targetZoom /= input.pinchScale
+            }
+        }
+        targetZoom = targetZoom.coerceIn(1f, maxZoom)
+        val shownTarget = if (isClose) 1f else targetZoom
+        if (!isClose && input.isTouching && request.zoom == null) {
+            // A pinch follows the fingers
+            zoom = targetZoom
+            tweenFrom = zoom
+            tweenTarget = zoom
+            tweenSeconds = 0f
+        } else if (!isClose && request.zoom != null) {
+            // A script's zoom eases as in other games, since a script may move it every frame, which would restart a timed move each time
+            zoom = approach(zoom, targetZoom, ZOOM_SECONDS, dt, ZOOM_SNAP)
+            tweenTarget = Float.NaN
+        } else {
+            if (shownTarget != tweenTarget) {
+                // A new target starts a new move from wherever the zoom is: in at the pace of what's coming, back out slower
+                tweenFrom = zoom
+                tweenTarget = shownTarget
+                tweenElapsed = 0f
+                tweenSeconds = if (shownTarget < tweenFrom) PULL_IN_SECONDS else ZOOM_OUT_SECONDS
+            } else {
+                tweenElapsed += dt
+            }
+            val progress = if (tweenSeconds <= 0f) 1f else (tweenElapsed / tweenSeconds).coerceIn(0f, 1f)
+            zoom = tweenFrom * (tweenTarget / tweenFrom).pow(smoothstep(progress))
+            if (abs(zoom - shownTarget) < ZOOM_SNAP) {
+                zoom = shownTarget
+            }
+        }
+        if (zoom > frameZoom) {
+            // A wider frame is on its way: all of this one, and the eased move starts over from it, so it doesn't jump once the frame comes
+            zoom = frameZoom
+            tweenFrom = frameZoom
+            tweenElapsed = 0f
+        }
+
+        // Pan, each axis on its own
+        val width = (showWidth * zoom).coerceAtMost(frameWidth.toFloat())
+        val height = getWindowHeight(frameHeight, zoom)
+        val stickX = getStickStrength(input.stickX)
+        val stickY = getStickStrength(input.stickY)
+        val isWalking = returnsToCenter && input.isPlayerMoving && !input.isTouching
+        // Where a spring pulls the view, and its time constant; 0 for none (standing)
+        var springX = 0f
+        var springY = 0f
+        val springSeconds = when {
+            isClose -> LOOK_SECONDS
+            isWalking && (stickX != 0f || stickY != 0f) -> {
+                // Follow the stick, keeping the player (the frame's middle) inside the window
+                springX = stickX * max(0f, width / 2f - PLAYER_KEEP)
+                springY = stickY * max(0f, height / 2f - PLAYER_KEEP)
+                LOOK_SECONDS
+            }
+            isWalking -> WALK_RETURN_SECONDS
+            else -> 0f
+        }
+        val maxPan = getMaxPan(showWidth, frameWidth, zoom)
+        val maxPanY = getMaxPanY(frameHeight, zoom)
+        // Pulled in, the middle wins over a script's pan, as with hold_native; walking, a script's pan wins over the springs
+        if (springSeconds > 0f && (isClose || request.pan == null)) {
+            pan = spring(pan, springX, dt, springSeconds).coerceIn(-maxPan, maxPan)
+            targetPan = pan
+        } else {
+            targetPan = request.pan ?: (targetPan + getStickPan(input.stickX, dt) - input.dragFraction * showWidth * zoom)
+            targetPan = targetPan.coerceIn(-maxPan, maxPan)
+            pan = if (input.isTouching && request.pan == null) targetPan else approach(pan, targetPan, PAN_SECONDS, dt, PAN_SNAP)
+        }
+        if (springSeconds > 0f && (isClose || request.panY == null)) {
+            panY = spring(panY, springY, dt, springSeconds).coerceIn(-maxPanY, maxPanY)
+            targetPanY = panY
+        } else {
+            targetPanY = request.panY ?: (targetPanY + getStickPan(input.stickY, dt) - input.dragFractionY * height)
+            targetPanY = targetPanY.coerceIn(-maxPanY, maxPanY)
+            panY = if (input.isTouching && request.panY == null) targetPanY else approach(panY, targetPanY, PAN_SECONDS, dt, PAN_SNAP)
+        }
+        pan = pan.coerceIn(-maxPan, maxPan)
+        panY = panY.coerceIn(-maxPanY, maxPanY)
+
+        val x = ((frameWidth - width) / 2f + pan).coerceIn(0f, frameWidth - width)
+        val y = ((frameHeight - height) / 2f + panY).coerceIn(0f, frameHeight - height)
+        return getWindow(showWidth, frameWidth, x, width, frameHeight, y, height)
+    }
+
+    /**
      * Starts the player's zoom at [zoom] (the step remembered for the game), clamped to the frame once it's known
      */
     fun setPlayerZoom(zoom: Float) {
         targetZoom = zoom.coerceAtLeast(1f)
     }
+
+    /**
+     * The zoom the player's camera is at once nothing pulls it in: the hotkey's step, a pinch, the remembered start zoom or a script's zoom, but
+     * not the pull-ins (a scene, swapped screens, hold_native, no wing lines), which only change what's shown. The core's render width follows
+     * this (WidescreenLaunch.getRenderWidth), so a pull-in never resizes it. Within the range the last update saw, or unclamped (at least 1)
+     * before it
+     */
+    val playerZoom: Float get() = targetZoom
+
+    /**
+     * The zoom shown on the last frame (1 while pulled in or on a frame that gives no window), which eases toward the player's zoom
+     */
+    val shownZoom: Float get() = zoom
 
     /**
      * The zoom the last hotkey press picked, once, or null if there was none since the last call
@@ -285,6 +552,12 @@ class WideCamera {
         zoom = 1f
         resetPan()
         freeSeconds = 0f
+        isCloseWanted = true
+        closeFreeSeconds = 0f
+        isAfterFade = false
+        afterFadeTextSeconds = 0f
+        tweenTarget = Float.NaN
+        lastKnownScene = GameScene.UNKNOWN
     }
 
     companion object {
@@ -301,6 +574,17 @@ class WideCamera {
         const val RESUME_SECONDS = 0.25f
         // Fewer top-screen lines with 3D wings than this holds 1x
         const val MIN_WING_LINES = 1
+        // Known games, from PokeDaisy's WideCamera.kt: the zoom's eased moves (in, back out), the look-around's springs
+        // (following the stick or pulled in, and back to the player who walks), how far inside the window the player stays while the view
+        // follows the stick (DS pixels), and how long after the close-up the player's zoom comes back
+        const val PULL_IN_SECONDS = 0.42f
+        const val ZOOM_OUT_SECONDS = 0.65f
+        const val LOOK_SECONDS = 0.12f
+        const val WALK_RETURN_SECONDS = 0.18f
+        const val PLAYER_KEEP = 28f
+        const val CLOSE_RETURN_SECONDS = 0.5f
+        // Ours: how long TEXT straight after a fade decides nothing (an HG/SS building exit reads as TEXT for about 0.8 s)
+        const val AFTER_FADE_TEXT_SECONDS = 1.5f
         // A longer gap (a pause, a stall) counts as this, so the camera doesn't jump
         const val MAX_DELTA_SECONDS = 0.1f
         // How close the shown zoom (in zoom factor) and pan (in DS pixels) get before they land on their targets
@@ -317,6 +601,26 @@ class WideCamera {
             }
             // The next multiple of ZOOM_STEP above it, at most the widest view
             return ((floor(zoom / ZOOM_STEP + 1e-3f) + 1f) * ZOOM_STEP).coerceIn(1f, maxZoom)
+        }
+
+        /**
+         * The widest zoom for a layout [showWidth] wide: the widest view [maxWidth], or the frame's [frameWidth] when that's 0
+         */
+        fun getMaxZoom(showWidth: Int, frameWidth: Int, maxWidth: Int): Float {
+            if (showWidth <= 0) {
+                return 1f
+            }
+            return (if (maxWidth > 0) maxWidth else frameWidth) / showWidth.toFloat()
+        }
+
+        /**
+         * The zoom the core renders for when the player's zoom is [zoom] (see playerZoom): the next hotkey step at or above it, at least 1 and at
+         * most [maxZoom], so a pinch changes the render width only when it crosses a step. 1.1 renders for 1.25, 1.25 for itself
+         */
+        fun getRenderZoom(zoom: Float, maxZoom: Float): Float {
+            // Less a hundredth of a step, so a zoom a float error past a step isn't rounded up to the next one
+            val step = ceil(zoom / ZOOM_STEP - 0.01f) * ZOOM_STEP
+            return step.coerceIn(1f, max(1f, maxZoom))
         }
 
         /**
@@ -343,12 +647,25 @@ class WideCamera {
 
         // DS pixels the stick moves the pan by over dt, 0 inside the dead zone
         private fun getStickPan(stick: Float, dt: Float): Float {
+            return getStickStrength(stick) * PAN_SPEED * dt
+        }
+
+        // The stick past the dead zone, -1 to 1
+        private fun getStickStrength(stick: Float): Float {
             if (abs(stick) <= STICK_DEAD_ZONE) {
                 return 0f
             }
             val strength = (abs(stick) - STICK_DEAD_ZONE) / (1f - STICK_DEAD_ZONE)
-            return sign(stick) * strength.coerceAtMost(1f) * PAN_SPEED * dt
+            return sign(stick) * strength.coerceAtMost(1f)
         }
+
+        // PokeDaisy's spring: [current] pulled toward [target] with time constant [seconds] over dt, landing on it once within 0.05 DS pixels
+        private fun spring(current: Float, target: Float, dt: Float, seconds: Float): Float {
+            val next = current + (target - current) * (1f - exp(-dt / seconds))
+            return if (abs(next - target) < 0.05f) target else next
+        }
+
+        private fun smoothstep(p: Float) = p * p * (3f - 2f * p)
 
         // The pan drifted back toward the middle by [factor] (1 for no drift), landing on the middle exactly, where the picture is the same as
         // without a camera

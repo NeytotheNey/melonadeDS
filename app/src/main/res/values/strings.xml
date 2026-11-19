@@ -485,6 +485,8 @@
     <string name="wide_camera_width_pixels">%1$d pixels wide</string>
     <string name="wide_camera_return_to_center">Return to center when moving</string>
     <string name="wide_camera_return_to_center_description">Eases the view back to the middle while you walk with the D-pad or left stick and aren\'t using the right stick.</string>
+    <string name="wide_camera_zoom_on_text">Auto zoom in on text</string>
+    <string name="wide_camera_zoom_on_text_description">In Pokémon Platinum, HeartGold, SoulSilver, Black, White, Black 2 and White 2, zooms back in for conversations, signs and other text boxes. Battles and menus always zoom in.</string>
     <string name="lua_script_switched_off">Script %1$s was switched off: %2$s</string>
     <string name="lua_scripts">Scripts</string>
     <string name="lua_scripts_off_in_hardcore">Scripts are off in RetroAchievements hardcore mode, because RetroAchievements doesn\'t allow scripting</string>

@@ -296,4 +296,10 @@ Java_me_magnum_melonds_MelonEmulator_updateWideCamera(JNIEnv* env, jobject thiz,
     MelonDSAndroid::updateWideCamera(x, zoom, y);
 }
 
+JNIEXPORT jint JNICALL
+Java_me_magnum_melonds_MelonEmulator_getGameScene(JNIEnv* env, jobject thiz)
+{
+    return MelonDSAndroid::getGameScene();
+}
+
 }

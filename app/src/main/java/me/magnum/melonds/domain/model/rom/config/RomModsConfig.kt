@@ -22,6 +22,8 @@ data class RomModsConfig(
     val wideCameraReturnToCenter: Boolean = true,
     // The zoom (1 = native) last picked with the Camera Zoom hotkey, which the camera starts at, or null for 1
     val wideCameraZoom: Float? = null,
+    // Whether a text box pulls the camera in to 1x, in the Pokemon games the native field read knows
+    val wideCameraZoomOnText: Boolean = true,
 ) {
     // wideCameraZoom if it's a usable zoom (the camera clamps it to the game's range), otherwise 1
     val validWideCameraZoom: Float get() = wideCameraZoom?.takeIf { it.isFinite() && it >= 1f } ?: 1f

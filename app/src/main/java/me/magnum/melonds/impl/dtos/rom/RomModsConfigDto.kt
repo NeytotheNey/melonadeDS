@@ -24,6 +24,9 @@ data class RomModsConfigDto(
     val wideCameraReturnToCenter: Boolean? = null,
     @SerializedName("wideCameraZoom")
     val wideCameraZoom: Float? = null,
+    // Missing in configs saved before it, which then get it on
+    @SerializedName("wideCameraZoomOnText")
+    val wideCameraZoomOnText: Boolean? = null,
 ) {
 
     data class LuaScriptDto(
@@ -52,6 +55,7 @@ data class RomModsConfigDto(
             wideCameraMaxWidth = wideCameraMaxWidth,
             wideCameraReturnToCenter = wideCameraReturnToCenter ?: true,
             wideCameraZoom = wideCameraZoom,
+            wideCameraZoomOnText = wideCameraZoomOnText ?: true,
         )
     }
 
@@ -66,6 +70,7 @@ data class RomModsConfigDto(
                 wideCameraMaxWidth = romModsConfig.wideCameraMaxWidth,
                 wideCameraReturnToCenter = romModsConfig.wideCameraReturnToCenter,
                 wideCameraZoom = romModsConfig.wideCameraZoom,
+                wideCameraZoomOnText = romModsConfig.wideCameraZoomOnText,
             )
         }
     }

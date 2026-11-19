@@ -40,6 +40,7 @@ class RomConfigParcelable : Parcelable {
                 wideCameraMaxWidth = parcel.readInt().takeIf { it > 0 },
                 wideCameraReturnToCenter = parcel.readInt() != 0,
                 wideCameraZoom = parcel.readFloat().takeIf { it > 0f },
+                wideCameraZoomOnText = parcel.readInt() != 0,
             ),
             screensSwapped = parcel.readInt() != 0,
         )
@@ -71,6 +72,7 @@ class RomConfigParcelable : Parcelable {
         dest.writeInt(if (romConfig.mods.wideCameraReturnToCenter) 1 else 0)
         // 0 means none
         dest.writeFloat(romConfig.mods.wideCameraZoom ?: 0f)
+        dest.writeInt(if (romConfig.mods.wideCameraZoomOnText) 1 else 0)
         dest.writeInt(if (romConfig.screensSwapped) 1 else 0)
     }
 
