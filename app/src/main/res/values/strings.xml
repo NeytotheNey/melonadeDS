@@ -467,7 +467,7 @@
     <string name="label_rom_config_gba_rom_path">GBA ROM path</string>
     <string name="label_rom_config_gba_save_path">GBA save path</string>
     <string name="save_backups">Save backups</string>
-    <string name="save_backups_summary">Go back to the save from before a save state load</string>
+    <string name="save_backups_summary">Your save is copied each time you load a save state, unless it hasn\'t changed. The last 3 are kept.</string>
     <string name="save_backups_empty">No backups yet. One is made each time you load a save state.</string>
     <string name="save_backups_unreadable">Couldn\'t read the backups</string>
     <string name="save_backup_size">%1$d KB</string>

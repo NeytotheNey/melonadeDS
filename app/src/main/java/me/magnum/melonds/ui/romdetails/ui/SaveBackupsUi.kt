@@ -52,6 +52,7 @@ fun SaveBackupsItem(
     ActionLauncherItem(
         name = stringResource(id = R.string.save_backups),
         value = stringResource(id = R.string.save_backups_summary),
+        valueMaxLines = 3,
         onLaunchAction = { isListShown = true },
     )
 
