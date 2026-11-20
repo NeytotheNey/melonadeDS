@@ -713,11 +713,28 @@ bool LoadStateBytes(const Options& opts, MelonDSAndroid::MelonInstance& emu, con
     if (!loaded)
     {
         // a state without the RetroAchievements section MelonInstance::saveState writes first (the app's and this frontend's states have
-        // it), as the desktop saved them before the shared code: the core's part alone
+        // it), as the desktop saved them before the shared code: the core's part alone. Only then: a state that has the section failed in
+        // its core part, and loadState already put the game back as it was, which a second try would undo. The core doesn't stop at the
+        // first error either, so this load gets a backup of its own to go back to
         Savestate raw(const_cast<u8*>(data.data()), (u32)data.size(), false);
-        loaded = !raw.Error && emu.getNds()->DoSavestate(&raw) && !raw.Error;
-        if (loaded)
-            printf("state: %s has no RetroAchievements section, loaded the core's part\n", name.c_str());
+        if (!raw.Error && !raw.HasSection("RCHV"))
+        {
+            Savestate backup;
+            bool backedUp = !backup.Error && emu.saveState(&backup) && !backup.Error;
+            if (backedUp)
+            {
+                Savestate rawLoad(const_cast<u8*>(data.data()), (u32)data.size(), false);
+                loaded = !rawLoad.Error && emu.getNds()->DoSavestate(&rawLoad) && !rawLoad.Error;
+                if (loaded)
+                    printf("state: %s has no RetroAchievements section, loaded the core's part\n", name.c_str());
+                else
+                {
+                    Savestate back(backup.Buffer(), backup.Length(), false);
+                    if (back.Error || !emu.loadState(&back))
+                        fprintf(stderr, "savestate %s: the game couldn't be put back as it was\n", name.c_str());
+                }
+            }
+        }
     }
     if (!loaded)
     {
