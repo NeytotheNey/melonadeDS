@@ -109,6 +109,73 @@ void main()
 }
 )";
 
+// the touch cursor: a ring with a dark edge (a filled dot while it touches), on a quad around it; uRect is the quad in NDC
+const char* kCursorVS = R"(#version 320 es
+uniform vec4 uRect;
+out vec2 fLocal;
+void main()
+{
+    vec2 corner = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));
+    fLocal = corner * 2.0 - 1.0;
+    gl_Position = vec4(uRect.xy + corner * uRect.zw, 0.0, 1.0);
+}
+)";
+
+const char* kCursorFS = R"(#version 320 es
+precision mediump float;
+// x: 1 while it touches, y: the radius in pixels, for a one-pixel soft edge
+uniform vec2 uState;
+in vec2 fLocal;
+out vec4 oColor;
+void main()
+{
+    float d = length(fLocal);
+    float px = 1.0 / uState.y;
+    float outer = 1.0 - smoothstep(1.0 - px, 1.0, d);
+    // a white ring 3 pixels wide inside a dark one, so it shows on light and dark games; filled while touching
+    float ringIn = uState.x > 0.5 ? 0.0 : 1.0 - 5.0 * px;
+    float white = smoothstep(ringIn - px, ringIn, d) * (1.0 - smoothstep(1.0 - 3.0 * px, 1.0 - 2.0 * px, d));
+    float alpha = outer * smoothstep(ringIn - 3.0 * px, ringIn - 2.0 * px, d);
+    vec3 color = mix(vec3(0.1), vec3(1.0), white);
+    oColor = vec4(color * alpha * 0.9, alpha * 0.9);
+}
+)";
+
+}
+
+void Presenter::DrawCursor(float x, float y, float radius, bool pressed, int windowW, int windowH)
+{
+    if (!CursorProgram && !CursorFailed)
+    {
+        if (!OpenGL::CompileVertexFragmentProgram(CursorProgram, kCursorVS, kCursorFS, "PCCursor", {}, {{"oColor", 0}}))
+        {
+            CursorFailed = true;
+            CursorProgram = 0;
+        }
+        else
+        {
+            CursorRectLoc = glGetUniformLocation(CursorProgram, "uRect");
+            CursorStateLoc = glGetUniformLocation(CursorProgram, "uState");
+        }
+    }
+    if (!CursorProgram || windowW <= 0 || windowH <= 0)
+        return;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, windowW, windowH);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glEnable(GL_BLEND);
+    // premultiplied
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glUseProgram(CursorProgram);
+    // window pixels (y down) to NDC (y up)
+    float x0 = (x - radius) / windowW * 2 - 1, y0 = 1 - (y + radius) / windowH * 2;
+    glUniform4f(CursorRectLoc, x0, y0, 2 * radius / windowW * 2, 2 * radius / windowH * 2);
+    glUniform2f(CursorStateLoc, pressed ? 1.f : 0.f, radius);
+    glBindVertexArray(VertexArray);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+    glDisable(GL_BLEND);
 }
 
 bool Presenter::Init()
@@ -146,6 +213,7 @@ bool Presenter::Init()
 void Presenter::Free()
 {
     glDeleteProgram(Program);
+    glDeleteProgram(CursorProgram);
     glDeleteProgram(HalvesAt1xProgram);
     glDeleteProgram(ExpandProgram);
     glDeleteTextures(1, &ExpandTexture);

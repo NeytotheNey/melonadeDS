@@ -9,7 +9,10 @@
 namespace Frontend
 {
 
-std::optional<std::string> OpenRomDialog(SDL_Window* parent, const std::string& startDir)
+namespace
+{
+
+std::optional<std::string> ShowOpenDialog(SDL_Window* parent, const std::string& startDir, bool folders)
 {
     HWND owner = nullptr;
     SDL_SysWMinfo info;
@@ -21,16 +24,24 @@ std::optional<std::string> OpenRomDialog(SDL_Window* parent, const std::string& 
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_IFileOpenDialog, (void**)&dialog)) || !dialog)
         return std::nullopt;
 
-    const COMDLG_FILTERSPEC filters[] = {
-        {L"DS games (*.nds, *.dsi)", L"*.nds;*.dsi"},
-        {L"All files", L"*.*"},
-    };
-    dialog->SetFileTypes(2, filters);
-    dialog->SetFileTypeIndex(1);
-    dialog->SetTitle(L"Open ROM");
     DWORD options = 0;
-    if (SUCCEEDED(dialog->GetOptions(&options)))
+    dialog->GetOptions(&options);
+    if (folders)
+    {
+        dialog->SetTitle(L"Choose a folder");
+        dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PICKFOLDERS | FOS_PATHMUSTEXIST);
+    }
+    else
+    {
+        const COMDLG_FILTERSPEC filters[] = {
+            {L"DS games (*.nds, *.dsi)", L"*.nds;*.dsi"},
+            {L"All files", L"*.*"},
+        };
+        dialog->SetFileTypes(2, filters);
+        dialog->SetFileTypeIndex(1);
+        dialog->SetTitle(L"Open ROM");
         dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST);
+    }
     if (!startDir.empty())
     {
         IShellItem* folder = nullptr;
@@ -59,6 +70,18 @@ std::optional<std::string> OpenRomDialog(SDL_Window* parent, const std::string& 
     }
     dialog->Release();
     return result;
+}
+
+}
+
+std::optional<std::string> OpenRomDialog(SDL_Window* parent, const std::string& startDir)
+{
+    return ShowOpenDialog(parent, startDir, false);
+}
+
+std::optional<std::string> OpenFolderDialog(SDL_Window* parent, const std::string& startDir)
+{
+    return ShowOpenDialog(parent, startDir, true);
 }
 
 }

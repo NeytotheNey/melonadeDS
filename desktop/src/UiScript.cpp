@@ -17,7 +17,7 @@ bool LoadUiScript(const std::string& path, std::vector<UiStep>& steps)
         fprintf(stderr, "can't read the UI script %s\n", path.c_str());
         return false;
     }
-    static const char* const kActions[] = {"up", "down", "left", "right", "confirm", "back", "tab-next", "tab-prev", "menu"};
+    static const char* const kActions[] = {"up", "down", "left", "right", "confirm", "back", "tab-next", "tab-prev", "menu", "clear"};
     std::string line;
     int number = 0;
     bool ok = true;
@@ -52,9 +52,30 @@ bool LoadUiScript(const std::string& path, std::vector<UiStep>& steps)
         else if (word == "text") { step.Type = UiStep::Kind::Text; step.Arg = rest; }
         else if (word == "key" && !rest.empty()) { step.Type = UiStep::Kind::Key; step.Arg = rest; }
         else if (word == "pad" && !rest.empty()) { step.Type = UiStep::Kind::Pad; step.Arg = rest; }
-        else if ((word == "wait" || word == "frame") && !rest.empty())
+        else if ((word == "pad-down" || word == "pad-up") && !rest.empty())
         {
-            step.Type = word == "wait" ? UiStep::Kind::Wait : UiStep::Kind::Frame;
+            step.Type = word == "pad-down" ? UiStep::Kind::PadDown : UiStep::Kind::PadUp;
+            step.Arg = rest;
+        }
+        else if ((word == "key-down" || word == "key-up") && !rest.empty())
+        {
+            step.Type = word == "key-down" ? UiStep::Kind::KeyDown : UiStep::Kind::KeyUp;
+            step.Arg = rest;
+        }
+        else if (word == "axis" && !rest.empty())
+        {
+            // axis NAME VALUE
+            size_t gap = rest.find(' ');
+            step.Type = UiStep::Kind::Axis;
+            step.Arg = rest.substr(0, gap);
+            char* end = nullptr;
+            std::string value = gap == std::string::npos ? "" : rest.substr(gap + 1);
+            step.Value = (int)strtol(value.c_str(), &end, 10);
+            known = !value.empty() && end && *end == 0;
+        }
+        else if ((word == "wait" || word == "frame" || word == "sleep") && !rest.empty())
+        {
+            step.Type = word == "wait" ? UiStep::Kind::Wait : word == "sleep" ? UiStep::Kind::Sleep : UiStep::Kind::Frame;
             char* end = nullptr;
             step.Number = (unsigned)strtoul(rest.c_str(), &end, 10);
             known = end && *end == 0;

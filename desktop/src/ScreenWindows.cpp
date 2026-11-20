@@ -667,6 +667,8 @@ void ScreenWindows::DrawAll(Presenter& presenter, const FrameView& frame, bool l
     int w, h;
     SDL_GL_GetDrawableSize(MainWindow, &w, &h);
     MainRects = presenter.Draw(frame, w, h, MainLayout(), linear, MainFit(), IsDetached() ? false : Swap);
+    if (BottomOverlay && MainRects.Bottom.W > 0)
+        BottomOverlay(presenter, MainRects.Bottom, w, h);
     if (MainOverlay)
         MainOverlay();
     if (SecondWindow)
@@ -674,6 +676,8 @@ void ScreenWindows::DrawAll(Presenter& presenter, const FrameView& frame, bool l
         SDL_GL_MakeCurrent(SecondWindow, Context);
         SDL_GL_GetDrawableSize(SecondWindow, &w, &h);
         SecondRects = presenter.Draw(frame, w, h, MainShowsTop() ? Layout::BottomOnly : Layout::TopOnly, linear, SecondFit());
+        if (BottomOverlay && SecondRects.Bottom.W > 0)
+            BottomOverlay(presenter, SecondRects.Bottom, w, h);
     }
 }
 
@@ -697,7 +701,9 @@ void ScreenWindows::WindowShot(Presenter& presenter, const FrameView& frame, boo
         SDL_GL_MakeCurrent(window, Context);
         int dw, dh;
         SDL_GL_GetDrawableSize(window, &dw, &dh);
-        presenter.Draw(frame, dw, dh, layout, linear, fit, swap);
+        ScreenRects rects = presenter.Draw(frame, dw, dh, layout, linear, fit, swap);
+        if (BottomOverlay && rects.Bottom.W > 0)
+            BottomOverlay(presenter, rects.Bottom, dw, dh);
         if (window == MainWindow && MainOverlay)
             MainOverlay();
         std::vector<melonDS::u8> pixels((size_t)dw * dh * 4), flipped(pixels.size());
@@ -779,6 +785,36 @@ void ScreenWindows::ToggleSwap()
     MainRects = SecondRects = {};
     UpdateTitles(Stats);
     printf("swap screens: %s\n", Swap ? "on" : "off");
+}
+
+void ScreenWindows::SetLayout(Layout layout)
+{
+    TogetherLayout = (Layout)std::clamp((int)layout, 0, (int)Layout::Count - 1);
+    Store->Set("desktop_layout", picojson::value(std::string(kLayoutNames[(int)TogetherLayout])));
+    MainRects = {};
+    printf("layout: %s\n", kLayoutNames[(int)TogetherLayout]);
+}
+
+void ScreenWindows::SetFit(bool top, Fit fit)
+{
+    (top ? FitTop : FitBottom) = fit;
+    Store->Set(top ? "desktop_fit_top" : "desktop_fit_bottom", picojson::value(std::string(FitName(fit))));
+    printf("fit %s: %s\n", top ? "top" : "bottom", FitName(fit));
+}
+
+void ScreenWindows::ApplySecondStyle()
+{
+    if (!SecondWindow)
+        return;
+    bool noTitle = Store->GetBool("desktop_bottom_no_title", false);
+    bool onTop = Store->GetBool("desktop_bottom_on_top", false);
+    if (!SecondFull)
+    {
+        SDL_SetWindowBordered(SecondWindow, noTitle ? SDL_FALSE : SDL_TRUE);
+        SDL_SetWindowHitTest(SecondWindow, noTitle ? HitTest : nullptr, noTitle ? this : nullptr);
+    }
+    SDL_SetWindowAlwaysOnTop(SecondWindow, onTop ? SDL_TRUE : SDL_FALSE);
+    printf("second window: %s, %s\n", noTitle ? "no title bar" : "title bar", onTop ? "on top" : "not on top");
 }
 
 void ScreenWindows::NextLayout()

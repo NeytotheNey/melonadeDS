@@ -27,8 +27,25 @@ void DesktopEventMessenger::Drain()
 // what's only logged for now, on the UI thread like the rest
 #define POST_LOG(...) Post([=] { Platform::Log(Platform::LogLevel::Debug, __VA_ARGS__); })
 
-void DesktopEventMessenger::onRumbleStart(int durationMs) { POST_LOG("rumble start, %d ms\n", durationMs); }
-void DesktopEventMessenger::onRumbleStop() { POST_LOG("rumble stop\n"); }
+void DesktopEventMessenger::onRumbleStart(int durationMs)
+{
+    Post([this, durationMs]
+    {
+        Platform::Log(Platform::LogLevel::Debug, "rumble start, %d ms\n", durationMs);
+        if (OnRumble)
+            OnRumble(durationMs);
+    });
+}
+
+void DesktopEventMessenger::onRumbleStop()
+{
+    Post([this]
+    {
+        Platform::Log(Platform::LogLevel::Debug, "rumble stop\n");
+        if (OnRumbleStop)
+            OnRumbleStop();
+    });
+}
 
 void DesktopEventMessenger::onEmulatorStop(Platform::StopReason reason)
 {

@@ -24,9 +24,15 @@ public:
     virtual bool Back(App&) { return false; }
     // L / R (Q / W, Page Up / Page Down)
     virtual void Tab(App&, int /*direction*/) {}
+    // X (Delete): clears what has the focus, where a screen has something to clear
+    virtual void Clear(App&) {}
 
     // App's: which item has the focus, to give it back when the screen is on top again, and whether it has to be set
     ImGuiID FocusId = 0;
+    // the item focused that way, held there for a few more frames: ImGui's own first-item focus of a window that just appeared comes a
+    // frame later and would take it back
+    ImGuiID RefocusId = 0;
+    int RefocusFrames = 0;
     bool WantFocus = true;
 };
 

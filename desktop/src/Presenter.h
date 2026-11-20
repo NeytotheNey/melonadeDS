@@ -62,7 +62,13 @@ public:
     // upscaled into its rows, as Draw shows it
     bool ReadFrame(const FrameView& frame, std::vector<melonDS::u8>& pixels, int& width, int& height);
 
+    // the touch cursor at x,y (the current window's drawable pixels, y down), [radius] pixels, filled while [pressed]
+    void DrawCursor(float x, float y, float radius, bool pressed, int windowW, int windowH);
+
 private:
+    GLuint CursorProgram = 0;
+    GLint CursorRectLoc = -1, CursorStateLoc = -1;
+    bool CursorFailed = false;
     // draws a frame with a half at 1x without linear filtering, and expands one into the full frame
     // (ExpandTexture, the frame's size) for it. made the first time such a frame is drawn
     bool PrepareHalvesAt1x();

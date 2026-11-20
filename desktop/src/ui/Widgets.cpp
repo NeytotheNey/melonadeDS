@@ -23,6 +23,8 @@ struct ItemState
     bool Focused, Hovered, Held;
 };
 
+ItemState StateOfLastItem();
+
 ItemState StateOfLastItem()
 {
     return {ImGui::IsItemFocused(), ImGui::IsItemHovered(), ImGui::IsItemActive()};
@@ -191,7 +193,24 @@ bool ToggleRow(App& app, const char* id, ImWchar icon, const char* label, const 
     return pressed;
 }
 
-int ChoiceRow(App& app, const char* id, ImWchar icon, const char* label, const char* value, bool isDefault)
+// the label, and the detail under it when there is one, left at [x] and fitting [width], centered on [cy]
+static void LabelAndDetail(App& app, float x, float cy, float width, ImU32 text, ImU32 sub, const char* label, const char* detail)
+{
+    std::string fitted = Ellipsize(app, app.Medium, kLabelSize, label, width);
+    ImVec2 l = TextSize(app, app.Medium, kLabelSize, fitted.c_str());
+    if (detail && *detail)
+    {
+        std::string d = Ellipsize(app, app.Regular, 13, detail, width);
+        ImVec2 ds = TextSize(app, app.Regular, 13, d.c_str());
+        float top = cy - (l.y + ds.y) / 2;
+        TextAt(app, app.Medium, kLabelSize, ImVec2(x, top), text, fitted.c_str());
+        TextAt(app, app.Regular, 13, ImVec2(x, top + l.y), sub, d.c_str());
+    }
+    else
+        TextAt(app, app.Medium, kLabelSize, ImVec2(x, cy - l.y / 2), text, fitted.c_str());
+}
+
+int ChoiceRow(App& app, const char* id, ImWchar icon, const char* label, const char* value, bool isDefault, const char* detail)
 {
     const Palette& p = app.Colors();
     ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -232,10 +251,87 @@ int ChoiceRow(App& app, const char* id, ImWchar icon, const char* label, const c
     draw->PathStroke(accent, std::max(1.5f, app.Px(2.2f)));
 
     float labelX = pos.x + app.Px(64);
-    std::string fitted = Ellipsize(app, app.Medium, kLabelSize, label, lx - h - labelX - app.Px(12));
-    ImVec2 l = TextSize(app, app.Medium, kLabelSize, fitted.c_str());
-    TextAt(app, app.Medium, kLabelSize, ImVec2(labelX, cy - l.y / 2), text, fitted.c_str());
+    ImU32 sub = state.Focused ? p.OnSecondaryContainer : p.OnSurfaceVariant;
+    LabelAndDetail(app, labelX, cy, lx - h - labelX - app.Px(12), text, sub, label, detail);
     return change;
+}
+
+bool DetailRow(App& app, const char* id, ImWchar icon, const char* label, const char* detail, bool isDefault, bool enabled)
+{
+    const Palette& p = app.Colors();
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    ImVec2 size(ImGui::GetContentRegionAvail().x, app.Px(kRowHeight));
+    bool pressed = Item(id, size, enabled);
+    app.TrackFocus(isDefault);
+    ItemState state = StateOfLastItem();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImVec2 max(pos.x + size.x, pos.y + size.y);
+    float radius = size.y / 2;
+    draw->AddRectFilled(pos, max, RowBackground(app, state, 0), radius);
+    if (state.Focused)
+        FocusRing(app, draw, pos, max, radius);
+    ImU32 text = !enabled ? WithAlpha(p.OnSurface, 0.38f) : state.Focused ? p.OnSecondaryContainer : p.OnSurface;
+    ImU32 sub = !enabled ? WithAlpha(p.OnSurface, 0.38f) : state.Focused ? p.OnSecondaryContainer : p.OnSurfaceVariant;
+    float cy = pos.y + size.y / 2;
+    IconAt(app, icon, 26, ImVec2(pos.x + app.Px(33), cy), text);
+    IconAt(app, Icon::ChevronRight, 24, ImVec2(max.x - app.Px(16) - app.Px(11), cy), sub);
+    float labelX = pos.x + app.Px(64);
+    LabelAndDetail(app, labelX, cy, max.x - app.Px(52) - labelX, text, sub, label, detail);
+    return pressed;
+}
+
+int TabStrip(App& app, ImVec2 pos, const char* const* labels, int count, int selected)
+{
+    const Palette& p = app.Colors();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    float x = pos.x, y = pos.y;
+    int clicked = -1;
+    auto cap = [&](const char* text)
+    {
+        ImVec2 s = TextSize(app, app.Medium, 13, text);
+        float h = app.Px(24), w = std::max(h, s.x + app.Px(12));
+        ImVec2 c0(x, y + (app.Px(40) - h) / 2);
+        draw->AddRectFilled(c0, ImVec2(c0.x + w, c0.y + h), p.SurfaceContainerHighest, app.Px(6));
+        TextAt(app, app.Medium, 13, ImVec2(c0.x + (w - s.x) / 2, c0.y + (h - s.y) / 2), p.OnSurfaceVariant, text);
+        x += w + app.Px(10);
+    };
+    // the tabs' padding shrinks, then their text, when they don't fit the window (a narrow one): the caps take about 2 x 34
+    float room = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - app.Px(16) - pos.x - app.Px(2 * 34 + 4);
+    float textSize = 16, pad = 36;
+    for (;;)
+    {
+        float total = 0;
+        for (int i = 0; i < count; i++)
+            total += TextSize(app, app.Medium, textSize, labels[i]).x + app.Px(pad) + app.Px(6);
+        if (total <= room || textSize <= 12)
+            break;
+        if (pad > 16)
+            pad -= 4;
+        else
+            textSize -= 1;
+    }
+    cap(app.UsingPad() ? "L" : "Q");
+    for (int i = 0; i < count; i++)
+    {
+        ImVec2 s = TextSize(app, app.Medium, textSize, labels[i]);
+        float w = s.x + app.Px(pad), h = app.Px(40);
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        ImGui::PushID(i);
+        ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
+        if (ImGui::InvisibleButton("##tab", ImVec2(w, h)))
+            clicked = i;
+        ImGui::PopItemFlag();
+        ImGui::PopID();
+        bool hovered = ImGui::IsItemHovered();
+        bool on = i == selected;
+        ImU32 bg = on ? p.SecondaryContainer : hovered ? WithAlpha(p.OnSurface, 0.08f) : 0;
+        draw->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h), bg, h / 2);
+        TextAt(app, app.Medium, textSize, ImVec2(x + (w - s.x) / 2, y + (h - s.y) / 2), on ? p.OnSecondaryContainer : p.OnSurfaceVariant, labels[i]);
+        x += w + app.Px(6);
+    }
+    x += app.Px(4);
+    cap(app.UsingPad() ? "R" : "W");
+    return clicked;
 }
 
 bool BigButton(App& app, const char* id, ImWchar icon, const char* label, const char* detail, bool filled, float width, bool isDefault)

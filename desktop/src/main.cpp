@@ -38,6 +38,7 @@
 
 // the app's shared native code (app/src/main/cpp/SharedNative.cmake)
 #include "FrontendContext.h"
+#include "EmulatorArgsBuilder.h"
 #include "MelonInstance.h"
 #include "gamestate/GameState.h"
 #include "renderer/FrameQueue.h"
@@ -45,17 +46,20 @@
 #include "renderer/ScreenshotRenderer.h"
 #include "retroachievements/RetroAchievementsManager.h"
 
+#include "Audio.h"
 #include "Controls.h"
 #include "DesktopEventMessenger.h"
 #include "EmulatorThread.h"
 #include "FileDialog.h"
 #include "Frontend.h"
+#include "Input.h"
 #include "Presenter.h"
 #include "RunOptions.h"
 #include "SaveSlots.h"
 #include "ScreenWindows.h"
 #include "Settings.h"
 #include "UiScript.h"
+#include "version.h"
 #include "ui/Host.h"
 #include "ui/Ui.h"
 
@@ -113,11 +117,20 @@ struct Options
     bool FastMem = false;
     int LdmDirect = -1;        // debug.melonade.ldmdirect (ARMJIT::SetDirectBlockTransfers), -1 keeps the core's default
     bool BetterPolygons = false;
-    bool PreciseDepth = false; // GPU::PreciseDepth, the app's "Precise depth" setting
     bool HighResCoordinates = true;
     bool ColorDither = false;
-    bool HiresCapture = false;
-    int Filter2D = 0;          // GPU::Filter2D: 0 off, 1 on, 2 the 2x map only, 3 identity
+    // the renderer settings the app has (video_hires_capture, video_filter_2d, ...), from the settings (ApplySettings); the emulator
+    // thread's once a game runs, which a change in the menus sets there
+    struct RenderToggles
+    {
+        bool HiresCapture = false;
+        int Filter2D = 0;      // GPU::Filter2D: 0 off, 1 on, 2 the 2x map only, 3 identity (--filter2d-mode)
+        bool SharperRotated2D = false;
+        bool EdgeMarking = true;
+        bool PreciseDepth = false; // GPU::PreciseDepth, the app's "Precise depth" setting
+        bool GlSeams = false;
+    } Toggles;
+    int Filter2DMode = -1;     // --filter2d-mode: 2 or 3, the debug modes without a setting
     int Gpu2D = 0;             // the GPU 2D shadow renderer (GPU::SetShadow2D): 0 off, 1, 2 all, 3 all + log, 4 check
     int Gpu2DWide = 0;         // debug.melonade.gpu2dwide: 1 lets every layer draw past the edge
     int Gpu2DAffine = 0;       // debug.melonade.gpu2daffine: 1-2 draw rotated BGs with the plain composite, -1 lifts the 6x cap
@@ -126,10 +139,20 @@ struct Options
     bool HalfCamera = false;
     int HalfCameraMode = 0;    // debug.melonade.halfcam (GPU3D::SetHalfCamera), replaces --smooth30
     bool BootScreen = false;
+    std::string DsiBiosDir;    // dsi_bios_dir, for console_type dsi
+    // the files of a DSi boot (console_type dsi), which the configuration points at while the game runs
+    struct DsiFiles { std::string Bios9, Bios7, Firmware, Nand, DsBios9, DsBios7; } Dsi;
+    int ConsoleType = 0;       // console_type: 0 DS, 1 DSi
+    bool RumblePak = false;    // desktop_rumble_pak
+    float FastForwardSpeed = 0; // fast_forward_speed_multiplier, 0 for unlimited
     bool FixedTime = false;    // the RTC starts at 2026-01-01 12:00 instead of now
     bool VSync = false;
     bool Unthrottled = false;
     bool Audio = true;
+    std::string AudioWav;      // --audio-wav: what the audio callback plays, as a WAV
+    bool AudioLog = false;     // --audio-log: the ring's fill and the ratio once a second
+    std::string AudioTrace;    // --audio-trace: every callback and frame's ring fill, as a CSV
+    std::string VirtualPad;    // --virtual-pad: an SDL virtual controller for tests
     bool Linear = false;
     bool Hidden = false;
     bool GpuSync = false;      // glFinish after each frame, so the work time includes the GPU's
@@ -163,6 +186,7 @@ struct Options
 void Usage()
 {
     printf(
+        "melonadeDS for PC " MELONADE_VERSION_NAME "\n"
         "usage: melonade-desktop [options] [game.nds]\n"
         "\n"
         "  Without a ROM the start screen opens (Open ROM, recent games). With one the game boots, and Esc or a\n"
@@ -247,7 +271,8 @@ void Usage()
         "  --verbose                   debug log lines on the console too\n"
         "\n"
         "  --open SCREEN               open a menu screen at the start: start, pause, pause/save, pause/load,\n"
-        "                              settings, keyboard (a text field and the on-screen keyboard); with a\n"
+        "                              settings, settings/video (display, emulation, audio, controls), input,\n"
+        "                              keyboard (a text field and the on-screen keyboard); with a\n"
         "                              game, once its first frame is shown\n"
         "  --ui-script FILE            drive the menus from FILE, one step a line: up, down, left, right, confirm,\n"
         "                              back, tab-next, tab-prev, menu, text STRING, key NAME, pad NAME, wait N,\n"
@@ -255,16 +280,26 @@ void Usage()
         "                              quit. It starts on the start screen or once the game's first frame is\n"
         "                              shown, and the run ends after its last line (README: UI scripts)\n"
         "\n"
-        "keys: arrows = D-pad, X = A, Z = B, S = X, A = Y, Q = L, W = R, Enter = Start, Right Shift = Select\n"
-        "      mouse on the bottom screen = touch, Tab (hold) = fast forward, P = pause, Ctrl+R = reset\n"
-        "      F5/F6/F7 = software/OpenGL/Compute, F3/F4 = scale down/up, F2 = layout, F8 = linear filter\n"
-        "      F9 = screens together/detached, F1 = swap screens, F10 = fit of the focused detached window\n"
-        "      (aspect, integer, stretch), F11 = fullscreen of the focused window, F12 = screenshot,\n"
-        "      Esc = pause menu\n"
-        "      menus: arrows move, Enter chooses, Esc or Backspace goes back, Q/W (Page Up/Down) switch tabs\n"
-        "      controllers (Nintendo layout): east = A, south = B, Start or Guide = pause menu, the right stick's\n"
-        "      click = the DS's Start; in the menus the D-pad or left stick moves, A chooses, B goes back,\n"
-        "      L/R switch tabs\n");
+        "  --virtual-pad xbox|switch|ps an SDL virtual controller (the one a hidden run takes), for --ui-script's\n"
+        "                              pad and axis steps\n"
+        "  --audio-log                 the sound's buffer fill and ratio once a second\n"
+        "  --audio-wav FILE.wav        what the audio callback plays, before the volume\n"
+        "  --audio-trace FILE.csv      every callback's and frame's buffer fill, with the times\n"
+        "  --console ds|dsi            the console (DSi needs --bios and --dsi-bios: bios9/7, firmware, nand.bin)\n"
+        "  --dsi-bios DIR              the DSi BIOS folder\n"
+        "  --sharper-rotated-2d, --gl-seams, --no-edge-marking   the app's renderer settings\n"
+        "  --gba rumble                the Rumble Pak in the GBA slot\n"
+        "\n"
+        "keys (the input mapping's defaults; Settings > Controls changes them, input.json keeps them):\n"
+        "      arrows = D-pad, X = A, Z = B, S = X, A = Y, Q = L, W = R, Enter = Start, Right Shift = Select,\n"
+        "      Esc = pause menu, Tab (hold) or ` = fast forward, Ctrl+S / Ctrl+L = quick save / load,\n"
+        "      F1 = swap screens, F9 = screens together/detached, F11 = fullscreen of the focused window,\n"
+        "      F12 = screenshot, mouse on the bottom screen = touch\n"
+        "      fixed: P = pause, Ctrl+R = reset, F5/F6/F7 = software/OpenGL/Compute, F3/F4 = scale down/up,\n"
+        "      F2 = layout, F8 = linear filter, F10 = fit of the focused detached window\n"
+        "      menus: arrows move, Enter chooses, Esc or Backspace goes back, Delete clears, Q/W switch tabs\n"
+        "      controllers: Guide or Select+Start held = pause menu, the right stick moves a touch cursor and the\n"
+        "      right trigger taps; face buttons by the pad's layout (Nintendo: east = A, others: south = A)\n");
 }
 
 using Frontend::ApplySet;
@@ -340,12 +375,20 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         }
         else if (arg == "--wide-margin") opts.WideMargin = std::clamp(atoi(next().c_str()), 0, 128);
         else if (arg == "--better-polygons") opts.BetterPolygons = true;
-        else if (arg == "--precise-depth") opts.PreciseDepth = true;
+        else if (arg == "--precise-depth") setting("video_precise_depth", picojson::value(true));
         else if (arg == "--no-high-res-coords") opts.HighResCoordinates = false;
         else if (arg == "--dither") opts.ColorDither = true;
-        else if (arg == "--hires-capture") opts.HiresCapture = true;
-        else if (arg == "--filter2d") opts.Filter2D = 1;
-        else if (arg == "--filter2d-mode") opts.Filter2D = std::clamp(atoi(next().c_str()), 0, 3);
+        else if (arg == "--hires-capture") setting("video_hires_capture", picojson::value(true));
+        else if (arg == "--filter2d") setting("video_filter_2d", picojson::value(true));
+        else if (arg == "--filter2d-mode")
+        {
+            int mode = std::clamp(atoi(next().c_str()), 0, 3);
+            setting("video_filter_2d", picojson::value(mode != 0));
+            opts.Filter2DMode = mode >= 2 ? mode : -1;
+        }
+        else if (arg == "--sharper-rotated-2d") setting("video_sharper_rotated_2d", picojson::value(true));
+        else if (arg == "--gl-seams") setting("video_gl_seams", picojson::value(true));
+        else if (arg == "--no-edge-marking") setting("video_edge_marking", picojson::value(false));
         else if (arg == "--gpu2d") opts.Gpu2D = std::clamp(atoi(next().c_str()), 0, 4);
         else if (arg == "--gpu2d-wide") opts.Gpu2DWide = 1;
         else if (arg == "--gpu2d-affine") opts.Gpu2DAffine = std::clamp(atoi(next().c_str()), -1, 2);
@@ -353,11 +396,13 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--halfcam") opts.HalfCameraMode = std::clamp(atoi(next().c_str()), 0, 5);
         else if (arg == "--no-threaded2d") opts.Threaded2D = false;
         else if (arg == "--no-threaded-soft") opts.ThreadedSoft3D = false;
-        else if (arg == "--jit") opts.Jit = true;
-        else if (arg == "--no-jit") opts.Jit = false;
-        else if (arg == "--fastmem") opts.Jit = opts.FastMem = true;
+        else if (arg == "--jit") setting("enable_jit", picojson::value(true));
+        else if (arg == "--no-jit") setting("enable_jit", picojson::value(false));
+        else if (arg == "--fastmem") { setting("enable_jit", picojson::value(true)); opts.FastMem = true; }
         else if (arg == "--ldmdirect") opts.LdmDirect = atoi(next().c_str()) ? 1 : 0;
-        else if (arg == "--bios") opts.BiosDir = next();
+        else if (arg == "--bios") { setting("bios_dir", text(next().c_str())); setting("use_custom_bios", picojson::value(true)); }
+        else if (arg == "--console") setting("console_type", text(next().c_str()));
+        else if (arg == "--dsi-bios") setting("dsi_bios_dir", text(next().c_str()));
         else if (arg == "--gba") opts.GbaRomPath = next();
         else if (arg == "--sav") opts.SavePath = next();
         else if (arg == "--state") opts.StatePath = next();
@@ -368,7 +413,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             if (!Frontend::ParsePress(spec, press)) { fprintf(stderr, "bad --press %s\n", spec.c_str()); return false; }
             opts.Presses.push_back(press);
         }
-        else if (arg == "--boot-screen") opts.BootScreen = true;
+        else if (arg == "--boot-screen") setting("show_bios", picojson::value(true));
         else if (arg == "--fixed-time") opts.FixedTime = true;
         else if (arg == "--set") opts.Sets.push_back(next());
         else if (arg == "--widedrops") opts.WideDrops = true;
@@ -396,6 +441,10 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--vsync") setting("desktop_vsync", picojson::value(true));
         else if (arg == "--unthrottled") opts.Unthrottled = true;
         else if (arg == "--no-audio") setting("sound_enabled", picojson::value(false));
+        else if (arg == "--audio-wav") opts.AudioWav = next();
+        else if (arg == "--audio-log") opts.AudioLog = true;
+        else if (arg == "--audio-trace") opts.AudioTrace = next();
+        else if (arg == "--virtual-pad") opts.VirtualPad = next();
         else if (arg == "--frames") opts.Frames = strtoul(next().c_str(), nullptr, 0);
         else if (arg == "--game-state") opts.GameState = true;
         else if (arg == "--no-wide-battles") opts.WideBattles = false;
@@ -420,8 +469,28 @@ bool ParseArgs(int argc, char** argv, Options& opts)
     return true;
 }
 
+// the renderer settings from the settings (with the command line's in them); the desktop's defaults stay the test frontend's
+Options::RenderToggles ReadToggles(const Options& opts, const Frontend::Settings& settings)
+{
+    Options::RenderToggles t;
+    t.HiresCapture = settings.GetBool("video_hires_capture", false);
+    t.Filter2D = settings.GetBool("video_filter_2d", false) ? (opts.Filter2DMode >= 2 ? opts.Filter2DMode : 1) : 0;
+    t.SharperRotated2D = settings.GetBool("video_sharper_rotated_2d", false);
+    t.EdgeMarking = settings.GetBool("video_edge_marking", true);
+    t.PreciseDepth = settings.GetBool("video_precise_depth", false);
+    t.GlSeams = settings.GetBool("video_gl_seams", false);
+    return t;
+}
+
+// fast_forward_speed_multiplier: the app's list values as text ("-1" unlimited, "1.5", "2", ...), 0 for unlimited
+float FastForwardSpeed(const Frontend::Settings& settings)
+{
+    float speed = (float)atof(settings.GetString("fast_forward_speed_multiplier", "-1").c_str());
+    return speed > 0 ? std::clamp(speed, 1.f, 16.f) : 0.f;
+}
+
 // the options that are settings, from the settings (with the command line's overrides in them). The desktop's defaults stay the test
-// frontend's (Compute at 4x), not the app's
+// frontend's (Compute at 4x, no hi-res capture, no JIT), not the app's
 void ApplySettings(Options& opts, const Frontend::Settings& settings)
 {
     std::string renderer = settings.GetString("video_renderer", "compute");
@@ -430,6 +499,17 @@ void ApplySettings(Options& opts, const Frontend::Settings& settings)
     opts.Linear = settings.GetString("video_filtering", "none") == "linear";
     opts.Audio = settings.GetBool("sound_enabled", true);
     opts.VSync = settings.GetBool("desktop_vsync", false);
+    opts.Toggles = ReadToggles(opts, settings);
+    // the interpreter by default here (the JIT is slower on x86-64, see the README), where the app's default is on
+    opts.Jit = settings.GetBool("enable_jit", false);
+    // FreeBIOS unless the custom BIOS is on and its folder set (--bios sets both)
+    bool custom = settings.GetBool("use_custom_bios", false);
+    opts.BiosDir = custom ? settings.GetString("bios_dir", "") : "";
+    opts.DsiBiosDir = settings.GetString("dsi_bios_dir", "");
+    opts.BootScreen = settings.GetBool("show_bios", false);
+    opts.ConsoleType = settings.GetString("console_type", "ds") == "dsi" ? 1 : 0;
+    opts.RumblePak = settings.GetBool("desktop_rumble_pak", false);
+    opts.FastForwardSpeed = FastForwardSpeed(settings);
 }
 
 const char* RendererSettingValue(RendererType type)
@@ -485,14 +565,14 @@ std::shared_ptr<MelonDSAndroid::EmulatorConfiguration> MakeConfiguration(const O
     config->dsBios7Path = config->dsBios9Path = config->dsFirmwarePath = empty;
     config->dsiBios7Path = config->dsiBios9Path = config->dsiFirmwarePath = config->dsiNandPath = empty;
     config->internalFilesDir = empty;
-    config->fastForwardSpeedMultiplier = 1.0f;
+    config->fastForwardSpeedMultiplier = opts.FastForwardSpeed > 0 ? opts.FastForwardSpeed : -1.0f;
     config->framePacingVsync = false;
     config->framePacingBuffer = false;
     config->framePacingSmooth30Fps = opts.HalfCamera;
     config->showBootScreen = opts.BootScreen;
     config->useJit = opts.Jit;
     config->syncRtcToDevice = false;
-    config->consoleType = 0;
+    config->consoleType = opts.ConsoleType;
     // no interpolation and the full 16 bits, the SPU's defaults (only applied when the settings change during a run)
     config->audioSettings = AudioSettings {
         .soundEnabled = opts.Audio,
@@ -535,20 +615,30 @@ std::shared_ptr<MelonDSAndroid::EmulatorConfiguration> MakeConfiguration(const O
     }
     }
     config->threaded2dRendering = opts.Threaded2D;
-    config->hiresCapture = opts.HiresCapture;
-    config->filter2d = opts.Filter2D != 0;
-    config->sharperRotated2d = false;
+    config->hiresCapture = opts.Toggles.HiresCapture;
+    config->filter2d = opts.Toggles.Filter2D != 0;
+    config->sharperRotated2d = opts.Toggles.SharperRotated2D;
     // --set PreciseDepth wins, as it did when it was applied after --precise-depth
-    config->preciseDepth = SetValue(opts.Sets, "PreciseDepth", opts.PreciseDepth) != 0;
-    // the core's default (GPU::GLEdgeMark 1); --set GLEdgeMark goes through the switches
-    config->edgeMarking = true;
-    config->glSeams = false;
+    config->preciseDepth = SetValue(opts.Sets, "PreciseDepth", opts.Toggles.PreciseDepth) != 0;
+    // on by default, the core's default (GPU::GLEdgeMark 1); --set GLEdgeMark goes through the switches
+    config->edgeMarking = opts.Toggles.EdgeMarking;
+    config->glSeams = opts.Toggles.GlSeams;
     config->luaDrawingsInScreenshots = false;
     config->wideViewWidth = opts.WideWidth;
     config->wideViewMargin = opts.WideMargin;
     config->dsiSdCardSettings = {};
     config->dldiSdCardSettings = {};
     config->dsiSdCardSettings.imagePath = config->dsiSdCardSettings.folderPath = empty;
+    if (opts.ConsoleType == 1)
+    {
+        // BuildArgsFromConfiguration reads these for a DSi (they stay as long as the options do)
+        config->dsBios9Path = const_cast<char*>(opts.Dsi.DsBios9.c_str());
+        config->dsBios7Path = const_cast<char*>(opts.Dsi.DsBios7.c_str());
+        config->dsiBios9Path = const_cast<char*>(opts.Dsi.Bios9.c_str());
+        config->dsiBios7Path = const_cast<char*>(opts.Dsi.Bios7.c_str());
+        config->dsiFirmwarePath = const_cast<char*>(opts.Dsi.Firmware.c_str());
+        config->dsiNandPath = const_cast<char*>(opts.Dsi.Nand.c_str());
+    }
     config->dldiSdCardSettings.imagePath = config->dldiSdCardSettings.folderPath = empty;
     config->renderer = SharedRenderer(renderer);
     return config;
@@ -585,8 +675,8 @@ DebugProperties::Overrides ApplySwitches(const Options& opts, NDS& nds)
     overrides.gpu2dWide = opts.Gpu2DWide;
     overrides.gpu2dAffine = opts.Gpu2DAffine;
     // the 2x-map-only and identity modes have no setting
-    if (opts.Filter2D >= 2)
-        overrides.filter2d = opts.Filter2D;
+    if (opts.Toggles.Filter2D >= 2)
+        overrides.filter2d = opts.Toggles.Filter2D;
     // the settings updateRenderer writes on every renderer change, so a --set of them holds through those
     overrides.edgeMark = SetValue(opts.Sets, "GLEdgeMark", -1);
     overrides.glSeams = SetValue(opts.Sets, "GLSeams", -1);
@@ -878,6 +968,11 @@ int main(int argc, char** argv)
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
     // the windows' close buttons are handled as events (the main window quits, the second one goes back to together)
     SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0");
+    // the controllers' face buttons by position (the input mapping's face layout decides where the DS's A is), Nintendo pads too
+    SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
+    // a hidden window never has the focus, and its virtual pad (--virtual-pad) has to be heard anyway
+    if (opts.Hidden)
+        SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0)
     {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -907,6 +1002,24 @@ int main(int argc, char** argv)
         settings.Override(key, value);
     ApplySettings(opts, settings);
     printf("profile: %s%s\n", Frontend::PathToUtf8(profileDir).c_str(), temporaryProfile ? " (temporary)" : "");
+
+    // the input mapping (input.json), with the controller mappings shipped next to the exe and the profile's own on top
+    Frontend::Input input;
+    input.Load(profileDir, opts.Hidden);
+    for (const fs::path& db : {Frontend::PathFromUtf8(exeDir) / "gamecontrollerdb.txt", profileDir / "gamecontrollerdb.txt"})
+    {
+        std::error_code dbError;
+        if (!fs::exists(db, dbError))
+            continue;
+        int added = SDL_GameControllerAddMappingsFromFile(Frontend::PathToUtf8(db).c_str());
+        if (added < 0)
+            fprintf(stderr, "input: %s: %s\n", Frontend::PathToUtf8(db).c_str(), SDL_GetError());
+        else
+            printf("input: %d controller mappings from %s\n", added, Frontend::PathToUtf8(db).c_str());
+    }
+    input.RumbleEnabled = settings.GetBool("desktop_rumble", true);
+    if (!opts.VirtualPad.empty() && !input.AttachVirtualPad(opts.VirtualPad))
+        return 1;
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -984,30 +1097,26 @@ int main(int argc, char** argv)
     // phone), so --set OutputCapDeband stands in for the app's deband through it
     MelonDSAndroid::setOutputDeband(SetValue(opts.Sets, "OutputCapDeband", 0) != 0);
 
-    SDL_AudioDeviceID audio = 0;
-    if (opts.Audio)
+    // the sound, through the SDL audio callback (Audio.h)
+    Frontend::AudioOutput audio;
+    auto audioConfig = [&]
     {
-        SDL_AudioSpec want {}, have {};
-        want.freq = 48000;
-        want.format = AUDIO_S16SYS;
-        want.channels = 2;
-        want.samples = 512;
-        audio = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
-        if (audio)
-            SDL_PauseAudioDevice(audio, 0);
-        else
-            fprintf(stderr, "no audio: %s\n", SDL_GetError());
-    }
+        Frontend::AudioOutput::Config config;
+        config.Enabled = settings.GetBool("sound_enabled", true);
+        config.Volume = std::clamp(settings.GetInt("volume", 256), 0, 256);
+        config.Latency = settings.GetString("audio_latency", "medium");
+        config.MuteFastForward = settings.GetBool("mute_fast_forward_audio", true);
+        return config;
+    };
+    if (!opts.AudioTrace.empty())
+        audio.TraceTo(opts.AudioTrace);
+    if (!opts.AudioWav.empty())
+        audio.RecordTo(opts.AudioWav);
+    audio.Apply(audioConfig());
 
-    // a hidden run takes no input from real controllers (it would get a pad someone is playing with); --ui-script's pad steps still come
-    if (!opts.Hidden)
-    {
-        for (int i = 0; i < SDL_NumJoysticks(); i++)
-        {
-            if (SDL_IsGameController(i))
-                SDL_GameControllerOpen(i);
-        }
-    }
+    // the controllers there now (a hidden run opens only its virtual one: Input::OpenController); the rest come as they're plugged in
+    for (int i = 0; i < SDL_NumJoysticks(); i++)
+        input.OpenController(i);
 
     // The game running now (none on the start screen). The command line's ROM is booted with its --state, --at, --press, --touch and --gba;
     // a game opened from the menus gets none of those
@@ -1017,7 +1126,8 @@ int main(int argc, char** argv)
     Frontend::SaveSlots slots;
 
     // The input the UI thread reads, which the emulator thread applies before each frame along with --press, so scripted runs are frame exact
-    std::atomic<u32> keyMask = 0, padMask = 0, stickMask = 0;
+    // (the input mapping's DS buttons, Input::GameMask)
+    std::atomic<u32> keyMask = 0;
     std::atomic_bool stopRequested = false; // the core asked to stop (SignalStop)
     std::atomic_bool stateFailed = false;   // an --at state load failed: the run stops
     std::atomic_bool startFailed = false;   // the --state didn't load: nothing ran
@@ -1025,6 +1135,13 @@ int main(int argc, char** argv)
     // UI frames while no game frame runs (the start screen, a menu over the paused game), which --frames counts too
     std::atomic<u32> uiFrames = 0;
     bool touching = false, paused = false, running = true;
+    // the right stick's touch cursor is tapping; fast forward held and toggled (the input mapping's)
+    bool padTouching = false, ffHold = false, ffToggle = false;
+    // the windows want drawing again (a layout, fit or filter change)
+    bool redraw = false;
+    // fast forward on when it's held or toggled and the game runs with no menu over it, at fast_forward_speed_multiplier; set once the
+    // menus are there
+    std::function<void()> updateFastForward = [] {};
     bool linear = opts.Linear;
     // where the bottom screen is in the drawable of the window that shows it, for --touch on the emulator thread: as planned for the
     // first frame (from the run's top screen size), then as each present drew it
@@ -1104,11 +1221,14 @@ int main(int argc, char** argv)
     {
         if (stopRequested || (opts.Frames && frame + uiFrames >= opts.Frames))
             return false;
+        // the trim a (re)started audio stream asked for, at the frame's start
+        if (audio.IsOpen())
+            audio.BeforeFrame(instance);
 
         // the keys held this frame, all of them sent every frame (the instance's pressKey and releaseKey), as the desktop set the whole mask
         // before the shared code: a reset (Ctrl+R, --at reset) releases every key in the core and a state load brings its own, behind the
         // instance's back, so sending only the changes would leave a key held through them released
-        u32 mask = keyMask | padMask | stickMask | (commandLineGame ? Frontend::PressMask(opts.Presses, frame) : 0);
+        u32 mask = keyMask | (commandLineGame ? Frontend::PressMask(opts.Presses, frame) : 0);
         for (u32 bit = 0; bit < 12; bit++)
             (mask & (1u << bit)) ? instance.pressKey(bit) : instance.releaseKey(bit);
 
@@ -1191,7 +1311,7 @@ int main(int argc, char** argv)
                 if (key == SDLK_UNKNOWN)
                     fprintf(stderr, "--at %u:%s: unknown key\n", at.Frame, at.Action.c_str());
                 else
-                    runOnUiThread([&] { hotkey(key, mod, 0); });
+                    runOnUiThread([&] { hotkey(key, mod, 0); input.TypeKeyHotkeys(key, mod); });
             }
             else if (at.Action == "renderer=soft" || at.Action == "renderer=gl" || at.Action == "renderer=compute")
             {
@@ -1245,13 +1365,11 @@ int main(int argc, char** argv)
             }
         }
 
-        // the core's audio, dropped while it would only pile up (fast forward, a slow frame)
-        int got;
-        while ((got = instance.readAudioOutput(audioBuf.data(), (int)audioBuf.size() / 2)) > 0)
-        {
-            if (audio && !emuThread.IsFastForward() && !opts.Unthrottled && SDL_GetQueuedAudioSize(audio) < 48000 * 4 / 10)
-                SDL_QueueAudio(audio, audioBuf.data(), got * 4);
-        }
+        // the audio callback reads the core's audio itself; without sound it's dropped, so the ring doesn't sit full
+        if (audio.IsOpen())
+            audio.AfterFrame(instance);
+        else
+            while (instance.readAudioOutput(audioBuf.data(), (int)audioBuf.size() / 2) > 0) {}
     };
     callbacks.OnStop = [&](MelonDSAndroid::MelonInstance&)
     {
@@ -1276,6 +1394,9 @@ int main(int argc, char** argv)
     {
         if (!emu)
             return;
+        // the audio callback lets go of the instance first
+        audio.SetInstance(nullptr);
+        input.StopRumble();
         // out of the frame loop, still serving what the emulator thread may wait for, then the instance goes on its thread
         emuThread.RequestFinish();
         while (!emuThread.IsFinished())
@@ -1290,9 +1411,10 @@ int main(int argc, char** argv)
         commandLineGame = false;
         touching = false;
         paused = false;
-        keyMask = padMask = stickMask = 0;
-        if (audio)
-            SDL_ClearQueuedAudio(audio);
+        keyMask = 0;
+        padTouching = false;
+        ffToggle = false;
+        updateFastForward();
         windows.UpdateTitles("");
         printf("game stopped\n");
     };
@@ -1306,7 +1428,30 @@ int main(int argc, char** argv)
         linear = opts.Linear;
 
         // The console, as before the shared code: FreeBIOS and a generated firmware unless --bios says otherwise
-        auto args = std::make_unique<NDSArgs>();
+        std::unique_ptr<NDSArgs> args;
+        if (opts.ConsoleType == 1)
+        {
+            // a DSi, as the app boots one (EmulatorArgsBuilder): its BIOS, firmware and NAND from the DSi folder, the DS BIOS from the DS one
+            if (opts.DsiBiosDir.empty() || !settings.GetBool("use_custom_bios", false) || settings.GetString("bios_dir", "").empty())
+            {
+                fprintf(stderr, "DSi mode needs the custom BIOS on, with the DS BIOS folder and the DSi BIOS folder (bios9.bin, bios7.bin, "
+                    "firmware.bin, nand.bin) set\n");
+                return false;
+            }
+            std::string ds = settings.GetString("bios_dir", ""), dsi = opts.DsiBiosDir;
+            opts.Dsi = {dsi + "/bios9.bin", dsi + "/bios7.bin", dsi + "/firmware.bin", dsi + "/nand.bin", ds + "/bios9.bin", ds + "/bios7.bin"};
+            auto config = MakeConfiguration(opts, renderer, scale);
+            config->userInternalFirmwareAndBios = false;
+            std::optional<std::unique_ptr<NDSArgs>> built = MelonDSAndroid::BuildArgsFromConfiguration(*config, 0);
+            if (!built || !*built)
+            {
+                fprintf(stderr, "the DSi BIOS, firmware or NAND in %s didn't load\n", dsi.c_str());
+                return false;
+            }
+            args = std::move(*built);
+        }
+        else
+            args = std::make_unique<NDSArgs>();
 #ifdef JIT_ENABLED
         // the app's JIT settings (block size 32), but fast memory only on request
         args->JIT = std::nullopt;
@@ -1320,8 +1465,8 @@ int main(int argc, char** argv)
         args->JIT = std::nullopt;
 #endif
         args->OutputSampleRate = 48000.0;
-        bool haveFirmware = false;
-        if (!Frontend::LoadBiosDir(opts.BiosDir, *args, haveFirmware))
+        bool haveFirmware = opts.ConsoleType == 1;
+        if (opts.ConsoleType == 0 && !Frontend::LoadBiosDir(opts.BiosDir, *args, haveFirmware))
             return false;
         if (!haveFirmware)
             args->Firmware = Firmware(0);
@@ -1335,7 +1480,7 @@ int main(int argc, char** argv)
         // set before the first frame here, so a run's frames don't depend on when the UI thread first presents
         MelonDSAndroid::setHalvesAt1xSupported(!linear);
         auto instance = std::make_unique<MelonDSAndroid::MelonInstance>(0, MakeConfiguration(opts, renderer, scale), std::move(args),
-            std::make_shared<Net>(), std::make_unique<MelonDSAndroid::ScreenshotRenderer>(screenshotBuffer.data()), 0);
+            std::make_shared<Net>(), std::make_unique<MelonDSAndroid::ScreenshotRenderer>(screenshotBuffer.data()), opts.ConsoleType);
         instance->setDebugOverrides(ApplySwitches(opts, *instance->getNds()));
 
         std::string savePath = opts.SavePath.empty() ? fs::path(path).replace_extension(".sav").string() : opts.SavePath;
@@ -1348,7 +1493,13 @@ int main(int argc, char** argv)
                 path.c_str(), savePath.c_str());
             return false;
         }
-        if (commandLine && !opts.GbaRomPath.empty())
+        // the Rumble Pak in the GBA slot (desktop_rumble_pak, or --gba rumble), for the games that rumble
+        if ((opts.RumblePak && (!commandLine || opts.GbaRomPath.empty())) || (commandLine && opts.GbaRomPath == "rumble"))
+        {
+            instance->loadRumblePak();
+            printf("GBA slot: Rumble Pak\n");
+        }
+        else if (commandLine && !opts.GbaRomPath.empty())
         {
             std::string gbaSave = fs::path(opts.GbaRomPath).replace_extension(".sav").string();
             if (!EnsureSaveFile(gbaSave) || !instance->loadGbaRom(opts.GbaRomPath, gbaSave))
@@ -1377,7 +1528,11 @@ int main(int argc, char** argv)
         }
         AddRecentRom(settings, path);
         printf("game: %s\n", path.c_str());
+        MelonDSAndroid::MelonInstance* started = instance.get();
+        emuThread.SetFastForwardSpeed(opts.FastForwardSpeed);
         emuThread.Start(emuWindow, emuContext, std::move(instance), callbacks);
+        audio.SetInstance(started);
+        audio.SetRunning(true);
         return true;
     };
 
@@ -1405,6 +1560,25 @@ int main(int argc, char** argv)
     Ui::Host host;
     bool uiBuilt = false;
     windows.MainOverlay = [&] { if (uiBuilt) ui.Render(); };
+    // the touch cursor over the bottom screen, in whichever window shows it (not under a menu)
+    windows.BottomOverlay = [&](Frontend::Presenter& p, const Frontend::Rect& r, int w, int h)
+    {
+        Frontend::Input::Cursor cursor = input.GetCursor();
+        if (!emu || ui.IsOpen() || !cursor.Visible)
+            return;
+        float px = r.X + (cursor.X + 0.5f) / 256 * r.W, py = r.Y + (cursor.Y + 0.5f) / 192 * r.H;
+        p.DrawCursor(px, py, std::max(6.f, r.W / 256 * 6), cursor.Pressed, w, h);
+    };
+    updateFastForward = [&]
+    {
+        bool on = emu && !ui.IsOpen() && (ffHold || ffToggle);
+        emuThread.SetFastForwardSpeed(opts.FastForwardSpeed);
+        emuThread.SetFastForward(on);
+        audio.SetFastForward(on, opts.FastForwardSpeed);
+    };
+    // the rumble the game asks for (the Rumble Pak), on the pad that played last
+    messenger->OnRumble = [&](int durationMs) { input.Rumble(durationMs); };
+    messenger->OnRumbleStop = [&] { input.StopRumble(); };
     host.Settings = &settings;
     host.Hidden = opts.Hidden;
     host.GameRunning = [&] { return emu != nullptr; };
@@ -1533,26 +1707,130 @@ int main(int argc, char** argv)
         windows.ToggleSwap();
         refreshTouchRect();
     };
-    host.SetRenderer = [&](const std::string& value)
+    host.Input = &input;
+    host.DeleteSlot = [&](int slot) { return slots.Delete(slot); };
+    host.PickFolder = [&](const std::string& start) -> std::optional<std::string>
     {
-        settings.Set("video_renderer", picojson::value(value));
-        printf("settings: video_renderer = %s\n", value.c_str());
-        RendererType requested = value == "software" ? RendererType::Software : value == "opengl" ? RendererType::OpenGL : RendererType::Compute;
-        if (emu)
-            emuThread.Post([&, requested](MelonDSAndroid::MelonInstance& instance) { renderer = requested; updateConfiguration(instance); });
+        if (opts.Hidden)
+            return std::nullopt;
+        return Frontend::OpenFolderDialog(window, start);
     };
-    host.SetScale = [&](int value)
+    // the renderer settings again, on the emulator thread when a game runs (MakeConfiguration reads them there)
+    auto applyToggles = [&]
     {
-        settings.Set("video_internal_resolution", picojson::value(std::to_string(value)));
-        printf("settings: video_internal_resolution = %d\n", value);
+        Options::RenderToggles toggles = ReadToggles(opts, settings);
         if (emu)
-            emuThread.Post([&, value](MelonDSAndroid::MelonInstance& instance) { scale = value; updateConfiguration(instance); });
+            emuThread.Post([&, toggles](MelonDSAndroid::MelonInstance& instance) { opts.Toggles = toggles; updateConfiguration(instance); });
+        else
+            opts.Toggles = toggles;
     };
-    host.SetVSync = [&](bool value)
+    host.ChangeSetting = [&](const std::string& key, const picojson::value& value) -> bool
     {
-        settings.Set("desktop_vsync", picojson::value(value));
-        printf("settings: desktop_vsync = %s\n", value ? "true" : "false");
-        windows.SetVSync(settings.GetBool("desktop_vsync", false));
+        printf("settings: %s = %s\n", key.c_str(), value.serialize().c_str());
+        fflush(stdout);
+        auto text = [&] { return value.is<std::string>() ? value.get<std::string>() : value.to_str(); };
+        // the windows' own, which they store
+        if (key == "desktop_screens")
+        {
+            windows.SetDetached(text() == "detached");
+            refreshTouchRect();
+            return true;
+        }
+        if (key == "desktop_swap_screens")
+        {
+            if (value.evaluate_as_boolean() != windows.IsSwapped())
+                windows.ToggleSwap();
+            refreshTouchRect();
+            return true;
+        }
+        if (key == "desktop_layout")
+        {
+            static const char* const kNames[] = {"vertical", "horizontal", "top", "bottom"};
+            for (int i = 0; i < 4; i++)
+            {
+                if (text() == kNames[i])
+                    windows.SetLayout((Frontend::Layout)i);
+            }
+            refreshTouchRect();
+            return true;
+        }
+        if (key == "desktop_fit_top" || key == "desktop_fit_bottom")
+        {
+            std::string fit = text();
+            windows.SetFit(key == "desktop_fit_top", fit == "integer" ? Frontend::Fit::Integer : fit == "stretch" ? Frontend::Fit::Stretch
+                                                                                                                 : Frontend::Fit::Aspect);
+            refreshTouchRect();
+            return true;
+        }
+        settings.Set(key, value);
+        if (key == "video_renderer")
+        {
+            std::string r = text();
+            RendererType requested = r == "software" ? RendererType::Software : r == "opengl" ? RendererType::OpenGL : RendererType::Compute;
+            if (emu)
+                emuThread.Post([&, requested](MelonDSAndroid::MelonInstance& instance) { renderer = requested; updateConfiguration(instance); });
+            // the toggles shown for it change (edge marking for software, seams for OpenGL)
+            return true;
+        }
+        if (key == "video_internal_resolution")
+        {
+            int value = std::clamp(settings.GetInt(key, 4), 1, 16);
+            if (emu)
+                emuThread.Post([&, value](MelonDSAndroid::MelonInstance& instance) { scale = value; updateConfiguration(instance); });
+            return true;
+        }
+        if (key == "video_hires_capture" || key == "video_filter_2d" || key == "video_sharper_rotated_2d" || key == "video_edge_marking"
+            || key == "video_precise_depth" || key == "video_gl_seams")
+        {
+            applyToggles();
+            return true;
+        }
+        if (key == "video_filtering")
+        {
+            linear = settings.GetString("video_filtering", "none") == "linear";
+            MelonDSAndroid::setHalvesAt1xSupported(!linear);
+            redraw = true;
+            return true;
+        }
+        if (key == "desktop_vsync")
+        {
+            windows.SetVSync(settings.GetBool("desktop_vsync", false));
+            return true;
+        }
+        if (key == "desktop_theme")
+        {
+            ui.ApplyTheme();
+            return true;
+        }
+        if (key == "desktop_bottom_no_title" || key == "desktop_bottom_on_top")
+        {
+            windows.ApplySecondStyle();
+            return true;
+        }
+        if (key == "sound_enabled" || key == "volume" || key == "audio_latency" || key == "mute_fast_forward_audio")
+        {
+            audio.Apply(audioConfig());
+            return true;
+        }
+        if (key == "fast_forward_speed_multiplier")
+        {
+            opts.FastForwardSpeed = FastForwardSpeed(settings);
+            updateFastForward();
+            return true;
+        }
+        if (key == "desktop_rumble")
+        {
+            input.RumbleEnabled = settings.GetBool("desktop_rumble", true);
+            if (!input.RumbleEnabled)
+                input.StopRumble();
+            return true;
+        }
+        // the console, the BIOS, the JIT and the GBA slot are set up as a game boots
+        if (key == "enable_jit" || key == "console_type" || key == "use_custom_bios" || key == "bios_dir" || key == "dsi_bios_dir"
+            || key == "show_bios" || key == "desktop_rumble_pak")
+            return false;
+        // the rest is read when it's used (desktop_fullscreen_mode at the next F11)
+        return true;
     };
     if (!ui.Init(window, uiContext, host, opts.Hidden))
     {
@@ -1575,9 +1853,11 @@ int main(int argc, char** argv)
     size_t scriptPos = 0;
     bool scriptStarted = false, scriptEnded = false;
     int scriptDelay = 0;
+    // a sleep step's end (real time)
+    std::chrono::steady_clock::time_point scriptSleepUntil {};
     bool scriptWaitFrame = false;
     u32 scriptFrame = 0;
-    std::optional<SDL_Event> scriptRelease;
+    std::function<void()> scriptRelease;
 
     // UI thread: the window as drawn now (the game's newest frame, then the menus' last frame), into [path] (_top/_bottom when detached)
     auto windowShot = [&](const std::string& path, bool shotLinear)
@@ -1609,7 +1889,6 @@ int main(int argc, char** argv)
     };
 
     u64 lastSequence = 0;
-    bool redraw = false;
     hotkey = [&](SDL_Keycode key, Uint16 mod, Uint32 windowId)
     {
         switch (key)
@@ -1619,6 +1898,7 @@ int main(int argc, char** argv)
                 break;
             paused = !paused;
             paused ? emuThread.Pause() : emuThread.Resume();
+            audio.SetRunning(!paused);
             break;
         case SDLK_r:
             if ((mod & KMOD_CTRL) && emu)
@@ -1667,11 +1947,63 @@ int main(int argc, char** argv)
             settings.Set("video_filtering", picojson::value(std::string(linear ? "linear" : "none")));
             redraw = true;
             break;
-        case SDLK_F1: windows.ToggleSwap(); redraw = true; break;
-        case SDLK_F9: windows.SetDetached(!windows.IsDetached()); redraw = true; break;
         case SDLK_F10: windows.CycleFit(windowId); redraw = true; break;
-        case SDLK_F11: windows.ToggleFullscreen(windowId); redraw = true; break;
-        case SDLK_F12:
+        default: break;
+        }
+        refreshTouchRect();
+    };
+
+    // the input mapping's hotkeys (F1 swap, F9 detach, F11 fullscreen, F12 screenshot, Esc the pause menu, Tab fast forward, ... by
+    // default; Input.cpp has the tables)
+    bool quickBusy = false;
+    input.OnAction = [&](Frontend::Action action, bool down, SDL_JoystickID source)
+    {
+        using Frontend::Action;
+        // the window with the focus, for fullscreen (0, the main one, when none has it, as in a hidden run)
+        SDL_Window* focus = SDL_GetKeyboardFocus();
+        Uint32 focusId = focus ? SDL_GetWindowID(focus) : 0;
+        switch (action)
+        {
+        case Action::Pause:
+            if (emu && !ui.IsOpen())
+                ui.OpenPause();
+            break;
+        case Action::FastForwardHold:
+            ffHold = down;
+            updateFastForward();
+            break;
+        case Action::FastForward:
+            if (!emu || ui.IsOpen())
+                break;
+            ffToggle = !ffToggle;
+            updateFastForward();
+            ui.Toast(ffToggle ? "Fast forward on" : "Fast forward off");
+            break;
+        case Action::QuickSave:
+        case Action::QuickLoad:
+        {
+            if (!emu || ui.IsOpen() || quickBusy)
+                break;
+            bool save = action == Action::QuickSave;
+            if (!save && !std::filesystem::exists(slots.StatePath(0), ec))
+            {
+                ui.Toast("The quick slot is empty");
+                break;
+            }
+            quickBusy = true;
+            auto done = [&, save](bool ok)
+            {
+                quickBusy = false;
+                ui.Toast(save ? (ok ? "Saved to the quick slot" : "Couldn't save to the quick slot")
+                              : (ok ? "Loaded the quick slot" : "Couldn't load the quick slot"));
+            };
+            save ? host.SaveSlot(0, done) : host.LoadSlot(0, done);
+            break;
+        }
+        case Action::SwapScreens: windows.ToggleSwap(); redraw = true; break;
+        case Action::DetachScreens: windows.SetDetached(!windows.IsDetached()); redraw = true; break;
+        case Action::Fullscreen: windows.ToggleFullscreen(focusId); redraw = true; break;
+        case Action::Screenshot:
         {
             if (!emu)
                 break;
@@ -1681,8 +2013,17 @@ int main(int argc, char** argv)
             screenshot(exeDir + name);
             break;
         }
-        default: break;
+        case Action::Rewind:
+            if (emu && !ui.IsOpen())
+                ui.Toast("Rewind comes in a later version");
+            break;
+        default:
+            // the DS buttons go through GameMask(), the touch tap through the cursor below
+            break;
         }
+        if (action >= Action::Pause)
+            printf("hotkey: %s%s\n", Frontend::ActionKey(action), IsHeldAction(action) ? (down ? " down" : " up") : "");
+        fflush(stdout);
         refreshTouchRect();
     };
 
@@ -1703,13 +2044,16 @@ int main(int argc, char** argv)
             scriptDelay--;
             return;
         }
+        if (std::chrono::steady_clock::now() < scriptSleepUntil)
+            return;
         // a save or load from the menus finishes first (the menus close when it's done)
         if (ui.Busy)
             return;
         if (scriptRelease)
         {
-            SDL_PushEvent(&*scriptRelease);
-            scriptRelease.reset();
+            std::function<void()> release = std::move(scriptRelease);
+            scriptRelease = nullptr;
+            release();
             scriptDelay = 1;
             return;
         }
@@ -1738,7 +2082,7 @@ int main(int argc, char** argv)
             const std::string& a = step.Arg;
             MenuAction action = a == "up" ? MenuAction::Up : a == "down" ? MenuAction::Down : a == "left" ? MenuAction::Left
                 : a == "right" ? MenuAction::Right : a == "confirm" ? MenuAction::Confirm : a == "back" ? MenuAction::Back
-                : a == "tab-next" ? MenuAction::TabNext : a == "tab-prev" ? MenuAction::TabPrev : MenuAction::Menu;
+                : a == "tab-next" ? MenuAction::TabNext : a == "tab-prev" ? MenuAction::TabPrev : a == "clear" ? MenuAction::Clear : MenuAction::Menu;
             ui.Inject(action);
             scriptDelay = 1;
             break;
@@ -1764,10 +2108,32 @@ int main(int argc, char** argv)
             SDL_PushEvent(&event);
             event.type = SDL_KEYUP;
             event.key.state = SDL_RELEASED;
-            scriptRelease = event;
+            scriptRelease = [event]() mutable { SDL_PushEvent(&event); };
+            break;
+        }
+        case Kind::KeyDown:
+        case Kind::KeyUp:
+        {
+            SDL_Keycode key = SDL_GetKeyFromName(step.Arg.c_str());
+            if (key == SDLK_UNKNOWN)
+            {
+                fprintf(stderr, "script %d: unknown key %s\n", step.Line, step.Arg.c_str());
+                break;
+            }
+            SDL_Event event {};
+            bool down = step.Type == Kind::KeyDown;
+            event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+            event.key.windowID = SDL_GetWindowID(window);
+            event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+            event.key.keysym.sym = key;
+            event.key.keysym.scancode = SDL_GetScancodeFromKey(key);
+            SDL_PushEvent(&event);
+            scriptDelay = 1;
             break;
         }
         case Kind::Pad:
+        case Kind::PadDown:
+        case Kind::PadUp:
         {
             SDL_GameControllerButton button = SDL_GameControllerGetButtonFromString(step.Arg.c_str());
             if (button == SDL_CONTROLLER_BUTTON_INVALID)
@@ -1775,19 +2141,51 @@ int main(int argc, char** argv)
                 fprintf(stderr, "script %d: unknown controller button %s\n", step.Line, step.Arg.c_str());
                 break;
             }
-            SDL_Event event {};
-            event.type = SDL_CONTROLLERBUTTONDOWN;
-            event.cbutton.which = -1;
-            event.cbutton.button = (Uint8)button;
-            event.cbutton.state = SDL_PRESSED;
-            SDL_PushEvent(&event);
-            event.type = SDL_CONTROLLERBUTTONUP;
-            event.cbutton.state = SDL_RELEASED;
-            scriptRelease = event;
+            bool press = step.Type != Kind::PadUp, release = step.Type != Kind::PadDown;
+            // the virtual pad's button, through SDL's events, or else an event as a pad with no id (-1) would send it
+            auto set = [&input, button](bool down)
+            {
+                if (input.HasVirtualPad())
+                {
+                    input.SetVirtualButton(button, down);
+                    return;
+                }
+                SDL_Event event {};
+                event.type = down ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP;
+                event.cbutton.which = -1;
+                event.cbutton.button = (Uint8)button;
+                event.cbutton.state = down ? SDL_PRESSED : SDL_RELEASED;
+                SDL_PushEvent(&event);
+            };
+            if (press && release)
+            {
+                set(true);
+                scriptRelease = [set] { set(false); };
+            }
+            else
+            {
+                set(press);
+                scriptDelay = 1;
+            }
+            break;
+        }
+        case Kind::Axis:
+        {
+            SDL_GameControllerAxis axis = SDL_GameControllerGetAxisFromString(step.Arg.c_str());
+            if (axis == SDL_CONTROLLER_AXIS_INVALID || !input.HasVirtualPad())
+            {
+                fprintf(stderr, "script %d: axis %s needs --virtual-pad and an SDL axis name\n", step.Line, step.Arg.c_str());
+                break;
+            }
+            input.SetVirtualAxis(axis, step.Value);
+            scriptDelay = 1;
             break;
         }
         case Kind::Wait:
             scriptDelay = (int)step.Number;
+            break;
+        case Kind::Sleep:
+            scriptSleepUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(step.Number);
             break;
         case Kind::Frame:
             if (!emu)
@@ -1828,12 +2226,16 @@ int main(int argc, char** argv)
     bool menuOverGame = false;
     bool openFailed = false; // --open named a screen that isn't there
     auto lastPresent = std::chrono::steady_clock::now();
+    Frontend::Input::Cursor lastCursor;
     while (running)
     {
         SDL_Event ev;
         while (SDL_PollEvent(&ev))
         {
-            // the menus first: what they take, the game doesn't see
+            // "press a button" in the input setup takes every key, button and stick first
+            if (input.Capturing() && input.CaptureEvent(ev))
+                continue;
+            // the menus next: what they take, the game doesn't see
             bool menus = ui.ProcessEvent(ev);
             switch (ev.type)
             {
@@ -1859,18 +2261,10 @@ int main(int argc, char** argv)
             {
                 if (menus)
                     break;
-                // the keys work in whichever window has the focus
-                bool down = ev.type == SDL_KEYDOWN;
-                SDL_Keycode key = ev.key.keysym.sym;
-                if (!ui.IsOpen())
-                {
-                    if (u32 bit = Frontend::GameKeyBit(key))
-                        keyMask = down ? (keyMask | bit) : (keyMask & ~bit);
-                    if (key == SDLK_TAB && emu)
-                        emuThread.SetFastForward(down);
-                }
-                if (down && !ev.key.repeat)
-                    hotkey(key, ev.key.keysym.mod, ev.key.windowID);
+                // the keys work in whichever window has the focus: the input mapping's, then the fixed F-keys
+                input.OnEvent(ev);
+                if (ev.type == SDL_KEYDOWN && !ev.key.repeat)
+                    hotkey(ev.key.keysym.sym, ev.key.keysym.mod, ev.key.windowID);
                 break;
             }
             case SDL_MOUSEBUTTONDOWN:
@@ -1891,36 +2285,45 @@ int main(int argc, char** argv)
                 }
                 break;
             case SDL_CONTROLLERDEVICEADDED:
-                if (!opts.Hidden)
-                    SDL_GameControllerOpen(ev.cdevice.which);
+                input.OpenController(ev.cdevice.which);
+                break;
+            case SDL_CONTROLLERDEVICEREMOVED:
+                input.CloseController(ev.cdevice.which);
                 break;
             case SDL_CONTROLLERBUTTONDOWN:
             case SDL_CONTROLLERBUTTONUP:
-                if (!menus)
-                {
-                    if (u32 bit = Frontend::GameButtonBit(ev.cbutton.button))
-                        padMask = ev.type == SDL_CONTROLLERBUTTONDOWN ? (padMask | bit) : (padMask & ~bit);
-                }
-                break;
             case SDL_CONTROLLERAXISMOTION:
-            {
-                if (menus)
-                    break;
-                const int dead = Frontend::kStickDeadZone;
-                auto setAxis = [&](u32 negBit, u32 posBit, int value)
-                {
-                    u32 m = stickMask & ~(negBit | posBit);
-                    if (value < -dead) m |= negBit;
-                    if (value > dead) m |= posBit;
-                    stickMask = m;
-                };
-                if (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX) setAxis(1 << 5, 1 << 4, ev.caxis.value);
-                if (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) setAxis(1 << 6, 1 << 7, ev.caxis.value);
+                if (!menus)
+                    input.OnEvent(ev);
                 break;
-            }
             default: break;
             }
         }
+        // combos held long enough, the touch cursor's move; then the DS buttons for the next frame (none under a menu)
+        input.Tick();
+        keyMask = emu && !ui.IsOpen() ? input.GameMask() : 0;
+        {
+            // the touch cursor taps where it is, as long as the tap is held
+            Frontend::Input::Cursor cursor = input.GetCursor();
+            if (emu && !ui.IsOpen() && cursor.Pressed)
+            {
+                if (!padTouching)
+                    printf("touch cursor: tap at DS %d,%d\n", (int)cursor.X, (int)cursor.Y);
+                emu->touchScreen((u16)cursor.X, (u16)cursor.Y);
+                padTouching = true;
+            }
+            else if (padTouching)
+            {
+                padTouching = false;
+                if (emu && !touching)
+                    emu->releaseScreen();
+            }
+            if (cursor.Visible != lastCursor.Visible || cursor.Pressed != lastCursor.Pressed
+                || (cursor.Visible && (cursor.X != lastCursor.X || cursor.Y != lastCursor.Y)))
+                redraw = true;
+            lastCursor = cursor;
+        }
+
         // the emulator's events (its stop), what the emulator thread waits for (--at shot, --at key), and the menus' queued actions (a
         // game booted or stopped)
         messenger->Drain();
@@ -1947,20 +2350,24 @@ int main(int argc, char** argv)
             menuOverGame = overGame;
             if (overGame)
             {
-                keyMask = padMask = stickMask = 0;
-                emuThread.SetFastForward(false);
-                if (touching)
+                // the menus take the input from here: nothing stays held for the game
+                input.ReleaseAll();
+                keyMask = 0;
+                if (touching || padTouching)
                 {
-                    touching = false;
+                    touching = padTouching = false;
                     emu->releaseScreen();
                 }
                 emuThread.Pause();
+                audio.SetRunning(false);
             }
             else
             {
                 paused = false;
                 emuThread.Resume();
+                audio.SetRunning(true);
             }
+            updateFastForward();
         }
 
         // the newest frame, waiting a little for one when nothing new is queued, drawn once (or again when the window needs it); every
@@ -2014,6 +2421,12 @@ int main(int argc, char** argv)
                     titleStats.Scale, work.size() / secs, work.empty() ? 0.0 : sum / work.size(), paused || menuOverGame ? " (paused)" : "");
                 windows.UpdateTitles(title);
             }
+            if (opts.AudioLog)
+            {
+                // the game's pace over the same second, which the audio follows
+                printf("audio: game at %.2f fps\n", work.size() / secs);
+                audio.PrintStats();
+            }
             titleStats.Second.WorkMs.clear();
             secondStart = now;
         }
@@ -2042,14 +2455,16 @@ int main(int argc, char** argv)
     if (!opts.ScreenshotPath.empty() && !startFailed && emu)
         screenshot(opts.ScreenshotPath);
 
-    // the instance goes on the emulator thread, with its context current; its saves are written as their SaveManagers go
+    // the instance goes on the emulator thread, with its context current; its saves are written as their SaveManagers go. The audio
+    // callback lets go of it first
+    audio.SetInstance(nullptr);
+    input.StopRumble();
     emuThread.Stop();
     emu = nullptr;
     ui.Shutdown();
     MelonDSAndroid::frontendContext.eventMessenger = nullptr;
     presenter.Free();
-    if (audio)
-        SDL_CloseAudioDevice(audio);
+    audio.Close();
     SDL_GL_DeleteContext(emuContext);
     SDL_DestroyWindow(emuWindow);
     // the window places saved, and the second window closed

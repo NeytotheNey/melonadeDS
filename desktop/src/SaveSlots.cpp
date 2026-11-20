@@ -1,8 +1,12 @@
 #include "SaveSlots.h"
 
+#include <windows.h>
+#include <shellapi.h>
+
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <ctime>
 
 #include "ImageFile.h"
@@ -149,6 +153,29 @@ void SaveSlots::DeleteScreenshot(int slot) const
 {
     std::error_code ec;
     fs::remove(ScreenshotPath(slot), ec);
+}
+
+bool SaveSlots::Delete(int slot) const
+{
+    fs::path file = StatePath(slot);
+    std::error_code ec;
+    if (file.empty() || !fs::exists(file, ec))
+        return false;
+    // to the recycle bin, so a slot deleted by mistake can come back; the list ends with two zeros
+    std::wstring from = file.wstring();
+    from.push_back(L'\0');
+    SHFILEOPSTRUCTW op {};
+    op.wFunc = FO_DELETE;
+    op.pFrom = from.c_str();
+    op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
+    if (SHFileOperationW(&op) != 0 || op.fAnyOperationsAborted || fs::exists(file, ec))
+    {
+        fprintf(stderr, "slot %d: can't delete %s\n", slot, PathToUtf8(file).c_str());
+        return false;
+    }
+    DeleteScreenshot(slot);
+    printf("slot %d deleted: %s (in the recycle bin)\n", slot, PathToUtf8(file).c_str());
+    return true;
 }
 
 }

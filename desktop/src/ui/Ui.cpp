@@ -12,6 +12,7 @@
 
 #include "Icons.h"
 #include "ImageFile.h"
+#include "Input.h"
 #include "Resources.h"
 #include "Screens.h"
 #include "Settings.h"
@@ -244,6 +245,18 @@ void App::TrackFocus(bool isDefault)
         g.NavHighlightItemUnderNav = true;
         ImGui::ScrollToItem();
         s->WantFocus = false;
+        s->RefocusId = id;
+        s->RefocusFrames = 1;
+    }
+    else if (s->RefocusFrames > 0 && id == s->RefocusId)
+    {
+        // held a few frames more, against ImGui's own focus of a new window's first item
+        s->RefocusFrames--;
+        if (!ImGui::IsItemFocused() && !ImGui::IsAnyItemActive())
+        {
+            ImGui::SetFocusID(id, ImGui::GetCurrentWindow());
+            GImGui->NavCursorVisible = true;
+        }
     }
     if (ImGui::IsItemFocused())
         s->FocusId = id;
@@ -332,11 +345,16 @@ bool App::OpenPath(const std::string& path)
         if (path != "pause")
             Push(MakeStatesScreen(path == "pause/save"));
     }
-    else if (path == "settings")
+    else if (path == "settings" || path.rfind("settings/", 0) == 0 || path == "input")
     {
+        std::string tab = path.size() > 9 && path != "input" ? path.substr(9) : "";
+        if (tab != "" && tab != "video" && tab != "display" && tab != "emulation" && tab != "audio" && tab != "controls")
+            return false;
         if (game && Stack.empty())
             OpenPause();
-        Push(MakeSettingsScreen());
+        Push(MakeSettingsScreen(path == "input" ? "controls" : tab));
+        if (path == "input")
+            Push(MakeInputScreen());
     }
     else if (path == "keyboard")
         Push(MakeKeyboardTestScreen());
@@ -430,6 +448,7 @@ void App::Inject(MenuAction action)
     case MenuAction::Back: Back(); break;
     case MenuAction::TabPrev: if (Top() && !KeyboardOpen()) Top()->Tab(*this, -1); break;
     case MenuAction::TabNext: if (Top() && !KeyboardOpen()) Top()->Tab(*this, 1); break;
+    case MenuAction::Clear: if (Top() && !KeyboardOpen()) Top()->Clear(*this); break;
     case MenuAction::Menu: Menu(); break;
     default: break;
     }
@@ -447,7 +466,8 @@ void App::FeedPadButton(const SDL_ControllerButtonEvent& event)
 {
     bool down = event.type == SDL_CONTROLLERBUTTONDOWN;
     ImGuiIO& io = ImGui::GetIO();
-    MenuAction action = Frontend::MenuButtonAction(event.button);
+    // A and B by the pad's face layout
+    MenuAction action = HostPtr->Input ? HostPtr->Input->MenuButton(event.which, event.button) : Frontend::MenuButtonAction(event.button);
     // a press while busy is dropped; its release still goes through so nothing stays held
     if (Busy && down && action != MenuAction::None)
         return;
@@ -462,6 +482,7 @@ void App::FeedPadButton(const SDL_ControllerButtonEvent& event)
     case MenuAction::Back: if (down) Back(); break;
     case MenuAction::TabPrev: if (down && Top() && !KeyboardOpen()) Top()->Tab(*this, -1); break;
     case MenuAction::TabNext: if (down && Top() && !KeyboardOpen()) Top()->Tab(*this, 1); break;
+    case MenuAction::Clear: if (down && Top() && !KeyboardOpen()) Top()->Clear(*this); break;
     case MenuAction::Menu: if (down) Menu(); break;
     default: break;
     }
@@ -509,13 +530,7 @@ bool App::ProcessEvent(const SDL_Event& event)
                     SwallowKeys.erase(key);
                 return true;
             }
-            bool plain = (event.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_SHIFT | KMOD_GUI)) == 0;
-            if (down && !event.key.repeat && key == SDLK_ESCAPE && plain && HostPtr->GameRunning && HostPtr->GameRunning())
-            {
-                LastInputPad = false;
-                OpenPause();
-                return true;
-            }
+            // the game's (the pause menu is the input mapping's Pause, Esc by default)
             return false;
         }
         // the hotkeys keep working in the menus
@@ -542,6 +557,11 @@ bool App::ProcessEvent(const SDL_Event& event)
             {
                 if (action == MenuAction::Back)
                     Back();
+                else if (action == MenuAction::Clear)
+                {
+                    if (Top())
+                        Top()->Clear(*this);
+                }
                 else if (Top() && (action == MenuAction::TabPrev || action == MenuAction::TabNext))
                     Top()->Tab(*this, action == MenuAction::TabNext ? 1 : -1);
             }
@@ -577,12 +597,7 @@ bool App::ProcessEvent(const SDL_Event& event)
                     SwallowButtons.erase(button);
                 return true;
             }
-            if (down && Frontend::MenuButtonAction(button) == MenuAction::Menu && HostPtr->GameRunning && HostPtr->GameRunning())
-            {
-                LastInputPad = true;
-                OpenPause();
-                return true;
-            }
+            // the game's (the pause menu is the input mapping's Pause, Guide or Select + Start by default)
             return false;
         }
         LastInputPad = true;

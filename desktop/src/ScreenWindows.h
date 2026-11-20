@@ -73,8 +73,14 @@ public:
     // together <-> detached, saved as desktop_screens
     void SetDetached(bool detached);
     void ToggleSwap();
-    // the together layout (F2)
+    // the together layout (F2), or a given one (the settings)
     void NextLayout();
+    void SetLayout(Layout layout);
+    Layout GetLayout() const { return TogetherLayout; }
+    // the fit of the top or the bottom screen when detached (the settings)
+    void SetFit(bool top, Fit fit);
+    // the second window's title bar and always-on-top again from desktop_bottom_no_title and desktop_bottom_on_top
+    void ApplySecondStyle();
     // the fit of the screen the window [windowId] shows (0: the main window); detached only
     void CycleFit(Uint32 windowId);
     // fullscreen on and off for the window [windowId] (0: the main window): the main one goes to desktop_fullscreen_mode (borderless or
@@ -110,6 +116,8 @@ public:
     void SetVSync(bool vsync);
     // drawn into the main window after the game, in each present and window shot (the menus); none while it's empty
     std::function<void()> MainOverlay;
+    // drawn over the bottom screen in whichever window shows it, before the menus (the touch cursor): its rect, and the drawable's size
+    std::function<void(Presenter& presenter, const Rect& bottom, int w, int h)> BottomOverlay;
 
 private:
     void DrawAll(Presenter& presenter, const FrameView& frame, bool linear);
@@ -124,7 +132,6 @@ private:
     bool OpenSecond();
     void CloseSecond();
     void MarkApplied(SDL_Window* window, WindowPlace& place);
-    void ApplySecondStyle();
     // the place to use for a window: the override, the stored one, or the default size
     WindowPlace& MainSlot() { return IsDetachedMode ? MainDetachedPlace : MainTogetherPlace; }
     void PlaceWindow(SDL_Window* window, const WindowPlace& place, bool clamp);

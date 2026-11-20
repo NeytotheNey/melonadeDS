@@ -27,7 +27,13 @@ bool MenuRow(App& app, const char* id, ImWchar icon, const char* label, const ch
 // A row with an on/off switch; true when chosen (the caller flips the value)
 bool ToggleRow(App& app, const char* id, ImWchar icon, const char* label, const char* detail, bool value, bool isDefault = false);
 // A row with a value: confirm or Right goes to the next value (1), Left to the previous one (-1); 0 when nothing happened
-int ChoiceRow(App& app, const char* id, ImWchar icon, const char* label, const char* value, bool isDefault = false);
+// [detail], when given, is a second line under the label
+int ChoiceRow(App& app, const char* id, ImWchar icon, const char* label, const char* value, bool isDefault = false, const char* detail = nullptr);
+// A row with a label over a second line (a folder, a binding), and a chevron; true when chosen
+bool DetailRow(App& app, const char* id, ImWchar icon, const char* label, const char* detail, bool isDefault = false, bool enabled = true);
+// Tabs along a line at [pos], with the bumper caps that switch them on either side (clickable, not stops for the controller's focus);
+// returns the tab clicked, or -1
+int TabStrip(App& app, ImVec2 pos, const char* const* labels, int count, int selected);
 // A large button, filled (primary container) or tonal (surface container); [width] 0 is the region's width
 bool BigButton(App& app, const char* id, ImWchar icon, const char* label, const char* detail, bool filled, float width = 0,
     bool isDefault = false);

@@ -46,6 +46,8 @@ public:
     // down to 256x384 with the top screen's middle 256 columns, as the app's screenshot leaves the WideMelon sides and margins out
     bool WriteScreenshot(int slot, const std::vector<melonDS::u8>& frame, int width, int height, int topWidth, int topMargin) const;
     void DeleteScreenshot(int slot) const;
+    // the slot's state to the recycle bin, and its screenshot deleted
+    bool Delete(int slot) const;
 
 private:
     std::filesystem::path Rom, Dir, ShotDir;

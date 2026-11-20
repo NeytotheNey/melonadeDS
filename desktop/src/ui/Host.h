@@ -3,12 +3,14 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include "picojson/picojson.h"
 #include "SaveSlots.h"
 
-namespace Frontend { class Settings; }
+namespace Frontend { class Settings; class Input; }
 
 namespace Ui
 {
@@ -16,6 +18,8 @@ namespace Ui
 struct Host
 {
     Frontend::Settings* Settings = nullptr;
+    // the input mapping: the menus' controller buttons by each pad's face layout, and the bindings the setup screen changes
+    Frontend::Input* Input = nullptr;
     // a hidden (scripted) run: no file dialog
     bool Hidden = false;
 
@@ -30,6 +34,8 @@ struct Host
     std::function<std::string()> SlotFileNames;
     std::function<void(int slot, std::function<void(bool ok)> done)> SaveSlot;
     std::function<void(int slot, std::function<void(bool ok)> done)> LoadSlot;
+    // the slot's state and screenshot deleted (to the recycle bin)
+    std::function<bool(int slot)> DeleteSlot;
 
     // queued: the game stopped and the start screen shown / the app closed / the file dialog, then the ROM booted / a ROM booted
     std::function<void()> QuitToStart;
@@ -43,10 +49,11 @@ struct Host
     std::function<bool()> IsSwapped;
     std::function<void()> ToggleSwap;
 
-    // the settings the placeholder settings screen changes, saved and applied (to the running game too)
-    std::function<void(const std::string& renderer)> SetRenderer; // software, opengl, compute
-    std::function<void(int scale)> SetScale;
-    std::function<void(bool vsync)> SetVSync;
+    // a setting the settings screens changed: stored, and applied at once where the running game allows it. False when it waits for the
+    // next game that starts (JIT, the console, the BIOS)
+    std::function<bool(const std::string& key, const picojson::value& value)> ChangeSetting;
+    // the Windows folder picker (UTF-8), starting in [start]; nothing when it was cancelled, or in a hidden run
+    std::function<std::optional<std::string>(const std::string& start)> PickFolder;
 };
 
 }
