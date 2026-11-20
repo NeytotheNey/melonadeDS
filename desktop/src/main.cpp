@@ -2212,6 +2212,22 @@ int main(int argc, char** argv)
             }
             break;
         }
+        case Kind::MouseDown:
+        case Kind::MouseUp:
+        {
+            SDL_Event event {};
+            bool down = step.Type == Kind::MouseDown;
+            event.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+            event.button.windowID = SDL_GetWindowID(window);
+            event.button.button = SDL_BUTTON_LEFT;
+            event.button.state = down ? SDL_PRESSED : SDL_RELEASED;
+            event.button.clicks = 1;
+            event.button.x = step.Value;
+            event.button.y = (int)step.Number;
+            SDL_PushEvent(&event);
+            scriptDelay = 1;
+            break;
+        }
         case Kind::Axis:
         {
             SDL_GameControllerAxis axis = SDL_GameControllerGetAxisFromString(step.Arg.c_str());

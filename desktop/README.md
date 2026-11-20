@@ -187,6 +187,7 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
 | `key NAME` | a key pressed and released, as typed (`key escape`, `key return`, `key f9`) |
 | `pad NAME` | a controller button pressed and released, as SDL names it (`pad start`, `pad guide`, `pad b`); with `--virtual-pad`, on that pad |
 | `pad-down NAME`, `pad-up NAME`, `key-down NAME`, `key-up NAME` | a button or key held over the next steps, or let go (combos, holds); `key-repeat NAME` sends a repeated KEYDOWN, as a held key does |
+| `mouse-down X Y`, `mouse-up X Y` | the left mouse button at X,Y of the main window |
 | `axis NAME VALUE` | a stick or trigger of the `--virtual-pad` (`axis rightx 20000`, `axis righttrigger 32767`) |
 | `wait N` | N passes of the frame loop (UI frames while a menu is up) |
 | `sleep MS` | MS milliseconds of real time, the game running on unless it's held |

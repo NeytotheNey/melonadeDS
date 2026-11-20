@@ -270,6 +270,7 @@ void App::Push(std::unique_ptr<Screen> screen)
         ImGuiIO& io = ImGui::GetIO();
         io.ClearEventsQueue();
         io.ClearInputKeys();
+        ResetMouse();
         SwallowKeys.clear();
         SwallowButtons.clear();
         SwallowStick = false;
@@ -290,6 +291,7 @@ void App::Pop()
     {
         KeyboardTarget = nullptr;
         SwallowHeld();
+        ReleaseMouse();
         printf("ui: closed\n");
     }
     else
@@ -311,8 +313,36 @@ void App::CloseAll()
     }
     KeyboardTarget = nullptr;
     SwallowHeld();
+    ReleaseMouse();
     printf("ui: closed\n");
     fflush(stdout);
+}
+
+void App::ReleaseMouse()
+{
+    // the backend captures the mouse while a button is down in the menus; closed, they get no more events, so a capture left over
+    // would hold the mouse
+    SDL_CaptureMouse(SDL_FALSE);
+}
+
+void App::ResetMouse()
+{
+    // a button the menus saw go down but not up (they closed meanwhile) is let go in the backend, whose own count would otherwise
+    // keep capturing the mouse, and in ImGui, which would otherwise see a held button or a drag when they open again
+    if (ImGui::IsAnyMouseDown())
+        printf("ui: a mouse button held since the menus closed let go\n");
+    for (Uint8 button = SDL_BUTTON_LEFT; button <= SDL_BUTTON_X2; button++)
+    {
+        SDL_Event up {};
+        up.type = SDL_MOUSEBUTTONUP;
+        up.button.windowID = SDL_GetWindowID(Window);
+        up.button.button = button;
+        up.button.state = SDL_RELEASED;
+        ImGui_ImplSDL2_ProcessEvent(&up);
+    }
+    ImGuiIO& io = ImGui::GetIO();
+    io.ClearEventsQueue();
+    io.ClearInputMouse();
 }
 
 void App::ShowStart()

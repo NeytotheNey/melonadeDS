@@ -105,6 +105,9 @@ private:
     void FeedPadButton(const SDL_ControllerButtonEvent& event);
     void FeedAxis(const SDL_ControllerAxisEvent& event);
     void SwallowHeld();
+    // the mouse's state in ImGui and its backend let go when the menus open, and its capture when they close
+    void ResetMouse();
+    void ReleaseMouse();
     Screen* Top() const { return Stack.empty() ? nullptr : Stack.back().get(); }
     // the screen whose Draw is running
     Screen* Drawing = nullptr;
