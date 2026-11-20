@@ -1039,6 +1039,35 @@ void Input::BeginCapture(const std::string& id, Action action, bool alt)
     fflush(stdout);
 }
 
+void Input::NoteDevice(SDL_JoystickID source)
+{
+    LastUsed = source;
+}
+
+std::string Input::LastDeviceId() const
+{
+    if (LastUsed == kKeyboard)
+        return "keyboard";
+    if (const Pad* pad = FindPad(LastUsed))
+        return pad->Guid;
+    // a --ui-script pad step without a virtual pad (which -1) has a profile of its own
+    if (LastUsed == -1)
+    {
+        for (const DeviceProfile& profile : Profiles)
+        {
+            if (profile.Id == "script")
+                return "script";
+        }
+    }
+    return "keyboard";
+}
+
+std::string Input::DeviceName(const std::string& id)
+{
+    DeviceProfile* profile = Profile(id);
+    return !profile ? id : profile->Keyboard ? "the keyboard" : profile->Name;
+}
+
 void Input::CancelCapture()
 {
     if (CaptureOn)

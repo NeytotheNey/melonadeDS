@@ -2328,6 +2328,13 @@ int main(int argc, char** argv)
         while (SDL_PollEvent(&ev))
         {
             // "press a button" in the input setup takes every key, button and stick first
+            // the device each press comes from, menus or game, for the input setup's first page
+            if (ev.type == SDL_KEYDOWN && !ev.key.repeat)
+                input.NoteDevice(Frontend::Input::kKeyboard);
+            else if (ev.type == SDL_CONTROLLERBUTTONDOWN)
+                input.NoteDevice(ev.cbutton.which);
+            else if (ev.type == SDL_CONTROLLERAXISMOTION && std::abs(ev.caxis.value) > Frontend::kStickDeadZone)
+                input.NoteDevice(ev.caxis.which);
             if (input.Capturing() && input.CaptureEvent(ev))
                 continue;
             // the menus next: what they take, the game doesn't see

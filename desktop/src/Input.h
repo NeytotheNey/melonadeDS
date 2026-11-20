@@ -177,6 +177,13 @@ public:
     // the last capture's end, once
     CaptureResult TakeCaptureResult();
 
+    // Every key and controller button pressed (and stick pushed), menus or game: the device it came from, which the setup screen opens
+    // on. "keyboard", or the profile id (GUID) of the pad pressed last
+    void NoteDevice(SDL_JoystickID source);
+    std::string LastDeviceId() const;
+    // a device's name for the menus ("the keyboard", the pad's)
+    std::string DeviceName(const std::string& id);
+
     // the controller the game was last played with: rumble goes to it
     void Rumble(int durationMs);
     void StopRumble();
@@ -227,6 +234,7 @@ private:
     std::vector<InputPart> CaptureParts;
     std::set<InputPart> CaptureHeld;
     CaptureResult LastCapture = CaptureResult::None;
+    SDL_JoystickID LastUsed = kKeyboard;
 };
 
 }

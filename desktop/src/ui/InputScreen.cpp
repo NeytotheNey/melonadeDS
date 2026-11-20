@@ -75,6 +75,11 @@ public:
             app.Pop();
         if (!input)
             return;
+        if (Device.empty())
+        {
+            Device = input->LastDeviceId();
+            printf("ui: input device %s\n", Device.c_str());
+        }
         Frontend::DeviceProfile* profile = input->Profile(Device);
         if (!profile)
         {
@@ -305,7 +310,8 @@ private:
         text(app.Regular, 14, c1.y - app.Px(24) - app.Px(16), p.OnSurfaceVariant, left);
     }
 
-    std::string Device = "keyboard";
+    // the device whose page is shown: on opening, the one used last (the pad that chose the row, say)
+    std::string Device;
     int FocusedAction = -1;
     bool FocusedAlt = false;
     int CaptureAction = 0;
