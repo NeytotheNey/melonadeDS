@@ -72,7 +72,7 @@ main ones:
 | `--ui-script F` | drive the menus from a file, see [UI scripts](#ui-scripts) |
 | `--state-dir DIR` | the command line's game's savestate slots (`.ml0`-`.ml8`) in DIR instead of next to the ROM, for tests (without it, a test run keeps them in its temporary profile) |
 | `--unthrottled`, `--hidden`, `--no-audio`, `--gpu-sync` | for benchmarks and scripted runs |
-| `--virtual-pad xbox\|switch\|ps` | an SDL virtual controller of that model, the one controller a hidden run takes; `--ui-script`'s `pad` and `axis` steps drive it through SDL's own events, and its rumble is printed |
+| `--virtual-pad xbox\|switch\|ps\|generic` | an SDL virtual controller of that model (generic: a joystick SDL has no mapping for), the one controller a hidden run takes; `--ui-script`'s `pad` and `axis` steps drive it through SDL's own events, and its rumble is printed |
 | `--audio-log`, `--audio-wav F.wav`, `--audio-trace F.csv` | the sound: the ring's fill and ratio once a second, what the callback plays (before the volume), every callback's and frame's fill |
 | `--console ds\|dsi`, `--dsi-bios DIR` | the console for this run (`console_type`, `dsi_bios_dir`); DSi needs `--bios` too |
 | `--sharper-rotated-2d`, `--gl-seams`, `--no-edge-marking` | the app's renderer settings, like `--filter2d` |
@@ -230,7 +230,10 @@ combos fire at once. While a combo is on, its parts don't reach the game. They l
 Controllers are SDL GameControllers, with the mappings in `gamecontrollerdb.txt` next to the exe (and one in the profile folder, if
 there is one, on top), opened as they're plugged in. Their face buttons are read by position, and each pad's face layout says where
 the DS's A is: Nintendo (east = A, south = B, north = X, west = Y; the default for Switch pads) or positional (south = A, east = B, west =
-X, north = Y, as an Xbox pad's labels say; the default for Xbox, PlayStation and other pads). The menus follow it too.
+X, north = Y, as an Xbox pad's labels say; the default for Xbox, PlayStation and other pads). The menus follow it too. Every joystick SDL sees is logged
+(`joystick N:` with its name, GUID, USB ids and whether it's a game controller, after a `joystick hints:` line), and one SDL
+has no mapping for gets a toast ("... has no controller mapping"), since it can't be bound. The input setup opens on the page of
+the device used last.
 
 | | Keyboard | Controller |
 |---|---|---|

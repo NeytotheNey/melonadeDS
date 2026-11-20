@@ -586,7 +586,15 @@ bool Input::AttachVirtualPad(const std::string& type)
     desc.nbuttons = SDL_CONTROLLER_BUTTON_MAX;
     desc.Rumble = VirtualRumble;
     // the ids of a real pad of each kind, which SDL_GameControllerGetType reads
-    if (type == "switch")
+    if (type == "generic")
+    {
+        // a joystick SDL has no mapping for (not a game controller), as some pads are without gamecontrollerdb.txt
+        desc.type = SDL_JOYSTICK_TYPE_UNKNOWN;
+        desc.vendor_id = 0x1209;
+        desc.product_id = 0x0001;
+        desc.name = "Virtual generic joystick";
+    }
+    else if (type == "switch")
     {
         desc.vendor_id = 0x057e;
         desc.product_id = 0x2009;
@@ -636,6 +644,40 @@ bool Input::SetVirtualAxis(int axis, int value)
         }
     }
     return false;
+}
+
+bool Input::DescribeJoystick(int deviceIndex, std::string& name)
+{
+    const char* n = SDL_JoystickNameForIndex(deviceIndex);
+    name = n ? n : "A controller";
+    bool controller = SDL_IsGameController(deviceIndex);
+    SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(deviceIndex);
+    if (Described.insert(id).second)
+    {
+        char guid[64];
+        SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(deviceIndex), guid, sizeof(guid));
+        const char* path = SDL_JoystickPathForIndex(deviceIndex);
+        printf("joystick %d: %s, GUID %s, USB %04x:%04x, %s%s%s, path %s\n", (int)id, name.c_str(), guid, SDL_JoystickGetDeviceVendor(deviceIndex),
+            SDL_JoystickGetDeviceProduct(deviceIndex), controller ? "a game controller" : "NOT a game controller (no mapping, it can't be bound)",
+            SDL_JoystickIsVirtual(deviceIndex) ? ", virtual" : "", Hidden && !SDL_JoystickIsVirtual(deviceIndex) ? ", ignored (hidden run)" : "",
+            path ? path : "-");
+        fflush(stdout);
+    }
+    return controller;
+}
+
+void Input::LogDriverHints()
+{
+    const char* hints[] = {SDL_HINT_JOYSTICK_HIDAPI, SDL_HINT_JOYSTICK_HIDAPI_SWITCH, SDL_HINT_JOYSTICK_HIDAPI_PS4, SDL_HINT_JOYSTICK_HIDAPI_PS5,
+        SDL_HINT_JOYSTICK_HIDAPI_XBOX, SDL_HINT_JOYSTICK_RAWINPUT, SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS,
+        SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS};
+    std::string line = "joystick hints:";
+    for (const char* hint : hints)
+    {
+        const char* value = SDL_GetHint(hint);
+        line += std::string(" ") + hint + "=" + (value ? value : "(SDL's default)");
+    }
+    printf("%s\n", line.c_str());
 }
 
 void Input::OpenController(int deviceIndex)

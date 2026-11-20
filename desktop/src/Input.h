@@ -111,7 +111,7 @@ public:
     void Load(const std::filesystem::path& dir, bool hidden);
     bool Save();
 
-    // --virtual-pad TYPE (xbox, switch, ps): an SDL virtual controller of that model, for tests in hidden runs; its buttons and axes are
+    // --virtual-pad TYPE (xbox, switch, ps, or generic: a joystick with no mapping): an SDL virtual controller of that model, for tests in hidden runs; its buttons and axes are
     // set with SetVirtual*, which go through SDL's events like a real pad's. Its rumble is printed
     bool AttachVirtualPad(const std::string& type);
     bool HasVirtualPad() const { return VirtualIndex >= 0; }
@@ -120,6 +120,11 @@ public:
 
     // SDL_CONTROLLERDEVICEADDED / REMOVED (and the ones there at the start)
     void OpenController(int deviceIndex);
+    // Every joystick SDL sees (at the start, and SDL_JOYDEVICEADDED), logged once with its name, GUID, ids and whether SDL takes it as a
+    // game controller. False for one that isn't (no mapping in SDL or gamecontrollerdb.txt): it can't be bound, and [name] says which
+    bool DescribeJoystick(int deviceIndex, std::string& name);
+    // the SDL hints that decide which drivers see a pad (HIDAPI for Switch, PlayStation and Xbox pads, RawInput, background events)
+    static void LogDriverHints();
     void CloseController(SDL_JoystickID id);
     struct Pad
     {
@@ -216,6 +221,7 @@ private:
     bool Hidden = false;
     std::vector<DeviceProfile> Profiles;
     std::vector<Pad> OpenPads;
+    std::set<SDL_JoystickID> Described;
     // the keyboard's state, then each controller's by instance id
     DeviceState KeyboardState;
     std::vector<std::pair<SDL_JoystickID, DeviceState>> PadStates;

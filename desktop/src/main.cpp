@@ -283,7 +283,7 @@ void Usage()
         "                              quit. It starts on the start screen or once the game's first frame is\n"
         "                              shown, and the run ends after its last line (README: UI scripts)\n"
         "\n"
-        "  --virtual-pad xbox|switch|ps an SDL virtual controller (the one a hidden run takes), for --ui-script's\n"
+        "  --virtual-pad xbox|switch|ps|generic  an SDL virtual controller (generic: one with no mapping), for --ui-script's\n"
         "                              pad and axis steps\n"
         "  --audio-log                 the sound's buffer fill and ratio once a second\n"
         "  --audio-wav FILE.wav        what the audio callback plays, before the volume\n"
@@ -1167,8 +1167,13 @@ int main(int argc, char** argv)
     audio.Apply(audioConfig());
 
     // the controllers there now (a hidden run opens only its virtual one: Input::OpenController); the rest come as they're plugged in
+    Frontend::Input::LogDriverHints();
     for (int i = 0; i < SDL_NumJoysticks(); i++)
+    {
+        std::string name;
+        input.DescribeJoystick(i, name);
         input.OpenController(i);
+    }
 
     // The game running now (none on the start screen). The command line's ROM is booted with its --state, --at, --press, --touch and --gba;
     // a game opened from the menus gets none of those
@@ -2386,6 +2391,14 @@ int main(int argc, char** argv)
                         emu->releaseScreen();
                 }
                 break;
+            case SDL_JOYDEVICEADDED:
+            {
+                // a pad SDL has no mapping for shows up as a joystick only: logged, and said, so it doesn't look ignored
+                std::string name;
+                if (!input.DescribeJoystick(ev.jdevice.which, name) && (!opts.Hidden || SDL_JoystickIsVirtual(ev.jdevice.which)))
+                    ui.Toast(name + " has no controller mapping");
+                break;
+            }
             case SDL_CONTROLLERDEVICEADDED:
                 input.OpenController(ev.cdevice.which);
                 break;
