@@ -903,8 +903,9 @@ void ReleaseFrame(Frame* frame)
 
 // The exe is a GUI program, so it has no console of its own. Started from one (PowerShell, cmd, bash) it writes there: to the handles it
 // was given when they're redirected or piped (a file, mintty's pipe), else to the parent's console, attached. A double-clicked exe has
-// neither, and its output goes nowhere, as before. True when it attached
-bool AttachParentConsole()
+// neither, and its output goes nowhere, as before. True when it attached; [outConsole] and [errConsole] say which streams it reopened
+// to that console (a redirected one keeps its file or pipe)
+bool AttachParentConsole(bool& outConsole, bool& errConsole)
 {
     auto usable = [](DWORD which)
     {
@@ -912,26 +913,30 @@ bool AttachParentConsole()
         return handle != nullptr && handle != INVALID_HANDLE_VALUE && GetFileType(handle) != FILE_TYPE_UNKNOWN;
     };
     bool out = usable(STD_OUTPUT_HANDLE), err = usable(STD_ERROR_HANDLE);
+    outConsole = errConsole = false;
     if (out && err)
         return false;
     if (!AttachConsole(ATTACH_PARENT_PROCESS))
         return false;
     if (!out)
-        freopen("CONOUT$", "w", stdout);
+        outConsole = freopen("CONOUT$", "w", stdout) != nullptr;
     if (!err)
-        freopen("CONOUT$", "w", stderr);
+        errConsole = freopen("CONOUT$", "w", stderr) != nullptr;
     return true;
 }
 
 // A run to play (not a test, nor --help): the parent's console attached above goes again, so Ctrl+C typed there, or the console closing,
 // can't end the game (PowerShell doesn't wait for a GUI program, so its prompt is back and takes keys meanwhile). What's printed from here
-// on goes nowhere, as for a double-clicked exe; redirected output (a file, a pipe) was never attached and keeps going there
-void DetachParentConsole()
+// on to the console goes nowhere, as for a double-clicked exe; a redirected stream (a file, a pipe) keeps going there, also when the other
+// one was the console (game.nds > log.txt)
+void DetachParentConsole(bool outConsole, bool errConsole)
 {
     fflush(stdout);
     fflush(stderr);
-    freopen("NUL", "w", stdout);
-    freopen("NUL", "w", stderr);
+    if (outConsole)
+        freopen("NUL", "w", stdout);
+    if (errConsole)
+        freopen("NUL", "w", stderr);
     FreeConsole();
 }
 
@@ -972,7 +977,8 @@ void AddRecentRom(Frontend::Settings& settings, const std::string& path)
 
 int main(int argc, char** argv)
 {
-    bool attached = AttachParentConsole();
+    bool outConsole = false, errConsole = false;
+    bool attached = AttachParentConsole(outConsole, errConsole);
     Options opts;
     if (!ParseArgs(argc, argv, opts))
     {
@@ -981,8 +987,17 @@ int main(int argc, char** argv)
     }
     // the runs whose output is the point keep the console: tests and scripted runs, and --verbose
     bool testRun = opts.Hidden || opts.Frames != 0 || !opts.UiScriptPath.empty() || Frontend::VerboseLog;
-    if (attached && !testRun)
-        DetachParentConsole();
+    // (MELONADE_TEST_DETACH_CONSOLE=1 lets go of it in a test run too, to check that path in a hidden one)
+    const char* forceDetach = getenv("MELONADE_TEST_DETACH_CONSOLE");
+    if (forceDetach && forceDetach[0] == '1')
+        printf("console: %s (stdout %s, stderr %s)\n", attached ? "attached" : "not attached", outConsole ? "the console" : "its own",
+            errConsole ? "the console" : "its own");
+    if (attached && (!testRun || (forceDetach && forceDetach[0] == '1')))
+    {
+        printf("console: let go of the parent's console (stdout %s, stderr %s)\n", outConsole ? "was the console" : "kept",
+            errConsole ? "was the console" : "kept");
+        DetachParentConsole(outConsole, errConsole);
+    }
     std::vector<Frontend::UiStep> script;
     if (!opts.UiScriptPath.empty() && !Frontend::LoadUiScript(opts.UiScriptPath, script))
         return 1;
