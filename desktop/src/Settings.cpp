@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -23,14 +24,14 @@ std::string PathToUtf8(const fs::path& path)
     return std::string(text.begin(), text.end());
 }
 
-fs::path ResolveProfileDir(const std::string& profileArg, bool hidden, const fs::path& exeDir, bool& temporary)
+fs::path ResolveProfileDir(const std::string& profileArg, bool scripted, const fs::path& exeDir, bool& temporary)
 {
     temporary = false;
     std::error_code ec;
     fs::path dir;
     if (!profileArg.empty())
         dir = fs::path(profileArg);
-    else if (hidden)
+    else if (scripted)
     {
         // a test run: a folder of its own, so it never reads or writes the real profile
         fs::path base = fs::temp_directory_path(ec);
@@ -67,7 +68,18 @@ bool Settings::Load(const fs::path& dir)
     text << in.rdbuf();
     std::string content = text.str();
     picojson::value root;
-    std::string error = picojson::parse(root, content);
+    std::string error;
+    try
+    {
+        // picojson throws on a number it can't hold (1e999 is infinite), and on anything else unexpected
+        error = picojson::parse(root, content);
+    }
+    catch (const std::exception& e)
+    {
+        error = e.what();
+        if (error.empty())
+            error = "a value picojson can't hold";
+    }
     if (!error.empty() || !root.is<picojson::object>())
     {
         fprintf(stderr, "settings: %s doesn't parse (%s), starting from the defaults; it's kept as settings.json.bad\n",
@@ -156,14 +168,18 @@ int Settings::GetInt(const std::string& key, int fallback) const
     const picojson::value* value = Find(key);
     if (!value)
         return fallback;
+    // in int range only (a cast of one that isn't is undefined)
     if (value->is<double>())
-        return (int)value->get<double>();
+    {
+        double number = value->get<double>();
+        return number > -1e9 && number < 1e9 ? (int)number : fallback;
+    }
     if (value->is<std::string>())
     {
         const std::string& text = value->get<std::string>();
         char* end = nullptr;
-        long number = strtol(text.c_str(), &end, 10);
-        if (end != text.c_str() && *end == 0)
+        long long number = strtoll(text.c_str(), &end, 10);
+        if (end != text.c_str() && *end == 0 && number > -1000000000LL && number < 1000000000LL)
             return (int)number;
     }
     return fallback;
@@ -198,7 +214,8 @@ picojson::value Settings::ParseValue(const std::string& text)
         return picojson::value(false);
     char* end = nullptr;
     double number = strtod(text.c_str(), &end);
-    if (!text.empty() && end && *end == 0)
+    // a JSON number can't be infinite or NaN (picojson throws on one), so "inf", "nan" and 1e999 stay text
+    if (!text.empty() && end && *end == 0 && std::isfinite(number))
         return picojson::value(number);
     return picojson::value(text);
 }

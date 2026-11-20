@@ -15,9 +15,9 @@ namespace Frontend
 {
 
 // Where the profile (settings and, in later phases, the library, RetroAchievements login and art) lives: [profileArg] (--profile) if
-// given, otherwise a fresh temporary folder for a --hidden run (made here; [temporary] says so, and the caller removes it at exit), the
+// given, otherwise a fresh temporary folder for a scripted run, --hidden or --frames (made here; [temporary] says so, and the caller removes it at exit), the
 // exe's folder when a portable.txt sits there, or %APPDATA%\melonadeDS. The folder is made if it's missing; empty on failure
-std::filesystem::path ResolveProfileDir(const std::string& profileArg, bool hidden, const std::filesystem::path& exeDir, bool& temporary);
+std::filesystem::path ResolveProfileDir(const std::string& profileArg, bool scripted, const std::filesystem::path& exeDir, bool& temporary);
 
 // a path from a UTF-8 string (SDL's), and back
 std::filesystem::path PathFromUtf8(const std::string& text);
