@@ -134,7 +134,7 @@ message(STATUS "melonadeDS ${MELONADE_VERSION_NAME} (${MELONADE_VERSION_CODE})")
 
 # the resource script embeds these, so it's compiled again when one changes
 set_source_files_properties(src/resources.rc PROPERTIES OBJECT_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/app.ico;${CMAKE_BINARY_DIR}/generated/version.h;${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/roboto/Roboto-Regular.ttf;${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/roboto/Roboto-Medium.ttf;${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/material-symbols/MaterialSymbolsOutlined-subset.ttf")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/app.ico;${CMAKE_CURRENT_SOURCE_DIR}/src/app.manifest;${CMAKE_BINARY_DIR}/generated/version.h;${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/roboto/Roboto-Regular.ttf;${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/roboto/Roboto-Medium.ttf;${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/material-symbols/MaterialSymbolsOutlined-subset.ttf")
 
 # third_party/: vendored libraries (third_party/README.md)
 target_include_directories(melonade-desktop PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CORE_LIB}/src" "${GL_DIR}/shim"
