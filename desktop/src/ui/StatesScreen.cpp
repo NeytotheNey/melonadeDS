@@ -23,9 +23,28 @@ public:
 
     const char* Id() const override { return SaveTab ? "pause/save" : "pause/load"; }
 
+    bool Back(App& app) override
+    {
+        // B on the question: no
+        if (Ask != Question::None)
+        {
+            CloseQuestion();
+            return true;
+        }
+        return false;
+    }
+
+    void Clear(App& app) override
+    {
+        // X on a used slot: delete it, once asked
+        if (app.Busy || Ask != Question::None || FocusedSlot < 0 || !FocusedExists)
+            return;
+        OpenQuestion(Question::Delete, FocusedSlot);
+    }
+
     void Tab(App& app, int) override
     {
-        if (app.Busy)
+        if (app.Busy || Ask != Question::None)
             return;
         SaveTab = !SaveTab;
         // the focus stays on the same slot when it can; an empty one can't be loaded
@@ -77,18 +96,45 @@ public:
                 }
             }
         }
+        bool asking = Ask != Question::None;
+        if (asking)
+            ImGui::BeginDisabled();
+        FocusedSlot = -1;
+        FocusedExists = false;
         for (size_t i = 0; i < slots.size(); i++)
         {
             if (i % columns)
                 ImGui::SameLine();
-            if (Card(app, slots[i], ImVec2(cardW, cardH), slots[i].Number == defaultSlot) && !app.Busy)
-                Choose(app, slots[i]);
+            if (Card(app, slots[i], ImVec2(cardW, cardH), slots[i].Number == defaultSlot) && !app.Busy && !asking)
+            {
+                // saving over a used slot asks first
+                if (SaveTab && slots[i].Exists)
+                    OpenQuestion(Question::Overwrite, slots[i].Number);
+                else
+                    Choose(app, slots[i]);
+            }
+            if (ImGui::IsItemFocused())
+            {
+                FocusedSlot = slots[i].Number;
+                FocusedExists = slots[i].Exists;
+            }
         }
+        // (within the child, where it began)
+        if (asking)
+            ImGui::EndDisabled();
         ImGui::EndChild();
         ImGui::PopStyleVar(2);
 
-        FooterHints(app, {{SaveTab ? "A|Enter" : "A|Enter", SaveTab ? "Save here" : "Load"}, {"L/R|Q/W", SaveTab ? "Load tab" : "Save tab"},
-            {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
+        if (asking)
+            FooterHints(app, {{"A|Enter", "Choose"}, {"B|Esc", "Cancel"}}, p.SurfaceContainerLowest);
+        else if (FocusedExists)
+            FooterHints(app, {{"A|Enter", SaveTab ? "Save over it" : "Load"}, {"X|Del", "Delete"}, {"L/R|Q/W", SaveTab ? "Load tab" : "Save tab"},
+                {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
+        else
+            FooterHints(app, {{"A|Enter", SaveTab ? "Save here" : "Load"}, {"L/R|Q/W", SaveTab ? "Load tab" : "Save tab"},
+                {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
+        if (asking)
+            DrawQuestion(app, slots);
         (void)draw;
     }
 
@@ -286,8 +332,109 @@ private:
         }
     }
 
+    enum class Question { None, Overwrite, Delete };
+
+    void OpenQuestion(Question question, int slot)
+    {
+        Ask = question;
+        AskSlot = slot;
+        AskFocus = true;
+        SavedFocus = FocusId;
+        FocusId = 0;
+        WantFocus = true;
+        printf("ui: ask %s slot %d\n", question == Question::Delete ? "delete" : "overwrite", slot);
+        fflush(stdout);
+    }
+
+    void CloseQuestion()
+    {
+        Ask = Question::None;
+        FocusId = SavedFocus;
+        WantFocus = true;
+        printf("ui: %s\n", Id());
+        fflush(stdout);
+    }
+
+    // the question over the grid, in a window of its own: the answer that does it, and Cancel (the focus starts on Cancel for a delete)
+    void DrawQuestion(App& app, const std::vector<SaveSlots::Slot>& slots)
+    {
+        const Palette& p = app.Colors();
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::GetForegroundDrawList(); // (the screen behind is drawn)
+        float w = std::min(viewport->Size.x - app.Px(32), app.Px(520)), h = app.Px(224);
+        ImVec2 pos(viewport->Pos.x + (viewport->Size.x - w) / 2, viewport->Pos.y + (viewport->Size.y - h) / 2);
+        ImGui::SetNextWindowPos(pos);
+        ImGui::SetNextWindowSize(ImVec2(w, h));
+        if (AskFocus)
+            ImGui::SetNextWindowFocus();
+        AskFocus = false;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(app.Px(24), app.Px(24)));
+        ImGui::Begin("##question", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize
+            | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollWithMouse);
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        // the dim over the whole window, then the card
+        ImGui::GetBackgroundDrawList();
+        draw->PushClipRectFullScreen();
+        draw->AddRectFilled(viewport->Pos, ImVec2(viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y), WithAlpha(p.Scrim, 0.45f));
+        draw->PopClipRect();
+        draw->AddRectFilled(pos, ImVec2(pos.x + w, pos.y + h), p.SurfaceContainerLow, app.Px(28));
+        draw->AddRect(pos, ImVec2(pos.x + w, pos.y + h), p.OutlineVariant, app.Px(28), std::max(1.f, app.Px(1)));
+        bool del = Ask == Question::Delete;
+        std::string when;
+        for (const SaveSlots::Slot& slot : slots)
+        {
+            if (slot.Number == AskSlot)
+                when = slot.When;
+        }
+        float tx = pos.x + app.Px(24), tw = w - app.Px(48);
+        std::string title = (del ? "Delete " : "Save over ") + Frontend::SlotName(AskSlot) + "?";
+        ImVec2 ts = TextAt(app, app.Medium, 22, ImVec2(tx, pos.y + app.Px(24)), p.OnSurface, Ellipsize(app, app.Medium, 22, title, tw).c_str());
+        std::string body = del ? "The state from " + when + " goes to the recycle bin, with its screenshot."
+                               : "The state from " + when + " is replaced by the game as it is now.";
+        TextAt(app, app.Regular, 15, ImVec2(tx, pos.y + app.Px(24) + ts.y + app.Px(10)), p.OnSurfaceVariant, body.c_str(), tw);
+
+        float bw = (tw - app.Px(12)) / 2;
+        ImGui::SetCursorScreenPos(ImVec2(tx, pos.y + h - app.Px(24) - app.Px(68)));
+        bool yes = BigButton(app, "##yes", del ? Icon::Delete : Icon::Save, del ? "Delete" : "Save over it", nullptr, true, bw, !del);
+        ImGui::SameLine(0, app.Px(12));
+        bool no = BigButton(app, "##no", Icon::Close, "Cancel", nullptr, false, bw, del);
+        ImGui::End();
+        ImGui::PopStyleVar();
+
+        if (no)
+            CloseQuestion();
+        else if (yes)
+        {
+            Host& host = app.GetHost();
+            int slot = AskSlot;
+            Question question = Ask;
+            CloseQuestion();
+            if (question == Question::Delete)
+            {
+                if (host.DeleteSlot && host.DeleteSlot(slot))
+                    app.Toast("Deleted " + Frontend::SlotName(slot));
+                else
+                    app.Toast("Couldn't delete " + Frontend::SlotName(slot));
+            }
+            else
+            {
+                for (const SaveSlots::Slot& s : slots)
+                {
+                    if (s.Number == slot)
+                        Choose(app, s);
+                }
+            }
+        }
+    }
+
     bool SaveTab;
     int BusySlot = -1;
+    int FocusedSlot = -1;
+    bool FocusedExists = false;
+    Question Ask = Question::None;
+    int AskSlot = -1;
+    bool AskFocus = false;
+    ImGuiID SavedFocus = 0;
 };
 
 }
