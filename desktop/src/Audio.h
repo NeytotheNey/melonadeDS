@@ -111,10 +111,11 @@ private:
     void CloseDevice();
     void CloseWav();
 
-    SDL_AudioDeviceID Device = 0;
+    // written by Apply() on the UI thread, read by the emulator thread too (IsOpen, the trims after a frame)
+    std::atomic<SDL_AudioDeviceID> Device = 0;
     Config Current;
     int SampleRate = 48000;
-    int Target = 1600;
+    std::atomic<int> Target = 2000;
 
     // the ring: the emulator thread writes, the callback reads
     std::vector<Sint16> Ring = std::vector<Sint16>(kRingFrames * 2);

@@ -127,8 +127,8 @@ void AudioOutput::Apply(const Config& config)
     Drift.setStarvingFraction(kStarvingFraction);
     // the callback primes again
     StartGeneration++;
-    printf("audio: %s, %d Hz, %d frames a callback, target fill %d (%.0f ms)\n", SDL_GetCurrentAudioDriver(), have.freq, have.samples, Target,
-        Target * 1000.0 / have.freq);
+    printf("audio: %s, %d Hz, %d frames a callback, target fill %d (%.0f ms)\n", SDL_GetCurrentAudioDriver(), have.freq, have.samples, Target.load(),
+        Target.load() * 1000.0 / have.freq);
     fflush(stdout);
     SDL_PauseAudioDevice(Device, 0);
 }
@@ -295,6 +295,7 @@ void AudioOutput::UpdateSkew(MelonDSAndroid::MelonInstance& instance, int numFra
 void AudioOutput::Fill(Sint16* samples, int numFrames)
 {
     StatCallbacks++;
+    int target = Target.load();
     // a trim asked for (fast forward ended, unmuted): down to its keep when the ring holds more than its threshold
     if (uint64_t request = TrimRequest.exchange(0))
     {
@@ -340,7 +341,7 @@ void AudioOutput::Fill(Sint16* samples, int numFrames)
             {
                 // the target first (half of it after the ring ran dry) with this callback's worth on top, since the target is the fill
                 // after a read, then trimmed to it, so the drift control starts on it
-                if (fill < (Repriming ? Target / 2 : Target) + numFrames)
+                if (fill < (Repriming ? target / 2 : target) + numFrames)
                 {
                     UpdateSkew(*instance, numFrames, false, fill);
                     ApplyFades(samples, 0, numFrames);
@@ -350,8 +351,8 @@ void AudioOutput::Fill(Sint16* samples, int numFrames)
                 {
                     Primed = true;
                     Repriming = false;
-                    if (fill > Target + numFrames + 256)
-                        DropRing(fill - Target - numFrames);
+                    if (fill > target + numFrames + 256)
+                        DropRing(fill - target - numFrames);
                     Drift.reset();
                 }
             }
@@ -477,7 +478,7 @@ void AudioOutput::PrintStats()
         return;
     int minFill = StatMinFill.exchange(1 << 30), maxFill = StatMaxFill.exchange(0);
     printf("audio: fill %d (before reads: min %d, max %d), filtered %d of %d, ratio %.5f, underrun frames %d, reprimes %d, overflow frames %d, "
-        "callbacks %d%s\n", StatFill.load(), minFill == (1 << 30) ? -1 : minFill, maxFill, StatFiltered.load(), Target, StatSkew.load(),
+        "callbacks %d%s\n", StatFill.load(), minFill == (1 << 30) ? -1 : minFill, maxFill, StatFiltered.load(), Target.load(), StatSkew.load(),
         StatUnderrunFrames.exchange(0), StatReprimes.exchange(0), StatOverflowFrames.exchange(0), StatCallbacks.exchange(0),
         FastForward ? (MuteFastForward ? " (fast forward, muted)" : " (fast forward)") : "");
     fflush(stdout);
