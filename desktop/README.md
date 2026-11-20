@@ -44,7 +44,8 @@ run it again only if that header changes.
     melonade-desktop [options] [game.nds]
 
 Without a ROM it opens the start screen. It's a GUI program: started from bash or cmd it writes to their
-console, or to the files it's redirected to (`> out.txt 2> err.txt`, as the `logs/` scripts do).
+console (test runs only: `--hidden`, `--frames`, `--ui-script`, `--verbose`, `--help`; a run to play lets go of the console, so
+Ctrl+C there can't end the game), or to the files it's redirected to (`> out.txt 2> err.txt`, as the `logs/` scripts do).
 Windows PowerShell treats a GUI program differently: it neither waits for it nor redirects `>` or `*>`
 (the file stays empty), but it does both when the output is piped, so use
 `& .\melonade-desktop.exe ... 2>&1 | Out-File out.txt`, or

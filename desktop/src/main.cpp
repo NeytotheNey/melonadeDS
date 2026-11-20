@@ -903,8 +903,8 @@ void ReleaseFrame(Frame* frame)
 
 // The exe is a GUI program, so it has no console of its own. Started from one (PowerShell, cmd, bash) it writes there: to the handles it
 // was given when they're redirected or piped (a file, mintty's pipe), else to the parent's console, attached. A double-clicked exe has
-// neither, and its output goes nowhere, as before
-void AttachParentConsole()
+// neither, and its output goes nowhere, as before. True when it attached
+bool AttachParentConsole()
 {
     auto usable = [](DWORD which)
     {
@@ -913,13 +913,26 @@ void AttachParentConsole()
     };
     bool out = usable(STD_OUTPUT_HANDLE), err = usable(STD_ERROR_HANDLE);
     if (out && err)
-        return;
+        return false;
     if (!AttachConsole(ATTACH_PARENT_PROCESS))
-        return;
+        return false;
     if (!out)
         freopen("CONOUT$", "w", stdout);
     if (!err)
         freopen("CONOUT$", "w", stderr);
+    return true;
+}
+
+// A run to play (not a test, nor --help): the parent's console attached above goes again, so Ctrl+C typed there, or the console closing,
+// can't end the game (PowerShell doesn't wait for a GUI program, so its prompt is back and takes keys meanwhile). What's printed from here
+// on goes nowhere, as for a double-clicked exe; redirected output (a file, a pipe) was never attached and keeps going there
+void DetachParentConsole()
+{
+    fflush(stdout);
+    fflush(stderr);
+    freopen("NUL", "w", stdout);
+    freopen("NUL", "w", stderr);
+    FreeConsole();
 }
 
 // the recent games in the settings (desktop_recent_roms), newest first
@@ -959,13 +972,17 @@ void AddRecentRom(Frontend::Settings& settings, const std::string& path)
 
 int main(int argc, char** argv)
 {
-    AttachParentConsole();
+    bool attached = AttachParentConsole();
     Options opts;
     if (!ParseArgs(argc, argv, opts))
     {
         Usage();
         return 1;
     }
+    // the runs whose output is the point keep the console: tests and scripted runs, and --verbose
+    bool testRun = opts.Hidden || opts.Frames != 0 || !opts.UiScriptPath.empty() || Frontend::VerboseLog;
+    if (attached && !testRun)
+        DetachParentConsole();
     std::vector<Frontend::UiStep> script;
     if (!opts.UiScriptPath.empty() && !Frontend::LoadUiScript(opts.UiScriptPath, script))
         return 1;
