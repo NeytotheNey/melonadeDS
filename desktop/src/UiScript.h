@@ -7,7 +7,7 @@
 //   pad NAME           a controller button pressed and released, as SDL names it (pad start, pad guide, pad a, pad dpdown); with
 //                      --virtual-pad, on that pad through SDL's own events
 //   pad-down NAME, pad-up NAME   a controller button pressed (held over the next steps) or let go
-//   key-down NAME, key-up NAME   the same for a key
+//   key-down NAME, key-up NAME   the same for a key; key-repeat NAME: a repeated KEYDOWN, as a held key sends them
 //   axis NAME VALUE    a stick or trigger of the --virtual-pad at VALUE (-32768 to 32767; triggers 0 to 32767): axis rightx 20000
 //   wait N             N passes of the frame loop (UI frames while a menu is up)
 //   sleep MS           MS milliseconds of real time (the game runs on meanwhile, unless it's held)
@@ -27,7 +27,7 @@ namespace Frontend
 
 struct UiStep
 {
-    enum class Kind { Action, Text, Key, Pad, PadDown, PadUp, KeyDown, KeyUp, Axis, Wait, Sleep, Frame, Shot, Screenshot, Quit } Type;
+    enum class Kind { Action, Text, Key, Pad, PadDown, PadUp, KeyDown, KeyUp, KeyRepeat, Axis, Wait, Sleep, Frame, Shot, Screenshot, Quit } Type;
     std::string Arg;  // the action's name, the text, the key's or button's name, the file
     std::string Text; // the line as written
     unsigned Number = 0;

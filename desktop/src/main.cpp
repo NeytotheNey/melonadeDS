@@ -2153,6 +2153,7 @@ int main(int argc, char** argv)
         }
         case Kind::KeyDown:
         case Kind::KeyUp:
+        case Kind::KeyRepeat:
         {
             SDL_Keycode key = SDL_GetKeyFromName(step.Arg.c_str());
             if (key == SDLK_UNKNOWN)
@@ -2161,12 +2162,14 @@ int main(int argc, char** argv)
                 break;
             }
             SDL_Event event {};
-            bool down = step.Type == Kind::KeyDown;
+            bool down = step.Type != Kind::KeyUp;
             event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
             event.key.windowID = SDL_GetWindowID(window);
             event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
             event.key.keysym.sym = key;
             event.key.keysym.scancode = SDL_GetScancodeFromKey(key);
+            // key-repeat: the KEYDOWNs a held key sends after its first one
+            event.key.repeat = step.Type == Kind::KeyRepeat ? 1 : 0;
             SDL_PushEvent(&event);
             scriptDelay = 1;
             break;

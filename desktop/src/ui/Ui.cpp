@@ -544,7 +544,7 @@ bool App::ProcessEvent(const SDL_Event& event)
         {
             if (down && (key == SDLK_BACKSPACE))
                 KeyboardBackspace();
-            else if (down && (key == SDLK_RETURN || key == SDLK_KP_ENTER || key == SDLK_ESCAPE))
+            else if (down && !event.key.repeat && (key == SDLK_RETURN || key == SDLK_KP_ENTER || key == SDLK_ESCAPE))
                 KeyboardTarget = nullptr;
             else if (key == SDLK_UP || key == SDLK_DOWN || key == SDLK_LEFT || key == SDLK_RIGHT)
                 ImGui_ImplSDL2_ProcessEvent(&copy);
@@ -553,7 +553,8 @@ bool App::ProcessEvent(const SDL_Event& event)
         MenuAction action = Frontend::MenuKeyAction(key);
         if (action != MenuAction::None)
         {
-            if (down && !Busy)
+            // a held key repeats: Back, Clear and the tabs only take its first press, so holding Esc doesn't close one menu after another
+            if (down && !event.key.repeat && !Busy)
             {
                 if (action == MenuAction::Back)
                     Back();

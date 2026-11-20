@@ -57,9 +57,9 @@ bool LoadUiScript(const std::string& path, std::vector<UiStep>& steps)
             step.Type = word == "pad-down" ? UiStep::Kind::PadDown : UiStep::Kind::PadUp;
             step.Arg = rest;
         }
-        else if ((word == "key-down" || word == "key-up") && !rest.empty())
+        else if ((word == "key-down" || word == "key-up" || word == "key-repeat") && !rest.empty())
         {
-            step.Type = word == "key-down" ? UiStep::Kind::KeyDown : UiStep::Kind::KeyUp;
+            step.Type = word == "key-down" ? UiStep::Kind::KeyDown : word == "key-up" ? UiStep::Kind::KeyUp : UiStep::Kind::KeyRepeat;
             step.Arg = rest;
         }
         else if (word == "axis" && !rest.empty())
