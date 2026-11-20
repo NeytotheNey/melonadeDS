@@ -3,13 +3,17 @@
 
 #include <array>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <mutex>
+#include <optional>
 #include <queue>
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
 #include <GLES3/gl3.h>
+#ifdef __ANDROID__
 #include "OpenGLContext.h"
+#endif
+#include "GpuFence.h"
 #include "types.h"
 
 using namespace melonDS;
@@ -53,8 +57,8 @@ struct Frame {
     int halfScaleAt1x = 1;
     // The WideMelon camera's per-frame data (melonDS::OutputLayout), set with halvesAt1x: the top screen's lines with 3D wings, held ones included
     int topWingLines = 0;
-    EGLSyncKHR renderFence{};
-    EGLSyncKHR presentFence{};
+    GpuFence renderFence{};
+    GpuFence presentFence{};
     // Increases every time a frame is pushed for presentation, so the presenter can tell new frames from repeated ones and detect skipped frames
     u64 sequence{};
     // Vsync (CLOCK_MONOTONIC, ns) the frame is meant to be presented on when frame pacing is locked to the display, or 0 to present it as soon as
@@ -120,7 +124,7 @@ private:
     u64 renderFrameCount = 0;
     bool isPresentWaitAborted = false;
     // Display the frame textures and fences were created on, kept so clear() can destroy the fences on any thread
-    EGLDisplay display = EGL_NO_DISPLAY;
+    GpuFenceDisplay display = GPU_FENCE_NO_DISPLAY;
 };
 
 #endif //FRAMEQUEUE_H

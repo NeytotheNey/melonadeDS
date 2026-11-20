@@ -3,8 +3,6 @@
 #include <cstring>
 #include <ctime>
 #include <chrono>
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
 #include <filesystem>
 #include <GLES3/gl3.h>
 #include "Args.h"
@@ -17,7 +15,7 @@
 #include "GPU3D_OpenGL.h"
 // Shadow2D::MaxSharpAffineScale for the "Sharper rotated 2D" setting, and Shadow2DRecorder::AffineDebug for debug.melonade.gpu2daffine
 #include "GPU_Shadow2D.h"
-#include "MelonDS.h"
+#include "FrontendContext.h"
 #include "MelonInstance.h"
 #include "NDS.h"
 #include "NDSCart.h"
@@ -26,6 +24,14 @@
 #include "PlatformAndroid.h"
 #include "SDCardArgsBuilder.h"
 #include "debug/DebugLog.h"
+#ifdef _WIN32
+// MinGW has neither localtime_r nor timegm (setDateTime, syncDateTimeToDevice)
+static std::tm* localtime_r(const std::time_t* time, std::tm* result)
+{
+    return localtime_s(result, time) == 0 ? result : nullptr;
+}
+#define timegm _mkgmtime
+#endif
 #ifdef MELONADE_DEBUG_TOOLS
 #include "MelonLog.h"
 #include "debug/DebugProperties.h"
@@ -92,9 +98,9 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
 
     if (configuration->userInternalFirmwareAndBios)
     {
-        std::filesystem::path firmwarePath = MelonDSAndroid::internalFilesDir;
+        std::filesystem::path firmwarePath = frontendContext.internalFilesDir;
         firmwarePath /= "wfcsettings.bin";
-        firmwareSave = std::make_unique<SaveManager>(firmwarePath);
+        firmwareSave = std::make_unique<SaveManager>(firmwarePath.string());
     }
     else
     {
@@ -307,7 +313,7 @@ void MelonInstance::start()
     nds->Start();
 
     screenshotRenderer->init();
-    luaEngine.start(nds, MelonDSAndroid::eventMessenger, this, &gameState);
+    luaEngine.start(nds, frontendContext.eventMessenger, this, &gameState);
 
     if (DebugLog::isEnabled()) [[unlikely]]
         DebugLog::logGameStart(*nds, "start", hasRomCrc32, romCrc32);
@@ -442,18 +448,18 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
 
     Frame* renderFrame = frameQueue.getRenderFrame();
 
-    EGLDisplay currentDisplay = eglGetCurrentDisplay();
+    GpuFenceDisplay currentDisplay = getCurrentGpuFenceDisplay();
     // Delete old render fence
     if (renderFrame->renderFence)
     {
-        eglDestroySyncKHR(currentDisplay, renderFrame->renderFence);
+        destroyGpuFence(currentDisplay, renderFrame->renderFence);
         renderFrame->renderFence = 0;
     }
 
     // Ensure presentation is finished
     if (renderFrame->presentFence)
     {
-        eglWaitSyncKHR(currentDisplay, renderFrame->presentFence, 0);
+        waitGpuFence(currentDisplay, renderFrame->presentFence);
     }
 
     // Validate frame after ensuring that the frame has finished presenting
@@ -539,7 +545,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     sleeping.store(isSleeping, std::memory_order_relaxed);
     if (!isSleeping) [[likely]]
     {
-        renderFrame->renderFence = eglCreateSyncKHR(currentDisplay, EGL_SYNC_FENCE_KHR, nullptr);
+        renderFrame->renderFence = createGpuFence(currentDisplay);
         glFlush();
         frameQueue.pushRenderedFrame(renderFrame, presentDueTimeNs);
     }
@@ -1054,7 +1060,7 @@ void MelonInstance::updateRenderer()
     int edgeMark = configuration->edgeMarking ? 1 : 0;
     // The full fix (both of its bits), and only for the renderer that draws it: OpenGL, not the software fallback after a failed New()
     int glSeams = configuration->glSeams && currentRenderer == Renderer::OpenGl ? 3 : 0;
-#ifdef MELONADE_DEBUG_TOOLS
+#ifdef MELONADE_DEBUG_OVERRIDES
     if (debugOverrides.edgeMark >= 0)
         edgeMark = debugOverrides.edgeMark;
     if (debugOverrides.glSeams >= 0)
@@ -1089,7 +1095,7 @@ void MelonInstance::updateRenderer()
     isShadow2DOverridden = false;
     shadow2DWide = 0;
     bool isSharpAffineCapLifted = false;
-#ifdef MELONADE_DEBUG_TOOLS
+#ifdef MELONADE_DEBUG_OVERRIDES
     // debug.melonade.gpu2d: DebugProperties::apply already set the mode (with its log and check) for this game, and it stays through renderer
     // and setting changes
     isShadow2DOverridden = debugOverrides.gpu2d >= 0;
@@ -1107,7 +1113,7 @@ void MelonInstance::updateRenderer()
     canShadow2DWideBattles = filter2d == 0 && isGpuRenderer && gameState.hasWideBattles();
 
     bool isHalfCameraOverridden = false;
-#ifdef MELONADE_DEBUG_TOOLS
+#ifdef MELONADE_DEBUG_OVERRIDES
     // DebugProperties::apply already set the mode for this game, and it stays through renderer changes
     isHalfCameraOverridden = debugOverrides.halfCamera >= 0;
 #endif
@@ -1119,7 +1125,12 @@ void MelonInstance::updateRenderer()
 void MelonInstance::applyShadow2DMode()
 {
     // From the last frame's scene: polled for a Gen 4 game while the top screen is wide, nothing for any other game
+#ifdef __ANDROID__
     bool isWideBattle = gameState.updateWideBattle(wideViewWidth > 256);
+#else
+    // The desktop's --no-wide-battles reads every top screen as 256 wide here, which leaves the battles at the edge
+    bool isWideBattle = gameState.updateWideBattle(wideViewWidth > 256 && debugOverrides.wideBattles != 0);
+#endif
     if (!isShadow2DOverridden)
     {
         // Mode 3 only around a battle, with the top screen wide: the rest of the game, and a Gen 4 game at 256, runs as without the shadow
@@ -1132,7 +1143,7 @@ void MelonInstance::applyShadow2DMode()
         if (mode != currentMode)
         {
             nds->GPU.SetShadow2D(mode, false, false, shadow2DWide);
-#ifdef MELONADE_DEBUG_TOOLS
+#ifdef MELONADE_DEBUG_OVERRIDES
             if (nds->GPU.Shadow2D)
                 nds->GPU.Shadow2D->AffineDebug = debugOverrides.gpu2dAffine;
 #endif

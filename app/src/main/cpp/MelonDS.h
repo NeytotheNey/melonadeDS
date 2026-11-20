@@ -7,7 +7,9 @@
 #include "AndroidFileHandler.h"
 #include "AndroidCameraHandler.h"
 #include "Configuration.h"
+#include "FrontendContext.h"
 #include "MelonEventMessenger.h"
+#include "MelonTypes.h"
 #include "RewindManager.h"
 #include "RomGbaSlotConfig.h"
 #include "retroachievements/RAAchievement.h"
@@ -21,10 +23,6 @@
 using namespace melonDS;
 
 namespace MelonDSAndroid {
-    typedef struct {
-        std::vector<u32> code;
-    } Cheat;
-
     typedef enum {
         ROM,
         FIRMWARE
@@ -33,8 +31,6 @@ namespace MelonDSAndroid {
     extern OpenGLContext *openGlContext;
     extern AndroidFileHandler* fileHandler;
     extern AndroidCameraHandler* cameraHandler;
-    extern std::string internalFilesDir;
-    extern std::shared_ptr<MelonEventMessenger> eventMessenger;
     /**
      * Held while the instance is replaced or destroyed and by any other thread that uses it (the render thread presenting a frame, savestate and
      * RetroAchievements calls from coroutines), so it can't be destroyed under them; recursive because the frame render callback can call back into
@@ -114,17 +110,7 @@ namespace MelonDSAndroid {
     extern pid_t getGpu2DThreadId();
 #ifdef MELONADE_DEBUG_TOOLS
     /**
-     * Debug builds only: the capture readback stats summed since the last call (compute renderer only): readback maps, ns waited in the
-     * map, ns spent polling the capspin fence first, and the ns from each RenderFrame start to its map's return
-     */
-    struct CaptureStats {
-        int64_t maps = 0;
-        int64_t waitNs = 0;
-        int64_t spinNs = 0;
-        int64_t spanNs = 0;
-    };
-    /**
-     * Fills in and zeroes the capture readback stats; emulator thread only, after loop()
+     * Fills in and zeroes the capture readback stats (MelonTypes.h); emulator thread only, after loop()
      */
     extern void takeCaptureStats(CaptureStats& stats);
 #endif
@@ -139,24 +125,6 @@ namespace MelonDSAndroid {
      * (GameState::pollScene); any thread
      */
     extern int getGameScene();
-    /**
-     * GPU::Comp1x: whether every surface presenting frames can draw a screen the compositor drew at 1x (Frame::halvesAt1x), as the render thread
-     * last found after presenting; read by the emulator thread before each frame (GPU::Comp1xFrontend). Off until a presentation says so
-     */
-    extern void setHalvesAt1xSupported(bool supported);
-    extern bool areHalvesAt1xSupported();
-    /**
-     * GPU::OutputCap: how many times the native size the screens are shown at, at most, over every surface presenting frames (0 for unknown),
-     * as the render thread last worked it out (FrameRenderCoordinator); read by the emulator thread before each frame (MelonInstance::runFrame)
-     */
-    extern void setOutputScaleNeed(int need);
-    extern int getOutputScaleNeed();
-    /**
-     * GPU::OutputCapDeband: whether any surface presenting frames debands them (its renderer configuration's deband), as the render thread
-     * last saw it (FrameRenderCoordinator); read by the emulator thread before each frame along with the need (MelonInstance::runFrame)
-     */
-    extern void setOutputDeband(bool deband);
-    extern bool getOutputDeband();
     extern void pause();
     extern void resume();
     extern void syncDateTimeToDevice();

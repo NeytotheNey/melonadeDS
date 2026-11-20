@@ -4,9 +4,8 @@
 #include <cstdio>
 #include <cstring>
 
-#include "NDS.h"
-#include "GPU.h"
 #include "OpenGLSupport.h"
+#include "renderer/FrameQueue.h"
 
 using namespace melonDS;
 
@@ -16,9 +15,9 @@ namespace Frontend
 namespace
 {
 
-// the output textures hold the top screen in rows 0-191 and the bottom one in 194-385 (times the
+// the frame textures hold the top screen in rows 0-191 and the bottom one in 194-385 (times the
 // scale), with two rows of padding between them, as the app's DSRenderer reads them. with a
-// vertical margin M (OutputLayout::TopMargin) the top half is 192 + 2M rows, all of it shown here
+// vertical margin M (Frame::topScreenMargin) the top half is 192 + 2M rows, all of it shown here
 
 const char* kVS = R"(#version 320 es
 layout(location = 0) in vec2 vPosition;
@@ -139,13 +138,6 @@ bool Presenter::Init()
         glSamplerParameteri(Sampler[i], GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
 
-    // the software renderer's frames, laid out like the GL output
-    std::vector<u8> zero(256 * 386 * 4, 0);
-    glGenTextures(1, &SoftTexture);
-    glBindTexture(GL_TEXTURE_2D, SoftTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 386, 0, GL_RGBA, GL_UNSIGNED_BYTE, zero.data());
-    glBindTexture(GL_TEXTURE_2D, 0);
-
     glGenFramebuffers(1, &ReadFB);
     return true;
 }
@@ -161,7 +153,6 @@ void Presenter::Free()
     glDeleteVertexArrays(1, &VertexArray);
     glDeleteBuffers(1, &VertexBuffer);
     glDeleteSamplers(2, Sampler);
-    glDeleteTextures(1, &SoftTexture);
     glDeleteFramebuffers(1, &ReadFB);
 }
 
@@ -192,8 +183,9 @@ bool Presenter::PrepareHalvesAt1x()
     return true;
 }
 
-GLuint Presenter::ExpandHalvesAt1x(GLuint texture)
+GLuint Presenter::ExpandHalvesAt1x(const FrameView& frame)
 {
+    GLuint texture = frame.Texture;
     GLint width = 0, height = 0;
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture);
@@ -218,7 +210,7 @@ GLuint Presenter::ExpandHalvesAt1x(GLuint texture)
     glViewport(0, 0, width, height);
     glUseProgram(ExpandProgram);
     glUniform1i(ExpandTexLoc, 0);
-    glUniform3i(ExpandHalvesLoc, LastLayout.HalvesAt1x, LastLayout.Scale, LastLayout.HalfScale);
+    glUniform3i(ExpandHalvesLoc, frame.HalvesAt1x, frame.Scale, frame.HalfScale);
     glBindTexture(GL_TEXTURE_2D, texture);
     glBindSampler(0, Sampler[0]);
     glBindVertexArray(VertexArray);
@@ -265,43 +257,21 @@ void Presenter::BindCoordTextures(GLuint texture)
     glBindTexture(GL_TEXTURE_2D, texture);
 }
 
-void Presenter::ResetLayouts()
+FrameView FrameView::Of(const Frame& frame)
 {
-    Layouts[0] = Layouts[1] = LastLayout = OutputLayout();
+    FrameView view;
+    view.Texture = frame.frameTexture;
+    view.Width = (int)frame.width;
+    view.Height = (int)frame.height;
+    view.TopWidth = (int)frame.topScreenWidth;
+    view.TopMargin = (int)frame.topScreenMargin;
+    view.HalvesAt1x = frame.halvesAt1x;
+    view.Scale = frame.scaleAt1x;
+    view.HalfScale = frame.halfScaleAt1x;
+    return view;
 }
 
-GLuint Presenter::BindFrame(NDS& nds)
-{
-    int frontbuf = nds.GPU.FrontBuffer;
-    glActiveTexture(GL_TEXTURE0);
-    Renderer3D& renderer = nds.GPU.GetRenderer3D();
-    if (renderer.Accelerated)
-    {
-        OutputLayout layout;
-        if (renderer.TakeOutputLayout(frontbuf, layout))
-            Layouts[frontbuf] = layout;
-        LastLayout = Layouts[frontbuf];
-
-        renderer.BindOutputTexture(frontbuf);
-        GLint texture = 0;
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
-        return (GLuint)texture;
-    }
-
-    LastLayout = OutputLayout();
-    glBindTexture(GL_TEXTURE_2D, SoftTexture);
-    if (nds.GPU.Framebuffer[frontbuf][0] && nds.GPU.Framebuffer[frontbuf][1])
-    {
-        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, nds.GPU.Framebuffer[frontbuf][0].get());
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 194, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, nds.GPU.Framebuffer[frontbuf][1].get());
-    }
-    return SoftTexture;
-}
-
-void Presenter::Draw(NDS& nds, int windowW, int windowH, int topWidth, Layout layout, bool linear)
+ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, Layout layout, bool linear)
 {
     // the core leaves its own state behind, so all of what's drawn here is set first
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -318,14 +288,17 @@ void Presenter::Draw(NDS& nds, int windowW, int windowH, int topWidth, Layout la
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    LastTexture = BindFrame(nds);
+    if (!frame.Texture)
+        return {};
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, frame.Texture);
     // camera stage 2: the top half's margin rows, shown above and below it
-    int margin = nds.GPU.GetRenderer3D().Accelerated ? LastLayout.TopMargin : 0;
+    int margin = frame.TopMargin;
     float rows = 386.f + 2.f * margin;
     float topBottomV = (192.f + 2.f * margin) / rows, bottomTopV = (194.f + 2.f * margin) / rows;
 
     // the frame in DS pixels: the top screen is topWidth wide (and 192 + 2 x margin tall), the bottom one 256
-    float topW = (float)topWidth, botW = 256.f, h = 192.f, topH = 192.f + 2.f * margin;
+    float topW = (float)frame.TopWidth, botW = 256.f, h = 192.f, topH = 192.f + 2.f * margin;
     float boxW, boxH;
     switch (layout)
     {
@@ -337,7 +310,7 @@ void Presenter::Draw(NDS& nds, int windowW, int windowH, int topWidth, Layout la
     float scale = std::min(windowW / boxW, windowH / boxH);
     float x0 = (windowW - boxW * scale) / 2, y0 = (windowH - boxH * scale) / 2;
 
-    Top = Bottom = Rect();
+    Rect Top, Bottom;
     switch (layout)
     {
     case Layout::Horizontal:
@@ -379,20 +352,20 @@ void Presenter::Draw(NDS& nds, int windowW, int windowH, int topWidth, Layout la
     // GPU::Comp1x: a frame with a half at 1x is drawn nearest straight from the 1x image, and expanded
     // into the full frame first for linear filtering (the core only draws such frames without it, but
     // the last one can be drawn again after F8)
-    bool halvesAt1x = LastLayout.HalvesAt1x != 0 && PrepareHalvesAt1x();
+    bool halvesAt1x = frame.HalvesAt1x != 0 && PrepareHalvesAt1x();
     if (halvesAt1x && !linear)
     {
-        BindCoordTextures(LastTexture);
+        BindCoordTextures(frame.Texture);
         glBindSampler(0, Sampler[0]);
         glUseProgram(HalvesAt1xProgram);
         glUniform1i(HalvesAt1xTexLoc, 0);
-        glUniform3i(HalvesAt1xLoc, LastLayout.HalvesAt1x, LastLayout.Scale, LastLayout.HalfScale);
+        glUniform3i(HalvesAt1xLoc, frame.HalvesAt1x, frame.Scale, frame.HalfScale);
     }
     else
     {
         if (halvesAt1x)
         {
-            GLuint expanded = ExpandHalvesAt1x(LastTexture);
+            GLuint expanded = ExpandHalvesAt1x(frame);
             glViewport(0, 0, windowW, windowH);
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, expanded);
@@ -407,25 +380,27 @@ void Presenter::Draw(NDS& nds, int windowW, int windowH, int topWidth, Layout la
     glDrawArrays(GL_TRIANGLES, 0, count);
     glBindVertexArray(0);
     glBindSampler(0, 0);
+    return {Top, Bottom};
 }
 
-bool Presenter::ReadFrame(std::vector<u8>& pixels, int& width, int& height)
+bool Presenter::ReadFrame(const FrameView& frame, std::vector<u8>& pixels, int& width, int& height)
 {
-    if (!LastTexture)
+    GLuint texture = frame.Texture;
+    if (!texture)
         return false;
     // errors the core left behind aren't the readback's
     while (glGetError() != GL_NO_ERROR) {}
-    glBindTexture(GL_TEXTURE_2D, LastTexture);
+    glBindTexture(GL_TEXTURE_2D, texture);
     glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
     glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
     if (width <= 0 || height <= 0)
     {
-        fprintf(stderr, "frame readback: texture %u is %dx%d\n", LastTexture, width, height);
+        fprintf(stderr, "frame readback: texture %u is %dx%d\n", texture, width, height);
         return false;
     }
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, ReadFB);
-    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, LastTexture, 0);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
     pixels.resize((size_t)width * height * 4);
     // the core's capture readback leaves its pixel buffer bound
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
@@ -442,9 +417,9 @@ bool Presenter::ReadFrame(std::vector<u8>& pixels, int& width, int& height)
     // their start, as Draw shows it
     for (int half = 0; half < 2; half++)
     {
-        if (!(LastLayout.HalvesAt1x & (1 << half)))
+        if (!(frame.HalvesAt1x & (1 << half)))
             continue;
-        int scale = LastLayout.Scale, halfScale = std::max(LastLayout.HalfScale, 1), y0 = half * 194 * scale;
+        int scale = frame.Scale, halfScale = std::max(frame.HalfScale, 1), y0 = half * 194 * scale;
         if (scale < 1 || scale % halfScale != 0 || y0 + 192 * scale > height)
             continue;
         int up = scale / halfScale, smallW = width / up, smallH = 192 * halfScale;

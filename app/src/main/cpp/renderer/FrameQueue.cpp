@@ -88,7 +88,7 @@ Frame* FrameQueue::takeFreeFrame()
 bool FrameQueue::isPresentFinished(const Frame& frame) const
 {
     // Only asks, without waiting. A fence that the presenter's context hasn't flushed yet (it's created after the swap) isn't signaled either
-    return !frame.presentFence || eglClientWaitSyncKHR(display, frame.presentFence, 0, 0) == EGL_CONDITION_SATISFIED_KHR;
+    return !frame.presentFence || isGpuFenceSignaled(display, frame.presentFence);
 }
 
 // At most one frame per call, as deleting a texture isn't free, and only one the GPU is done presenting. Must be called with the queue lock held,
@@ -201,8 +201,13 @@ static ColorMaskiFn getColorMaski()
                 entryPoint = "glColorMaskiOES";
             if (entryPoint)
             {
+#ifdef __ANDROID__
                 if (auto function = (ColorMaskiFn) eglGetProcAddress(entryPoint))
                     return function;
+#else
+                // The desktop's context is always GLES 3.2, which returned above
+                (void) entryPoint;
+#endif
             }
         }
         return nullptr;
@@ -260,7 +265,7 @@ void FrameQueue::validateRenderFrame(Frame* frame, int requiredWidth, int requir
         // Update frame texture to have the required size
         if (!frame->frameTexture)
         {
-            display = eglGetCurrentDisplay();
+            display = getCurrentGpuFenceDisplay();
             glGenTextures(1, &frame->frameTexture);
             glBindTexture(GL_TEXTURE_2D, frame->frameTexture);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -427,9 +432,9 @@ void FrameQueue::releaseFrameResources(Frame& frame)
     if (frame.overlayTexture)
         glDeleteTextures(1, &frame.overlayTexture);
     if (frame.renderFence)
-        eglDestroySyncKHR(display, frame.renderFence);
+        destroyGpuFence(display, frame.renderFence);
     if (frame.presentFence)
-        eglDestroySyncKHR(display, frame.presentFence);
+        destroyGpuFence(display, frame.presentFence);
     frame.frameTexture = 0;
     frame.overlayTexture = 0;
     frame.overlayRows[0] = {};

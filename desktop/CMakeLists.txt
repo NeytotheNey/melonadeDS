@@ -1,5 +1,6 @@
 # melonadeDS for PC: an SDL2 frontend around the same core and OpenGL/Compute renderers as the
-# Android app, for testing on a desktop. Built with MSYS2 MinGW-w64 (see desktop/README.md):
+# Android app, and the app's own native code (MelonInstance and the rest of melonade-shared,
+# app/src/main/cpp/SharedNative.cmake). Built with MSYS2 MinGW-w64 (see desktop/README.md):
 #
 #   cmake -G Ninja -S desktop -B build-desktop -DCMAKE_BUILD_TYPE=Release
 #   cmake --build build-desktop
@@ -31,29 +32,45 @@ set(ENABLE_OGLRENDERER ON CACHE BOOL "" FORCE)
 set(ENABLE_LTO_RELEASE OFF CACHE BOOL "" FORCE)
 add_subdirectory("${CORE_LIB}" "${CMAKE_BINARY_DIR}/melonDS-android-lib")
 
+# the core's net code (MelonInstance's Net), with the app's enet, as app/CMakeLists.txt adds them
+set(APP_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../app/src/main/cpp")
+add_subdirectory("${APP_CPP}/enet" "${CMAKE_BINARY_DIR}/enet")
+target_include_directories(enet INTERFACE "${APP_CPP}/enet/include")
+list(APPEND CMAKE_MODULE_PATH "${CORE_LIB}/cmake")
+add_subdirectory("${CORE_LIB}/src/net" "${CMAKE_BINARY_DIR}/net-utils")
+
+# the app's shared native code: its <GLES3/gl3.h> is pc_gl.h here (gl/shim)
+include("${APP_CPP}/SharedNative.cmake")
+target_include_directories(melonade-shared PRIVATE "${GL_DIR}/shim")
+
 find_package(SDL2 REQUIRED)
 
 add_executable(melonade-desktop
     src/main.cpp
-    src/Platform.cpp
+    src/DesktopEventMessenger.cpp
+    src/DesktopEventMessenger.h
+    src/DesktopLog.cpp
+    src/DesktopPlatform.cpp
+    src/EmulatorThread.cpp
+    src/EmulatorThread.h
+    src/PlatformBase.cpp
     src/Frontend.h
     src/Presenter.cpp
     src/Presenter.h
+    src/RunOptions.h
     gl/pc_gl_loader.cpp
-    gl/pc_gl.h
-    # The app's Pokemon game state (--game-state)
-    ../app/src/main/cpp/gamestate/GameState.cpp
-    ../app/src/main/cpp/gamestate/pk_nds_field.cpp
-    ../app/src/main/cpp/gamestate/pk_nds_field_gpu.cpp)
+    gl/pc_gl.h)
 
-target_include_directories(melonade-desktop PRIVATE "${CORE_LIB}/src" ../app/src/main/cpp)
+target_include_directories(melonade-desktop PRIVATE "${CORE_LIB}/src" "${GL_DIR}/shim")
 # Windows 10 APIs (SetProcessInformation for power throttling)
 target_compile_definitions(melonade-desktop PRIVATE _WIN32_WINNT=0x0A00)
-target_link_libraries(melonade-desktop PRIVATE core SDL2::SDL2main SDL2::SDL2 winmm)
+target_link_libraries(melonade-desktop PRIVATE melonade-shared core SDL2::SDL2main SDL2::SDL2 winmm)
 
 if (MINGW)
     # a console stays open for the log; static so the exe only needs SDL2.dll next to it
     target_link_options(melonade-desktop PRIVATE -static-libgcc -static-libstdc++ -mconsole)
+    # std::thread pulls in winpthread; link it statically too, or the exe won't start without MSYS2 on PATH
+    target_link_libraries(melonade-desktop PRIVATE -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic)
     # SDL2.dll next to the exe so it runs outside the MSYS2 shell
     add_custom_command(TARGET melonade-desktop POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL2::SDL2> $<TARGET_FILE_DIR:melonade-desktop>)

@@ -10,7 +10,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <functional>
+#include <future>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -28,8 +32,19 @@
 #include "OpenGLSupport.h"
 #include "Platform.h"
 #include "Savestate.h"
-#include "gamestate/GameState.h"
+#include "net/Net.h"
 
+// the app's shared native code (app/src/main/cpp/SharedNative.cmake)
+#include "FrontendContext.h"
+#include "MelonInstance.h"
+#include "gamestate/GameState.h"
+#include "renderer/FrameQueue.h"
+#include "renderer/GpuFence.h"
+#include "renderer/ScreenshotRenderer.h"
+#include "retroachievements/RetroAchievementsManager.h"
+
+#include "DesktopEventMessenger.h"
+#include "EmulatorThread.h"
 #include "Frontend.h"
 #include "Presenter.h"
 #include "RunOptions.h"
@@ -306,316 +321,240 @@ bool ParseArgs(int argc, char** argv, Options& opts)
     return !opts.RomPath.empty();
 }
 
-// the emulator, its renderer and the window, on one thread: the core's GL renderers and the
-// presenter share the window's context
-class Emulator
+// the last --set NAME=VALUE for [name], or [fallback] without one
+int SetValue(const std::vector<std::string>& sets, const char* name, int fallback)
 {
-public:
-    Options Opts;
-    std::unique_ptr<NDS> Nds;
-    RendererType Current = RendererType::Software;
-    RendererType Requested = RendererType::Software;
-    bool RendererDirty = true;
-    bool Shadow2DSet = false;
-    Frontend::Presenter Present;
-
-    bool Create()
+    std::string prefix = std::string(name) + "=";
+    for (const std::string& set : sets)
     {
-        NDSArgs args {};
-#ifdef JIT_ENABLED
-        // the app's JIT settings (block size 32), but fast memory only on request
-        args.JIT = std::nullopt;
-        if (Opts.Jit)
-        {
-            JITArgs jit;
-            jit.FastMemory = Opts.FastMem;
-            args.JIT = jit;
-        }
-#else
-        args.JIT = std::nullopt;
-#endif
-        args.OutputSampleRate = 48000.0;
+        if (set.rfind(prefix, 0) == 0)
+            fallback = (int)strtol(set.c_str() + prefix.size(), nullptr, 0);
+    }
+    return fallback;
+}
 
-        bool haveFirmware = false;
-        if (!Frontend::LoadBiosDir(Opts.BiosDir, args, haveFirmware))
-            return false;
-        if (!haveFirmware)
-            args.Firmware = Firmware(0);
-        if (!haveFirmware && Opts.BootScreen)
-        {
-            fprintf(stderr, "--boot-screen needs the official BIOS and firmware (--bios)\n");
-            Opts.BootScreen = false;
-        }
+MelonDSAndroid::Renderer SharedRenderer(RendererType type)
+{
+    switch (type)
+    {
+    case RendererType::OpenGL: return MelonDSAndroid::Renderer::OpenGl;
+    case RendererType::Compute: return MelonDSAndroid::Renderer::Compute;
+    default: return MelonDSAndroid::Renderer::Software;
+    }
+}
 
-        Nds = std::make_unique<NDS>(std::move(args), &Frontend::App);
+RendererType DesktopRenderer(MelonDSAndroid::Renderer renderer)
+{
+    switch (renderer)
+    {
+    case MelonDSAndroid::Renderer::OpenGl: return RendererType::OpenGL;
+    case MelonDSAndroid::Renderer::Compute: return RendererType::Compute;
+    default: return RendererType::Software;
+    }
+}
 
-        // before the --set ones, so --set PreciseDepth=0 still turns it off
-        Nds->GPU.PreciseDepth = Opts.PreciseDepth;
-        for (const std::string& set : Opts.Sets)
-        {
-            if (!ApplySet(Nds->GPU, set))
-                fprintf(stderr, "unknown --set %s (see --list-sets)\n", set.c_str());
-        }
-        Nds->GPU.GPU3D.SetWideDropLogging(Opts.WideDrops);
-        if (Opts.LdmDirect >= 0)
-            Nds->JIT.SetDirectBlockTransfers(Opts.LdmDirect == 1);
-        // as DebugProperties::apply sets it, before the game starts
-        if (Opts.HalfCameraMode > 0)
-            Nds->GPU.GPU3D.SetHalfCamera(Opts.HalfCameraMode);
+// the command line as the shared code's settings (EmulatorConfiguration, which MelonInstance::updateRenderer applies), for the renderer and
+// scale the run has now. what has no setting in the app goes through the switches (Switches) instead
+std::shared_ptr<MelonDSAndroid::EmulatorConfiguration> MakeConfiguration(const Options& opts, RendererType renderer, int scale)
+{
+    using namespace MelonDSAndroid;
+    static char empty[] = "";
+    auto config = std::make_shared<EmulatorConfiguration>();
+    config->userInternalFirmwareAndBios = false;
+    config->dsBios7Path = config->dsBios9Path = config->dsFirmwarePath = empty;
+    config->dsiBios7Path = config->dsiBios9Path = config->dsiFirmwarePath = config->dsiNandPath = empty;
+    config->internalFilesDir = empty;
+    config->fastForwardSpeedMultiplier = 1.0f;
+    config->framePacingVsync = false;
+    config->framePacingBuffer = false;
+    config->framePacingSmooth30Fps = opts.HalfCamera;
+    config->showBootScreen = opts.BootScreen;
+    config->useJit = opts.Jit;
+    config->syncRtcToDevice = false;
+    config->consoleType = 0;
+    // no interpolation and the full 16 bits, the SPU's defaults (only applied when the settings change during a run)
+    config->audioSettings = AudioSettings {
+        .soundEnabled = opts.Audio,
+        .muteFastForwardAudio = false,
+        .volume = 256,
+        .audioInterpolation = (int)AudioInterpolation::None,
+        .audioBitrate = (int)AudioBitDepth::_16Bit,
+        .audioLatency = AudioLatency::Medium,
+        .micSource = 0,
+    };
+    config->rewindEnabled = 0;
+    config->rewindCaptureSpacingSeconds = 10;
+    config->rewindLengthSeconds = 60;
+    config->firmwareConfiguration = {};
+    switch (renderer)
+    {
+    case RendererType::OpenGL:
+    {
+        auto settings = std::make_unique<OpenGlRenderSettings>();
+        settings->betterPolygons = opts.BetterPolygons;
+        settings->scale = scale;
+        config->renderSettings = std::move(settings);
+        break;
+    }
+    case RendererType::Compute:
+    {
+        auto settings = std::make_unique<ComputeRenderSettings>();
+        settings->scale = scale;
+        settings->highResCoordinates = opts.HighResCoordinates;
+        settings->colorDithering = opts.ColorDither;
+        config->renderSettings = std::move(settings);
+        break;
+    }
+    default:
+    {
+        auto settings = std::make_unique<SoftwareRenderSettings>();
+        settings->threadedRendering = opts.ThreadedSoft3D;
+        config->renderSettings = std::move(settings);
+        break;
+    }
+    }
+    config->threaded2dRendering = opts.Threaded2D;
+    config->hiresCapture = opts.HiresCapture;
+    config->filter2d = opts.Filter2D != 0;
+    config->sharperRotated2d = false;
+    // --set PreciseDepth wins, as it did when it was applied after --precise-depth
+    config->preciseDepth = SetValue(opts.Sets, "PreciseDepth", opts.PreciseDepth) != 0;
+    // the core's default (GPU::GLEdgeMark 1); --set GLEdgeMark goes through the switches
+    config->edgeMarking = true;
+    config->glSeams = false;
+    config->luaDrawingsInScreenshots = false;
+    config->wideViewWidth = opts.WideWidth;
+    config->wideViewMargin = opts.WideMargin;
+    config->dsiSdCardSettings = {};
+    config->dldiSdCardSettings = {};
+    config->dsiSdCardSettings.imagePath = config->dsiSdCardSettings.folderPath = empty;
+    config->dldiSdCardSettings.imagePath = config->dldiSdCardSettings.folderPath = empty;
+    config->renderer = SharedRenderer(renderer);
+    return config;
+}
 
-        if (!LoadRom())
-            return false;
-        Requested = Opts.Renderer;
-        Reset();
-        if (!Opts.StatePath.empty() && !LoadState(Opts.StatePath))
-            return false;
+// what the app's debug builds read from the debug.melonade.* switches (DebugProperties::apply), from the command line: the core's switches
+// are applied to [nds] (as DebugProperties::apply does, after the instance reset the console and before the game starts), and the ones
+// over the settings come back for MelonInstance::setDebugOverrides
+DebugProperties::Overrides ApplySwitches(const Options& opts, NDS& nds)
+{
+    for (const std::string& set : opts.Sets)
+    {
+        if (!Frontend::ApplySet(nds.GPU, set))
+            fprintf(stderr, "unknown --set %s (see --list-sets)\n", set.c_str());
+    }
+    nds.GPU.GPU3D.SetWideDropLogging(opts.WideDrops);
+    if (opts.LdmDirect >= 0)
+        nds.JIT.SetDirectBlockTransfers(opts.LdmDirect == 1);
+
+    DebugProperties::Overrides overrides;
+    if (opts.HalfCameraMode > 0)
+    {
+        nds.GPU.GPU3D.SetHalfCamera(opts.HalfCameraMode);
+        overrides.halfCamera = opts.HalfCameraMode;
+    }
+    // the mode stays for the run, through renderer and scale changes, as debug.melonade.gpu2d does
+    if (opts.Gpu2D > 0)
+    {
+        nds.GPU.SetShadow2D(std::min(opts.Gpu2D, 2), opts.Gpu2D >= 3, opts.Gpu2D == 4, opts.Gpu2DWide);
+        if (nds.GPU.Shadow2D)
+            nds.GPU.Shadow2D->AffineDebug = opts.Gpu2DAffine;
+        overrides.gpu2d = std::min(opts.Gpu2D, 2);
+    }
+    overrides.gpu2dWide = opts.Gpu2DWide;
+    overrides.gpu2dAffine = opts.Gpu2DAffine;
+    // the 2x-map-only and identity modes have no setting
+    if (opts.Filter2D >= 2)
+        overrides.filter2d = opts.Filter2D;
+    // the settings updateRenderer writes on every renderer change, so a --set of them holds through those
+    overrides.edgeMark = SetValue(opts.Sets, "GLEdgeMark", -1);
+    overrides.glSeams = SetValue(opts.Sets, "GLSeams", -1);
+    overrides.wideBattles = opts.WideBattles ? -1 : 0;
+    return overrides;
+}
+
+void SetDateTime(const Options& opts, NDS& nds)
+{
+    // the same start every run, so two runs can be compared byte for byte; otherwise MelonInstance set the PC's time
+    if (opts.FixedTime)
+        nds.RTC.SetDateTime(2026, 1, 1, 12, 0, 0);
+}
+
+// an empty save file, as the app makes one for a new game, since MelonInstance only loads a ROM with one there
+bool EnsureSaveFile(const std::string& path)
+{
+    std::error_code ec;
+    if (fs::exists(path, ec))
         return true;
-    }
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f)
+        return false;
+    fclose(f);
+    return true;
+}
 
-    bool LoadState(const std::string& path)
+bool LoadStateFile(const Options& opts, MelonDSAndroid::MelonInstance& emu, const std::string& path)
+{
+    std::vector<u8> data;
+    if (!ReadFile(path, data) || data.empty())
     {
-        std::vector<u8> data;
-        if (!ReadFile(path, data) || data.empty())
-        {
-            fprintf(stderr, "can't read savestate %s\n", path.c_str());
-            return false;
-        }
-        // a state that fails part of the way through leaves the console half loaded, so it can't run on
-        Savestate state(data.data(), (u32)data.size(), false);
-        if (state.Error || !Nds->DoSavestate(&state) || state.Error)
-        {
-            fprintf(stderr, "savestate %s didn't load\n", path.c_str());
-            return false;
-        }
-        printf("state: %s\n", path.c_str());
-        return true;
+        fprintf(stderr, "can't read savestate %s\n", path.c_str());
+        return false;
     }
-
-    bool SaveState(const std::string& path)
+    // MelonInstance's load backs up the state before and goes back to it if the load fails partway
+    Savestate state(data.data(), (u32)data.size(), false);
+    bool loaded = emu.loadState(&state);
+    if (!loaded)
     {
-        Savestate state;
-        if (state.Error || !Nds->DoSavestate(&state) || state.Error)
-        {
-            fprintf(stderr, "can't make a savestate\n");
-            return false;
-        }
-        FILE* f = fopen(path.c_str(), "wb");
-        bool ok = f && fwrite(state.Buffer(), 1, state.Length(), f) == state.Length();
-        if (f)
-            fclose(f);
-        if (!ok)
-        {
-            fprintf(stderr, "can't write savestate %s\n", path.c_str());
-            return false;
-        }
-        printf("saved state: %s (%u bytes)\n", path.c_str(), state.Length());
-        return true;
+        // a state without the RetroAchievements section MelonInstance::saveState writes first (the app's and this frontend's states have
+        // it), as the desktop saved them before the shared code: the core's part alone
+        Savestate raw(data.data(), (u32)data.size(), false);
+        loaded = !raw.Error && emu.getNds()->DoSavestate(&raw) && !raw.Error;
+        if (loaded)
+            printf("state: %s has no RetroAchievements section, loaded the core's part\n", path.c_str());
     }
-
-    bool LoadRom()
+    if (!loaded)
     {
-        std::vector<u8> rom;
-        if (!ReadFile(Opts.RomPath, rom) || rom.empty())
-        {
-            fprintf(stderr, "can't read ROM %s\n", Opts.RomPath.c_str());
-            return false;
-        }
-        auto romData = std::make_unique<u8[]>(rom.size());
-        memcpy(romData.get(), rom.data(), rom.size());
-        u32 romLen = (u32)rom.size();
-        rom.clear();
-        rom.shrink_to_fit();
-
-        if (Opts.SavePath.empty())
-            Opts.SavePath = fs::path(Opts.RomPath).replace_extension(".sav").string();
-        Frontend::App.NDSSave.Path = Opts.SavePath;
-
-        NDSCart::NDSCartArgs cartArgs {};
-        std::vector<u8> sav;
-        if (ReadFile(Opts.SavePath, sav) && !sav.empty())
-        {
-            cartArgs.SRAM = std::make_unique<u8[]>(sav.size());
-            memcpy(cartArgs.SRAM.get(), sav.data(), sav.size());
-            cartArgs.SRAMLength = (u32)sav.size();
-            Frontend::App.NDSSave.Data = std::move(sav);
-            printf("save: %s\n", Opts.SavePath.c_str());
-        }
-
-        auto cart = NDSCart::ParseROM(std::move(romData), romLen, &Frontend::App, std::move(cartArgs));
-        if (!cart)
-        {
-            fprintf(stderr, "%s isn't a DS ROM the core can parse\n", Opts.RomPath.c_str());
-            return false;
-        }
-        Nds->SetNDSCart(std::move(cart));
-
-        if (!Opts.GbaRomPath.empty())
-        {
-            std::vector<u8> gba, gbaSav;
-            if (!ReadFile(Opts.GbaRomPath, gba) || gba.empty())
-            {
-                fprintf(stderr, "can't read GBA ROM %s\n", Opts.GbaRomPath.c_str());
-                return false;
-            }
-            auto gbaData = std::make_unique<u8[]>(gba.size());
-            memcpy(gbaData.get(), gba.data(), gba.size());
-            Frontend::App.GBASave.Path = fs::path(Opts.GbaRomPath).replace_extension(".sav").string();
-            std::unique_ptr<u8[]> gbaSram;
-            u32 gbaSramLen = 0;
-            if (ReadFile(Frontend::App.GBASave.Path, gbaSav) && !gbaSav.empty())
-            {
-                gbaSram = std::make_unique<u8[]>(gbaSav.size());
-                memcpy(gbaSram.get(), gbaSav.data(), gbaSav.size());
-                gbaSramLen = (u32)gbaSav.size();
-            }
-            auto gbaCart = GBACart::ParseROM(std::move(gbaData), (u32)gba.size(), std::move(gbaSram), gbaSramLen, &Frontend::App);
-            if (gbaCart)
-                Nds->SetGBACart(std::move(gbaCart));
-            else
-                fprintf(stderr, "%s isn't a GBA ROM the core can parse\n", Opts.GbaRomPath.c_str());
-        }
-        return true;
+        fprintf(stderr, "savestate %s didn't load\n", path.c_str());
+        return false;
     }
+    SetDateTime(opts, *emu.getNds());
+    printf("state: %s\n", path.c_str());
+    return true;
+}
 
-    void Reset()
+bool SaveStateFile(MelonDSAndroid::MelonInstance& emu, const std::string& path)
+{
+    Savestate state;
+    if (state.Error || !emu.saveState(&state) || state.Error)
     {
-        Nds->Reset();
-        SetDateTime();
-        if (!Opts.BootScreen || Nds->NeedsDirectBoot())
-            Nds->SetupDirectBoot(fs::path(Opts.RomPath).filename().string());
-        Nds->Start();
+        fprintf(stderr, "can't make a savestate\n");
+        return false;
     }
-
-    void SetDateTime()
+    FILE* f = fopen(path.c_str(), "wb");
+    bool ok = f && fwrite(state.Buffer(), 1, state.Length(), f) == state.Length();
+    if (f)
+        fclose(f);
+    if (!ok)
     {
-        // the same start every run, so two runs can be compared byte for byte
-        if (Opts.FixedTime)
-        {
-            Nds->RTC.SetDateTime(2026, 1, 1, 12, 0, 0);
-            return;
-        }
-        time_t now = time(nullptr);
-        tm local {};
-        localtime_s(&local, &now);
-        Nds->RTC.SetDateTime(local.tm_year + 1900, local.tm_mon + 1, local.tm_mday, local.tm_hour, local.tm_min, local.tm_sec);
+        fprintf(stderr, "can't write savestate %s\n", path.c_str());
+        return false;
     }
+    printf("saved state: %s (%u bytes)\n", path.c_str(), state.Length());
+    return true;
+}
 
-    // what the app's MelonInstance::updateRenderer does, between frames
-    void UpdateRenderer()
+// the renderer's scale, which drops below --scale when that doesn't fit the GPU's limits; emulator thread
+int ActiveScale(MelonDSAndroid::MelonInstance& emu)
+{
+    Renderer3D& renderer = emu.getNds()->GPU.GetRenderer3D();
+    switch (emu.getCurrentRenderer())
     {
-        if (Requested != Current)
-        {
-            std::unique_ptr<Renderer3D> renderer;
-            switch (Requested)
-            {
-            case RendererType::Software: renderer = std::make_unique<SoftRenderer>(); break;
-            case RendererType::OpenGL: renderer = GLRenderer::New(); break;
-            case RendererType::Compute: renderer = ComputeRenderer::New(); break;
-            }
-            if (!renderer && Requested != RendererType::Software)
-            {
-                Platform::Log(Platform::LogLevel::Error, "Failed to create the %s renderer, using the software renderer\n", RendererName(Requested));
-                Requested = RendererType::Software;
-                renderer = std::make_unique<SoftRenderer>();
-            }
-            Current = Requested;
-            Nds->GPU.SetRenderer3D(std::move(renderer));
-            Present.ResetLayouts();
-        }
-
-        switch (Current)
-        {
-        case RendererType::Software:
-            static_cast<SoftRenderer&>(Nds->GPU.GetRenderer3D()).SetThreaded(Opts.ThreadedSoft3D, Nds->GPU);
-            break;
-        case RendererType::OpenGL:
-        {
-            auto& gl = static_cast<GLRenderer&>(Nds->GPU.GetRenderer3D());
-            gl.SetViewWidth(Opts.WideWidth);
-            gl.SetViewMargin(Opts.WideMargin);
-            gl.SetRenderSettings(Opts.BetterPolygons, Opts.Scale);
-            break;
-        }
-        case RendererType::Compute:
-        {
-            auto& compute = static_cast<ComputeRenderer&>(Nds->GPU.GetRenderer3D());
-            compute.SetViewWidth(Opts.WideWidth);
-            compute.SetViewMargin(Opts.WideMargin);
-            compute.SetRenderSettings(Opts.Scale, Opts.HighResCoordinates);
-            compute.SetColorDither(Opts.ColorDither);
-            break;
-        }
-        }
-
-        Nds->GPU.SetThreaded2D(Opts.Threaded2D);
-        Nds->GPU.SetHiresCapture(Opts.HiresCapture);
-        Nds->GPU.Filter2D = Opts.Filter2D;
-        // the app sets the shadow's mode once, when the game starts (DebugProperties::apply), and it
-        // stays through renderer and scale changes, so here too: a new SetShadow2D would reset the recorder
-        if (!Shadow2DSet)
-        {
-            Nds->GPU.SetShadow2D(std::min(Opts.Gpu2D, 2), Opts.Gpu2D >= 3, Opts.Gpu2D == 4, Opts.Gpu2DWide);
-            if (Nds->GPU.Shadow2D)
-                Nds->GPU.Shadow2D->AffineDebug = Opts.Gpu2DAffine;
-            Shadow2DSet = true;
-        }
-        // the app's rule: OpenGL and compute draw the in-between scenes, and --halfcam replaces the setting
-        if (Opts.HalfCameraMode == 0)
-            Nds->GPU.GPU3D.SetHalfCameraSmoothing(Opts.HalfCamera && Current != RendererType::Software);
-
-        printf("renderer: %s, scale %d, width %d, margin %d\n", RendererName(Current), ActiveScale(), Opts.WideWidth, Opts.WideMargin);
+    case MelonDSAndroid::Renderer::OpenGl: return static_cast<GLRenderer&>(renderer).GetScaleFactor();
+    case MelonDSAndroid::Renderer::Compute: return static_cast<ComputeRenderer&>(renderer).GetScaleFactor();
+    default: return 1;
     }
-
-    // the renderer's scale, which drops below --scale when that doesn't fit the GPU's limits
-    int ActiveScale()
-    {
-        switch (Current)
-        {
-        case RendererType::OpenGL: return static_cast<GLRenderer&>(Nds->GPU.GetRenderer3D()).GetScaleFactor();
-        case RendererType::Compute: return static_cast<ComputeRenderer&>(Nds->GPU.GetRenderer3D()).GetScaleFactor();
-        default: return 1;
-        }
-    }
-
-    u32 RunFrame()
-    {
-        if (RendererDirty)
-        {
-            RendererDirty = false;
-            UpdateRenderer();
-        }
-
-        // GPU::OutputCap: the window has no need of its own, so only --set OutputCapNeed caps the output
-        if (Current == RendererType::OpenGL)
-            static_cast<GLRenderer&>(Nds->GPU.GetRenderer3D()).SetOutputNeed(Nds->GPU, 0);
-        else if (Current == RendererType::Compute)
-            static_cast<ComputeRenderer&>(Nds->GPU.GetRenderer3D()).SetOutputNeed(Nds->GPU, 0);
-
-        Renderer3D& renderer = Nds->GPU.GetRenderer3D();
-        if (renderer.NeedsShaderCompile())
-        {
-            auto start = std::chrono::steady_clock::now();
-            do
-            {
-                int current, count;
-                renderer.ShaderCompileStep(current, count);
-            }
-            while (renderer.NeedsShaderCompile());
-            double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-            printf("shaders compiled in %.0f ms\n", ms);
-        }
-
-        // GPU::Comp1x: the presenter shows a half at 1x nearest-upscaled, so with linear filtering
-        // every half is drawn in full, as the app does with any filter but none
-        Nds->GPU.Comp1xFrontend = !Opts.Linear;
-        return Nds->RunFrame();
-    }
-
-    int TopWidth()
-    {
-        return Nds->GPU.GetRenderer3D().Accelerated ? Nds->GPU.GetRenderer3D().GetOutputWidth() : 256;
-    }
-};
+}
 
 u32 KeyBit(SDL_Keycode key)
 {
@@ -685,12 +624,58 @@ struct FrameStats
     }
 };
 
+// A window the UI thread presents into, with the screens it shows and where they last went (for touch). Detached screens add a second one
+// showing one screen each: both draw from the same frame with the one UI context, made current on each in turn, and only the main window
+// waits for vsync
+struct PresentWindow
+{
+    SDL_Window* Window = nullptr;
+    Frontend::ScreenRects Rects;
+};
+
+// what the emulator thread shows in the title, once a second
+struct TitleStats
+{
+    std::mutex Lock;
+    FrameStats Second;
+    RendererType Renderer = RendererType::Software;
+    int Scale = 1;
+};
+
+// The frame to show or read on the UI thread, ready for its context the way the app's presentFrame (MelonDSAndroidJNI.cpp) makes it: its
+// last present fence dropped and a GPU wait on its render fence queued. ReleaseFrame() puts a new present fence on it after the draw or read,
+// which the emulator thread waits on before it renders into the frame again
+Frame* AcquireFrame(MelonDSAndroid::MelonInstance& emu, std::optional<std::chrono::steady_clock::time_point> deadline)
+{
+    Frame* frame = emu.getPresentationFrame(deadline, 0, 0, 0);
+    if (!frame || !frame->frameTexture)
+        return nullptr;
+    return frame;
+}
+
+void PrepareFrame(Frame* frame)
+{
+    if (frame->presentFence)
+    {
+        destroyGpuFence(GPU_FENCE_NO_DISPLAY, frame->presentFence);
+        frame->presentFence = 0;
+    }
+    if (frame->renderFence)
+        waitGpuFence(GPU_FENCE_NO_DISPLAY, frame->renderFence);
+}
+
+void ReleaseFrame(Frame* frame)
+{
+    frame->presentFence = createGpuFence(GPU_FENCE_NO_DISPLAY);
+    // so the emulator's context sees the fence
+    glFlush();
+}
+
 }
 
 int main(int argc, char** argv)
 {
-    Emulator emu;
-    Options& opts = emu.Opts;
+    Options opts;
     if (!ParseArgs(argc, argv, opts))
     {
         Usage();
@@ -726,27 +711,47 @@ int main(int argc, char** argv)
     int boxW = opts.Layout == Frontend::Layout::Horizontal ? opts.WideWidth + 256 : opts.WideWidth;
     int boxH = (opts.Layout == Frontend::Layout::Vertical ? 384 : 192) + (opts.WideWidth != 256 ? 2 * opts.WideMargin : 0);
     Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | (opts.Hidden ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN);
-    SDL_Window* window = SDL_CreateWindow("melonadeDS", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    PresentWindow main;
+    main.Window = SDL_CreateWindow("melonadeDS", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         boxW * opts.WindowScale, boxH * opts.WindowScale, flags);
-    if (!window)
+    if (!main.Window)
     {
         fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
         return 1;
     }
-    SDL_GLContext context = SDL_GL_CreateContext(window);
-    if (!context)
+    SDL_Window* window = main.Window;
+    // the UI thread's context, which presents
+    SDL_GLContext uiContext = SDL_GL_CreateContext(window);
+    if (!uiContext)
     {
         fprintf(stderr, "can't make a GLES 3.2 context: %s\n", SDL_GetError());
         return 1;
     }
-    SDL_GL_MakeCurrent(window, context);
+    SDL_GL_MakeCurrent(window, uiContext);
     int missing = PcGl_Load([](const char* name) { return SDL_GL_GetProcAddress(name); });
     printf("GL: %s | %s | %s\n", glGetString(GL_VERSION), glGetString(GL_RENDERER), glGetString(GL_SHADING_LANGUAGE_VERSION));
     if (missing)
         printf("GL: %d GLES 3.2 functions missing\n", missing);
+
+    // the emulator thread's context, in the UI one's share group (frame textures and fences), on a hidden window of its own with the same
+    // pixel format, so the two threads never share a window's device context
+    SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
+    SDL_Window* emuWindow = SDL_CreateWindow("melonadeDS emulator", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 16, 16,
+        SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+    SDL_GLContext emuContext = emuWindow ? SDL_GL_CreateContext(emuWindow) : nullptr;
+    if (!emuContext)
+    {
+        fprintf(stderr, "can't make the emulator's GLES 3.2 context: %s\n", SDL_GetError());
+        return 1;
+    }
+    SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 0);
+    // SDL made the new context current here; it's the emulator thread's
+    SDL_GL_MakeCurrent(emuWindow, nullptr);
+    SDL_GL_MakeCurrent(window, uiContext);
     SDL_GL_SetSwapInterval(opts.VSync ? 1 : 0);
 
-    if (!emu.Present.Init())
+    Frontend::Presenter presenter;
+    if (!presenter.Init())
     {
         fprintf(stderr, "can't set up the screen shader\n");
         return 1;
@@ -757,8 +762,70 @@ int main(int argc, char** argv)
     fs::create_directories(cacheDir, ec);
     OpenGL::SetShaderCachePath(cacheDir + "/compute_programs.bin");
 
-    if (!emu.Create())
+    // What the shared code needs from this frontend (FrontendContext.h), before the instance is made
+    auto messenger = std::make_shared<Frontend::DesktopEventMessenger>();
+    MelonDSAndroid::frontendContext.internalFilesDir = exeDir;
+    MelonDSAndroid::frontendContext.eventMessenger = messenger;
+    MelonDSAndroid::RetroAchievements::RetroAchievementsManager::EventMessenger = messenger;
+    // GPU::Comp1x: the presenter draws a screen at 1x unless it filters linearly, as the app's surfaces tell the emulator after presenting;
+    // set before the first frame here, so a run's frames don't depend on when the UI thread first presents
+    MelonDSAndroid::setHalvesAt1xSupported(!opts.Linear);
+    // GPU::OutputCapDeband, which MelonInstance sets before each frame from what the presenter says (once it held for 30 frames, as on the
+    // phone), so --set OutputCapDeband stands in for the app's deband through it
+    MelonDSAndroid::setOutputDeband(SetValue(opts.Sets, "OutputCapDeband", 0) != 0);
+
+    // The console, as before the shared code: FreeBIOS and a generated firmware unless --bios says otherwise
+    auto args = std::make_unique<NDSArgs>();
+#ifdef JIT_ENABLED
+    // the app's JIT settings (block size 32), but fast memory only on request
+    args->JIT = std::nullopt;
+    if (opts.Jit)
+    {
+        JITArgs jit;
+        jit.FastMemory = opts.FastMem;
+        args->JIT = jit;
+    }
+#else
+    args->JIT = std::nullopt;
+#endif
+    args->OutputSampleRate = 48000.0;
+    bool haveFirmware = false;
+    if (!Frontend::LoadBiosDir(opts.BiosDir, *args, haveFirmware))
         return 1;
+    if (!haveFirmware)
+        args->Firmware = Firmware(0);
+    if (!haveFirmware && opts.BootScreen)
+    {
+        fprintf(stderr, "--boot-screen needs the official BIOS and firmware (--bios)\n");
+        opts.BootScreen = false;
+    }
+
+    // the renderer and scale of the run, which hotkeys and --at change; emulator thread
+    RendererType renderer = opts.Renderer;
+    int scale = opts.Scale;
+    std::vector<u32> screenshotBuffer(256 * 384);
+    auto instance = std::make_unique<MelonDSAndroid::MelonInstance>(0, MakeConfiguration(opts, renderer, scale), std::move(args),
+        std::make_shared<Net>(), std::make_unique<MelonDSAndroid::ScreenshotRenderer>(screenshotBuffer.data()), 0);
+    instance->setDebugOverrides(ApplySwitches(opts, *instance->getNds()));
+
+    if (opts.SavePath.empty())
+        opts.SavePath = fs::path(opts.RomPath).replace_extension(".sav").string();
+    std::vector<u8> sav;
+    if (ReadFile(opts.SavePath, sav) && !sav.empty())
+        printf("save: %s\n", opts.SavePath.c_str());
+    if (!EnsureSaveFile(opts.SavePath) || !instance->loadRom(opts.RomPath, opts.SavePath))
+    {
+        fprintf(stderr, "can't load ROM %s with the save %s (not a DS ROM the core can parse, or a file it can't read or write)\n",
+            opts.RomPath.c_str(), opts.SavePath.c_str());
+        return 1;
+    }
+    if (!opts.GbaRomPath.empty())
+    {
+        std::string gbaSave = fs::path(opts.GbaRomPath).replace_extension(".sav").string();
+        if (!EnsureSaveFile(gbaSave) || !instance->loadGbaRom(opts.GbaRomPath, gbaSave))
+            fprintf(stderr, "%s isn't a GBA ROM the core can parse\n", opts.GbaRomPath.c_str());
+    }
+    MelonDSAndroid::MelonInstance* emu = instance.get();
 
     SDL_AudioDeviceID audio = 0;
     if (opts.Audio)
@@ -781,31 +848,193 @@ int main(int argc, char** argv)
             SDL_GameControllerOpen(i);
     }
 
-    u32 keyMask = 0, padMask = 0, stickMask = 0;
-    bool touching = false, paused = false, fastForward = false, running = true;
-    bool stateFailed = false; // an --at state load failed: the run stops, and nothing is saved
-    u32 frame = 0;
-    std::vector<s16> audioBuf(2 * 1024);
-    FrameStats stats, second;
+    // The input the UI thread reads, which the emulator thread applies before each frame along with --press, so scripted runs are frame exact
+    std::atomic<u32> keyMask = 0, padMask = 0, stickMask = 0;
+    std::atomic_bool stopRequested = false; // the core asked to stop (SignalStop)
+    std::atomic_bool stateFailed = false;   // an --at state load failed: the run stops
+    std::atomic_bool startFailed = false;   // the --state didn't load: nothing ran
+    std::atomic<u32> currentFrame = 0;
+    bool touching = false, paused = false, running = true;
+    bool linear = opts.Linear;
+    Frontend::Layout layout = opts.Layout;
+    FrameStats stats;
+    TitleStats titleStats;
+    std::string statsLabel = RendererName(renderer);
     auto runStart = std::chrono::steady_clock::now();
     auto secondStart = runStart;
-    auto nextFrame = runStart;
-    // the DS's refresh rate: 33513982 Hz / (6 * 355 * 263)
-    const auto frameTime = std::chrono::duration<double>(6.0 * 355 * 263 / 33513982.0);
 
+    messenger->OnStop = [&](Platform::StopReason)
+    {
+        stopRequested = true;
+        running = false;
+    };
+
+    // UI thread: saves the newest frame (the last one the emulator pushed) at the internal resolution
     auto screenshot = [&](const std::string& path)
     {
         std::vector<u8> pixels;
-        int w, h;
-        if (emu.Present.ReadFrame(pixels, w, h) && Frontend::WriteBMP(path.c_str(), pixels, w, h))
+        int w = 0, h = 0;
+        Frame* frame = AcquireFrame(*emu, std::nullopt);
+        bool ok = false;
+        if (frame)
+        {
+            PrepareFrame(frame);
+            ok = presenter.ReadFrame(Frontend::FrameView::Of(*frame), pixels, w, h);
+            ReleaseFrame(frame);
+        }
+        if (ok && Frontend::WriteBMP(path.c_str(), pixels, w, h))
             printf("screenshot %s (%dx%d)\n", path.c_str(), w, h);
         else
             fprintf(stderr, "screenshot %s failed\n", path.c_str());
     };
 
+    // emulator thread: [task] on the UI thread, waited for
+    auto runOnUiThread = [&](std::function<void()> task)
+    {
+        std::promise<void> done;
+        messenger->Post([&] { task(); done.set_value(); });
+        done.get_future().wait();
+    };
+
+    // emulator thread: a new configuration for the renderer and scale (applied at the next frame), and the renderer line printed after it
+    bool printRenderer = true;
+    auto updateConfiguration = [&](MelonDSAndroid::MelonInstance& instance)
+    {
+        instance.updateConfiguration(MakeConfiguration(opts, renderer, scale));
+        printRenderer = true;
+    };
+
+    Frontend::EmulatorThread emuThread;
+    Frontend::EmulatorThread::Callbacks callbacks;
+    callbacks.OnStart = [&](MelonDSAndroid::MelonInstance& instance)
+    {
+        SetDateTime(opts, *instance.getNds());
+        if (!opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
+        {
+            startFailed = true;
+            return false;
+        }
+        return true;
+    };
+    int lastShadowMode = 0, lastScene = -2;
+    std::vector<s16> audioBuf(2 * 1024);
+    callbacks.BeforeFrame = [&](MelonDSAndroid::MelonInstance& instance, u32 frame)
+    {
+        if (stopRequested || (opts.Frames && frame >= opts.Frames))
+            return false;
+
+        // the keys held this frame, all of them sent every frame (the instance's pressKey and releaseKey), as the desktop set the whole mask
+        // before the shared code: a reset (Ctrl+R, --at reset) releases every key in the core and a state load brings its own, behind the
+        // instance's back, so sending only the changes would leave a key held through them released
+        u32 mask = keyMask | padMask | stickMask | Frontend::PressMask(opts.Presses, frame);
+        for (u32 bit = 0; bit < 12; bit++)
+            (mask & (1u << bit)) ? instance.pressKey(bit) : instance.releaseKey(bit);
+
+        for (const Options::At& at : opts.Ats)
+        {
+            if (at.Frame != frame)
+                continue;
+            if (at.Action == "reset")
+            {
+                instance.reset();
+                SetDateTime(opts, *instance.getNds());
+            }
+            else if (at.Action == "state")
+            {
+                if (opts.StatePath.empty())
+                    fprintf(stderr, "--at %u:state: no state to load\n", at.Frame);
+                else if (!LoadStateFile(opts, instance, opts.StatePath))
+                {
+                    fprintf(stderr, "--at %u:state: the state didn't load, stopping\n", at.Frame);
+                    stateFailed = true;
+                    return false;
+                }
+            }
+            else if (at.Action.rfind("save=", 0) == 0)
+                SaveStateFile(instance, at.Action.substr(5));
+            else if (at.Action.rfind("scale=", 0) == 0)
+            {
+                scale = std::clamp(atoi(at.Action.c_str() + 6), 1, 16);
+                updateConfiguration(instance);
+            }
+            else if (at.Action.rfind("shot=", 0) == 0)
+            {
+                std::string path = at.Action.substr(5);
+                runOnUiThread([&] { screenshot(path); });
+            }
+            else if (at.Action == "renderer=soft" || at.Action == "renderer=gl" || at.Action == "renderer=compute")
+            {
+                renderer = at.Action == "renderer=gl" ? RendererType::OpenGL
+                         : at.Action == "renderer=compute" ? RendererType::Compute : RendererType::Software;
+                updateConfiguration(instance);
+            }
+            else if (!ApplySet(instance.getNds()->GPU, at.Action))
+                fprintf(stderr, "unknown --at %u:%s (see --list-sets)\n", at.Frame, at.Action.c_str());
+            else if (at.Action.rfind("OutputCapDeband=", 0) == 0)
+                MelonDSAndroid::setOutputDeband(SetValue({at.Action}, "OutputCapDeband", 0) != 0);
+            printf("at frame %u: %s\n", at.Frame, at.Action.c_str());
+        }
+        return true;
+    };
+    callbacks.AfterFrame = [&](MelonDSAndroid::MelonInstance& instance, u32 frame, u32 lines, double workMs)
+    {
+        NDS& nds = *instance.getNds();
+        RendererType current = DesktopRenderer(instance.getCurrentRenderer());
+        if (printRenderer)
+        {
+            printf("renderer: %s, scale %d, width %d, margin %d\n", RendererName(current), ActiveScale(instance), opts.WideWidth, opts.WideMargin);
+            printRenderer = false;
+        }
+        stats.Add(workMs);
+        statsLabel = RendererName(current);
+        {
+            std::lock_guard guard(titleStats.Lock);
+            titleStats.Second.Add(workMs);
+            titleStats.Renderer = current;
+            titleStats.Scale = ActiveScale(instance);
+        }
+        currentFrame = frame + 1;
+
+        if (opts.GameState)
+        {
+            // MelonInstance::applyShadow2DMode turns the GPU 2D shadow on and off around a Gen 4 game's battles before the frame
+            int mode = nds.GPU.Shadow2D ? nds.GPU.Shadow2D->Mode : 0;
+            if (mode != lastShadowMode)
+            {
+                printf("frame %u: GPU 2D shadow mode %d\n", frame, mode);
+                lastShadowMode = mode;
+            }
+            // Polled every frame, as the camera does
+            int scene = instance.pollGameScene();
+            if (scene != lastScene)
+            {
+                const char* name = MelonDSAndroid::GameState::getSceneName(scene);
+                printf("frame %u: game state %s\n", frame, name ? name : "unknown");
+                lastScene = scene;
+            }
+        }
+
+        // the core's audio, dropped while it would only pile up (fast forward, a slow frame)
+        int got;
+        while ((got = instance.readAudioOutput(audioBuf.data(), (int)audioBuf.size() / 2)) > 0)
+        {
+            if (audio && !emuThread.IsFastForward() && !opts.Unthrottled && SDL_GetQueuedAudioSize(audio) < 48000 * 4 / 10)
+                SDL_QueueAudio(audio, audioBuf.data(), got * 4);
+        }
+    };
+    callbacks.OnStop = [&](MelonDSAndroid::MelonInstance&)
+    {
+        OpenGL::ShaderCacheStats cacheStats;
+        OpenGL::SaveShaderCache(cacheStats);
+    };
+
+    emuThread.SetLimitFps(!opts.Unthrottled);
+    emuThread.SetGpuSync(opts.GpuSync);
+    emuThread.Start(emuWindow, emuContext, std::move(instance), std::move(callbacks));
+
     auto touchAt = [&](int x, int y)
     {
-        const Frontend::Rect& r = emu.Present.BottomRect();
+        const Frontend::Rect& r = main.Rects.Bottom;
         if (r.W <= 0)
             return;
         // window points to drawable pixels, as the rect is in the latter
@@ -817,9 +1046,22 @@ int main(int argc, char** argv)
         if (!touching && (tx < 0 || tx > 255 || ty < 0 || ty > 191))
             return;
         touching = true;
-        emu.Nds->TouchScreen((u16)std::clamp(tx, 0, 255), (u16)std::clamp(ty, 0, 191));
+        emu->touchScreen((u16)std::clamp(tx, 0, 255), (u16)std::clamp(ty, 0, 191));
     };
 
+    // draws [frame] into the window and shows it
+    auto present = [&](Frame* frame)
+    {
+        int dw, dh;
+        SDL_GL_GetDrawableSize(window, &dw, &dh);
+        PrepareFrame(frame);
+        main.Rects = presenter.Draw(Frontend::FrameView::Of(*frame), dw, dh, layout, linear);
+        ReleaseFrame(frame);
+        SDL_GL_SwapWindow(window);
+    };
+
+    u64 lastSequence = 0;
+    bool redraw = false;
     while (running)
     {
         SDL_Event ev;
@@ -830,6 +1072,10 @@ int main(int argc, char** argv)
             case SDL_QUIT:
                 running = false;
                 break;
+            case SDL_WINDOWEVENT:
+                if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || ev.window.event == SDL_WINDOWEVENT_EXPOSED)
+                    redraw = true;
+                break;
             case SDL_KEYDOWN:
             case SDL_KEYUP:
             {
@@ -838,27 +1084,48 @@ int main(int argc, char** argv)
                 if (u32 bit = KeyBit(key))
                     keyMask = down ? (keyMask | bit) : (keyMask & ~bit);
                 if (key == SDLK_TAB)
-                    fastForward = down;
+                    emuThread.SetFastForward(down);
                 if (!down || ev.key.repeat)
                     break;
                 switch (key)
                 {
                 case SDLK_ESCAPE: running = false; break;
-                case SDLK_p: paused = !paused; break;
+                case SDLK_p:
+                    paused = !paused;
+                    paused ? emuThread.Pause() : emuThread.Resume();
+                    break;
                 case SDLK_r:
                     if (ev.key.keysym.mod & KMOD_CTRL)
                     {
-                        emu.Reset();
-                        printf("reset\n");
+                        emuThread.Post([&](MelonDSAndroid::MelonInstance& instance)
+                        {
+                            instance.reset();
+                            SetDateTime(opts, *instance.getNds());
+                            printf("reset\n");
+                        });
                     }
                     break;
-                case SDLK_F5: emu.Requested = RendererType::Software; emu.RendererDirty = true; break;
-                case SDLK_F6: emu.Requested = RendererType::OpenGL; emu.RendererDirty = true; break;
-                case SDLK_F7: emu.Requested = RendererType::Compute; emu.RendererDirty = true; break;
-                case SDLK_F3: opts.Scale = std::max(1, opts.Scale - 1); emu.RendererDirty = true; break;
-                case SDLK_F4: opts.Scale = std::min(16, opts.Scale + 1); emu.RendererDirty = true; break;
-                case SDLK_F2: opts.Layout = (Frontend::Layout)(((int)opts.Layout + 1) % (int)Frontend::Layout::Count); break;
-                case SDLK_F8: opts.Linear = !opts.Linear; break;
+                case SDLK_F5:
+                case SDLK_F6:
+                case SDLK_F7:
+                {
+                    RendererType requested = key == SDLK_F5 ? RendererType::Software : key == SDLK_F6 ? RendererType::OpenGL : RendererType::Compute;
+                    emuThread.Post([&, requested](MelonDSAndroid::MelonInstance& instance) { renderer = requested; updateConfiguration(instance); });
+                    break;
+                }
+                case SDLK_F3:
+                case SDLK_F4:
+                {
+                    int step = key == SDLK_F3 ? -1 : 1;
+                    emuThread.Post([&, step](MelonDSAndroid::MelonInstance& instance) { scale = std::clamp(scale + step, 1, 16); updateConfiguration(instance); });
+                    break;
+                }
+                case SDLK_F2: layout = (Frontend::Layout)(((int)layout + 1) % (int)Frontend::Layout::Count); redraw = true; break;
+                case SDLK_F8:
+                    linear = !linear;
+                    MelonDSAndroid::setHalvesAt1xSupported(!linear);
+                    redraw = true;
+                    break;
                 case SDLK_F11:
                     SDL_SetWindowFullscreen(window, (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
                     break;
@@ -866,7 +1133,7 @@ int main(int argc, char** argv)
                 {
                     fs::create_directories(exeDir + "screenshots", ec);
                     char name[64];
-                    snprintf(name, sizeof(name), "screenshots/frame%06u.bmp", frame);
+                    snprintf(name, sizeof(name), "screenshots/frame%06u.bmp", currentFrame.load());
                     screenshot(exeDir + name);
                     break;
                 }
@@ -886,7 +1153,7 @@ int main(int argc, char** argv)
                 if (ev.button.button == SDL_BUTTON_LEFT && touching)
                 {
                     touching = false;
-                    emu.Nds->ReleaseScreen();
+                    emu->releaseScreen();
                 }
                 break;
             case SDL_CONTROLLERDEVICEADDED:
@@ -902,9 +1169,10 @@ int main(int argc, char** argv)
                 const int dead = 16000;
                 auto setAxis = [&](u32 negBit, u32 posBit, int value)
                 {
-                    stickMask &= ~(negBit | posBit);
-                    if (value < -dead) stickMask |= negBit;
-                    if (value > dead) stickMask |= posBit;
+                    u32 m = stickMask & ~(negBit | posBit);
+                    if (value < -dead) m |= negBit;
+                    if (value > dead) m |= posBit;
+                    stickMask = m;
                 };
                 if (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX) setAxis(1 << 5, 1 << 4, ev.caxis.value);
                 if (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) setAxis(1 << 6, 1 << 7, ev.caxis.value);
@@ -913,198 +1181,86 @@ int main(int argc, char** argv)
             default: break;
             }
         }
-        if (Frontend::App.StopRequested)
-            running = false;
-        if (!running)
+        // the emulator's events (its stop), and what the emulator thread waits for (--at shot)
+        messenger->Drain();
+        if (!running || emuThread.IsFinished())
             break;
 
-        int dw, dh;
-        SDL_GL_GetDrawableSize(window, &dw, &dh);
-
-        if (!paused)
+        // the newest frame, waiting a little for one when nothing new is queued, drawn once (or again when the window needs it)
+        Frame* frame = AcquireFrame(*emu, std::chrono::steady_clock::now() + std::chrono::milliseconds(8));
+        if (frame && (frame->sequence != lastSequence || redraw))
         {
-            u32 scriptMask = Frontend::PressMask(opts.Presses, frame);
-            emu.Nds->SetKeyMask(~(keyMask | padMask | stickMask | scriptMask) & 0xFFF);
-
-            for (const Options::At& at : opts.Ats)
-            {
-                if (at.Frame != frame)
-                    continue;
-                if (at.Action == "reset")
-                    emu.Reset();
-                else if (at.Action == "state")
-                {
-                    if (opts.StatePath.empty())
-                        fprintf(stderr, "--at %u:state: no state to load\n", at.Frame);
-                    else if (!emu.LoadState(opts.StatePath))
-                    {
-                        fprintf(stderr, "--at %u:state: the state didn't load, stopping\n", at.Frame);
-                        stateFailed = true;
-                        running = false;
-                        break;
-                    }
-                }
-                else if (at.Action.rfind("save=", 0) == 0)
-                    emu.SaveState(at.Action.substr(5));
-                else if (at.Action.rfind("scale=", 0) == 0)
-                {
-                    opts.Scale = std::clamp(atoi(at.Action.c_str() + 6), 1, 16);
-                    emu.RendererDirty = true;
-                }
-                else if (at.Action.rfind("shot=", 0) == 0)
-                    screenshot(at.Action.substr(5));
-                else if (at.Action == "renderer=soft" || at.Action == "renderer=gl" || at.Action == "renderer=compute")
-                {
-                    emu.Requested = at.Action == "renderer=gl" ? RendererType::OpenGL
-                                  : at.Action == "renderer=compute" ? RendererType::Compute : RendererType::Software;
-                    emu.RendererDirty = true;
-                }
-                else if (!ApplySet(emu.Nds->GPU, at.Action))
-                    fprintf(stderr, "unknown --at %u:%s (see --list-sets)\n", at.Frame, at.Action.c_str());
-                printf("at frame %u: %s\n", at.Frame, at.Action.c_str());
-            }
-            if (!running)
-                break;
-
-            auto workStart = std::chrono::steady_clock::now();
-            // The app's game state shim; the cart is looked up on the first frame, and --at's resets and state loads start it over
-            static MelonDSAndroid::GameState gameState;
-            static bool hasCart = false;
-            if (!hasCart)
-            {
-                auto cart = emu.Nds->NDSCartSlot.GetCart();
-                gameState.setCart(cart ? cart->GetROM() : nullptr, cart ? cart->GetROMLength() : 0);
-                hasCart = true;
-            }
-            for (const auto& at : opts.Ats)
-                if (at.Frame == frame && (at.Action == "reset" || at.Action == "state"))
-                    gameState.reset();
-            if (opts.WideBattles)
-            {
-                // MelonInstance::applyShadow2DMode: the shadow in mode 3 around a Gen 4 game's battles, unless --gpu2d set a mode, then the
-                // battle's wide modes; before emu.RunFrame's SetOutputNeed, as the output cap follows them
-                bool isWideBattle = gameState.updateWideBattle(opts.WideWidth > 256);
-                if (opts.Gpu2D == 0)
-                {
-                    bool canWideBattles = emu.Current != RendererType::Software && opts.Filter2D == 0 && gameState.hasWideBattles();
-                    int mode = canWideBattles && isWideBattle ? 3 : 0;
-                    if (mode != (emu.Nds->GPU.Shadow2D ? emu.Nds->GPU.Shadow2D->Mode : 0))
-                    {
-                        emu.Nds->GPU.SetShadow2D(mode, false, false, opts.Gpu2DWide);
-                        if (opts.GameState)
-                            printf("frame %u: GPU 2D shadow mode %d\n", frame, mode);
-                    }
-                }
-                gameState.applyWideBattle(emu.Nds.get());
-            }
-            emu.RunFrame();
-            gameState.update(emu.Nds.get());
-            if (opts.GameState)
-            {
-                // Polled every frame, as the camera does
-                static int lastScene = -2;
-                int scene = gameState.pollScene();
-                if (scene != lastScene)
-                {
-                    const char* name = MelonDSAndroid::GameState::getSceneName(scene);
-                    printf("frame %u: game state %s\n", frame, name ? name : "unknown");
-                    lastScene = scene;
-                }
-            }
-            emu.Present.Draw(*emu.Nds, dw, dh, emu.TopWidth(), opts.Layout, opts.Linear);
-            if (opts.GpuSync)
-                glFinish();
-            double workMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - workStart).count();
-            stats.Add(workMs);
-            second.Add(workMs);
-            frame++;
-
-            // the core's audio, dropped while it would only pile up (fast forward, a slow frame)
-            int got;
-            while ((got = emu.Nds->SPU.ReadOutput(audioBuf.data(), (int)audioBuf.size() / 2)) > 0)
-            {
-                if (audio && !fastForward && !opts.Unthrottled && SDL_GetQueuedAudioSize(audio) < 48000 * 4 / 10)
-                    SDL_QueueAudio(audio, audioBuf.data(), got * 4);
-            }
-
-            Frontend::FlushSaves(false);
+            present(frame);
+            lastSequence = frame->sequence;
+            redraw = false;
         }
-        else
-        {
-            emu.Present.Draw(*emu.Nds, dw, dh, emu.TopWidth(), opts.Layout, opts.Linear);
-        }
-        SDL_GL_SwapWindow(window);
 
         auto now = std::chrono::steady_clock::now();
         double secs = std::chrono::duration<double>(now - secondStart).count();
         if (secs >= 1.0)
         {
+            std::lock_guard guard(titleStats.Lock);
+            const std::vector<double>& work = titleStats.Second.WorkMs;
+            double sum = 0;
+            for (double ms : work)
+                sum += ms;
             char title[256];
-            snprintf(title, sizeof(title), "melonadeDS - %s %dx - %.1f fps - %.2f ms%s", RendererName(emu.Current),
-                emu.ActiveScale(), second.WorkMs.size() / secs,
-                second.WorkMs.empty() ? 0.0 : [&] { double s = 0; for (double ms : second.WorkMs) s += ms; return s / second.WorkMs.size(); }(),
-                paused ? " (paused)" : "");
+            snprintf(title, sizeof(title), "melonadeDS - %s %dx - %.1f fps - %.2f ms%s", RendererName(titleStats.Renderer),
+                titleStats.Scale, work.size() / secs, work.empty() ? 0.0 : sum / work.size(), paused ? " (paused)" : "");
             SDL_SetWindowTitle(window, title);
-            second.WorkMs.clear();
+            titleStats.Second.WorkMs.clear();
             secondStart = now;
         }
-
-        if (opts.Frames && frame >= opts.Frames)
-        {
-            if (!opts.WindowShotPath.empty())
-            {
-                // the frame drawn again and read from the back buffer, before any swap
-                emu.Present.Draw(*emu.Nds, dw, dh, emu.TopWidth(), opts.Layout, opts.Linear || opts.WindowShotLinear);
-                std::vector<u8> pixels((size_t)dw * dh * 4), flipped(pixels.size());
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-                glPixelStorei(GL_PACK_ALIGNMENT, 4);
-                glPixelStorei(GL_PACK_ROW_LENGTH, 0);
-                glReadPixels(0, 0, dw, dh, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-                for (int y = 0; y < dh; y++)
-                    memcpy(&flipped[(size_t)y * dw * 4], &pixels[(size_t)(dh - 1 - y) * dw * 4], (size_t)dw * 4);
-                if (Frontend::WriteBMP(opts.WindowShotPath.c_str(), flipped, dw, dh))
-                    printf("window shot %s (%dx%d)\n", opts.WindowShotPath.c_str(), dw, dh);
-            }
-            break;
-        }
-
-        // the DS's pace, unless fast forwarding; a frame that ran late doesn't make the next ones hurry
-        if (paused)
-            SDL_Delay(16);
-        else if (!fastForward && !opts.Unthrottled)
-        {
-            nextFrame += std::chrono::duration_cast<std::chrono::steady_clock::duration>(frameTime);
-            if (nextFrame < now - std::chrono::milliseconds(50))
-                nextFrame = now;
-            auto sleepUntil = nextFrame - std::chrono::milliseconds(2);
-            if (sleepUntil > now)
-                std::this_thread::sleep_until(sleepUntil);
-            while (std::chrono::steady_clock::now() < nextFrame)
-                std::this_thread::yield();
-        }
-        else
-            nextFrame = std::chrono::steady_clock::now();
     }
 
+    // Out of the frame loop first, still serving what the emulator thread may wait for, so the last frame stays for the shots below
+    emuThread.RequestFinish();
+    while (!emuThread.IsFinished())
+    {
+        messenger->Drain();
+        SDL_Delay(1);
+    }
     double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - runStart).count();
-    stats.Print(RendererName(emu.Current), wall);
-    if (!opts.ScreenshotPath.empty())
+
+    if (opts.Frames && currentFrame >= opts.Frames && !opts.WindowShotPath.empty())
+    {
+        // the last frame drawn again and read from the back buffer, before any swap
+        if (Frame* frame = AcquireFrame(*emu, std::nullopt))
+        {
+            int dw, dh;
+            SDL_GL_GetDrawableSize(window, &dw, &dh);
+            PrepareFrame(frame);
+            presenter.Draw(Frontend::FrameView::Of(*frame), dw, dh, layout, linear || opts.WindowShotLinear);
+            std::vector<u8> pixels((size_t)dw * dh * 4), flipped(pixels.size());
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            glPixelStorei(GL_PACK_ALIGNMENT, 4);
+            glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+            glReadPixels(0, 0, dw, dh, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            ReleaseFrame(frame);
+            for (int y = 0; y < dh; y++)
+                memcpy(&flipped[(size_t)y * dw * 4], &pixels[(size_t)(dh - 1 - y) * dw * 4], (size_t)dw * 4);
+            if (Frontend::WriteBMP(opts.WindowShotPath.c_str(), flipped, dw, dh))
+                printf("window shot %s (%dx%d)\n", opts.WindowShotPath.c_str(), dw, dh);
+        }
+    }
+
+    stats.Print(statsLabel.c_str(), wall);
+    if (!opts.ScreenshotPath.empty() && !startFailed)
         screenshot(opts.ScreenshotPath);
 
-    if (!stateFailed)
-        Frontend::FlushSaves(true);
-    OpenGL::ShaderCacheStats cacheStats;
-    OpenGL::SaveShaderCache(cacheStats);
-    emu.Nds->Stop();
-    emu.Nds.reset();
-    emu.Present.Free();
+    // the instance goes on the emulator thread, with its context current; its saves are written as their SaveManagers go
+    emuThread.Stop();
+    MelonDSAndroid::frontendContext.eventMessenger = nullptr;
+    presenter.Free();
     if (audio)
         SDL_CloseAudioDevice(audio);
-    SDL_GL_DeleteContext(context);
+    SDL_GL_DeleteContext(emuContext);
+    SDL_DestroyWindow(emuWindow);
+    SDL_GL_DeleteContext(uiContext);
     SDL_DestroyWindow(window);
     SDL_Quit();
     timeEndPeriod(1);
     if (Frontend::LogFile)
         fclose(Frontend::LogFile);
-    return stateFailed ? 2 : 0;
+    return startFailed ? 1 : stateFailed ? 2 : 0;
 }

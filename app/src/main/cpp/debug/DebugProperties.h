@@ -1,6 +1,43 @@
 #ifndef DEBUGPROPERTIES_H
 #define DEBUGPROPERTIES_H
 
+// Where MelonInstance follows the frontend switches (Overrides): debug builds and the desktop
+#if defined(MELONADE_DEBUG_TOOLS) || !defined(__ANDROID__)
+#define MELONADE_DEBUG_OVERRIDES
+#endif
+
+#ifdef MELONADE_DEBUG_OVERRIDES
+namespace DebugProperties
+{
+
+/**
+ * The frontend switches, -1 when the property isn't set. Debug builds read them (apply()), the desktop sets them from its command line
+ * (MelonInstance::setDebugOverrides).
+ */
+struct Overrides
+{
+    int threaded2d = -1;
+    int hiresCapture = -1;
+    int filter2d = -1;
+    int halfCamera = -1;
+    // gledgemark, over the "Edge marking" setting (GPU::GLEdgeMark)
+    int edgeMark = -1;
+    // glseams, over the "Fix floor seams" setting (GPU::GLSeams)
+    int glSeams = -1;
+    // gpu2d, over the "Sharper rotated 2D" setting: the GPU::SetShadow2D mode apply already set (0 off, 1, 2 all), -1 when the setting decides
+    int gpu2d = -1;
+    // gpu2dwide and gpu2daffine as read (0 when unset), for a shadow the setting turns on later
+    int gpu2dWide = 0;
+    int gpu2dAffine = 0;
+#ifndef __ANDROID__
+    // The desktop's --no-wide-battles: 0 keeps WideMelon's Gen 4 battles at the edge, as in other games (MelonInstance::applyShadow2DMode)
+    int wideBattles = -1;
+#endif
+};
+
+}
+#endif
+
 #ifdef MELONADE_DEBUG_TOOLS
 
 #include <string>
@@ -321,26 +358,6 @@ void setOverrides(const std::string& text);
  * property, "(app, over prop X)" when the app's replaced a property that was set too, and then the app's switches nothing read (yet) as "unread:".
  */
 std::string describeActive();
-
-/**
- * The frontend switches, -1 when the property isn't set.
- */
-struct Overrides
-{
-    int threaded2d = -1;
-    int hiresCapture = -1;
-    int filter2d = -1;
-    int halfCamera = -1;
-    // gledgemark, over the "Edge marking" setting (GPU::GLEdgeMark)
-    int edgeMark = -1;
-    // glseams, over the "Fix floor seams" setting (GPU::GLSeams)
-    int glSeams = -1;
-    // gpu2d, over the "Sharper rotated 2D" setting: the GPU::SetShadow2D mode apply already set (0 off, 1, 2 all), -1 when the setting decides
-    int gpu2d = -1;
-    // gpu2dwide and gpu2daffine as read (0 when unset), for a shadow the setting turns on later
-    int gpu2dWide = 0;
-    int gpu2dAffine = 0;
-};
 
 /**
  * Applies every switch that targets the core to [nds] (its GPU and JIT, before the JIT compiles anything), logs a summary line and

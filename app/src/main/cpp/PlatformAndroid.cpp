@@ -82,7 +82,7 @@ namespace Platform
     {
         // The lines that led up to the stop (a bad exception region, say) go out before the app reacts to it
         LogQueue::flush();
-        MelonDSAndroid::eventMessenger->onEmulatorStop(reason);
+        MelonDSAndroid::frontendContext.eventMessenger->onEmulatorStop(reason);
     }
 
     constexpr char AccessMode(FileMode mode, bool fileExists)
@@ -172,7 +172,7 @@ namespace Platform
 
     FileHandle* OpenInternalFile(const std::string path, FileMode mode)
     {
-        std::filesystem::path fullFilePath = MelonDSAndroid::internalFilesDir;
+        std::filesystem::path fullFilePath = MelonDSAndroid::frontendContext.internalFilesDir;
         fullFilePath /= path;
         return OpenFile(fullFilePath, mode);
     }
@@ -653,12 +653,12 @@ namespace Platform
 
     void Addon_RumbleStart(u32 len, void* userdata)
     {
-        MelonDSAndroid::eventMessenger->onRumbleStart(len);
+        MelonDSAndroid::frontendContext.eventMessenger->onRumbleStart(len);
     }
 
     void Addon_RumbleStop(void* userdata)
     {
-        MelonDSAndroid::eventMessenger->onRumbleStop();
+        MelonDSAndroid::frontendContext.eventMessenger->onRumbleStop();
     }
 
     float Addon_MotionQuery(MotionQueryType type, void* userdata)

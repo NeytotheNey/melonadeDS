@@ -9,7 +9,7 @@
 #include "Args.h"
 #include "Configuration.h"
 #include "NDS.h"
-#include "MelonDS.h"
+#include "MelonTypes.h"
 #include "SaveManager.h"
 #include "RewindManager.h"
 #include "renderer/FrameQueue.h"
@@ -123,6 +123,14 @@ public:
     // The known Pokemon game's scene for the WideMelon camera (GameState::pollScene), GameState::Unknown for other games; any thread
     int pollGameScene() { return gameState.pollScene(); }
 
+#ifndef __ANDROID__
+    // The desktop's switches over the configuration (its command line), before the first frame; debug builds on Android read them in the constructor
+    void setDebugOverrides(const DebugProperties::Overrides& overrides) { debugOverrides = overrides; isRenderConfigurationDirty = true; }
+    // The console and the renderer in use, for the desktop's scripted runs and title; emulator thread, between frames
+    melonDS::NDS* getNds() { return nds; }
+    Renderer getCurrentRenderer() const { return currentRenderer; }
+#endif
+
     // LuaSavestateHost, for melon.state; emulator thread, between frames
     bool saveLuaState(std::vector<melonDS::u8>& data) override;
     bool loadLuaState(const std::vector<melonDS::u8>& data) override;
@@ -202,8 +210,8 @@ private:
     bool canShadow2DWideBattles = false;
     bool isShadow2DOverridden = false;
     int shadow2DWide = 0;
-#ifdef MELONADE_DEBUG_TOOLS
-    // The debug.melonade.* switches that override settings (see DebugProperties.h)
+#ifdef MELONADE_DEBUG_OVERRIDES
+    // The debug.melonade.* switches that override settings (see DebugProperties.h), or on the desktop its command line's
     DebugProperties::Overrides debugOverrides;
 #endif
     int frame;

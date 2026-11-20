@@ -27,6 +27,7 @@ add_subdirectory("${CORE_LIB}" "${CMAKE_BINARY_DIR}/melonDS-android-lib")
 add_executable(jitverify
     main.cpp
     "${DESKTOP_SRC}/Platform.cpp"
+    "${DESKTOP_SRC}/PlatformBase.cpp"
     "${DESKTOP_SRC}/Frontend.h"
     "${DESKTOP_SRC}/RunOptions.h")
 
