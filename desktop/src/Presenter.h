@@ -1,23 +1,43 @@
-// Draws a frame's two screens into the window, from the renderer's own output texture (OpenGL,
-// Compute) or the software framebuffer, and reads frames back for screenshots
+// Draws the screens of a frame from the shared native code's FrameQueue (the frame texture MelonInstance rendered or uploaded into, in the
+// layout the app's DSRenderer reads) into the current framebuffer, and reads frames back for screenshots. It draws into whatever window
+// is current, so one presenter (one GL context) can draw several windows, each with its own screens and rects
 #pragma once
 
 #include <vector>
 
 #include "PlatformOGL.h"
-#include "GPU3D.h"
 #include "types.h"
 
-namespace melonDS { class NDS; }
+struct Frame;
 
 namespace Frontend
 {
 
+// the screens a window shows, and how: both (vertical or horizontal) or one of them
 enum class Layout { Vertical, Horizontal, TopOnly, BottomOnly, Count };
 
 struct Rect
 {
     float X = 0, Y = 0, W = 0, H = 0;
+};
+
+// where Draw put each screen, in the window's drawable pixels (W 0 for a screen it didn't draw)
+struct ScreenRects
+{
+    Rect Top, Bottom;
+};
+
+// what Draw and ReadFrame need of a Frame (renderer/FrameQueue.h)
+struct FrameView
+{
+    GLuint Texture = 0;
+    int Width = 0, Height = 0;
+    // the top screen's width in DS pixels (wider than 256 with WideMelon), and its margin rows above and below (WideMelon camera stage 2)
+    int TopWidth = 256, TopMargin = 0;
+    // GPU::Comp1x: the halves the compositor drew at 1x (bit 0 the top one), the frame's scale and the scale they were drawn at
+    int HalvesAt1x = 0, Scale = 1, HalfScale = 1;
+
+    static FrameView Of(const Frame& frame);
 };
 
 class Presenter
@@ -26,31 +46,19 @@ public:
     bool Init();
     void Free();
 
-    // topWidth is the top screen's width in DS pixels (wider than 256 with WideMelon)
-    void Draw(melonDS::NDS& nds, int windowW, int windowH, int topWidth, Layout layout, bool linear);
+    // clears the current window's drawable (windowW x windowH) to black and draws [layout]'s screens of [frame] into it, fitted and
+    // centered; the GL state it needs is set first, since the core leaves its own behind
+    ScreenRects Draw(const FrameView& frame, int windowW, int windowH, Layout layout, bool linear);
 
-    // GPU::Comp1x: forgets the output layouts, when a new renderer (with textures of its own, which it
-    // draws into before they're shown) replaces the old one
-    void ResetLayouts();
-
-    // where the bottom screen was last drawn, in window pixels, for touch
-    const Rect& BottomRect() const { return Bottom; }
-
-    // the last drawn frame as RGBA rows, top row first, at the renderer's internal size. a half the
-    // compositor drew at 1x (GPU::Comp1x) is upscaled into its rows, as Draw shows it
-    bool ReadFrame(std::vector<melonDS::u8>& pixels, int& width, int& height);
+    // a frame's texture as RGBA rows, top row first, at the renderer's internal size. a half the compositor drew at 1x (GPU::Comp1x) is
+    // upscaled into its rows, as Draw shows it
+    bool ReadFrame(const FrameView& frame, std::vector<melonDS::u8>& pixels, int& width, int& height);
 
 private:
-    GLuint BindFrame(melonDS::NDS& nds);
-
-    // GPU::Comp1x: what the renderer last drew into each of its output buffers (OutputLayout), kept
-    // until it draws into that one again (or ResetLayouts), and the drawn frame's
-    melonDS::OutputLayout Layouts[2] {};
-    melonDS::OutputLayout LastLayout {};
     // draws a frame with a half at 1x without linear filtering, and expands one into the full frame
     // (ExpandTexture, the frame's size) for it. made the first time such a frame is drawn
     bool PrepareHalvesAt1x();
-    GLuint ExpandHalvesAt1x(GLuint texture);
+    GLuint ExpandHalvesAt1x(const FrameView& frame);
     GLuint HalvesAt1xProgram = 0;
     GLint HalvesAt1xTexLoc = -1;
     GLint HalvesAt1xLoc = -1;
@@ -71,11 +79,8 @@ private:
     GLuint VertexArray = 0;
     GLuint VertexBuffer = 0;
     GLuint Sampler[2] = {};
-    GLuint SoftTexture = 0;
     GLuint ReadFB = 0;
-    GLuint LastTexture = 0;
     GLint TexLoc = -1;
-    Rect Top, Bottom;
 };
 
 // writes RGBA rows (top row first) as a 24-bit BMP
