@@ -58,10 +58,15 @@ add_executable(melonade-desktop
     src/Presenter.cpp
     src/Presenter.h
     src/RunOptions.h
+    src/ScreenWindows.cpp
+    src/ScreenWindows.h
+    src/Settings.cpp
+    src/Settings.h
     gl/pc_gl_loader.cpp
     gl/pc_gl.h)
 
-target_include_directories(melonade-desktop PRIVATE "${CORE_LIB}/src" "${GL_DIR}/shim")
+# third_party/: vendored libraries (third_party/README.md)
+target_include_directories(melonade-desktop PRIVATE "${CORE_LIB}/src" "${GL_DIR}/shim" "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 # Windows 10 APIs (SetProcessInformation for power throttling)
 target_compile_definitions(melonade-desktop PRIVATE _WIN32_WINNT=0x0A00)
 target_link_libraries(melonade-desktop PRIVATE melonade-shared core SDL2::SDL2main SDL2::SDL2 winmm)

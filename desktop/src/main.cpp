@@ -48,6 +48,8 @@
 #include "Frontend.h"
 #include "Presenter.h"
 #include "RunOptions.h"
+#include "ScreenWindows.h"
+#include "Settings.h"
 
 using namespace melonDS;
 namespace fs = std::filesystem;
@@ -125,7 +127,6 @@ struct Options
     bool GpuSync = false;      // glFinish after each frame, so the work time includes the GPU's
     bool GameState = false;    // print the app's game state scene (app/src/main/cpp/gamestate) when it changes
     bool WideBattles = true;   // the app's WideMelon Gen 4 battles (GameState::applyWideBattle), with --wide on gl/compute
-    Frontend::Layout Layout = Frontend::Layout::Vertical;
     int WindowScale = 2;
     u32 Frames = 0;            // 0 runs until the window is closed
     std::vector<std::string> Sets;
@@ -134,7 +135,17 @@ struct Options
     using Press = Frontend::KeyPress;
     std::vector<Press> Presses; // --press: keys held over frame ranges, for scripted runs
     struct At { u32 Frame; std::string Action; };
-    std::vector<At> Ats;       // --at: a reset, a state load or save, or a switch change before a frame
+    std::vector<At> Ats;       // --at: a reset, a state load or save, a switch change or a hotkey before a frame
+    // --touch: the mouse held at a point of the window that shows the bottom screen over frame ranges, for scripted runs
+    struct Touch { u32 From, To; float X, Y; };
+    std::vector<Touch> Touches;
+
+    std::string ProfileDir;    // --profile; see Frontend::ResolveProfileDir
+    // the settings the command line gives (--renderer, --scale, --setting, ...), for this run only and never written. The fields above
+    // that have a setting (Renderer, Scale, Linear, Audio, VSync) are filled from the settings once they're read (ApplySettings)
+    std::vector<std::pair<std::string, picojson::value>> SettingOverrides;
+    std::optional<Frontend::WindowPlace> Window, Window2; // --window, --window2
+    bool SaveHiddenPlaces = false;
 };
 
 void Usage()
@@ -176,15 +187,28 @@ void Usage()
         "  --boot-screen               boot through the firmware instead of directly\n"
         "  --fixed-time                the RTC starts at 2026-01-01 12:00, for runs to compare\n"
         "  --set NAME=VALUE            a core debug switch, e.g. --set LateBlit=0 (see --list-sets)\n"
-        "  --at F:reset|state|save=FILE|scale=N|renderer=R|shot=FILE|NAME=VALUE\n"
+        "  --at F:reset|state|save=FILE|scale=N|renderer=R|shot=FILE|key=KEY|NAME=VALUE\n"
         "                              before frame F: a reset, the --state loaded again, a savestate\n"
         "                              written to FILE, the scale or renderer (soft, gl, compute) changed, the last\n"
-        "                              frame saved as FILE.bmp (as --screenshot), or a --set\n"
+        "                              frame saved as FILE.bmp (as --screenshot), a hotkey pressed (key=F9,\n"
+        "                              key=ctrl+r: what it changes is saved as when typed), or a --set\n"
+        "  --touch F[-L]:X,Y           touch at X,Y in the drawable pixels of the window that shows the bottom\n"
+        "                              screen over frames F..L (6 frames without L); off the screen does nothing\n"
         "  --list-sets                 list the switches --set knows\n"
         "  --widedrops                 log a WIDEDROPS line once a second (WideMelon's dropped polygons)\n"
         "\n"
-        "  --layout vertical|horizontal|top|bottom\n"
-        "  --window-scale N            window size in DS screens (default 2)\n"
+        "  --profile DIR               settings.json in DIR instead of %%APPDATA%%\\melonadeDS (or the exe's folder with a\n"
+        "                              portable.txt there); a --hidden run without it gets a fresh temporary one\n"
+        "  --setting KEY=VALUE         a setting for this run only, e.g. desktop_fit_bottom=integer (README lists them)\n"
+        "  (the options that change a setting, --renderer, --scale, --linear, --vsync, --no-audio, --layout and\n"
+        "  --detach, are for the run only too: none of them is written to settings.json)\n"
+        "\n"
+        "  --layout vertical|horizontal|top|bottom   the screens together in one window\n"
+        "  --detach                    the screens detached: the top and bottom screens in two windows\n"
+        "  --window W,H[,X,Y]          the main window's size in pixels (and desktop position) for this run\n"
+        "  --window2 W,H[,X,Y]         the same for the second window when detached\n"
+        "  --window-scale N            default window size in DS screens (default 2), times the monitor's\n"
+        "                              scale (150%%: 3 screens) unless --hidden\n"
         "  --linear                    linear filtering when drawing to the window\n"
         "  --vsync                     wait for vsync on swap (pacing stays at the DS's 59.83 Hz)\n"
         "  --unthrottled               run as fast as possible (benchmarks)\n"
@@ -194,8 +218,11 @@ void Usage()
         "                              GPU 2D shadow's mode, which a Gen 4 game's battles turn on and off\n"
         "  --no-wide-battles           with --wide, Gen 4 Pokemon battles stop at the edge as in other games\n"
         "  --screenshot FILE.bmp       save the last frame at the internal resolution when quitting\n"
+        "  --window-shot FILE.bmp      save the window as drawn when quitting (with --frames); detached: the\n"
+        "                              windows as FILE_top.bmp and FILE_bottom.bmp, for the screen each shows\n"
         "  --window-shot-linear        draw the window shot with linear filtering (the run keeps --linear's)\n"
-        "  --hidden                  no visible window (with --frames)\n"
+        "  --hidden                    no visible window (with --frames); never fullscreen, saves no window places\n"
+        "  --save-window-places        save the window places with --hidden too (tests)\n"
         "  --log FILE                  core log file (default melonade.log next to the exe)\n"
         "  --cache-dir DIR             Compute program cache directory\n"
         "  --verbose                   debug log lines on the console too\n"
@@ -203,7 +230,8 @@ void Usage()
         "keys: arrows = D-pad, X = A, Z = B, S = X, A = Y, Q = L, W = R, Enter = Start, Right Shift = Select\n"
         "      mouse on the bottom screen = touch, Tab (hold) = fast forward, P = pause, Ctrl+R = reset\n"
         "      F5/F6/F7 = software/OpenGL/Compute, F3/F4 = scale down/up, F2 = layout, F8 = linear filter\n"
-        "      F11 = fullscreen, F12 = screenshot, Esc = quit\n"
+        "      F9 = screens together/detached, F1 = swap screens, F10 = fit of the focused detached window\n"
+        "      (aspect, integer, stretch), F11 = fullscreen of the focused window, F12 = screenshot, Esc = quit\n"
         "      game controllers work too (Nintendo layout: east = A, south = B)\n");
 }
 
@@ -225,15 +253,49 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             return argv[++i];
         };
 
+        // a setting for this run (see Options::SettingOverrides)
+        auto setting = [&](const char* key, const picojson::value& value) { opts.SettingOverrides.emplace_back(key, value); };
+        auto text = [](const char* value) { return picojson::value(std::string(value)); };
+
         if (arg == "--renderer")
         {
             std::string r = next();
-            if (r == "soft" || r == "software") opts.Renderer = RendererType::Software;
-            else if (r == "gl" || r == "opengl") opts.Renderer = RendererType::OpenGL;
-            else if (r == "compute") opts.Renderer = RendererType::Compute;
+            if (r == "soft" || r == "software") setting("video_renderer", text("software"));
+            else if (r == "gl" || r == "opengl") setting("video_renderer", text("opengl"));
+            else if (r == "compute") setting("video_renderer", text("compute"));
             else { fprintf(stderr, "unknown renderer %s\n", r.c_str()); return false; }
         }
-        else if (arg == "--scale") opts.Scale = std::clamp(atoi(next().c_str()), 1, 16);
+        else if (arg == "--scale") setting("video_internal_resolution", text(std::to_string(std::clamp(atoi(next().c_str()), 1, 16)).c_str()));
+        else if (arg == "--setting")
+        {
+            std::string spec = next();
+            size_t eq = spec.find('=');
+            if (eq == std::string::npos || eq == 0) { fprintf(stderr, "bad --setting %s (KEY=VALUE)\n", spec.c_str()); return false; }
+            opts.SettingOverrides.emplace_back(spec.substr(0, eq), Frontend::Settings::ParseValue(spec.substr(eq + 1)));
+        }
+        else if (arg == "--profile") opts.ProfileDir = next();
+        else if (arg == "--detach") setting("desktop_screens", text("detached"));
+        else if (arg == "--window" || arg == "--window2")
+        {
+            std::string spec = next();
+            Frontend::WindowPlace place;
+            if (!Frontend::ParseWindowSpec(spec, place)) { fprintf(stderr, "bad %s %s (W,H or W,H,X,Y)\n", arg.c_str(), spec.c_str()); return false; }
+            (arg == "--window" ? opts.Window : opts.Window2) = place;
+        }
+        else if (arg == "--save-window-places") opts.SaveHiddenPlaces = true;
+        else if (arg == "--touch")
+        {
+            std::string spec = next();
+            Options::Touch touch {};
+            unsigned from = 0, to = 0;
+            float x = 0, y = 0;
+            if (sscanf(spec.c_str(), "%u-%u:%f,%f", &from, &to, &x, &y) == 4) {}
+            else if (sscanf(spec.c_str(), "%u:%f,%f", &from, &x, &y) == 3) to = from + 5;
+            else { fprintf(stderr, "bad --touch %s (F[-L]:X,Y)\n", spec.c_str()); return false; }
+            touch = {from, to, x, y};
+            if (to < from) { fprintf(stderr, "bad --touch %s\n", spec.c_str()); return false; }
+            opts.Touches.push_back(touch);
+        }
         else if (arg == "--wide")
         {
             opts.WideWidth = atoi(next().c_str());
@@ -292,17 +354,14 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--layout")
         {
             std::string l = next();
-            if (l == "vertical") opts.Layout = Frontend::Layout::Vertical;
-            else if (l == "horizontal") opts.Layout = Frontend::Layout::Horizontal;
-            else if (l == "top") opts.Layout = Frontend::Layout::TopOnly;
-            else if (l == "bottom") opts.Layout = Frontend::Layout::BottomOnly;
-            else { fprintf(stderr, "unknown layout %s\n", l.c_str()); return false; }
+            if (l != "vertical" && l != "horizontal" && l != "top" && l != "bottom") { fprintf(stderr, "unknown layout %s\n", l.c_str()); return false; }
+            setting("desktop_layout", text(l.c_str()));
         }
         else if (arg == "--window-scale") opts.WindowScale = std::clamp(atoi(next().c_str()), 1, 8);
-        else if (arg == "--linear") opts.Linear = true;
-        else if (arg == "--vsync") opts.VSync = true;
+        else if (arg == "--linear") setting("video_filtering", text("linear"));
+        else if (arg == "--vsync") setting("desktop_vsync", picojson::value(true));
         else if (arg == "--unthrottled") opts.Unthrottled = true;
-        else if (arg == "--no-audio") opts.Audio = false;
+        else if (arg == "--no-audio") setting("sound_enabled", picojson::value(false));
         else if (arg == "--frames") opts.Frames = strtoul(next().c_str(), nullptr, 0);
         else if (arg == "--game-state") opts.GameState = true;
         else if (arg == "--no-wide-battles") opts.WideBattles = false;
@@ -319,6 +378,28 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else opts.RomPath = arg;
     }
     return !opts.RomPath.empty();
+}
+
+// the options that are settings, from the settings (with the command line's overrides in them). The desktop's defaults stay the test
+// frontend's (Compute at 4x), not the app's
+void ApplySettings(Options& opts, const Frontend::Settings& settings)
+{
+    std::string renderer = settings.GetString("video_renderer", "compute");
+    opts.Renderer = renderer == "software" ? RendererType::Software : renderer == "opengl" ? RendererType::OpenGL : RendererType::Compute;
+    opts.Scale = std::clamp(settings.GetInt("video_internal_resolution", 4), 1, 16);
+    opts.Linear = settings.GetString("video_filtering", "none") == "linear";
+    opts.Audio = settings.GetBool("sound_enabled", true);
+    opts.VSync = settings.GetBool("desktop_vsync", false);
+}
+
+const char* RendererSettingValue(RendererType type)
+{
+    switch (type)
+    {
+    case RendererType::OpenGL: return "opengl";
+    case RendererType::Compute: return "compute";
+    default: return "software";
+    }
 }
 
 // the last --set NAME=VALUE for [name], or [fallback] without one
@@ -624,15 +705,6 @@ struct FrameStats
     }
 };
 
-// A window the UI thread presents into, with the screens it shows and where they last went (for touch). Detached screens add a second one
-// showing one screen each: both draw from the same frame with the one UI context, made current on each in turn, and only the main window
-// waits for vsync
-struct PresentWindow
-{
-    SDL_Window* Window = nullptr;
-    Frontend::ScreenRects Rects;
-};
-
 // what the emulator thread shows in the title, once a second
 struct TitleStats
 {
@@ -692,6 +764,11 @@ int main(int argc, char** argv)
     SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &throttling, sizeof(throttling));
     timeBeginPeriod(1);
     SDL_SetHint(SDL_HINT_OPENGL_ES_DRIVER, "0"); // the driver's own ES context (WGL), not ANGLE
+    // per-monitor DPI aware (v2): windows are sized in real pixels on every monitor, and Windows doesn't blur them up on a scaled one.
+    // A window keeps its size in pixels when it moves to a monitor with another scale
+    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
+    // the windows' close buttons are handled as events (the main window quits, the second one goes back to together)
+    SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0)
     {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -701,6 +778,27 @@ int main(int argc, char** argv)
     std::string exeDir = ExeDir();
     Frontend::LogFile = fopen((opts.LogPath.empty() ? exeDir + "melonade.log" : opts.LogPath).c_str(), "w");
 
+    // the profile and its settings, with the command line's settings on top for this run
+    bool temporaryProfile = false;
+    fs::path profileDir = Frontend::ResolveProfileDir(opts.ProfileDir, opts.Hidden, Frontend::PathFromUtf8(exeDir), temporaryProfile);
+    if (profileDir.empty())
+    {
+        fprintf(stderr, "can't make the profile folder %s\n", opts.ProfileDir.empty() ? "(%APPDATA%\\melonadeDS)" : opts.ProfileDir.c_str());
+        return 1;
+    }
+    // a temporary profile goes when the run ends, however it ends
+    struct ProfileCleanup
+    {
+        fs::path Dir;
+        ~ProfileCleanup() { std::error_code ec; if (!Dir.empty()) fs::remove_all(Dir, ec); }
+    } profileCleanup {temporaryProfile ? profileDir : fs::path()};
+    Frontend::Settings settings;
+    settings.Load(profileDir);
+    for (const auto& [key, value] : opts.SettingOverrides)
+        settings.Override(key, value);
+    ApplySettings(opts, settings);
+    printf("profile: %s%s\n", Frontend::PathToUtf8(profileDir).c_str(), temporaryProfile ? " (temporary)" : "");
+
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
@@ -708,18 +806,23 @@ int main(int argc, char** argv)
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
 
-    int boxW = opts.Layout == Frontend::Layout::Horizontal ? opts.WideWidth + 256 : opts.WideWidth;
-    int boxH = (opts.Layout == Frontend::Layout::Vertical ? 384 : 192) + (opts.WideWidth != 256 ? 2 * opts.WideMargin : 0);
-    Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | (opts.Hidden ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN);
-    PresentWindow main;
-    main.Window = SDL_CreateWindow("melonadeDS", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        boxW * opts.WindowScale, boxH * opts.WindowScale, flags);
-    if (!main.Window)
+    // the main window, in its place for the mode the run starts in; with detached screens the second one opens once the context is made
+    Frontend::ScreenWindows windows;
+    Frontend::ScreenWindows::Options windowOptions;
+    windowOptions.Hidden = opts.Hidden;
+    windowOptions.VSync = opts.VSync;
+    windowOptions.WindowScale = opts.WindowScale;
+    windowOptions.TopW = opts.WideWidth;
+    windowOptions.TopH = 192 + (opts.WideWidth != 256 ? 2 * opts.WideMargin : 0);
+    windowOptions.MainOverride = opts.Window;
+    windowOptions.SecondOverride = opts.Window2;
+    windowOptions.SaveHiddenPlaces = opts.SaveHiddenPlaces;
+    SDL_Window* window = windows.CreateMain(settings, windowOptions);
+    if (!window)
     {
         fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
         return 1;
     }
-    SDL_Window* window = main.Window;
     // the UI thread's context, which presents
     SDL_GLContext uiContext = SDL_GL_CreateContext(window);
     if (!uiContext)
@@ -748,7 +851,8 @@ int main(int argc, char** argv)
     // SDL made the new context current here; it's the emulator thread's
     SDL_GL_MakeCurrent(emuWindow, nullptr);
     SDL_GL_MakeCurrent(window, uiContext);
-    SDL_GL_SetSwapInterval(opts.VSync ? 1 : 0);
+    // the swap interval, the main window's fullscreen and the second window
+    windows.Start(uiContext);
 
     Frontend::Presenter presenter;
     if (!presenter.Init())
@@ -856,7 +960,19 @@ int main(int argc, char** argv)
     std::atomic<u32> currentFrame = 0;
     bool touching = false, paused = false, running = true;
     bool linear = opts.Linear;
-    Frontend::Layout layout = opts.Layout;
+    // where the bottom screen is in the drawable of the window that shows it, for --touch on the emulator thread: as planned for the
+    // first frame (from the run's top screen size), then as each present drew it
+    std::mutex touchLock;
+    Frontend::Rect touchRect;
+    {
+        Frontend::FrameView planned;
+        bool wide = renderer != RendererType::Software && opts.WideWidth != 256;
+        planned.TopWidth = wide ? opts.WideWidth : 256;
+        planned.TopMargin = wide ? opts.WideMargin : 0;
+        touchRect = windows.PlannedBottomRect(planned);
+    }
+    bool scriptTouching = false; // emulator thread
+    u32 presented = 0;
     FrameStats stats;
     TitleStats titleStats;
     std::string statsLabel = RendererName(renderer);
@@ -904,6 +1020,9 @@ int main(int argc, char** argv)
         printRenderer = true;
     };
 
+    // UI thread: a hotkey pressed with [mod] in the window [windowId] (0: the main one); set below, also run by --at key=
+    std::function<void(SDL_Keycode key, Uint16 mod, Uint32 windowId)> hotkey;
+
     Frontend::EmulatorThread emuThread;
     Frontend::EmulatorThread::Callbacks callbacks;
     callbacks.OnStart = [&](MelonDSAndroid::MelonInstance& instance)
@@ -929,6 +1048,37 @@ int main(int argc, char** argv)
         u32 mask = keyMask | padMask | stickMask | Frontend::PressMask(opts.Presses, frame);
         for (u32 bit = 0; bit < 12; bit++)
             (mask & (1u << bit)) ? instance.pressKey(bit) : instance.releaseKey(bit);
+
+        // --touch: a point of the bottom screen's window, through the same mapping as the mouse
+        if (!opts.Touches.empty())
+        {
+            bool held = false;
+            for (const Options::Touch& touch : opts.Touches)
+            {
+                if (frame < touch.From || frame > touch.To)
+                    continue;
+                Frontend::Rect r;
+                {
+                    std::lock_guard guard(touchLock);
+                    r = touchRect;
+                }
+                int tx = r.W > 0 ? (int)((touch.X - r.X) / r.W * 256) : -1, ty = r.H > 0 ? (int)((touch.Y - r.Y) / r.H * 192) : -1;
+                if (tx < 0 || tx > 255 || ty < 0 || ty > 191)
+                {
+                    if (frame == touch.From)
+                        printf("touch %.0f,%.0f at frame %u: off the bottom screen\n", touch.X, touch.Y, frame);
+                    continue;
+                }
+                if (frame == touch.From)
+                    printf("touch %.0f,%.0f at frame %u: DS %d,%d\n", touch.X, touch.Y, frame, tx, ty);
+                instance.touchScreen((u16)tx, (u16)ty);
+                held = true;
+                break;
+            }
+            if (!held && scriptTouching)
+                instance.releaseScreen();
+            scriptTouching = held;
+        }
 
         for (const Options::At& at : opts.Ats)
         {
@@ -961,6 +1111,24 @@ int main(int argc, char** argv)
             {
                 std::string path = at.Action.substr(5);
                 runOnUiThread([&] { screenshot(path); });
+            }
+            else if (at.Action.rfind("key=", 0) == 0)
+            {
+                // a hotkey as if it was typed in the main window: key=F9, key=ctrl+r, key=shift+f11
+                std::string name = at.Action.substr(4);
+                Uint16 mod = KMOD_NONE;
+                for (;;)
+                {
+                    if (_strnicmp(name.c_str(), "ctrl+", 5) == 0) { mod |= KMOD_LCTRL; name.erase(0, 5); }
+                    else if (_strnicmp(name.c_str(), "shift+", 6) == 0) { mod |= KMOD_LSHIFT; name.erase(0, 6); }
+                    else if (_strnicmp(name.c_str(), "alt+", 4) == 0) { mod |= KMOD_LALT; name.erase(0, 4); }
+                    else break;
+                }
+                SDL_Keycode key = SDL_GetKeyFromName(name.c_str());
+                if (key == SDLK_UNKNOWN)
+                    fprintf(stderr, "--at %u:%s: unknown key\n", at.Frame, at.Action.c_str());
+                else
+                    runOnUiThread([&] { hotkey(key, mod, 0); });
             }
             else if (at.Action == "renderer=soft" || at.Action == "renderer=gl" || at.Action == "renderer=compute")
             {
@@ -1032,15 +1200,17 @@ int main(int argc, char** argv)
     emuThread.SetGpuSync(opts.GpuSync);
     emuThread.Start(emuWindow, emuContext, std::move(instance), std::move(callbacks));
 
+    // the mouse at window point x,y of the window that shows the bottom screen
     auto touchAt = [&](int x, int y)
     {
-        const Frontend::Rect& r = main.Rects.Bottom;
+        Frontend::Rect r = windows.BottomRect();
         if (r.W <= 0)
             return;
         // window points to drawable pixels, as the rect is in the latter
+        SDL_Window* bottom = windows.BottomWindow();
         int ww, wh, dw, dh;
-        SDL_GetWindowSize(window, &ww, &wh);
-        SDL_GL_GetDrawableSize(window, &dw, &dh);
+        SDL_GetWindowSize(bottom, &ww, &wh);
+        SDL_GL_GetDrawableSize(bottom, &dw, &dh);
         float px = x * (float)dw / ww, py = y * (float)dh / wh;
         int tx = (int)((px - r.X) / r.W * 256), ty = (int)((py - r.Y) / r.H * 192);
         if (!touching && (tx < 0 || tx > 255 || ty < 0 || ty > 191))
@@ -1049,19 +1219,86 @@ int main(int argc, char** argv)
         emu->touchScreen((u16)std::clamp(tx, 0, 255), (u16)std::clamp(ty, 0, 191));
     };
 
-    // draws [frame] into the window and shows it
+    // draws [frame] into the windows and shows them
     auto present = [&](Frame* frame)
     {
-        int dw, dh;
-        SDL_GL_GetDrawableSize(window, &dw, &dh);
         PrepareFrame(frame);
-        main.Rects = presenter.Draw(Frontend::FrameView::Of(*frame), dw, dh, layout, linear);
-        ReleaseFrame(frame);
-        SDL_GL_SwapWindow(window);
+        windows.Present(presenter, Frontend::FrameView::Of(*frame), linear, [&] { ReleaseFrame(frame); });
+        presented++;
+        Frontend::Rect r = windows.BottomRect();
+        if (r.W > 0)
+        {
+            std::lock_guard guard(touchLock);
+            touchRect = r;
+        }
     };
 
     u64 lastSequence = 0;
     bool redraw = false;
+    hotkey = [&](SDL_Keycode key, Uint16 mod, Uint32 windowId)
+    {
+        switch (key)
+        {
+        case SDLK_ESCAPE: running = false; break;
+        case SDLK_p:
+            paused = !paused;
+            paused ? emuThread.Pause() : emuThread.Resume();
+            break;
+        case SDLK_r:
+            if (mod & KMOD_CTRL)
+            {
+                emuThread.Post([&](MelonDSAndroid::MelonInstance& instance)
+                {
+                    instance.reset();
+                    SetDateTime(opts, *instance.getNds());
+                    printf("reset\n");
+                });
+            }
+            break;
+        case SDLK_F5:
+        case SDLK_F6:
+        case SDLK_F7:
+        {
+            RendererType requested = key == SDLK_F5 ? RendererType::Software : key == SDLK_F6 ? RendererType::OpenGL : RendererType::Compute;
+            settings.Set("video_renderer", picojson::value(std::string(RendererSettingValue(requested))));
+            emuThread.Post([&, requested](MelonDSAndroid::MelonInstance& instance) { renderer = requested; updateConfiguration(instance); });
+            break;
+        }
+        case SDLK_F3:
+        case SDLK_F4:
+        {
+            int step = key == SDLK_F3 ? -1 : 1;
+            emuThread.Post([&, step](MelonDSAndroid::MelonInstance& instance)
+            {
+                scale = std::clamp(scale + step, 1, 16);
+                updateConfiguration(instance);
+                // the settings are the UI thread's
+                messenger->Post([&, value = scale] { settings.Set("video_internal_resolution", picojson::value(std::to_string(value))); });
+            });
+            break;
+        }
+        case SDLK_F2: windows.NextLayout(); redraw = true; break;
+        case SDLK_F8:
+            linear = !linear;
+            MelonDSAndroid::setHalvesAt1xSupported(!linear);
+            settings.Set("video_filtering", picojson::value(std::string(linear ? "linear" : "none")));
+            redraw = true;
+            break;
+        case SDLK_F1: windows.ToggleSwap(); redraw = true; break;
+        case SDLK_F9: windows.SetDetached(!windows.IsDetached()); redraw = true; break;
+        case SDLK_F10: windows.CycleFit(windowId); redraw = true; break;
+        case SDLK_F11: windows.ToggleFullscreen(windowId); redraw = true; break;
+        case SDLK_F12:
+        {
+            fs::create_directories(exeDir + "screenshots", ec);
+            char name[64];
+            snprintf(name, sizeof(name), "screenshots/frame%06u.bmp", currentFrame.load());
+            screenshot(exeDir + name);
+            break;
+        }
+        default: break;
+        }
+    };
     while (running)
     {
         SDL_Event ev;
@@ -1073,80 +1310,37 @@ int main(int argc, char** argv)
                 running = false;
                 break;
             case SDL_WINDOWEVENT:
-                if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || ev.window.event == SDL_WINDOWEVENT_EXPOSED)
+            {
+                bool quit = false;
+                windows.OnWindowEvent(ev.window, quit);
+                if (quit)
+                    running = false;
+                if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || ev.window.event == SDL_WINDOWEVENT_EXPOSED
+                    || ev.window.event == SDL_WINDOWEVENT_CLOSE)
                     redraw = true;
                 break;
+            }
             case SDL_KEYDOWN:
             case SDL_KEYUP:
             {
+                // the keys work in whichever window has the focus
                 bool down = ev.type == SDL_KEYDOWN;
                 SDL_Keycode key = ev.key.keysym.sym;
                 if (u32 bit = KeyBit(key))
                     keyMask = down ? (keyMask | bit) : (keyMask & ~bit);
                 if (key == SDLK_TAB)
                     emuThread.SetFastForward(down);
-                if (!down || ev.key.repeat)
-                    break;
-                switch (key)
-                {
-                case SDLK_ESCAPE: running = false; break;
-                case SDLK_p:
-                    paused = !paused;
-                    paused ? emuThread.Pause() : emuThread.Resume();
-                    break;
-                case SDLK_r:
-                    if (ev.key.keysym.mod & KMOD_CTRL)
-                    {
-                        emuThread.Post([&](MelonDSAndroid::MelonInstance& instance)
-                        {
-                            instance.reset();
-                            SetDateTime(opts, *instance.getNds());
-                            printf("reset\n");
-                        });
-                    }
-                    break;
-                case SDLK_F5:
-                case SDLK_F6:
-                case SDLK_F7:
-                {
-                    RendererType requested = key == SDLK_F5 ? RendererType::Software : key == SDLK_F6 ? RendererType::OpenGL : RendererType::Compute;
-                    emuThread.Post([&, requested](MelonDSAndroid::MelonInstance& instance) { renderer = requested; updateConfiguration(instance); });
-                    break;
-                }
-                case SDLK_F3:
-                case SDLK_F4:
-                {
-                    int step = key == SDLK_F3 ? -1 : 1;
-                    emuThread.Post([&, step](MelonDSAndroid::MelonInstance& instance) { scale = std::clamp(scale + step, 1, 16); updateConfiguration(instance); });
-                    break;
-                }
-                case SDLK_F2: layout = (Frontend::Layout)(((int)layout + 1) % (int)Frontend::Layout::Count); redraw = true; break;
-                case SDLK_F8:
-                    linear = !linear;
-                    MelonDSAndroid::setHalvesAt1xSupported(!linear);
-                    redraw = true;
-                    break;
-                case SDLK_F11:
-                    SDL_SetWindowFullscreen(window, (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
-                    break;
-                case SDLK_F12:
-                {
-                    fs::create_directories(exeDir + "screenshots", ec);
-                    char name[64];
-                    snprintf(name, sizeof(name), "screenshots/frame%06u.bmp", currentFrame.load());
-                    screenshot(exeDir + name);
-                    break;
-                }
-                default: break;
-                }
+                if (down && !ev.key.repeat)
+                    hotkey(key, ev.key.keysym.mod, ev.key.windowID);
                 break;
             }
             case SDL_MOUSEBUTTONDOWN:
-                if (ev.button.button == SDL_BUTTON_LEFT)
+                // touch comes from the window that shows the bottom screen
+                if (ev.button.button == SDL_BUTTON_LEFT && ev.button.windowID == SDL_GetWindowID(windows.BottomWindow()))
                     touchAt(ev.button.x, ev.button.y);
                 break;
             case SDL_MOUSEMOTION:
-                if (touching)
+                if (touching && ev.motion.windowID == SDL_GetWindowID(windows.BottomWindow()))
                     touchAt(ev.motion.x, ev.motion.y);
                 break;
             case SDL_MOUSEBUTTONUP:
@@ -1181,7 +1375,7 @@ int main(int argc, char** argv)
             default: break;
             }
         }
-        // the emulator's events (its stop), and what the emulator thread waits for (--at shot)
+        // the emulator's events (its stop), and what the emulator thread waits for (--at shot, --at key)
         messenger->Drain();
         if (!running || emuThread.IsFinished())
             break;
@@ -1205,9 +1399,9 @@ int main(int argc, char** argv)
             for (double ms : work)
                 sum += ms;
             char title[256];
-            snprintf(title, sizeof(title), "melonadeDS - %s %dx - %.1f fps - %.2f ms%s", RendererName(titleStats.Renderer),
+            snprintf(title, sizeof(title), " - %s %dx - %.1f fps - %.2f ms%s", RendererName(titleStats.Renderer),
                 titleStats.Scale, work.size() / secs, work.empty() ? 0.0 : sum / work.size(), paused ? " (paused)" : "");
-            SDL_SetWindowTitle(window, title);
+            windows.UpdateTitles(title);
             titleStats.Second.WorkMs.clear();
             secondStart = now;
         }
@@ -1224,27 +1418,18 @@ int main(int argc, char** argv)
 
     if (opts.Frames && currentFrame >= opts.Frames && !opts.WindowShotPath.empty())
     {
-        // the last frame drawn again and read from the back buffer, before any swap
+        // the last frame drawn again into each window and read from its back buffer, before any swap
         if (Frame* frame = AcquireFrame(*emu, std::nullopt))
         {
-            int dw, dh;
-            SDL_GL_GetDrawableSize(window, &dw, &dh);
             PrepareFrame(frame);
-            presenter.Draw(Frontend::FrameView::Of(*frame), dw, dh, layout, linear || opts.WindowShotLinear);
-            std::vector<u8> pixels((size_t)dw * dh * 4), flipped(pixels.size());
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-            glPixelStorei(GL_PACK_ALIGNMENT, 4);
-            glPixelStorei(GL_PACK_ROW_LENGTH, 0);
-            glReadPixels(0, 0, dw, dh, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            windows.WindowShot(presenter, Frontend::FrameView::Of(*frame), linear || opts.WindowShotLinear, opts.WindowShotPath);
             ReleaseFrame(frame);
-            for (int y = 0; y < dh; y++)
-                memcpy(&flipped[(size_t)y * dw * 4], &pixels[(size_t)(dh - 1 - y) * dw * 4], (size_t)dw * 4);
-            if (Frontend::WriteBMP(opts.WindowShotPath.c_str(), flipped, dw, dh))
-                printf("window shot %s (%dx%d)\n", opts.WindowShotPath.c_str(), dw, dh);
         }
     }
 
     stats.Print(statsLabel.c_str(), wall);
+    printf("presented: %u frames in %.2f s (%.1f per second), %s\n", presented, wall, presented / wall,
+        windows.IsDetached() ? "detached (two windows)" : "together");
     if (!opts.ScreenshotPath.empty() && !startFailed)
         screenshot(opts.ScreenshotPath);
 
@@ -1256,6 +1441,8 @@ int main(int argc, char** argv)
         SDL_CloseAudioDevice(audio);
     SDL_GL_DeleteContext(emuContext);
     SDL_DestroyWindow(emuWindow);
+    // the window places saved, and the second window closed
+    windows.Close();
     SDL_GL_DeleteContext(uiContext);
     SDL_DestroyWindow(window);
     SDL_Quit();
