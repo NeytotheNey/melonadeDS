@@ -169,13 +169,19 @@ bool SaveSlots::Delete(int slot) const
     std::error_code ec;
     if (file.empty() || !fs::exists(file, ec))
         return false;
-    // to the recycle bin, so a slot deleted by mistake can come back; the list ends with two zeros
-    std::wstring from = file.wstring();
+    // To the recycle bin, so a slot deleted by mistake can come back. SHFileOperation only recycles a fully qualified path (a relative
+    // one, from a ROM or --state-dir given as one, is deleted for good), and the list ends with two zeros. Where there's no bin (a network
+    // share, the bin turned off, a file too big for it) Windows asks before it deletes for good (FOF_WANTNUKEWARNING), which no other
+    // question would otherwise; saying no there keeps the slot
+    std::wstring from = fs::absolute(file, ec).lexically_normal().wstring();
+    if (ec || from.empty())
+        return false;
+    from.push_back(L'\0');
     from.push_back(L'\0');
     SHFILEOPSTRUCTW op {};
     op.wFunc = FO_DELETE;
     op.pFrom = from.c_str();
-    op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
+    op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_WANTNUKEWARNING | FOF_NOERRORUI | FOF_SILENT;
     if (SHFileOperationW(&op) != 0 || op.fAnyOperationsAborted || fs::exists(file, ec))
     {
         fprintf(stderr, "slot %d: can't delete %s\n", slot, PathToUtf8(file).c_str());

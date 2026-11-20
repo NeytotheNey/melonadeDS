@@ -389,7 +389,7 @@ private:
         float tx = pos.x + app.Px(24), tw = w - app.Px(48);
         std::string title = (del ? "Delete " : "Save over ") + Frontend::SlotName(AskSlot) + "?";
         ImVec2 ts = TextAt(app, app.Medium, 22, ImVec2(tx, pos.y + app.Px(24)), p.OnSurface, Ellipsize(app, app.Medium, 22, title, tw).c_str());
-        std::string body = del ? "The state from " + when + " goes to the recycle bin, with its screenshot."
+        std::string body = del ? "The state from " + when + " goes to the recycle bin, with its screenshot (Windows asks first where there's no bin)."
                                : "The state from " + when + " is replaced by the game as it is now.";
         TextAt(app, app.Regular, 15, ImVec2(tx, pos.y + app.Px(24) + ts.y + app.Px(10)), p.OnSurfaceVariant, body.c_str(), tw);
 

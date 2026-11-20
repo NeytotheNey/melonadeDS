@@ -258,7 +258,8 @@ void App::TrackFocus(bool isDefault)
             GImGui->NavCursorVisible = true;
         }
     }
-    if (ImGui::IsItemFocused())
+    // (not a disabled item: one under a question keeps the focus it had, and would take it back from the question)
+    if (!disabled && ImGui::IsItemFocused())
         s->FocusId = id;
 }
 
