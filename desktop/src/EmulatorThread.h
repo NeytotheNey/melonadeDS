@@ -58,10 +58,13 @@ public:
     // glFinish after each frame, so the work time includes the GPU's (--gpu-sync)
     void SetGpuSync(bool enabled) { GpuSync = enabled; }
 
-    // Pauses before the frame numbered [frame] (as BeforeFrame numbers them) when the thread gets there, for --ui-script's frame step;
-    // HeldAt() is that frame once it's paused there, until the next Resume()
+    // Parks before the frame numbered [frame] (as BeforeFrame numbers them) when the thread gets there, for --ui-script's frame step;
+    // HeldAt() is that frame once it's parked there. The hold is apart from the pause: a Pause() and Resume() (a menu opened and closed
+    // over it) leave it held; only another HoldAt() moves it on, from wherever it is
     void HoldAt(melonDS::u32 frame);
     melonDS::u32 HeldAt() const { return Held.load(); }
+    // paused, or parked at a hold
+    bool IsParked() const { return Paused.load() || Held.load() != kNoFrame; }
     static constexpr melonDS::u32 kNoFrame = 0xFFFFFFFF;
 
     // Runs [command] on the emulator thread between frames, also while it's paused; any thread

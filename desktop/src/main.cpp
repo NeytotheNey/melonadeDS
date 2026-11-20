@@ -2421,7 +2421,7 @@ int main(int argc, char** argv)
         if (newFrame || redraw || uiActive)
         {
             // the menus at about 60 per second when nothing else paces the loop (no vsync, the game paused or not there)
-            bool gameIdle = !emu || emuThread.IsPaused();
+            bool gameIdle = !emu || emuThread.IsParked();
             if (uiActive && gameIdle && !opts.Unthrottled && !settings.GetBool("desktop_vsync", false))
             {
                 auto due = lastPresent + std::chrono::microseconds(16667);

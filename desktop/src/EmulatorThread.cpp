@@ -93,14 +93,18 @@ void EmulatorThread::Resume()
     {
         std::lock_guard guard(Lock);
         Paused = false;
-        Held = kNoFrame;
     }
     Wake.notify_all();
 }
 
 void EmulatorThread::HoldAt(u32 frame)
 {
-    HoldFrame = frame;
+    {
+        std::lock_guard guard(Lock);
+        HoldFrame = frame;
+        // a hold it's parked at now lets go, so it runs on to the new one
+        Held = kNoFrame;
+    }
     Wake.notify_all();
 }
 
@@ -193,17 +197,18 @@ void EmulatorThread::Run(SDL_Window* window, SDL_GLContext context)
                 running = false;
                 break;
             }
-            if (!Paused && Commands.empty())
+            bool parked = Paused || Held != kNoFrame;
+            if (!parked && Commands.empty())
                 break;
-            if (Paused && Commands.empty())
+            if (parked && Commands.empty())
             {
                 // As the app does when it parks: the scripts' storage and the last rewind capture's screenshot, before waiting
                 lock.unlock();
                 Emu->flushLuaStorage();
                 Emu->finishRewindScreenshot(true);
                 lock.lock();
-                Wake.wait(lock, [this] { return FinishRequested || !Paused || !Commands.empty(); });
-                if (!Paused)
+                Wake.wait(lock, [this] { return FinishRequested || (!Paused && Held == kNoFrame) || !Commands.empty(); });
+                if (!Paused && Held == kNoFrame)
                 {
                     frameLimitError = 0;
                     lastTick = NowMs();
@@ -218,7 +223,6 @@ void EmulatorThread::Run(SDL_Window* window, SDL_GLContext context)
         {
             std::lock_guard guard(Lock);
             HoldFrame = kNoFrame;
-            Paused = true;
             Held = frame;
             continue;
         }
