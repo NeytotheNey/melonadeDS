@@ -918,20 +918,17 @@ int main(int argc, char** argv)
     };
     int lastShadowMode = 0, lastScene = -2;
     std::vector<s16> audioBuf(2 * 1024);
-    u32 appliedMask = 0;
     callbacks.BeforeFrame = [&](MelonDSAndroid::MelonInstance& instance, u32 frame)
     {
         if (stopRequested || (opts.Frames && frame >= opts.Frames))
             return false;
 
-        // the keys held this frame, applied as differences to the instance's mask (its pressKey and releaseKey)
+        // the keys held this frame, all of them sent every frame (the instance's pressKey and releaseKey), as the desktop set the whole mask
+        // before the shared code: a reset (Ctrl+R, --at reset) releases every key in the core and a state load brings its own, behind the
+        // instance's back, so sending only the changes would leave a key held through them released
         u32 mask = keyMask | padMask | stickMask | Frontend::PressMask(opts.Presses, frame);
         for (u32 bit = 0; bit < 12; bit++)
-        {
-            if ((mask ^ appliedMask) & (1u << bit))
-                (mask & (1u << bit)) ? instance.pressKey(bit) : instance.releaseKey(bit);
-        }
-        appliedMask = mask;
+            (mask & (1u << bit)) ? instance.pressKey(bit) : instance.releaseKey(bit);
 
         for (const Options::At& at : opts.Ats)
         {
