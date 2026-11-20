@@ -41,8 +41,10 @@ public:
 
     ~EmulatorThread();
 
-    // Starts the thread on [window] with [context] (which mustn't be current anywhere), running [instance]
+    // Starts the thread on [window] with [context] (which mustn't be current anywhere), running [instance]. After Stop() it can be started
+    // again with another instance (the menus' Quit to start screen, then another game)
     void Start(SDL_Window* window, SDL_GLContext context, std::unique_ptr<Instance> instance, Callbacks callbacks);
+    bool IsRunning() const { return Handle.joinable(); }
 
     void Pause();
     void Resume();
@@ -53,6 +55,12 @@ public:
     bool IsFastForward() const { return FastForward.load(); }
     // glFinish after each frame, so the work time includes the GPU's (--gpu-sync)
     void SetGpuSync(bool enabled) { GpuSync = enabled; }
+
+    // Pauses before the frame numbered [frame] (as BeforeFrame numbers them) when the thread gets there, for --ui-script's frame step;
+    // HeldAt() is that frame once it's paused there, until the next Resume()
+    void HoldAt(melonDS::u32 frame);
+    melonDS::u32 HeldAt() const { return Held.load(); }
+    static constexpr melonDS::u32 kNoFrame = 0xFFFFFFFF;
 
     // Runs [command] on the emulator thread between frames, also while it's paused; any thread
     void Post(std::function<void(Instance&)> command);
@@ -87,6 +95,8 @@ private:
     std::atomic_bool GpuSync = false;
     std::atomic_bool Finished = false;
     std::atomic<float> Fps = 0;
+    std::atomic<melonDS::u32> HoldFrame = kNoFrame;
+    std::atomic<melonDS::u32> Held = kNoFrame;
 };
 
 }

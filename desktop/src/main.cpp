@@ -1,7 +1,8 @@
-// melonadeDS for PC: runs a ROM with the same core and OpenGL/Compute renderers as the Android app,
-// in an SDL2 window with a GLES 3.2 context, for testing on a desktop. See desktop/README.md
+// melonadeDS for PC: runs a ROM with the same core and OpenGL/Compute renderers as the Android app, in an SDL2 window with a GLES 3.2
+// context, with the menus (ui/) drawn over it. Started without a ROM it opens the start screen. See desktop/README.md
 #include <SDL.h>
 #include <windows.h>
+#include <objbase.h>
 #include <timeapi.h>
 
 #include <algorithm>
@@ -10,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <future>
 #include <memory>
@@ -43,13 +45,19 @@
 #include "renderer/ScreenshotRenderer.h"
 #include "retroachievements/RetroAchievementsManager.h"
 
+#include "Controls.h"
 #include "DesktopEventMessenger.h"
 #include "EmulatorThread.h"
+#include "FileDialog.h"
 #include "Frontend.h"
 #include "Presenter.h"
 #include "RunOptions.h"
+#include "SaveSlots.h"
 #include "ScreenWindows.h"
 #include "Settings.h"
+#include "UiScript.h"
+#include "ui/Host.h"
+#include "ui/Ui.h"
 
 using namespace melonDS;
 namespace fs = std::filesystem;
@@ -146,12 +154,19 @@ struct Options
     std::vector<std::pair<std::string, picojson::value>> SettingOverrides;
     std::optional<Frontend::WindowPlace> Window, Window2; // --window, --window2
     bool SaveHiddenPlaces = false;
+
+    std::string OpenScreen;    // --open: a menu screen opened at the start
+    std::string UiScriptPath;  // --ui-script
+    std::string StateDir;      // --state-dir: the savestate slots' folder instead of the ROM's
 };
 
 void Usage()
 {
     printf(
-        "usage: melonade-desktop [options] game.nds\n"
+        "usage: melonade-desktop [options] [game.nds]\n"
+        "\n"
+        "  Without a ROM the start screen opens (Open ROM, recent games). With one the game boots, and Esc or a\n"
+        "  controller's Start or Guide opens the pause menu. The options below are for testing and scripted runs.\n"
         "\n"
         "  --renderer soft|gl|compute  3D renderer (default compute)\n"
         "  --scale N                   internal resolution for gl/compute, 1-16 (default 4)\n"
@@ -179,7 +194,7 @@ void Usage()
         "  --ldmdirect 0|1             JIT: slow block transfers in one plain region straight in host memory (default 1)\n"
         "  --bios DIR                  official bios9.bin, bios7.bin (and firmware.bin) in DIR\n"
         "  --gba ROM                   GBA ROM for slot 2\n"
-        "  --sav FILE                  save file (default: the ROM's path with .sav)\n"
+        "  --sav FILE                  save file (default: the ROM's path with .sav), for every game the run boots\n"
         "  --state FILE                load a savestate after the reset; it replaces the save in\n"
         "                              memory, which gets flushed to --sav, so point that at a copy\n"
         "  --press F[-L]:KEYS          hold keys (a b x y l r start select up down left right, joined\n"
@@ -194,6 +209,7 @@ void Usage()
         "                              key=ctrl+r: what it changes is saved as when typed), or a --set\n"
         "  --touch F[-L]:X,Y           touch at X,Y in the drawable pixels of the window that shows the bottom\n"
         "                              screen over frames F..L (6 frames without L); off the screen does nothing\n"
+        "  --state-dir DIR             the savestate slots (.ml0-.ml8) in DIR instead of next to the ROM\n"
         "  --list-sets                 list the switches --set knows\n"
         "  --widedrops                 log a WIDEDROPS line once a second (WideMelon's dropped polygons)\n"
         "\n"
@@ -215,13 +231,14 @@ void Usage()
         "  --vsync                     wait for vsync on swap (pacing stays at the DS's 59.83 Hz)\n"
         "  --unthrottled               run as fast as possible (benchmarks)\n"
         "  --no-audio\n"
-        "  --frames N                  quit after N frames (prints timing stats)\n"
+        "  --frames N                  quit after N frames (prints timing stats): the game's frames, plus the UI's\n"
+        "                              while no game frame runs (the start screen, a menu over the paused game)\n"
         "  --game-state                print the app's Pokemon game state scene whenever it changes, and the\n"
         "                              GPU 2D shadow's mode, which a Gen 4 game's battles turn on and off\n"
         "  --no-wide-battles           with --wide, Gen 4 Pokemon battles stop at the edge as in other games\n"
         "  --screenshot FILE.bmp       save the last frame at the internal resolution when quitting\n"
-        "  --window-shot FILE.bmp      save the window as drawn when quitting (with --frames); detached: the\n"
-        "                              windows as FILE_top.bmp and FILE_bottom.bmp, for the screen each shows\n"
+        "  --window-shot FILE.bmp      save the window as drawn, menus included, when --frames or --ui-script ends\n"
+        "                              the run; detached: the windows as FILE_top.bmp and FILE_bottom.bmp\n"
         "  --window-shot-linear        draw the window shot with linear filtering (the run keeps --linear's)\n"
         "  --hidden                    no visible window (with --frames); never fullscreen, saves no window places\n"
         "  --save-window-places        save the window places with --hidden too (tests)\n"
@@ -229,12 +246,25 @@ void Usage()
         "  --cache-dir DIR             Compute program cache directory\n"
         "  --verbose                   debug log lines on the console too\n"
         "\n"
+        "  --open SCREEN               open a menu screen at the start: start, pause, pause/save, pause/load,\n"
+        "                              settings, keyboard (a text field and the on-screen keyboard); with a\n"
+        "                              game, once its first frame is shown\n"
+        "  --ui-script FILE            drive the menus from FILE, one step a line: up, down, left, right, confirm,\n"
+        "                              back, tab-next, tab-prev, menu, text STRING, key NAME, pad NAME, wait N,\n"
+        "                              frame N (the game held at its frame N), shot FILE.bmp, screenshot FILE.bmp,\n"
+        "                              quit. It starts on the start screen or once the game's first frame is\n"
+        "                              shown, and the run ends after its last line (README: UI scripts)\n"
+        "\n"
         "keys: arrows = D-pad, X = A, Z = B, S = X, A = Y, Q = L, W = R, Enter = Start, Right Shift = Select\n"
         "      mouse on the bottom screen = touch, Tab (hold) = fast forward, P = pause, Ctrl+R = reset\n"
         "      F5/F6/F7 = software/OpenGL/Compute, F3/F4 = scale down/up, F2 = layout, F8 = linear filter\n"
         "      F9 = screens together/detached, F1 = swap screens, F10 = fit of the focused detached window\n"
-        "      (aspect, integer, stretch), F11 = fullscreen of the focused window, F12 = screenshot, Esc = quit\n"
-        "      game controllers work too (Nintendo layout: east = A, south = B)\n");
+        "      (aspect, integer, stretch), F11 = fullscreen of the focused window, F12 = screenshot,\n"
+        "      Esc = pause menu\n"
+        "      menus: arrows move, Enter chooses, Esc or Backspace goes back, Q/W (Page Up/Down) switch tabs\n"
+        "      controllers (Nintendo layout): east = A, south = B, Start or Guide = pause menu, the right stick's\n"
+        "      click = the DS's Start; in the menus the D-pad or left stick moves, A chooses, B goes back,\n"
+        "      L/R switch tabs\n");
 }
 
 using Frontend::ApplySet;
@@ -377,6 +407,9 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--log") opts.LogPath = next();
         else if (arg == "--cache-dir") opts.CacheDir = next();
         else if (arg == "--verbose") Frontend::VerboseLog = true;
+        else if (arg == "--open") opts.OpenScreen = next();
+        else if (arg == "--ui-script") opts.UiScriptPath = next();
+        else if (arg == "--state-dir") opts.StateDir = next();
         else if (arg == "-h" || arg == "--help") { Usage(); exit(0); }
         else if (arg[0] == '-') { fprintf(stderr, "unknown option %s\n", arg.c_str()); return false; }
         else opts.RomPath = arg;
@@ -384,7 +417,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
     // a --layout is the screens together, unless --detach asks for them detached
     if (layoutGiven && !detachGiven)
         opts.SettingOverrides.emplace_back("desktop_screens", picojson::value(std::string("together")));
-    return !opts.RomPath.empty();
+    return true;
 }
 
 // the options that are settings, from the settings (with the command line's overrides in them). The desktop's defaults stay the test
@@ -581,6 +614,31 @@ bool EnsureSaveFile(const std::string& path)
     return true;
 }
 
+bool LoadStateBytes(const Options& opts, MelonDSAndroid::MelonInstance& emu, const std::vector<u8>& data, const std::string& name)
+{
+    // MelonInstance's load backs up the state before and goes back to it if the load fails partway. The save it holds is only taken
+    // into memory (SaveManager::SyncFromState), so the .sav on disk stays as it is until the game saves again
+    Savestate state(const_cast<u8*>(data.data()), (u32)data.size(), false);
+    bool loaded = emu.loadState(&state);
+    if (!loaded)
+    {
+        // a state without the RetroAchievements section MelonInstance::saveState writes first (the app's and this frontend's states have
+        // it), as the desktop saved them before the shared code: the core's part alone
+        Savestate raw(const_cast<u8*>(data.data()), (u32)data.size(), false);
+        loaded = !raw.Error && emu.getNds()->DoSavestate(&raw) && !raw.Error;
+        if (loaded)
+            printf("state: %s has no RetroAchievements section, loaded the core's part\n", name.c_str());
+    }
+    if (!loaded)
+    {
+        fprintf(stderr, "savestate %s didn't load\n", name.c_str());
+        return false;
+    }
+    SetDateTime(opts, *emu.getNds());
+    printf("state: %s\n", name.c_str());
+    return true;
+}
+
 bool LoadStateFile(const Options& opts, MelonDSAndroid::MelonInstance& emu, const std::string& path)
 {
     std::vector<u8> data;
@@ -589,26 +647,7 @@ bool LoadStateFile(const Options& opts, MelonDSAndroid::MelonInstance& emu, cons
         fprintf(stderr, "can't read savestate %s\n", path.c_str());
         return false;
     }
-    // MelonInstance's load backs up the state before and goes back to it if the load fails partway
-    Savestate state(data.data(), (u32)data.size(), false);
-    bool loaded = emu.loadState(&state);
-    if (!loaded)
-    {
-        // a state without the RetroAchievements section MelonInstance::saveState writes first (the app's and this frontend's states have
-        // it), as the desktop saved them before the shared code: the core's part alone
-        Savestate raw(data.data(), (u32)data.size(), false);
-        loaded = !raw.Error && emu.getNds()->DoSavestate(&raw) && !raw.Error;
-        if (loaded)
-            printf("state: %s has no RetroAchievements section, loaded the core's part\n", path.c_str());
-    }
-    if (!loaded)
-    {
-        fprintf(stderr, "savestate %s didn't load\n", path.c_str());
-        return false;
-    }
-    SetDateTime(opts, *emu.getNds());
-    printf("state: %s\n", path.c_str());
-    return true;
+    return LoadStateBytes(opts, emu, data, path);
 }
 
 bool SaveStateFile(MelonDSAndroid::MelonInstance& emu, const std::string& path)
@@ -632,6 +671,50 @@ bool SaveStateFile(MelonDSAndroid::MelonInstance& emu, const std::string& path)
     return true;
 }
 
+// a slot's state, as the app writes one: the file only opened once the state is made, so a failed save keeps the slot's old state (and
+// through a temporary file here, so a failed write does too)
+bool SaveStateToPath(MelonDSAndroid::MelonInstance& emu, const fs::path& path)
+{
+    Savestate state;
+    if (state.Error || !emu.saveState(&state) || state.Error)
+    {
+        fprintf(stderr, "can't make a savestate\n");
+        return false;
+    }
+    fs::path temp = path;
+    temp += ".tmp";
+    bool ok;
+    {
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        ok = out && out.write((const char*)state.Buffer(), state.Length()) && out.flush();
+    }
+    std::error_code ec;
+    if (ok)
+        fs::rename(temp, path, ec);
+    if (!ok || ec)
+    {
+        fs::remove(temp, ec);
+        fprintf(stderr, "can't write savestate %s\n", Frontend::PathToUtf8(path).c_str());
+        return false;
+    }
+    printf("saved state: %s (%u bytes)\n", Frontend::PathToUtf8(path).c_str(), state.Length());
+    return true;
+}
+
+bool ReadPath(const fs::path& path, std::vector<u8>& out)
+{
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        return false;
+    in.seekg(0, std::ios::end);
+    std::streamoff size = in.tellg();
+    in.seekg(0, std::ios::beg);
+    if (size <= 0)
+        return false;
+    out.resize((size_t)size);
+    return (bool)in.read((char*)out.data(), size);
+}
+
 // the renderer's scale, which drops below --scale when that doesn't fit the GPU's limits; emulator thread
 int ActiveScale(MelonDSAndroid::MelonInstance& emu)
 {
@@ -641,47 +724,6 @@ int ActiveScale(MelonDSAndroid::MelonInstance& emu)
     case MelonDSAndroid::Renderer::OpenGl: return static_cast<GLRenderer&>(renderer).GetScaleFactor();
     case MelonDSAndroid::Renderer::Compute: return static_cast<ComputeRenderer&>(renderer).GetScaleFactor();
     default: return 1;
-    }
-}
-
-u32 KeyBit(SDL_Keycode key)
-{
-    switch (key)
-    {
-    case SDLK_x: return 1 << 0;      // A
-    case SDLK_z: return 1 << 1;      // B
-    case SDLK_RSHIFT: return 1 << 2; // Select
-    case SDLK_BACKSPACE: return 1 << 2;
-    case SDLK_RETURN: return 1 << 3; // Start
-    case SDLK_RIGHT: return 1 << 4;
-    case SDLK_LEFT: return 1 << 5;
-    case SDLK_UP: return 1 << 6;
-    case SDLK_DOWN: return 1 << 7;
-    case SDLK_w: return 1 << 8;      // R
-    case SDLK_q: return 1 << 9;      // L
-    case SDLK_s: return 1 << 10;     // X
-    case SDLK_a: return 1 << 11;     // Y
-    default: return 0;
-    }
-}
-
-u32 ControllerBit(int button)
-{
-    switch (button)
-    {
-    case SDL_CONTROLLER_BUTTON_B: return 1 << 0;  // east = A
-    case SDL_CONTROLLER_BUTTON_A: return 1 << 1;  // south = B
-    case SDL_CONTROLLER_BUTTON_BACK: return 1 << 2;
-    case SDL_CONTROLLER_BUTTON_START: return 1 << 3;
-    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return 1 << 4;
-    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return 1 << 5;
-    case SDL_CONTROLLER_BUTTON_DPAD_UP: return 1 << 6;
-    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return 1 << 7;
-    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return 1 << 8;
-    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return 1 << 9;
-    case SDL_CONTROLLER_BUTTON_Y: return 1 << 10; // north = X
-    case SDL_CONTROLLER_BUTTON_X: return 1 << 11; // west = Y
-    default: return 0;
     }
 }
 
@@ -750,16 +792,74 @@ void ReleaseFrame(Frame* frame)
     glFlush();
 }
 
+// The exe is a GUI program, so it has no console of its own. Started from one (PowerShell, cmd, bash) it writes there: to the handles it
+// was given when they're redirected or piped (a file, mintty's pipe), else to the parent's console, attached. A double-clicked exe has
+// neither, and its output goes nowhere, as before
+void AttachParentConsole()
+{
+    auto usable = [](DWORD which)
+    {
+        HANDLE handle = GetStdHandle(which);
+        return handle != nullptr && handle != INVALID_HANDLE_VALUE && GetFileType(handle) != FILE_TYPE_UNKNOWN;
+    };
+    bool out = usable(STD_OUTPUT_HANDLE), err = usable(STD_ERROR_HANDLE);
+    if (out && err)
+        return;
+    if (!AttachConsole(ATTACH_PARENT_PROCESS))
+        return;
+    if (!out)
+        freopen("CONOUT$", "w", stdout);
+    if (!err)
+        freopen("CONOUT$", "w", stderr);
+}
+
+// the recent games in the settings (desktop_recent_roms), newest first
+constexpr size_t kMaxRecent = 10;
+
+std::vector<std::string> RecentRoms(const Frontend::Settings& settings)
+{
+    std::vector<std::string> list;
+    const picojson::value* value = settings.Find("desktop_recent_roms");
+    if (value && value->is<picojson::array>())
+    {
+        for (const picojson::value& item : value->get<picojson::array>())
+        {
+            if (item.is<std::string>() && !item.get<std::string>().empty())
+                list.push_back(item.get<std::string>());
+        }
+    }
+    return list;
+}
+
+void AddRecentRom(Frontend::Settings& settings, const std::string& path)
+{
+    std::error_code ec;
+    fs::path absolute = fs::absolute(Frontend::PathFromUtf8(path), ec);
+    std::string full = Frontend::PathToUtf8(ec ? Frontend::PathFromUtf8(path) : absolute.lexically_normal());
+    picojson::array list;
+    list.emplace_back(full);
+    for (const std::string& item : RecentRoms(settings))
+    {
+        if (_stricmp(item.c_str(), full.c_str()) != 0 && list.size() < kMaxRecent)
+            list.emplace_back(item);
+    }
+    settings.Set("desktop_recent_roms", picojson::value(list));
+}
+
 }
 
 int main(int argc, char** argv)
 {
+    AttachParentConsole();
     Options opts;
     if (!ParseArgs(argc, argv, opts))
     {
         Usage();
         return 1;
     }
+    std::vector<Frontend::UiStep> script;
+    if (!opts.UiScriptPath.empty() && !Frontend::LoadUiScript(opts.UiScriptPath, script))
+        return 1;
 
     // Windows 11 slows down processes whose window isn't in front (EcoQoS) and ignores their timer
     // requests, which costs 2/3 of the frame rate: opt out of both, then ask for 1 ms sleeps for
@@ -770,6 +870,8 @@ int main(int argc, char** argv)
     throttling.StateMask = 0;
     SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &throttling, sizeof(throttling));
     timeBeginPeriod(1);
+    // COM on the UI thread, for the file dialog and the slot screenshots (WIC)
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     SDL_SetHint(SDL_HINT_OPENGL_ES_DRIVER, "0"); // the driver's own ES context (WGL), not ANGLE
     // per-monitor DPI aware (v2): windows are sized in real pixels on every monitor, and Windows doesn't blur them up on a scaled one.
     // A window keeps its size in pixels when it moves to a monitor with another scale
@@ -873,70 +975,14 @@ int main(int argc, char** argv)
     fs::create_directories(cacheDir, ec);
     OpenGL::SetShaderCachePath(cacheDir + "/compute_programs.bin");
 
-    // What the shared code needs from this frontend (FrontendContext.h), before the instance is made
+    // What the shared code needs from this frontend (FrontendContext.h), before an instance is made
     auto messenger = std::make_shared<Frontend::DesktopEventMessenger>();
     MelonDSAndroid::frontendContext.internalFilesDir = exeDir;
     MelonDSAndroid::frontendContext.eventMessenger = messenger;
     MelonDSAndroid::RetroAchievements::RetroAchievementsManager::EventMessenger = messenger;
-    // GPU::Comp1x: the presenter draws a screen at 1x unless it filters linearly, as the app's surfaces tell the emulator after presenting;
-    // set before the first frame here, so a run's frames don't depend on when the UI thread first presents
-    MelonDSAndroid::setHalvesAt1xSupported(!opts.Linear);
     // GPU::OutputCapDeband, which MelonInstance sets before each frame from what the presenter says (once it held for 30 frames, as on the
     // phone), so --set OutputCapDeband stands in for the app's deband through it
     MelonDSAndroid::setOutputDeband(SetValue(opts.Sets, "OutputCapDeband", 0) != 0);
-
-    // The console, as before the shared code: FreeBIOS and a generated firmware unless --bios says otherwise
-    auto args = std::make_unique<NDSArgs>();
-#ifdef JIT_ENABLED
-    // the app's JIT settings (block size 32), but fast memory only on request
-    args->JIT = std::nullopt;
-    if (opts.Jit)
-    {
-        JITArgs jit;
-        jit.FastMemory = opts.FastMem;
-        args->JIT = jit;
-    }
-#else
-    args->JIT = std::nullopt;
-#endif
-    args->OutputSampleRate = 48000.0;
-    bool haveFirmware = false;
-    if (!Frontend::LoadBiosDir(opts.BiosDir, *args, haveFirmware))
-        return 1;
-    if (!haveFirmware)
-        args->Firmware = Firmware(0);
-    if (!haveFirmware && opts.BootScreen)
-    {
-        fprintf(stderr, "--boot-screen needs the official BIOS and firmware (--bios)\n");
-        opts.BootScreen = false;
-    }
-
-    // the renderer and scale of the run, which hotkeys and --at change; emulator thread
-    RendererType renderer = opts.Renderer;
-    int scale = opts.Scale;
-    std::vector<u32> screenshotBuffer(256 * 384);
-    auto instance = std::make_unique<MelonDSAndroid::MelonInstance>(0, MakeConfiguration(opts, renderer, scale), std::move(args),
-        std::make_shared<Net>(), std::make_unique<MelonDSAndroid::ScreenshotRenderer>(screenshotBuffer.data()), 0);
-    instance->setDebugOverrides(ApplySwitches(opts, *instance->getNds()));
-
-    if (opts.SavePath.empty())
-        opts.SavePath = fs::path(opts.RomPath).replace_extension(".sav").string();
-    std::vector<u8> sav;
-    if (ReadFile(opts.SavePath, sav) && !sav.empty())
-        printf("save: %s\n", opts.SavePath.c_str());
-    if (!EnsureSaveFile(opts.SavePath) || !instance->loadRom(opts.RomPath, opts.SavePath))
-    {
-        fprintf(stderr, "can't load ROM %s with the save %s (not a DS ROM the core can parse, or a file it can't read or write)\n",
-            opts.RomPath.c_str(), opts.SavePath.c_str());
-        return 1;
-    }
-    if (!opts.GbaRomPath.empty())
-    {
-        std::string gbaSave = fs::path(opts.GbaRomPath).replace_extension(".sav").string();
-        if (!EnsureSaveFile(gbaSave) || !instance->loadGbaRom(opts.GbaRomPath, gbaSave))
-            fprintf(stderr, "%s isn't a GBA ROM the core can parse\n", opts.GbaRomPath.c_str());
-    }
-    MelonDSAndroid::MelonInstance* emu = instance.get();
 
     SDL_AudioDeviceID audio = 0;
     if (opts.Audio)
@@ -953,11 +999,22 @@ int main(int argc, char** argv)
             fprintf(stderr, "no audio: %s\n", SDL_GetError());
     }
 
-    for (int i = 0; i < SDL_NumJoysticks(); i++)
+    // a hidden run takes no input from real controllers (it would get a pad someone is playing with); --ui-script's pad steps still come
+    if (!opts.Hidden)
     {
-        if (SDL_IsGameController(i))
-            SDL_GameControllerOpen(i);
+        for (int i = 0; i < SDL_NumJoysticks(); i++)
+        {
+            if (SDL_IsGameController(i))
+                SDL_GameControllerOpen(i);
+        }
     }
+
+    // The game running now (none on the start screen). The command line's ROM is booted with its --state, --at, --press, --touch and --gba;
+    // a game opened from the menus gets none of those
+    MelonDSAndroid::MelonInstance* emu = nullptr;
+    std::string romPath;
+    bool commandLineGame = false;
+    Frontend::SaveSlots slots;
 
     // The input the UI thread reads, which the emulator thread applies before each frame along with --press, so scripted runs are frame exact
     std::atomic<u32> keyMask = 0, padMask = 0, stickMask = 0;
@@ -965,27 +1022,25 @@ int main(int argc, char** argv)
     std::atomic_bool stateFailed = false;   // an --at state load failed: the run stops
     std::atomic_bool startFailed = false;   // the --state didn't load: nothing ran
     std::atomic<u32> currentFrame = 0;
+    // UI frames while no game frame runs (the start screen, a menu over the paused game), which --frames counts too
+    std::atomic<u32> uiFrames = 0;
     bool touching = false, paused = false, running = true;
     bool linear = opts.Linear;
     // where the bottom screen is in the drawable of the window that shows it, for --touch on the emulator thread: as planned for the
     // first frame (from the run's top screen size), then as each present drew it
     std::mutex touchLock;
     Frontend::Rect touchRect;
-    {
-        Frontend::FrameView planned;
-        bool wide = renderer != RendererType::Software && opts.WideWidth != 256;
-        planned.TopWidth = wide ? opts.WideWidth : 256;
-        planned.TopMargin = wide ? opts.WideMargin : 0;
-        windows.SetFrameShape(planned);
-        touchRect = windows.BottomRect();
-    }
     bool scriptTouching = false; // emulator thread
-    u32 presented = 0;
+    u32 presented = 0, presentedThisGame = 0;
     FrameStats stats;
     TitleStats titleStats;
-    std::string statsLabel = RendererName(renderer);
+    std::string statsLabel = RendererName(opts.Renderer);
     auto runStart = std::chrono::steady_clock::now();
     auto secondStart = runStart;
+    // the renderer and scale of the game, which hotkeys, --at and the settings change; emulator thread (set before it starts)
+    RendererType renderer = opts.Renderer;
+    int scale = opts.Scale;
+    std::vector<u32> screenshotBuffer(256 * 384);
 
     messenger->OnStop = [&](Platform::StopReason)
     {
@@ -998,7 +1053,7 @@ int main(int argc, char** argv)
     {
         std::vector<u8> pixels;
         int w = 0, h = 0;
-        Frame* frame = AcquireFrame(*emu, std::nullopt);
+        Frame* frame = emu ? AcquireFrame(*emu, std::nullopt) : nullptr;
         bool ok = false;
         if (frame)
         {
@@ -1036,7 +1091,7 @@ int main(int argc, char** argv)
     callbacks.OnStart = [&](MelonDSAndroid::MelonInstance& instance)
     {
         SetDateTime(opts, *instance.getNds());
-        if (!opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
+        if (commandLineGame && !opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
         {
             startFailed = true;
             return false;
@@ -1047,18 +1102,18 @@ int main(int argc, char** argv)
     std::vector<s16> audioBuf(2 * 1024);
     callbacks.BeforeFrame = [&](MelonDSAndroid::MelonInstance& instance, u32 frame)
     {
-        if (stopRequested || (opts.Frames && frame >= opts.Frames))
+        if (stopRequested || (opts.Frames && frame + uiFrames >= opts.Frames))
             return false;
 
         // the keys held this frame, all of them sent every frame (the instance's pressKey and releaseKey), as the desktop set the whole mask
         // before the shared code: a reset (Ctrl+R, --at reset) releases every key in the core and a state load brings its own, behind the
         // instance's back, so sending only the changes would leave a key held through them released
-        u32 mask = keyMask | padMask | stickMask | Frontend::PressMask(opts.Presses, frame);
+        u32 mask = keyMask | padMask | stickMask | (commandLineGame ? Frontend::PressMask(opts.Presses, frame) : 0);
         for (u32 bit = 0; bit < 12; bit++)
             (mask & (1u << bit)) ? instance.pressKey(bit) : instance.releaseKey(bit);
 
         // --touch: a point of the bottom screen's window, through the same mapping as the mouse
-        if (!opts.Touches.empty())
+        if (commandLineGame && !opts.Touches.empty())
         {
             bool held = false;
             for (const Options::Touch& touch : opts.Touches)
@@ -1090,7 +1145,7 @@ int main(int argc, char** argv)
 
         for (const Options::At& at : opts.Ats)
         {
-            if (at.Frame != frame)
+            if (!commandLineGame || at.Frame != frame)
                 continue;
             if (at.Action == "reset")
             {
@@ -1203,16 +1258,134 @@ int main(int argc, char** argv)
         OpenGL::ShaderCacheStats cacheStats;
         OpenGL::SaveShaderCache(cacheStats);
     };
-
     emuThread.SetLimitFps(!opts.Unthrottled);
     emuThread.SetGpuSync(opts.GpuSync);
-    emuThread.Start(emuWindow, emuContext, std::move(instance), std::move(callbacks));
+
+    // --touch's rect again, after anything that moves the bottom screen: a present (a new frame shape), a window resize, a hotkey (F9,
+    // F1, F2, F10), so a touch right after one uses the right window and rect. Stored even when the screen isn't shown (W 0: no touch)
+    auto refreshTouchRect = [&]
+    {
+        Frontend::Rect r = windows.BottomRect();
+        std::lock_guard guard(touchLock);
+        touchRect = r;
+    };
+
+    // Boots [path] (UTF-8): the instance made and its ROM loaded with its save, then the emulator thread started. The command line's
+    // game (commandLine) also gets its --gba, --state, --at, --press and --touch. False, with the reason on stderr, when the ROM doesn't load
+    auto stopGame = [&]
+    {
+        if (!emu)
+            return;
+        // out of the frame loop, still serving what the emulator thread may wait for, then the instance goes on its thread
+        emuThread.RequestFinish();
+        while (!emuThread.IsFinished())
+        {
+            messenger->Drain();
+            SDL_Delay(1);
+        }
+        emuThread.Stop();
+        emu = nullptr;
+        romPath.clear();
+        slots.Clear();
+        commandLineGame = false;
+        touching = false;
+        paused = false;
+        keyMask = padMask = stickMask = 0;
+        if (audio)
+            SDL_ClearQueuedAudio(audio);
+        windows.UpdateTitles("");
+        printf("game stopped\n");
+    };
+    auto bootGame = [&](const std::string& path, bool commandLine) -> bool
+    {
+        stopGame();
+        // the settings as they are now (the menus may have changed them), with the command line's on top
+        ApplySettings(opts, settings);
+        renderer = opts.Renderer;
+        scale = opts.Scale;
+        linear = opts.Linear;
+
+        // The console, as before the shared code: FreeBIOS and a generated firmware unless --bios says otherwise
+        auto args = std::make_unique<NDSArgs>();
+#ifdef JIT_ENABLED
+        // the app's JIT settings (block size 32), but fast memory only on request
+        args->JIT = std::nullopt;
+        if (opts.Jit)
+        {
+            JITArgs jit;
+            jit.FastMemory = opts.FastMem;
+            args->JIT = jit;
+        }
+#else
+        args->JIT = std::nullopt;
+#endif
+        args->OutputSampleRate = 48000.0;
+        bool haveFirmware = false;
+        if (!Frontend::LoadBiosDir(opts.BiosDir, *args, haveFirmware))
+            return false;
+        if (!haveFirmware)
+            args->Firmware = Firmware(0);
+        if (!haveFirmware && opts.BootScreen)
+        {
+            fprintf(stderr, "--boot-screen needs the official BIOS and firmware (--bios)\n");
+            opts.BootScreen = false;
+        }
+
+        // GPU::Comp1x: the presenter draws a screen at 1x unless it filters linearly, as the app's surfaces tell the emulator after presenting;
+        // set before the first frame here, so a run's frames don't depend on when the UI thread first presents
+        MelonDSAndroid::setHalvesAt1xSupported(!linear);
+        auto instance = std::make_unique<MelonDSAndroid::MelonInstance>(0, MakeConfiguration(opts, renderer, scale), std::move(args),
+            std::make_shared<Net>(), std::make_unique<MelonDSAndroid::ScreenshotRenderer>(screenshotBuffer.data()), 0);
+        instance->setDebugOverrides(ApplySwitches(opts, *instance->getNds()));
+
+        std::string savePath = opts.SavePath.empty() ? fs::path(path).replace_extension(".sav").string() : opts.SavePath;
+        std::vector<u8> sav;
+        if (ReadFile(savePath, sav) && !sav.empty())
+            printf("save: %s\n", savePath.c_str());
+        if (!EnsureSaveFile(savePath) || !instance->loadRom(path, savePath))
+        {
+            fprintf(stderr, "can't load ROM %s with the save %s (not a DS ROM the core can parse, or a file it can't read or write)\n",
+                path.c_str(), savePath.c_str());
+            return false;
+        }
+        if (commandLine && !opts.GbaRomPath.empty())
+        {
+            std::string gbaSave = fs::path(opts.GbaRomPath).replace_extension(".sav").string();
+            if (!EnsureSaveFile(gbaSave) || !instance->loadGbaRom(opts.GbaRomPath, gbaSave))
+                fprintf(stderr, "%s isn't a GBA ROM the core can parse\n", opts.GbaRomPath.c_str());
+        }
+        emu = instance.get();
+        romPath = path;
+        commandLineGame = commandLine;
+        slots.SetGame(Frontend::PathFromUtf8(path), Frontend::PathFromUtf8(opts.StateDir), profileDir);
+        currentFrame = 0;
+        presentedThisGame = 0;
+        stats = {};
+        statsLabel = RendererName(renderer);
+        printRenderer = true;
+        lastShadowMode = 0;
+        lastScene = -2;
+        scriptTouching = false;
+        stopRequested = false;
+        {
+            Frontend::FrameView planned;
+            bool wide = renderer != RendererType::Software && opts.WideWidth != 256;
+            planned.TopWidth = wide ? opts.WideWidth : 256;
+            planned.TopMargin = wide ? opts.WideMargin : 0;
+            windows.SetFrameShape(planned);
+            refreshTouchRect();
+        }
+        AddRecentRom(settings, path);
+        printf("game: %s\n", path.c_str());
+        emuThread.Start(emuWindow, emuContext, std::move(instance), callbacks);
+        return true;
+    };
 
     // the mouse at window point x,y of the window that shows the bottom screen
     auto touchAt = [&](int x, int y)
     {
         Frontend::Rect r = windows.BottomRect();
-        if (r.W <= 0)
+        if (r.W <= 0 || !emu)
             return;
         // window points to drawable pixels, as the rect is in the latter
         SDL_Window* bottom = windows.BottomWindow();
@@ -1227,20 +1400,210 @@ int main(int argc, char** argv)
         emu->touchScreen((u16)std::clamp(tx, 0, 255), (u16)std::clamp(ty, 0, 191));
     };
 
-    // --touch's rect again, after anything that moves the bottom screen: a present (a new frame shape), a window resize, a hotkey (F9,
-    // F1, F2, F10), so a touch right after one uses the right window and rect. Stored even when the screen isn't shown (W 0: no touch)
-    auto refreshTouchRect = [&]
+    // The menus. They draw into the main window after the game, only when a screen, toast or the keyboard is up (uiBuilt)
+    Ui::App ui;
+    Ui::Host host;
+    bool uiBuilt = false;
+    windows.MainOverlay = [&] { if (uiBuilt) ui.Render(); };
+    host.Settings = &settings;
+    host.Hidden = opts.Hidden;
+    host.GameRunning = [&] { return emu != nullptr; };
+    host.GameTitle = [&] { return Frontend::PathToUtf8(Frontend::PathFromUtf8(romPath).stem()); };
+    host.RendererStatus = [&]
     {
-        Frontend::Rect r = windows.BottomRect();
-        std::lock_guard guard(touchLock);
-        touchRect = r;
+        std::lock_guard guard(titleStats.Lock);
+        if (titleStats.Renderer == RendererType::Software)
+            return std::string("Software");
+        return std::string(RendererName(titleStats.Renderer)) + " " + std::to_string(titleStats.Scale) + "x";
+    };
+    host.Reset = [&]
+    {
+        if (emu)
+            emuThread.Post([&](MelonDSAndroid::MelonInstance& instance)
+            {
+                instance.reset();
+                SetDateTime(opts, *instance.getNds());
+                printf("reset\n");
+            });
+    };
+    host.ListSlots = [&] { return slots.List(); };
+    host.SlotFileNames = [&] { return slots.FileNames(); };
+    host.SaveSlot = [&](int slot, std::function<void(bool)> done)
+    {
+        if (!emu)
+        {
+            done(false);
+            return;
+        }
+        fs::path file = slots.StatePath(slot);
+        // the state on the emulator thread (between frames, the game paused under the menu), then the slot's screenshot here from the
+        // frame it's at, which is the newest one the emulator pushed
+        emuThread.Post([&, slot, file, done](MelonDSAndroid::MelonInstance& instance)
+        {
+            bool ok = SaveStateToPath(instance, file);
+            messenger->Post([&, slot, ok, done]
+            {
+                if (ok && emu)
+                {
+                    // the old picture goes first, as the app deletes it before it takes the new one
+                    slots.DeleteScreenshot(slot);
+                    std::vector<u8> pixels;
+                    int w = 0, h = 0;
+                    Frontend::FrameView view;
+                    if (Frame* frame = AcquireFrame(*emu, std::nullopt))
+                    {
+                        PrepareFrame(frame);
+                        view = Frontend::FrameView::Of(*frame);
+                        bool read = presenter.ReadFrame(view, pixels, w, h);
+                        ReleaseFrame(frame);
+                        if (read && slots.WriteScreenshot(slot, pixels, w, h, view.TopWidth, view.TopMargin))
+                            printf("slot %d screenshot: %s\n", slot, Frontend::PathToUtf8(slots.ScreenshotPath(slot)).c_str());
+                        else
+                            fprintf(stderr, "slot %d: no screenshot\n", slot);
+                    }
+                }
+                done(ok);
+            });
+        });
+    };
+    host.LoadSlot = [&](int slot, std::function<void(bool)> done)
+    {
+        if (!emu)
+        {
+            done(false);
+            return;
+        }
+        fs::path file = slots.StatePath(slot);
+        emuThread.Post([&, file, done](MelonDSAndroid::MelonInstance& instance)
+        {
+            std::vector<u8> data;
+            bool ok = ReadPath(file, data) && LoadStateBytes(opts, instance, data, Frontend::PathToUtf8(file));
+            messenger->Post([done, ok] { done(ok); });
+        });
+    };
+    host.QuitToStart = [&]
+    {
+        messenger->Post([&]
+        {
+            stopGame();
+            ui.ShowStart();
+        });
+    };
+    host.Quit = [&] { running = false; };
+    host.BootRom = [&](const std::string& path)
+    {
+        messenger->Post([&, path]
+        {
+            if (bootGame(path, false))
+                ui.CloseAll();
+            else
+            {
+                // back to the start screen (the game that ran before is stopped)
+                if (!emu && ui.TopId() != "start")
+                    ui.ShowStart();
+                ui.Toast("Couldn't open " + Frontend::PathToUtf8(Frontend::PathFromUtf8(path).filename()));
+            }
+        });
+    };
+    host.OpenRom = [&]
+    {
+        if (opts.Hidden)
+        {
+            ui.Toast("The file dialog doesn't open in a hidden run");
+            return;
+        }
+        messenger->Post([&]
+        {
+            std::vector<std::string> recent = RecentRoms(settings);
+            std::string start = recent.empty() ? "" : Frontend::PathToUtf8(Frontend::PathFromUtf8(recent[0]).parent_path());
+            if (std::optional<std::string> path = Frontend::OpenRomDialog(window, start))
+                host.BootRom(*path);
+        });
+    };
+    host.RecentRoms = [&] { return RecentRoms(settings); };
+    host.IsDetached = [&] { return windows.IsDetached(); };
+    host.SetDetached = [&](bool detached)
+    {
+        windows.SetDetached(detached);
+        refreshTouchRect();
+    };
+    host.IsSwapped = [&] { return windows.IsSwapped(); };
+    host.ToggleSwap = [&]
+    {
+        windows.ToggleSwap();
+        refreshTouchRect();
+    };
+    host.SetRenderer = [&](const std::string& value)
+    {
+        settings.Set("video_renderer", picojson::value(value));
+        printf("settings: video_renderer = %s\n", value.c_str());
+        RendererType requested = value == "software" ? RendererType::Software : value == "opengl" ? RendererType::OpenGL : RendererType::Compute;
+        if (emu)
+            emuThread.Post([&, requested](MelonDSAndroid::MelonInstance& instance) { renderer = requested; updateConfiguration(instance); });
+    };
+    host.SetScale = [&](int value)
+    {
+        settings.Set("video_internal_resolution", picojson::value(std::to_string(value)));
+        printf("settings: video_internal_resolution = %d\n", value);
+        if (emu)
+            emuThread.Post([&, value](MelonDSAndroid::MelonInstance& instance) { scale = value; updateConfiguration(instance); });
+    };
+    host.SetVSync = [&](bool value)
+    {
+        settings.Set("desktop_vsync", picojson::value(value));
+        printf("settings: desktop_vsync = %s\n", value ? "true" : "false");
+        windows.SetVSync(settings.GetBool("desktop_vsync", false));
+    };
+    if (!ui.Init(window, uiContext, host, opts.Hidden))
+    {
+        fprintf(stderr, "can't set up the menus (ImGui)\n");
+        return 1;
+    }
+
+    // the command line's ROM, unless --open start asks for the start screen
+    if (!opts.RomPath.empty() && opts.OpenScreen != "start")
+    {
+        if (!bootGame(opts.RomPath, true))
+            return 1;
+    }
+    else
+        ui.ShowStart();
+    // --open: with a game once its first frame is shown, like the script
+    std::string pendingOpen = opts.OpenScreen == "start" ? "" : opts.OpenScreen;
+
+    // --ui-script's state
+    size_t scriptPos = 0;
+    bool scriptStarted = false, scriptEnded = false;
+    int scriptDelay = 0;
+    bool scriptWaitFrame = false;
+    u32 scriptFrame = 0;
+    std::optional<SDL_Event> scriptRelease;
+
+    // UI thread: the window as drawn now (the game's newest frame, then the menus' last frame), into [path] (_top/_bottom when detached)
+    auto windowShot = [&](const std::string& path, bool shotLinear)
+    {
+        Frame* frame = emu ? AcquireFrame(*emu, std::nullopt) : nullptr;
+        if (frame)
+        {
+            PrepareFrame(frame);
+            windows.WindowShot(presenter, Frontend::FrameView::Of(*frame), shotLinear, path);
+            ReleaseFrame(frame);
+        }
+        else
+            windows.WindowShot(presenter, Frontend::FrameView(), shotLinear, path);
     };
 
-    // draws [frame] into the windows and shows them
+    // draws [frame] (null: no game, black) into the windows, with the menus over the main one, and shows them
     auto present = [&](Frame* frame)
     {
-        PrepareFrame(frame);
-        windows.Present(presenter, Frontend::FrameView::Of(*frame), linear, [&] { ReleaseFrame(frame); });
+        if (frame)
+        {
+            PrepareFrame(frame);
+            windows.Present(presenter, Frontend::FrameView::Of(*frame), linear, [&] { ReleaseFrame(frame); });
+            presentedThisGame++;
+        }
+        else
+            windows.Present(presenter, Frontend::FrameView(), linear, [] {});
         presented++;
         refreshTouchRect();
     };
@@ -1251,13 +1614,14 @@ int main(int argc, char** argv)
     {
         switch (key)
         {
-        case SDLK_ESCAPE: running = false; break;
         case SDLK_p:
+            if (!emu || ui.IsOpen())
+                break;
             paused = !paused;
             paused ? emuThread.Pause() : emuThread.Resume();
             break;
         case SDLK_r:
-            if (mod & KMOD_CTRL)
+            if ((mod & KMOD_CTRL) && emu)
             {
                 emuThread.Post([&](MelonDSAndroid::MelonInstance& instance)
                 {
@@ -1273,13 +1637,20 @@ int main(int argc, char** argv)
         {
             RendererType requested = key == SDLK_F5 ? RendererType::Software : key == SDLK_F6 ? RendererType::OpenGL : RendererType::Compute;
             settings.Set("video_renderer", picojson::value(std::string(RendererSettingValue(requested))));
-            emuThread.Post([&, requested](MelonDSAndroid::MelonInstance& instance) { renderer = requested; updateConfiguration(instance); });
+            if (emu)
+                emuThread.Post([&, requested](MelonDSAndroid::MelonInstance& instance) { renderer = requested; updateConfiguration(instance); });
             break;
         }
         case SDLK_F3:
         case SDLK_F4:
         {
             int step = key == SDLK_F3 ? -1 : 1;
+            if (!emu)
+            {
+                int value = std::clamp(settings.GetInt("video_internal_resolution", 4) + step, 1, 16);
+                settings.Set("video_internal_resolution", picojson::value(std::to_string(value)));
+                break;
+            }
             emuThread.Post([&, step](MelonDSAndroid::MelonInstance& instance)
             {
                 scale = std::clamp(scale + step, 1, 16);
@@ -1302,6 +1673,8 @@ int main(int argc, char** argv)
         case SDLK_F11: windows.ToggleFullscreen(windowId); redraw = true; break;
         case SDLK_F12:
         {
+            if (!emu)
+                break;
             fs::create_directories(exeDir + "screenshots", ec);
             char name[64];
             snprintf(name, sizeof(name), "screenshots/frame%06u.bmp", currentFrame.load());
@@ -1312,11 +1685,156 @@ int main(int argc, char** argv)
         }
         refreshTouchRect();
     };
+
+    // one step of --ui-script, after each UI frame drawn
+    auto scriptTick = [&]
+    {
+        if (script.empty() || scriptEnded)
+            return;
+        // on the start screen right away, with a game once its first frame is shown
+        if (!scriptStarted)
+        {
+            if (emu && presentedThisGame == 0)
+                return;
+            scriptStarted = true;
+        }
+        if (scriptDelay > 0)
+        {
+            scriptDelay--;
+            return;
+        }
+        // a save or load from the menus finishes first (the menus close when it's done)
+        if (ui.Busy)
+            return;
+        if (scriptRelease)
+        {
+            SDL_PushEvent(&*scriptRelease);
+            scriptRelease.reset();
+            scriptDelay = 1;
+            return;
+        }
+        if (scriptWaitFrame)
+        {
+            if (emu && emuThread.HeldAt() != scriptFrame && !emuThread.IsFinished())
+                return;
+            scriptWaitFrame = false;
+            printf("script: held at frame %u\n", scriptFrame);
+        }
+        if (scriptPos >= script.size())
+        {
+            scriptEnded = true;
+            running = false;
+            return;
+        }
+        const Frontend::UiStep& step = script[scriptPos++];
+        printf("script %d: %s\n", step.Line, step.Text.c_str());
+        fflush(stdout);
+        using Kind = Frontend::UiStep::Kind;
+        switch (step.Type)
+        {
+        case Kind::Action:
+        {
+            using Frontend::MenuAction;
+            const std::string& a = step.Arg;
+            MenuAction action = a == "up" ? MenuAction::Up : a == "down" ? MenuAction::Down : a == "left" ? MenuAction::Left
+                : a == "right" ? MenuAction::Right : a == "confirm" ? MenuAction::Confirm : a == "back" ? MenuAction::Back
+                : a == "tab-next" ? MenuAction::TabNext : a == "tab-prev" ? MenuAction::TabPrev : MenuAction::Menu;
+            ui.Inject(action);
+            scriptDelay = 1;
+            break;
+        }
+        case Kind::Text:
+            ui.InjectText(step.Arg);
+            scriptDelay = 1;
+            break;
+        case Kind::Key:
+        {
+            SDL_Keycode key = SDL_GetKeyFromName(step.Arg.c_str());
+            if (key == SDLK_UNKNOWN)
+            {
+                fprintf(stderr, "script %d: unknown key %s\n", step.Line, step.Arg.c_str());
+                break;
+            }
+            SDL_Event event {};
+            event.type = SDL_KEYDOWN;
+            event.key.windowID = SDL_GetWindowID(window);
+            event.key.state = SDL_PRESSED;
+            event.key.keysym.sym = key;
+            event.key.keysym.scancode = SDL_GetScancodeFromKey(key);
+            SDL_PushEvent(&event);
+            event.type = SDL_KEYUP;
+            event.key.state = SDL_RELEASED;
+            scriptRelease = event;
+            break;
+        }
+        case Kind::Pad:
+        {
+            SDL_GameControllerButton button = SDL_GameControllerGetButtonFromString(step.Arg.c_str());
+            if (button == SDL_CONTROLLER_BUTTON_INVALID)
+            {
+                fprintf(stderr, "script %d: unknown controller button %s\n", step.Line, step.Arg.c_str());
+                break;
+            }
+            SDL_Event event {};
+            event.type = SDL_CONTROLLERBUTTONDOWN;
+            event.cbutton.which = -1;
+            event.cbutton.button = (Uint8)button;
+            event.cbutton.state = SDL_PRESSED;
+            SDL_PushEvent(&event);
+            event.type = SDL_CONTROLLERBUTTONUP;
+            event.cbutton.state = SDL_RELEASED;
+            scriptRelease = event;
+            break;
+        }
+        case Kind::Wait:
+            scriptDelay = (int)step.Number;
+            break;
+        case Kind::Frame:
+            if (!emu)
+                fprintf(stderr, "script %d: frame %u: no game is running\n", step.Line, step.Number);
+            else if (ui.IsOpen())
+                fprintf(stderr, "script %d: frame %u: a menu is open, close it first\n", step.Line, step.Number);
+            else if (emuThread.HeldAt() == step.Number)
+                break;
+            else if (currentFrame > step.Number)
+                fprintf(stderr, "script %d: frame %u: the game is past it (frame %u)\n", step.Line, step.Number, currentFrame.load());
+            else
+            {
+                // held there, from wherever it is now (running, or held at an earlier frame)
+                emuThread.HoldAt(step.Number);
+                if (emuThread.IsPaused())
+                {
+                    paused = false;
+                    emuThread.Resume();
+                }
+                scriptFrame = step.Number;
+                scriptWaitFrame = true;
+            }
+            break;
+        case Kind::Shot:
+            windowShot(step.Arg, linear || opts.WindowShotLinear);
+            break;
+        case Kind::Screenshot:
+            screenshot(step.Arg);
+            break;
+        case Kind::Quit:
+            scriptEnded = true;
+            running = false;
+            break;
+        }
+    };
+
+    // the menus over a running game pause it and take its input; closing them resumes it
+    bool menuOverGame = false;
+    bool openFailed = false; // --open named a screen that isn't there
+    auto lastPresent = std::chrono::steady_clock::now();
     while (running)
     {
         SDL_Event ev;
         while (SDL_PollEvent(&ev))
         {
+            // the menus first: what they take, the game doesn't see
+            bool menus = ui.ProcessEvent(ev);
             switch (ev.type)
             {
             case SDL_QUIT:
@@ -1339,44 +1857,56 @@ int main(int argc, char** argv)
             case SDL_KEYDOWN:
             case SDL_KEYUP:
             {
+                if (menus)
+                    break;
                 // the keys work in whichever window has the focus
                 bool down = ev.type == SDL_KEYDOWN;
                 SDL_Keycode key = ev.key.keysym.sym;
-                if (u32 bit = KeyBit(key))
-                    keyMask = down ? (keyMask | bit) : (keyMask & ~bit);
-                if (key == SDLK_TAB)
-                    emuThread.SetFastForward(down);
+                if (!ui.IsOpen())
+                {
+                    if (u32 bit = Frontend::GameKeyBit(key))
+                        keyMask = down ? (keyMask | bit) : (keyMask & ~bit);
+                    if (key == SDLK_TAB && emu)
+                        emuThread.SetFastForward(down);
+                }
                 if (down && !ev.key.repeat)
                     hotkey(key, ev.key.keysym.mod, ev.key.windowID);
                 break;
             }
             case SDL_MOUSEBUTTONDOWN:
                 // touch comes from the window that shows the bottom screen
-                if (ev.button.button == SDL_BUTTON_LEFT && ev.button.windowID == SDL_GetWindowID(windows.BottomWindow()))
+                if (!menus && ev.button.button == SDL_BUTTON_LEFT && ev.button.windowID == SDL_GetWindowID(windows.BottomWindow()))
                     touchAt(ev.button.x, ev.button.y);
                 break;
             case SDL_MOUSEMOTION:
-                if (touching && ev.motion.windowID == SDL_GetWindowID(windows.BottomWindow()))
+                if (!menus && touching && ev.motion.windowID == SDL_GetWindowID(windows.BottomWindow()))
                     touchAt(ev.motion.x, ev.motion.y);
                 break;
             case SDL_MOUSEBUTTONUP:
                 if (ev.button.button == SDL_BUTTON_LEFT && touching)
                 {
                     touching = false;
-                    emu->releaseScreen();
+                    if (emu)
+                        emu->releaseScreen();
                 }
                 break;
             case SDL_CONTROLLERDEVICEADDED:
-                SDL_GameControllerOpen(ev.cdevice.which);
+                if (!opts.Hidden)
+                    SDL_GameControllerOpen(ev.cdevice.which);
                 break;
             case SDL_CONTROLLERBUTTONDOWN:
             case SDL_CONTROLLERBUTTONUP:
-                if (u32 bit = ControllerBit(ev.cbutton.button))
-                    padMask = ev.type == SDL_CONTROLLERBUTTONDOWN ? (padMask | bit) : (padMask & ~bit);
+                if (!menus)
+                {
+                    if (u32 bit = Frontend::GameButtonBit(ev.cbutton.button))
+                        padMask = ev.type == SDL_CONTROLLERBUTTONDOWN ? (padMask | bit) : (padMask & ~bit);
+                }
                 break;
             case SDL_CONTROLLERAXISMOTION:
             {
-                const int dead = 16000;
+                if (menus)
+                    break;
+                const int dead = Frontend::kStickDeadZone;
                 auto setAxis = [&](u32 negBit, u32 posBit, int value)
                 {
                     u32 m = stickMask & ~(negBit | posBit);
@@ -1391,19 +1921,82 @@ int main(int argc, char** argv)
             default: break;
             }
         }
-        // the emulator's events (its stop), and what the emulator thread waits for (--at shot, --at key)
+        // the emulator's events (its stop), what the emulator thread waits for (--at shot, --at key), and the menus' queued actions (a
+        // game booted or stopped)
         messenger->Drain();
-        if (!running || emuThread.IsFinished())
+        if (!running || (emu && emuThread.IsFinished()))
             break;
 
-        // the newest frame, waiting a little for one when nothing new is queued, drawn once (or again when the window needs it)
-        Frame* frame = AcquireFrame(*emu, std::chrono::steady_clock::now() + std::chrono::milliseconds(8));
-        if (frame && (frame->sequence != lastSequence || redraw))
+        // --open, once there's something to open it over
+        if (!pendingOpen.empty() && (!emu || presentedThisGame > 0))
         {
-            present(frame);
-            lastSequence = frame->sequence;
-            redraw = false;
+            if (!ui.OpenPath(pendingOpen))
+            {
+                fprintf(stderr, "--open %s: no such screen%s\n", pendingOpen.c_str(), emu ? "" : " without a game");
+                openFailed = true;
+                running = false;
+                break;
+            }
+            pendingOpen.clear();
         }
+
+        // a menu opened over the game pauses it, with its held keys let go; closed, the game goes on
+        bool overGame = emu && ui.IsOpen();
+        if (overGame != menuOverGame)
+        {
+            menuOverGame = overGame;
+            if (overGame)
+            {
+                keyMask = padMask = stickMask = 0;
+                emuThread.SetFastForward(false);
+                if (touching)
+                {
+                    touching = false;
+                    emu->releaseScreen();
+                }
+                emuThread.Pause();
+            }
+            else
+            {
+                paused = false;
+                emuThread.Resume();
+            }
+        }
+
+        // the newest frame, waiting a little for one when nothing new is queued, drawn once (or again when the window needs it); every
+        // time while the menus are up
+        bool uiActive = ui.Active();
+        Frame* frame = emu ? AcquireFrame(*emu, std::chrono::steady_clock::now() + std::chrono::milliseconds(8)) : nullptr;
+        bool newFrame = frame && frame->sequence != lastSequence;
+        if (newFrame || redraw || uiActive)
+        {
+            // the menus at about 60 per second when nothing else paces the loop (no vsync, the game paused or not there)
+            bool gameIdle = !emu || emuThread.IsPaused();
+            if (uiActive && gameIdle && !opts.Unthrottled && !settings.GetBool("desktop_vsync", false))
+            {
+                auto due = lastPresent + std::chrono::microseconds(16667);
+                if (std::chrono::steady_clock::now() < due)
+                    std::this_thread::sleep_until(due);
+            }
+            uiBuilt = uiActive;
+            if (uiActive)
+                ui.BuildFrame();
+            present(frame);
+            lastPresent = std::chrono::steady_clock::now();
+            if (frame)
+                lastSequence = frame->sequence;
+            redraw = false;
+            if (gameIdle)
+            {
+                uiFrames++;
+                if (opts.Frames && currentFrame + uiFrames >= opts.Frames)
+                    running = false;
+            }
+        }
+        else if (!emu)
+            SDL_Delay(5);
+        // after each pass of the loop (a UI frame when the menus are up), also while the game is held with nothing drawn
+        scriptTick();
 
         auto now = std::chrono::steady_clock::now();
         double secs = std::chrono::duration<double>(now - secondStart).count();
@@ -1414,43 +2007,45 @@ int main(int argc, char** argv)
             double sum = 0;
             for (double ms : work)
                 sum += ms;
-            char title[256];
-            snprintf(title, sizeof(title), " - %s %dx - %.1f fps - %.2f ms%s", RendererName(titleStats.Renderer),
-                titleStats.Scale, work.size() / secs, work.empty() ? 0.0 : sum / work.size(), paused ? " (paused)" : "");
-            windows.UpdateTitles(title);
+            if (emu)
+            {
+                char title[256];
+                snprintf(title, sizeof(title), " - %s %dx - %.1f fps - %.2f ms%s", RendererName(titleStats.Renderer),
+                    titleStats.Scale, work.size() / secs, work.empty() ? 0.0 : sum / work.size(), paused || menuOverGame ? " (paused)" : "");
+                windows.UpdateTitles(title);
+            }
             titleStats.Second.WorkMs.clear();
             secondStart = now;
         }
     }
 
     // Out of the frame loop first, still serving what the emulator thread may wait for, so the last frame stays for the shots below
-    emuThread.RequestFinish();
-    while (!emuThread.IsFinished())
+    if (emu)
     {
-        messenger->Drain();
-        SDL_Delay(1);
+        emuThread.RequestFinish();
+        while (!emuThread.IsFinished())
+        {
+            messenger->Drain();
+            SDL_Delay(1);
+        }
     }
     double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - runStart).count();
 
-    if (opts.Frames && currentFrame >= opts.Frames && !opts.WindowShotPath.empty())
-    {
-        // the last frame drawn again into each window and read from its back buffer, before any swap
-        if (Frame* frame = AcquireFrame(*emu, std::nullopt))
-        {
-            PrepareFrame(frame);
-            windows.WindowShot(presenter, Frontend::FrameView::Of(*frame), linear || opts.WindowShotLinear, opts.WindowShotPath);
-            ReleaseFrame(frame);
-        }
-    }
+    // --frames or the UI script ended the run: the window as it was last drawn, menus included
+    bool reachedFrames = opts.Frames && currentFrame + uiFrames >= opts.Frames;
+    if ((reachedFrames || scriptEnded) && !opts.WindowShotPath.empty())
+        windowShot(opts.WindowShotPath, linear || opts.WindowShotLinear);
 
     stats.Print(statsLabel.c_str(), wall);
     printf("presented: %u frames in %.2f s (%.1f per second), %s\n", presented, wall, presented / wall,
         windows.IsDetached() ? "detached (two windows)" : "together");
-    if (!opts.ScreenshotPath.empty() && !startFailed)
+    if (!opts.ScreenshotPath.empty() && !startFailed && emu)
         screenshot(opts.ScreenshotPath);
 
     // the instance goes on the emulator thread, with its context current; its saves are written as their SaveManagers go
     emuThread.Stop();
+    emu = nullptr;
+    ui.Shutdown();
     MelonDSAndroid::frontendContext.eventMessenger = nullptr;
     presenter.Free();
     if (audio)
@@ -1462,8 +2057,10 @@ int main(int argc, char** argv)
     SDL_GL_DeleteContext(uiContext);
     SDL_DestroyWindow(window);
     SDL_Quit();
+    CoUninitialize();
     timeEndPeriod(1);
     if (Frontend::LogFile)
         fclose(Frontend::LogFile);
-    return startFailed ? 1 : stateFailed ? 2 : 0;
+    fflush(stdout);
+    return startFailed || openFailed ? 1 : stateFailed ? 2 : 0;
 }

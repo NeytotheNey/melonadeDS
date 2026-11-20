@@ -1,0 +1,7 @@
+// The fonts the menus use, in the exe so the shipped folder is the exe and SDL2.dll (third_party/README.md has their sources). The paths
+// are found through the include path, which has third_party/
+#include "Resources.h"
+
+IDR_FONT_REGULAR RCDATA "fonts/roboto/Roboto-Regular.ttf"
+IDR_FONT_MEDIUM RCDATA "fonts/roboto/Roboto-Medium.ttf"
+IDR_FONT_ICONS RCDATA "fonts/material-symbols/MaterialSymbolsOutlined-subset.ttf"

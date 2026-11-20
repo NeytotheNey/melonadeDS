@@ -4,6 +4,7 @@
 // vsync, so two vsync waits never halve the frame rate. UI thread only
 #pragma once
 
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -104,6 +105,11 @@ public:
 
     // the titles: [stats] after the main window's name
     void UpdateTitles(const std::string& stats);
+
+    // the main window waits for vsync (desktop_vsync), changed while running
+    void SetVSync(bool vsync);
+    // drawn into the main window after the game, in each present and window shot (the menus); none while it's empty
+    std::function<void()> MainOverlay;
 
 private:
     void DrawAll(Presenter& presenter, const FrameView& frame, bool linear);

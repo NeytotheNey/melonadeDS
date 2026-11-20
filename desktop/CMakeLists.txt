@@ -7,7 +7,7 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(melonade-desktop LANGUAGES C CXX)
+project(melonade-desktop LANGUAGES C CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,7 +22,8 @@ set(GL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gl")
 # The core includes MELONDS_GL_HEADER for its GL declarations: the GLES 3.2 headers with the
 # functions loaded at run time (gl/pc_gl.h). Set before the core's subdirectory so it gets them too
 include_directories("${GL_DIR}" "${GL_DIR}/khronos")
-add_compile_definitions(MELONDS_GL_HEADER=<pc_gl.h>)
+# (C and C++ only: windres runs its preprocessor through the shell, which takes the <> for redirections)
+add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:-DMELONDS_GL_HEADER=<pc_gl.h$<ANGLE-R>>")
 
 # what app/CMakeLists.txt sets for the core, plus the PC-only bits
 set(BUILD_QT_SDL OFF CACHE BOOL "" FORCE)
@@ -45,35 +46,79 @@ target_include_directories(melonade-shared PRIVATE "${GL_DIR}/shim")
 
 find_package(SDL2 REQUIRED)
 
+# Dear ImGui (third_party/imgui, a tagged release) with its SDL2 and OpenGL3 backends, the latter on its GLES 3 path: the context is GLES 3.2,
+# whose functions it calls through pc_gl.h (gl/shim/GLES3/gl3.h), the same pointers as the core
+set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui")
+add_library(imgui STATIC
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp)
+target_include_directories(imgui PUBLIC "${IMGUI_DIR}" PRIVATE "${GL_DIR}/shim")
+target_compile_definitions(imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS PRIVATE IMGUI_IMPL_OPENGL_ES3)
+target_link_libraries(imgui PRIVATE SDL2::SDL2)
+
 add_executable(melonade-desktop
     src/main.cpp
+    src/Controls.cpp
+    src/Controls.h
     src/DesktopEventMessenger.cpp
     src/DesktopEventMessenger.h
     src/DesktopLog.cpp
     src/DesktopPlatform.cpp
     src/EmulatorThread.cpp
     src/EmulatorThread.h
+    src/FileDialog.cpp
+    src/FileDialog.h
+    src/ImageFile.cpp
+    src/ImageFile.h
     src/PlatformBase.cpp
     src/Frontend.h
     src/Presenter.cpp
     src/Presenter.h
+    src/Resources.h
+    src/resources.rc
     src/RunOptions.h
+    src/SaveSlots.cpp
+    src/SaveSlots.h
     src/ScreenWindows.cpp
     src/ScreenWindows.h
     src/Settings.cpp
     src/Settings.h
+    src/UiScript.cpp
+    src/UiScript.h
+    src/ui/Host.h
+    src/ui/Icons.h
+    src/ui/KeyboardTestScreen.cpp
+    src/ui/PauseScreen.cpp
+    src/ui/Screen.h
+    src/ui/Screens.h
+    src/ui/SettingsScreen.cpp
+    src/ui/StartScreen.cpp
+    src/ui/StatesScreen.cpp
+    src/ui/Theme.cpp
+    src/ui/Theme.h
+    src/ui/Ui.cpp
+    src/ui/Ui.h
+    src/ui/Widgets.cpp
+    src/ui/Widgets.h
     gl/pc_gl_loader.cpp
     gl/pc_gl.h)
 
 # third_party/: vendored libraries (third_party/README.md)
-target_include_directories(melonade-desktop PRIVATE "${CORE_LIB}/src" "${GL_DIR}/shim" "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+target_include_directories(melonade-desktop PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CORE_LIB}/src" "${GL_DIR}/shim"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 # Windows 10 APIs (SetProcessInformation for power throttling)
 target_compile_definitions(melonade-desktop PRIVATE _WIN32_WINNT=0x0A00)
-target_link_libraries(melonade-desktop PRIVATE melonade-shared core SDL2::SDL2main SDL2::SDL2 winmm)
+# ole32/uuid: COM for the file dialog (shell32) and the slot screenshots (windowscodecs, WIC); all system DLLs
+target_link_libraries(melonade-desktop PRIVATE melonade-shared core imgui SDL2::SDL2main SDL2::SDL2 winmm ole32 uuid shell32 windowscodecs)
 
 if (MINGW)
-    # a console stays open for the log; static so the exe only needs SDL2.dll next to it
-    target_link_options(melonade-desktop PRIVATE -static-libgcc -static-libstdc++ -mconsole)
+    # a GUI program (no console window of its own; a run from a console writes to it, see AttachParentConsole in main.cpp); static so the
+    # exe only needs SDL2.dll next to it
+    target_link_options(melonade-desktop PRIVATE -static-libgcc -static-libstdc++ -mwindows)
     # std::thread pulls in winpthread; link it statically too, or the exe won't start without MSYS2 on PATH
     target_link_libraries(melonade-desktop PRIVATE -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic)
     # SDL2.dll next to the exe so it runs outside the MSYS2 shell

@@ -648,12 +648,27 @@ void ScreenWindows::SetInterval(int interval)
     }
 }
 
+void ScreenWindows::SetVSync(bool vsync)
+{
+    if (vsync == Opts.VSync)
+        return;
+    Opts.VSync = vsync;
+    // the main window's interval, with the UI context current on it
+    SDL_GL_MakeCurrent(MainWindow, Context);
+    SDL_GL_SetSwapInterval(vsync ? 1 : 0);
+    CurrentInterval = vsync ? 1 : 0;
+    // per context: the second window's swap sets 0 before it and the main one's this one again (SwapAll)
+    printf("vsync: %s\n", vsync ? "on" : "off");
+}
+
 void ScreenWindows::DrawAll(Presenter& presenter, const FrameView& frame, bool linear)
 {
     Shape = frame;
     int w, h;
     SDL_GL_GetDrawableSize(MainWindow, &w, &h);
     MainRects = presenter.Draw(frame, w, h, MainLayout(), linear, MainFit(), IsDetached() ? false : Swap);
+    if (MainOverlay)
+        MainOverlay();
     if (SecondWindow)
     {
         SDL_GL_MakeCurrent(SecondWindow, Context);
@@ -683,6 +698,8 @@ void ScreenWindows::WindowShot(Presenter& presenter, const FrameView& frame, boo
         int dw, dh;
         SDL_GL_GetDrawableSize(window, &dw, &dh);
         presenter.Draw(frame, dw, dh, layout, linear, fit, swap);
+        if (window == MainWindow && MainOverlay)
+            MainOverlay();
         std::vector<melonDS::u8> pixels((size_t)dw * dh * 4), flipped(pixels.size());
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         glPixelStorei(GL_PACK_ALIGNMENT, 4);

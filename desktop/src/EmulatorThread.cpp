@@ -46,6 +46,21 @@ EmulatorThread::~EmulatorThread()
 
 void EmulatorThread::Start(SDL_Window* window, SDL_GLContext context, std::unique_ptr<Instance> instance, Callbacks callbacks)
 {
+    // a thread that ran before is done (Stop() joined it): its state goes back to a fresh one
+    if (Handle.joinable())
+        Handle.join();
+    {
+        std::lock_guard guard(Lock);
+        Commands.clear();
+        FinishRequested = false;
+        StopRequested = false;
+    }
+    Paused = false;
+    FastForward = false;
+    Finished = false;
+    Fps = 0;
+    HoldFrame = kNoFrame;
+    Held = kNoFrame;
     Emu = std::move(instance);
     Hooks = std::move(callbacks);
     Handle = std::thread([this, window, context] { Run(window, context); });
@@ -62,7 +77,14 @@ void EmulatorThread::Resume()
     {
         std::lock_guard guard(Lock);
         Paused = false;
+        Held = kNoFrame;
     }
+    Wake.notify_all();
+}
+
+void EmulatorThread::HoldAt(u32 frame)
+{
+    HoldFrame = frame;
     Wake.notify_all();
 }
 
@@ -174,6 +196,16 @@ void EmulatorThread::Run(SDL_Window* window, SDL_GLContext context)
         }
         if (!running)
             break;
+
+        // --ui-script's frame step: parked before this frame, until a Resume()
+        if (frame == HoldFrame.load())
+        {
+            std::lock_guard guard(Lock);
+            HoldFrame = kNoFrame;
+            Paused = true;
+            Held = frame;
+            continue;
+        }
 
         if (Hooks.BeforeFrame && !Hooks.BeforeFrame(*Emu, frame))
             break;
