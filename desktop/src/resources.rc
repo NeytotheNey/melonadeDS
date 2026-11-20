@@ -1,0 +1,46 @@
+// The fonts the menus use, in the exe so the shipped folder is the exe and SDL2.dll (third_party/README.md has their sources), the app's
+// icon (app.ico, made from the Android launcher icon by tools/desktop-icon/make_icon.py) and the version info, whose numbers CMake reads
+// from the app's Gradle config (buildSrc AppConfig.kt) into version.h. The paths are found through the include path, which has
+// third_party/, src/ and the build's generated/
+#include <winver.h>
+#include "Resources.h"
+#include "version.h"
+
+// the manifest (UTF-8 as the ANSI code page, see app.manifest), which takes the place of MinGW's default one
+1 24 "app.manifest"
+
+// the first icon in the exe is the one Explorer shows
+1 ICON "app.ico"
+
+IDR_FONT_REGULAR RCDATA "fonts/roboto/Roboto-Regular.ttf"
+IDR_FONT_MEDIUM RCDATA "fonts/roboto/Roboto-Medium.ttf"
+IDR_FONT_ICONS RCDATA "fonts/material-symbols/MaterialSymbolsOutlined-subset.ttf"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION MELONADE_VERSION_COMMAS
+PRODUCTVERSION MELONADE_VERSION_COMMAS
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE 0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "melonadeDS"
+            VALUE "FileDescription", "melonadeDS for PC"
+            VALUE "FileVersion", MELONADE_VERSION_NAME
+            VALUE "InternalName", "melonade-desktop"
+            VALUE "LegalCopyright", "GPLv3; melonDS and melonDS-android contributors"
+            VALUE "OriginalFilename", "melonade-desktop.exe"
+            VALUE "ProductName", "melonadeDS"
+            VALUE "ProductVersion", MELONADE_VERSION_NAME
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

@@ -1,5 +1,5 @@
 // The desktop's MelonEventMessenger (the app's is AndroidMelonEventMessenger, which calls into Kotlin): the emulator's events, which
-// come from the emulator thread, are posted to the UI thread and run there at its next Drain(). Rumble, RetroAchievements and the Lua
+// come from the emulator thread, are posted to the UI thread and run there at its next Drain(). Rumble goes to OnRumble; RetroAchievements and the Lua
 // scripts' requests are only logged for now; the stop is handed to OnStop
 #pragma once
 
@@ -17,6 +17,9 @@ class DesktopEventMessenger : public MelonDSAndroid::MelonEventMessenger
 public:
     // UI thread: what to do when the emulator stops (the core's SignalStop), set before the emulator thread starts
     std::function<void(melonDS::Platform::StopReason)> OnStop;
+    // UI thread: the Rumble Pak's motor on (for up to [durationMs]) and off
+    std::function<void(int durationMs)> OnRumble;
+    std::function<void()> OnRumbleStop;
 
     // Runs [task] on the UI thread at its next Drain(); any thread
     void Post(std::function<void()> task);

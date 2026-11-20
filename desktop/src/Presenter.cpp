@@ -1,6 +1,7 @@
 #include "Presenter.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -108,6 +109,73 @@ void main()
 }
 )";
 
+// the touch cursor: a ring with a dark edge (a filled dot while it touches), on a quad around it; uRect is the quad in NDC
+const char* kCursorVS = R"(#version 320 es
+uniform vec4 uRect;
+out vec2 fLocal;
+void main()
+{
+    vec2 corner = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));
+    fLocal = corner * 2.0 - 1.0;
+    gl_Position = vec4(uRect.xy + corner * uRect.zw, 0.0, 1.0);
+}
+)";
+
+const char* kCursorFS = R"(#version 320 es
+precision mediump float;
+// x: 1 while it touches, y: the radius in pixels, for a one-pixel soft edge
+uniform vec2 uState;
+in vec2 fLocal;
+out vec4 oColor;
+void main()
+{
+    float d = length(fLocal);
+    float px = 1.0 / uState.y;
+    float outer = 1.0 - smoothstep(1.0 - px, 1.0, d);
+    // a white ring 3 pixels wide inside a dark one, so it shows on light and dark games; filled while touching
+    float ringIn = uState.x > 0.5 ? 0.0 : 1.0 - 5.0 * px;
+    float white = smoothstep(ringIn - px, ringIn, d) * (1.0 - smoothstep(1.0 - 3.0 * px, 1.0 - 2.0 * px, d));
+    float alpha = outer * smoothstep(ringIn - 3.0 * px, ringIn - 2.0 * px, d);
+    vec3 color = mix(vec3(0.1), vec3(1.0), white);
+    oColor = vec4(color * alpha * 0.9, alpha * 0.9);
+}
+)";
+
+}
+
+void Presenter::DrawCursor(float x, float y, float radius, bool pressed, int windowW, int windowH)
+{
+    if (!CursorProgram && !CursorFailed)
+    {
+        if (!OpenGL::CompileVertexFragmentProgram(CursorProgram, kCursorVS, kCursorFS, "PCCursor", {}, {{"oColor", 0}}))
+        {
+            CursorFailed = true;
+            CursorProgram = 0;
+        }
+        else
+        {
+            CursorRectLoc = glGetUniformLocation(CursorProgram, "uRect");
+            CursorStateLoc = glGetUniformLocation(CursorProgram, "uState");
+        }
+    }
+    if (!CursorProgram || windowW <= 0 || windowH <= 0)
+        return;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, windowW, windowH);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glEnable(GL_BLEND);
+    // premultiplied
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glUseProgram(CursorProgram);
+    // window pixels (y down) to NDC (y up)
+    float x0 = (x - radius) / windowW * 2 - 1, y0 = 1 - (y + radius) / windowH * 2;
+    glUniform4f(CursorRectLoc, x0, y0, 2 * radius / windowW * 2, 2 * radius / windowH * 2);
+    glUniform2f(CursorStateLoc, pressed ? 1.f : 0.f, radius);
+    glBindVertexArray(VertexArray);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+    glDisable(GL_BLEND);
 }
 
 bool Presenter::Init()
@@ -145,6 +213,7 @@ bool Presenter::Init()
 void Presenter::Free()
 {
     glDeleteProgram(Program);
+    glDeleteProgram(CursorProgram);
     glDeleteProgram(HalvesAt1xProgram);
     glDeleteProgram(ExpandProgram);
     glDeleteTextures(1, &ExpandTexture);
@@ -271,7 +340,83 @@ FrameView FrameView::Of(const Frame& frame)
     return view;
 }
 
-ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, Layout layout, bool linear)
+ScreenRects Presenter::Place(const FrameView& frame, int windowW, int windowH, Layout layout, Fit fit, bool swap)
+{
+    if (swap && layout == Layout::TopOnly)
+        layout = Layout::BottomOnly;
+    else if (swap && layout == Layout::BottomOnly)
+        layout = Layout::TopOnly;
+    int margin = frame.TopMargin;
+    // the frame in DS pixels: the top screen is topWidth wide (and 192 + 2 x margin tall), the bottom one 256
+    float topW = (float)frame.TopWidth, botW = 256.f, h = 192.f, topH = 192.f + 2.f * margin;
+    float boxW, boxH;
+    switch (layout)
+    {
+    case Layout::Horizontal: boxW = topW + botW; boxH = topH; break;
+    case Layout::TopOnly: boxW = topW; boxH = topH; break;
+    case Layout::BottomOnly: boxW = botW; boxH = h; break;
+    default: boxW = std::max(topW, botW); boxH = topH + h; break;
+    }
+    // the box's scale across (sx) and down (sy), which only the stretch fit makes differ
+    float sx = std::min(windowW / boxW, windowH / boxH), sy = sx;
+    float x0, y0;
+    if (fit == Fit::Stretch)
+    {
+        sx = windowW / boxW;
+        sy = windowH / boxH;
+        x0 = y0 = 0;
+    }
+    else if (fit == Fit::Integer && sx >= 1)
+    {
+        sx = sy = std::floor(sx);
+        // on whole pixels, so every DS pixel is the same size
+        x0 = std::floor((windowW - boxW * sx) / 2);
+        y0 = std::floor((windowH - boxH * sy) / 2);
+    }
+    else
+    {
+        x0 = (windowW - boxW * sx) / 2;
+        y0 = (windowH - boxH * sy) / 2;
+    }
+
+    Rect Top, Bottom;
+    switch (layout)
+    {
+    case Layout::Horizontal:
+        if (swap)
+        {
+            Bottom = {x0, y0 + (topH - h) * sy / 2, botW * sx, h * sy};
+            Top = {x0 + botW * sx, y0, topW * sx, topH * sy};
+        }
+        else
+        {
+            Top = {x0, y0, topW * sx, topH * sy};
+            Bottom = {x0 + topW * sx, y0 + (topH - h) * sy / 2, botW * sx, h * sy};
+        }
+        break;
+    case Layout::TopOnly:
+        Top = {x0, y0, topW * sx, topH * sy};
+        break;
+    case Layout::BottomOnly:
+        Bottom = {x0, y0, botW * sx, h * sy};
+        break;
+    default:
+        if (swap)
+        {
+            Bottom = {x0 + (boxW - botW) * sx / 2, y0, botW * sx, h * sy};
+            Top = {x0 + (boxW - topW) * sx / 2, y0 + h * sy, topW * sx, topH * sy};
+        }
+        else
+        {
+            Top = {x0 + (boxW - topW) * sx / 2, y0, topW * sx, topH * sy};
+            Bottom = {x0 + (boxW - botW) * sx / 2, y0 + topH * sy, botW * sx, h * sy};
+        }
+        break;
+    }
+    return {Top, Bottom};
+}
+
+ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, Layout layout, bool linear, Fit fit, bool swap)
 {
     // the core leaves its own state behind, so all of what's drawn here is set first
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -297,37 +442,10 @@ ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, La
     float rows = 386.f + 2.f * margin;
     float topBottomV = (192.f + 2.f * margin) / rows, bottomTopV = (194.f + 2.f * margin) / rows;
 
-    // the frame in DS pixels: the top screen is topWidth wide (and 192 + 2 x margin tall), the bottom one 256
-    float topW = (float)frame.TopWidth, botW = 256.f, h = 192.f, topH = 192.f + 2.f * margin;
-    float boxW, boxH;
-    switch (layout)
-    {
-    case Layout::Horizontal: boxW = topW + botW; boxH = topH; break;
-    case Layout::TopOnly: boxW = topW; boxH = topH; break;
-    case Layout::BottomOnly: boxW = botW; boxH = h; break;
-    default: boxW = std::max(topW, botW); boxH = topH + h; break;
-    }
-    float scale = std::min(windowW / boxW, windowH / boxH);
-    float x0 = (windowW - boxW * scale) / 2, y0 = (windowH - boxH * scale) / 2;
-
-    Rect Top, Bottom;
-    switch (layout)
-    {
-    case Layout::Horizontal:
-        Top = {x0, y0, topW * scale, topH * scale};
-        Bottom = {x0 + topW * scale, y0 + (topH - h) * scale / 2, botW * scale, h * scale};
-        break;
-    case Layout::TopOnly:
-        Top = {x0, y0, topW * scale, topH * scale};
-        break;
-    case Layout::BottomOnly:
-        Bottom = {x0, y0, botW * scale, h * scale};
-        break;
-    default:
-        Top = {x0 + (boxW - topW) * scale / 2, y0, topW * scale, topH * scale};
-        Bottom = {x0 + (boxW - botW) * scale / 2, y0 + topH * scale, botW * scale, h * scale};
-        break;
-    }
+    float topW = (float)frame.TopWidth, botW = 256.f;
+    ScreenRects rects = Place(frame, windowW, windowH, layout, fit, swap);
+    const Rect& Top = rects.Top;
+    const Rect& Bottom = rects.Bottom;
 
     // the bottom screen sits in the middle 256 columns of a wider output, between black bars
     float botU0 = 0.5f - 0.5f * botW / topW, botU1 = 0.5f + 0.5f * botW / topW;
@@ -380,7 +498,7 @@ ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, La
     glDrawArrays(GL_TRIANGLES, 0, count);
     glBindVertexArray(0);
     glBindSampler(0, 0);
-    return {Top, Bottom};
+    return rects;
 }
 
 bool Presenter::ReadFrame(const FrameView& frame, std::vector<u8>& pixels, int& width, int& height)

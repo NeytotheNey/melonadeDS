@@ -41,8 +41,10 @@ public:
 
     ~EmulatorThread();
 
-    // Starts the thread on [window] with [context] (which mustn't be current anywhere), running [instance]
+    // Starts the thread on [window] with [context] (which mustn't be current anywhere), running [instance]. After Stop() it can be started
+    // again with another instance (the menus' Quit to start screen, then another game)
     void Start(SDL_Window* window, SDL_GLContext context, std::unique_ptr<Instance> instance, Callbacks callbacks);
+    bool IsRunning() const { return Handle.joinable(); }
 
     void Pause();
     void Resume();
@@ -50,9 +52,20 @@ public:
     // Off: as fast as it can, for benchmarks (--unthrottled). Fast forward (Tab) is the same while it's held
     void SetLimitFps(bool enabled) { LimitFps = enabled; }
     void SetFastForward(bool enabled) { FastForward = enabled; }
+    // fast forward's pace, times the DS's rate (fast_forward_speed_multiplier); 0 or less: as fast as it can
+    void SetFastForwardSpeed(float speed) { FastForwardSpeed = speed; }
     bool IsFastForward() const { return FastForward.load(); }
     // glFinish after each frame, so the work time includes the GPU's (--gpu-sync)
     void SetGpuSync(bool enabled) { GpuSync = enabled; }
+
+    // Parks before the frame numbered [frame] (as BeforeFrame numbers them) when the thread gets there, for --ui-script's frame step;
+    // HeldAt() is that frame once it's parked there. The hold is apart from the pause: a Pause() and Resume() (a menu opened and closed
+    // over it) leave it held; only another HoldAt() moves it on, from wherever it is
+    void HoldAt(melonDS::u32 frame);
+    melonDS::u32 HeldAt() const { return Held.load(); }
+    // paused, or parked at a hold
+    bool IsParked() const { return Paused.load() || Held.load() != kNoFrame; }
+    static constexpr melonDS::u32 kNoFrame = 0xFFFFFFFF;
 
     // Runs [command] on the emulator thread between frames, also while it's paused; any thread
     void Post(std::function<void(Instance&)> command);
@@ -69,7 +82,7 @@ private:
     void Run(SDL_Window* window, SDL_GLContext context);
     void RunCommands();
     // The app's timer limiter (runTimerLimiter): sleeps off the rest of the time [lines] should take at the DS's rate, carrying the error
-    void LimitFrame(melonDS::u32 lines, double& frameLimitError, double& lastTick);
+    void LimitFrame(melonDS::u32 lines, double speed, double& frameLimitError, double& lastTick);
 
     std::unique_ptr<Instance> Emu;
     Callbacks Hooks;
@@ -84,9 +97,12 @@ private:
     std::atomic_bool Paused = false;
     std::atomic_bool LimitFps = true;
     std::atomic_bool FastForward = false;
+    std::atomic<float> FastForwardSpeed = 0;
     std::atomic_bool GpuSync = false;
     std::atomic_bool Finished = false;
     std::atomic<float> Fps = 0;
+    std::atomic<melonDS::u32> HoldFrame = kNoFrame;
+    std::atomic<melonDS::u32> Held = kNoFrame;
 };
 
 }

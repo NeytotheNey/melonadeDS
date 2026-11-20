@@ -1,5 +1,7 @@
 #include "EmulatorThread.h"
 
+#include <windows.h>
+
 #include <chrono>
 #include <cmath>
 
@@ -22,21 +24,43 @@ double NowMs()
     return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
 }
 
-// a coarse sleep (1 ms timer resolution, timeBeginPeriod in main) up to the last 1.5 ms, then a spin, since Windows oversleeps
+// A high-resolution waitable timer (Windows 10 1803 and up) up to the last half millisecond, then a spin. Plain sleeps follow the system
+// timer's resolution, which Windows keeps at 15.6 ms for a process whose window is hidden or in the background, whatever
+// timeBeginPeriod asks, and that oversleeping made the frames come in bunches, which the audio callback heard as a ring running dry and
+// then overflowing. Without that timer (older Windows): a plain sleep up to the last 1.5 ms
+// one per thread, closed when the thread ends (an emulator thread per game)
+struct WaitableTimer
+{
+    HANDLE Handle = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    ~WaitableTimer() { if (Handle) CloseHandle(Handle); }
+};
+
 void SleepUntilMs(double untilMs)
 {
+    static thread_local WaitableTimer waitable;
+    HANDLE timer = waitable.Handle;
     for (;;)
     {
         double left = untilMs - NowMs();
         if (left <= 0)
             return;
-        if (left > 2.0)
+        if (timer && left > 0.6)
+        {
+            LARGE_INTEGER due;
+            // relative, in 100 ns units
+            due.QuadPart = -(LONGLONG)((left - 0.5) * 10000.0);
+            if (SetWaitableTimerEx(timer, &due, 0, nullptr, nullptr, nullptr, 0))
+            {
+                WaitForSingleObject(timer, INFINITE);
+                continue;
+            }
+        }
+        if (!timer && left > 2.0)
             std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(left - 1.5));
         else
             std::this_thread::yield();
     }
 }
-
 }
 
 EmulatorThread::~EmulatorThread()
@@ -46,6 +70,21 @@ EmulatorThread::~EmulatorThread()
 
 void EmulatorThread::Start(SDL_Window* window, SDL_GLContext context, std::unique_ptr<Instance> instance, Callbacks callbacks)
 {
+    // a thread that ran before is done (Stop() joined it): its state goes back to a fresh one
+    if (Handle.joinable())
+        Handle.join();
+    {
+        std::lock_guard guard(Lock);
+        Commands.clear();
+        FinishRequested = false;
+        StopRequested = false;
+    }
+    Paused = false;
+    FastForward = false;
+    Finished = false;
+    Fps = 0;
+    HoldFrame = kNoFrame;
+    Held = kNoFrame;
     Emu = std::move(instance);
     Hooks = std::move(callbacks);
     Handle = std::thread([this, window, context] { Run(window, context); });
@@ -62,6 +101,17 @@ void EmulatorThread::Resume()
     {
         std::lock_guard guard(Lock);
         Paused = false;
+    }
+    Wake.notify_all();
+}
+
+void EmulatorThread::HoldAt(u32 frame)
+{
+    {
+        std::lock_guard guard(Lock);
+        HoldFrame = frame;
+        // a hold it's parked at now lets go, so it runs on to the new one
+        Held = kNoFrame;
     }
     Wake.notify_all();
 }
@@ -107,11 +157,11 @@ void EmulatorThread::RunCommands()
         command(*Emu);
 }
 
-void EmulatorThread::LimitFrame(u32 lines, double& frameLimitError, double& lastTick)
+void EmulatorThread::LimitFrame(u32 lines, double speed, double& frameLimitError, double& lastTick)
 {
     double currentTick = NowMs();
     double delay = currentTick - lastTick;
-    double frameTimeStep = (double)lines / (kDsFps * 263.0) * 1000.0;
+    double frameTimeStep = (double)lines / (kDsFps * 263.0) * 1000.0 / speed;
     if (frameTimeStep < 1)
         frameTimeStep = 1;
 
@@ -155,17 +205,18 @@ void EmulatorThread::Run(SDL_Window* window, SDL_GLContext context)
                 running = false;
                 break;
             }
-            if (!Paused && Commands.empty())
+            bool parked = Paused || Held != kNoFrame;
+            if (!parked && Commands.empty())
                 break;
-            if (Paused && Commands.empty())
+            if (parked && Commands.empty())
             {
                 // As the app does when it parks: the scripts' storage and the last rewind capture's screenshot, before waiting
                 lock.unlock();
                 Emu->flushLuaStorage();
                 Emu->finishRewindScreenshot(true);
                 lock.lock();
-                Wake.wait(lock, [this] { return FinishRequested || !Paused || !Commands.empty(); });
-                if (!Paused)
+                Wake.wait(lock, [this] { return FinishRequested || (!Paused && Held == kNoFrame) || !Commands.empty(); });
+                if (!Paused && Held == kNoFrame)
                 {
                     frameLimitError = 0;
                     lastTick = NowMs();
@@ -174,6 +225,15 @@ void EmulatorThread::Run(SDL_Window* window, SDL_GLContext context)
         }
         if (!running)
             break;
+
+        // --ui-script's frame step: parked before this frame, until a Resume()
+        if (frame == HoldFrame.load())
+        {
+            std::lock_guard guard(Lock);
+            HoldFrame = kNoFrame;
+            Held = frame;
+            continue;
+        }
 
         if (Hooks.BeforeFrame && !Hooks.BeforeFrame(*Emu, frame))
             break;
@@ -187,8 +247,10 @@ void EmulatorThread::Run(SDL_Window* window, SDL_GLContext context)
             Hooks.AfterFrame(*Emu, frame, lines, workMs);
         frame++;
 
-        if (LimitFps && !FastForward)
-            LimitFrame(lines, frameLimitError, lastTick);
+        // fast forward at its speed, or as fast as it can (the app's applyFastForwardPacing)
+        float ffSpeed = FastForwardSpeed.load();
+        if (LimitFps && (!FastForward || ffSpeed > 0))
+            LimitFrame(lines, FastForward ? ffSpeed : 1.0, frameLimitError, lastTick);
         else
         {
             frameLimitError = 0;
