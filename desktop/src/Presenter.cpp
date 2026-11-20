@@ -1,6 +1,7 @@
 #include "Presenter.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -271,7 +272,83 @@ FrameView FrameView::Of(const Frame& frame)
     return view;
 }
 
-ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, Layout layout, bool linear)
+ScreenRects Presenter::Place(const FrameView& frame, int windowW, int windowH, Layout layout, Fit fit, bool swap)
+{
+    if (swap && layout == Layout::TopOnly)
+        layout = Layout::BottomOnly;
+    else if (swap && layout == Layout::BottomOnly)
+        layout = Layout::TopOnly;
+    int margin = frame.TopMargin;
+    // the frame in DS pixels: the top screen is topWidth wide (and 192 + 2 x margin tall), the bottom one 256
+    float topW = (float)frame.TopWidth, botW = 256.f, h = 192.f, topH = 192.f + 2.f * margin;
+    float boxW, boxH;
+    switch (layout)
+    {
+    case Layout::Horizontal: boxW = topW + botW; boxH = topH; break;
+    case Layout::TopOnly: boxW = topW; boxH = topH; break;
+    case Layout::BottomOnly: boxW = botW; boxH = h; break;
+    default: boxW = std::max(topW, botW); boxH = topH + h; break;
+    }
+    // the box's scale across (sx) and down (sy), which only the stretch fit makes differ
+    float sx = std::min(windowW / boxW, windowH / boxH), sy = sx;
+    float x0, y0;
+    if (fit == Fit::Stretch)
+    {
+        sx = windowW / boxW;
+        sy = windowH / boxH;
+        x0 = y0 = 0;
+    }
+    else if (fit == Fit::Integer && sx >= 1)
+    {
+        sx = sy = std::floor(sx);
+        // on whole pixels, so every DS pixel is the same size
+        x0 = std::floor((windowW - boxW * sx) / 2);
+        y0 = std::floor((windowH - boxH * sy) / 2);
+    }
+    else
+    {
+        x0 = (windowW - boxW * sx) / 2;
+        y0 = (windowH - boxH * sy) / 2;
+    }
+
+    Rect Top, Bottom;
+    switch (layout)
+    {
+    case Layout::Horizontal:
+        if (swap)
+        {
+            Bottom = {x0, y0 + (topH - h) * sy / 2, botW * sx, h * sy};
+            Top = {x0 + botW * sx, y0, topW * sx, topH * sy};
+        }
+        else
+        {
+            Top = {x0, y0, topW * sx, topH * sy};
+            Bottom = {x0 + topW * sx, y0 + (topH - h) * sy / 2, botW * sx, h * sy};
+        }
+        break;
+    case Layout::TopOnly:
+        Top = {x0, y0, topW * sx, topH * sy};
+        break;
+    case Layout::BottomOnly:
+        Bottom = {x0, y0, botW * sx, h * sy};
+        break;
+    default:
+        if (swap)
+        {
+            Bottom = {x0 + (boxW - botW) * sx / 2, y0, botW * sx, h * sy};
+            Top = {x0 + (boxW - topW) * sx / 2, y0 + h * sy, topW * sx, topH * sy};
+        }
+        else
+        {
+            Top = {x0 + (boxW - topW) * sx / 2, y0, topW * sx, topH * sy};
+            Bottom = {x0 + (boxW - botW) * sx / 2, y0 + topH * sy, botW * sx, h * sy};
+        }
+        break;
+    }
+    return {Top, Bottom};
+}
+
+ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, Layout layout, bool linear, Fit fit, bool swap)
 {
     // the core leaves its own state behind, so all of what's drawn here is set first
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -297,37 +374,10 @@ ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, La
     float rows = 386.f + 2.f * margin;
     float topBottomV = (192.f + 2.f * margin) / rows, bottomTopV = (194.f + 2.f * margin) / rows;
 
-    // the frame in DS pixels: the top screen is topWidth wide (and 192 + 2 x margin tall), the bottom one 256
-    float topW = (float)frame.TopWidth, botW = 256.f, h = 192.f, topH = 192.f + 2.f * margin;
-    float boxW, boxH;
-    switch (layout)
-    {
-    case Layout::Horizontal: boxW = topW + botW; boxH = topH; break;
-    case Layout::TopOnly: boxW = topW; boxH = topH; break;
-    case Layout::BottomOnly: boxW = botW; boxH = h; break;
-    default: boxW = std::max(topW, botW); boxH = topH + h; break;
-    }
-    float scale = std::min(windowW / boxW, windowH / boxH);
-    float x0 = (windowW - boxW * scale) / 2, y0 = (windowH - boxH * scale) / 2;
-
-    Rect Top, Bottom;
-    switch (layout)
-    {
-    case Layout::Horizontal:
-        Top = {x0, y0, topW * scale, topH * scale};
-        Bottom = {x0 + topW * scale, y0 + (topH - h) * scale / 2, botW * scale, h * scale};
-        break;
-    case Layout::TopOnly:
-        Top = {x0, y0, topW * scale, topH * scale};
-        break;
-    case Layout::BottomOnly:
-        Bottom = {x0, y0, botW * scale, h * scale};
-        break;
-    default:
-        Top = {x0 + (boxW - topW) * scale / 2, y0, topW * scale, topH * scale};
-        Bottom = {x0 + (boxW - botW) * scale / 2, y0 + topH * scale, botW * scale, h * scale};
-        break;
-    }
+    float topW = (float)frame.TopWidth, botW = 256.f;
+    ScreenRects rects = Place(frame, windowW, windowH, layout, fit, swap);
+    const Rect& Top = rects.Top;
+    const Rect& Bottom = rects.Bottom;
 
     // the bottom screen sits in the middle 256 columns of a wider output, between black bars
     float botU0 = 0.5f - 0.5f * botW / topW, botU1 = 0.5f + 0.5f * botW / topW;
@@ -380,7 +430,7 @@ ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, La
     glDrawArrays(GL_TRIANGLES, 0, count);
     glBindVertexArray(0);
     glBindSampler(0, 0);
-    return {Top, Bottom};
+    return rects;
 }
 
 bool Presenter::ReadFrame(const FrameView& frame, std::vector<u8>& pixels, int& width, int& height)
