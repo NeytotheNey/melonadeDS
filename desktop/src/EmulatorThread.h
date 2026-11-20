@@ -52,6 +52,8 @@ public:
     // Off: as fast as it can, for benchmarks (--unthrottled). Fast forward (Tab) is the same while it's held
     void SetLimitFps(bool enabled) { LimitFps = enabled; }
     void SetFastForward(bool enabled) { FastForward = enabled; }
+    // fast forward's pace, times the DS's rate (fast_forward_speed_multiplier); 0 or less: as fast as it can
+    void SetFastForwardSpeed(float speed) { FastForwardSpeed = speed; }
     bool IsFastForward() const { return FastForward.load(); }
     // glFinish after each frame, so the work time includes the GPU's (--gpu-sync)
     void SetGpuSync(bool enabled) { GpuSync = enabled; }
@@ -77,7 +79,7 @@ private:
     void Run(SDL_Window* window, SDL_GLContext context);
     void RunCommands();
     // The app's timer limiter (runTimerLimiter): sleeps off the rest of the time [lines] should take at the DS's rate, carrying the error
-    void LimitFrame(melonDS::u32 lines, double& frameLimitError, double& lastTick);
+    void LimitFrame(melonDS::u32 lines, double speed, double& frameLimitError, double& lastTick);
 
     std::unique_ptr<Instance> Emu;
     Callbacks Hooks;
@@ -92,6 +94,7 @@ private:
     std::atomic_bool Paused = false;
     std::atomic_bool LimitFps = true;
     std::atomic_bool FastForward = false;
+    std::atomic<float> FastForwardSpeed = 0;
     std::atomic_bool GpuSync = false;
     std::atomic_bool Finished = false;
     std::atomic<float> Fps = 0;
