@@ -74,6 +74,8 @@ target_link_libraries(melonade-desktop PRIVATE melonade-shared core SDL2::SDL2ma
 if (MINGW)
     # a console stays open for the log; static so the exe only needs SDL2.dll next to it
     target_link_options(melonade-desktop PRIVATE -static-libgcc -static-libstdc++ -mconsole)
+    # std::thread pulls in winpthread; link it statically too, or the exe won't start without MSYS2 on PATH
+    target_link_libraries(melonade-desktop PRIVATE -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic)
     # SDL2.dll next to the exe so it runs outside the MSYS2 shell
     add_custom_command(TARGET melonade-desktop POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL2::SDL2> $<TARGET_FILE_DIR:melonade-desktop>)
