@@ -59,8 +59,16 @@ void SaveSlots::SetGame(const fs::path& rom, const fs::path& stateDir, const fs:
     Dir = stateDir.empty() ? rom.parent_path() : stateDir;
     if (Dir.empty())
         Dir = ".";
-    // per slot folder, so a run with another --state-dir doesn't show the pictures of other files
-    ShotDir = profileDir / "ss_screenshots" / FolderName(fs::absolute(Dir) / rom.stem());
+    // per slot folder, so a run with another --state-dir doesn't show the pictures of other files. The same folder however the ROM's
+    // path was written (.\game.nds, the recent list's absolute path, another case, a link): resolved, with backslashes, in lowercase, as
+    // Windows compares paths
+    std::error_code ec;
+    fs::path where = fs::absolute(Dir / rom.stem(), ec);
+    fs::path resolved = fs::weakly_canonical(where, ec);
+    std::wstring key = (ec ? where : resolved).lexically_normal().make_preferred().wstring();
+    if (!key.empty())
+        CharLowerBuffW(key.data(), (DWORD)key.size());
+    ShotDir = profileDir / "ss_screenshots" / FolderName(fs::path(key));
 }
 
 fs::path SaveSlots::StatePath(int slot) const
