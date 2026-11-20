@@ -2,7 +2,7 @@
 
 ## Status (2026-11-20)
 
-Phase 0 started on `feature/desktop-shared-native`. Decided: Dear ImGui menus on the existing SDL2 + GLES 3.2 window, full controller navigation, and every feature the Android app has, built in phases. The current `desktop/` test frontend becomes this app; its scripted-run options keep working. Added 11-20: [detached screens](#detached-screens), each DS screen in its own window, sized and placed on its own (phase 1, layouts per window in phase 3).
+Phase 0 built on `feature/desktop-shared-native` (11-20, not merged): `melonade-shared` (`app/src/main/cpp/SharedNative.cmake`) without `debug/`, which stays Android-only with a desktop stand-in; the desktop runs `MelonInstance` and `FrameQueue` on two threads, with the same screenshots as before in every scripted comparison. Needs the Fold run before it merges. Decided: Dear ImGui menus on the existing SDL2 + GLES 3.2 window, full controller navigation, and every feature the Android app has, built in phases. The current `desktop/` test frontend becomes this app; its scripted-run options keep working. Added 11-20: [detached screens](#detached-screens), each DS screen in its own window, sized and placed on its own (phase 1, layouts per window in phase 3).
 
 UI mockup (seven screens: library, game details, pause menu, save states, video settings, input setup, in game): https://claude.ai/artifact/Pq7RMiy7XqRLTVKk7NNU4n. Made-up games and art; private, so it has to be shared before anyone else can open it.
 
