@@ -28,9 +28,17 @@ double NowMs()
 // timer's resolution, which Windows keeps at 15.6 ms for a process whose window is hidden or in the background, whatever
 // timeBeginPeriod asks, and that oversleeping made the frames come in bunches, which the audio callback heard as a ring running dry and
 // then overflowing. Without that timer (older Windows): a plain sleep up to the last 1.5 ms
+// one per thread, closed when the thread ends (an emulator thread per game)
+struct WaitableTimer
+{
+    HANDLE Handle = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    ~WaitableTimer() { if (Handle) CloseHandle(Handle); }
+};
+
 void SleepUntilMs(double untilMs)
 {
-    static thread_local HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    static thread_local WaitableTimer waitable;
+    HANDLE timer = waitable.Handle;
     for (;;)
     {
         double left = untilMs - NowMs();

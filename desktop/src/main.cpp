@@ -1452,7 +1452,10 @@ int main(int argc, char** argv)
         ffToggle = false;
         updateFastForward();
         windows.UpdateTitles("");
-        printf("game stopped\n");
+        // with the process's handle count, so a leak over many boots shows
+        DWORD handles = 0;
+        GetProcessHandleCount(GetCurrentProcess(), &handles);
+        printf("game stopped (%lu handles)\n", (unsigned long)handles);
     };
     auto bootGame = [&](const std::string& path, bool commandLine) -> bool
     {
