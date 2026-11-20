@@ -52,7 +52,8 @@ Windows PowerShell treats a GUI program differently: it neither waits for it nor
 
 FreeBIOS and a generated firmware are used unless `--bios DIR` points at `bios9.bin`, `bios7.bin`
 (and `firmware.bin`). The save goes next to the ROM as `.sav` unless `--sav` says otherwise (an empty
-one is made if it's missing, as the app does, and the app's `SaveManager` writes it), and the
+one is made if it's missing, as the app does, and the app's `SaveManager` writes it; `--sav` is for the command line's game
+only, and a game opened from the menus in a test run, with its temporary profile, gets a copy of its save there), and the
 Compute program cache and log (`melonade.log`) next to the exe. `--help` lists every option; the
 main ones:
 
@@ -68,7 +69,7 @@ main ones:
 | `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window, menus included, when `--frames` or `--ui-script` ends the run; detached, the windows as `F_top.bmp` and `F_bottom.bmp` |
 | `--open SCREEN` | open a menu screen at the start: `start`, `pause`, `pause/save`, `pause/load`, `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`), `input`, `keyboard`; with a game, once its first frame is shown |
 | `--ui-script F` | drive the menus from a file, see [UI scripts](#ui-scripts) |
-| `--state-dir DIR` | the savestate slots (`.ml0`-`.ml8`) in DIR instead of next to the ROM, for tests |
+| `--state-dir DIR` | the command line's game's savestate slots (`.ml0`-`.ml8`) in DIR instead of next to the ROM, for tests (a game opened from the menus in a test run keeps them in the temporary profile) |
 | `--unthrottled`, `--hidden`, `--no-audio`, `--gpu-sync` | for benchmarks and scripted runs |
 | `--virtual-pad xbox\|switch\|ps` | an SDL virtual controller of that model, the one controller a hidden run takes; `--ui-script`'s `pad` and `axis` steps drive it through SDL's own events, and its rumble is printed |
 | `--audio-log`, `--audio-wav F.wav`, `--audio-trace F.csv` | the sound: the ring's fill and ratio once a second, what the callback plays (before the volume), every callback's and frame's fill |

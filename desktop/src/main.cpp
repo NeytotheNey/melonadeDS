@@ -218,7 +218,8 @@ void Usage()
         "  --ldmdirect 0|1             JIT: slow block transfers in one plain region straight in host memory (default 1)\n"
         "  --bios DIR                  official bios9.bin, bios7.bin (and firmware.bin) in DIR\n"
         "  --gba ROM                   GBA ROM for slot 2\n"
-        "  --sav FILE                  save file (default: the ROM's path with .sav), for every game the run boots\n"
+        "  --sav FILE                  the command line's game's save file (default: the ROM's path with .sav); a\n"
+        "                              game opened from the menus uses its own, a copy in a test run's profile\n"
         "  --state FILE                load a savestate after the reset; it replaces the save in\n"
         "                              memory, which gets flushed to --sav, so point that at a copy\n"
         "  --press F[-L]:KEYS          hold keys (a b x y l r start select up down left right, joined\n"
@@ -233,7 +234,8 @@ void Usage()
         "                              key=ctrl+r: what it changes is saved as when typed), or a --set\n"
         "  --touch F[-L]:X,Y           touch at X,Y in the drawable pixels of the window that shows the bottom\n"
         "                              screen over frames F..L (6 frames without L); off the screen does nothing\n"
-        "  --state-dir DIR             the savestate slots (.ml0-.ml8) in DIR instead of next to the ROM\n"
+        "  --state-dir DIR             the command line's game's savestate slots (.ml0-.ml8) in DIR instead of\n"
+        "                              next to the ROM (a game opened from the menus: in a test run's profile)\n"
         "  --list-sets                 list the switches --set knows\n"
         "  --widedrops                 log a WIDEDROPS line once a second (WideMelon's dropped polygons)\n"
         "\n"
@@ -1500,7 +1502,20 @@ int main(int argc, char** argv)
             std::make_shared<Net>(), std::make_unique<MelonDSAndroid::ScreenshotRenderer>(screenshotBuffer.data()), opts.ConsoleType);
         instance->setDebugOverrides(ApplySwitches(opts, *instance->getNds()));
 
-        std::string savePath = opts.SavePath.empty() ? fs::path(path).replace_extension(".sav").string() : opts.SavePath;
+        // the save: --sav for the command line's game only; a game opened from the menus uses the one next to its ROM, or in a test run
+        // (a temporary profile) a copy of it in the profile, so a test never writes a real save
+        std::string savePath = fs::path(path).replace_extension(".sav").string();
+        if (commandLine && !opts.SavePath.empty())
+            savePath = opts.SavePath;
+        else if (!commandLine && temporaryProfile)
+        {
+            fs::path copy = profileDir / "saves" / Frontend::PathFromUtf8(path).filename().replace_extension(".sav");
+            std::error_code saveError;
+            fs::create_directories(copy.parent_path(), saveError);
+            if (!fs::exists(copy, saveError) && fs::exists(Frontend::PathFromUtf8(savePath), saveError))
+                fs::copy_file(Frontend::PathFromUtf8(savePath), copy, saveError);
+            savePath = Frontend::PathToUtf8(copy);
+        }
         std::vector<u8> sav;
         if (ReadFile(savePath, sav) && !sav.empty())
             printf("save: %s\n", savePath.c_str());
@@ -1525,7 +1540,15 @@ int main(int argc, char** argv)
         emu = instance.get();
         romPath = path;
         commandLineGame = commandLine;
-        slots.SetGame(Frontend::PathFromUtf8(path), Frontend::PathFromUtf8(opts.StateDir), profileDir);
+        // the slots: --state-dir for the command line's game only; next to the ROM for one opened from the menus, or in a test run in the
+        // profile
+        fs::path stateDir = commandLine ? Frontend::PathFromUtf8(opts.StateDir) : temporaryProfile ? profileDir / "states" : fs::path();
+        if (!stateDir.empty())
+        {
+            std::error_code dirError;
+            fs::create_directories(stateDir, dirError);
+        }
+        slots.SetGame(Frontend::PathFromUtf8(path), stateDir, profileDir);
         currentFrame = 0;
         presentedThisGame = 0;
         stats = {};
