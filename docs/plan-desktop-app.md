@@ -1,8 +1,8 @@
 # Plan: melonadeDS for Windows (a real desktop app)
 
-## Status (2026-11-18)
+## Status (2026-11-20)
 
-Plan only, nothing built. Decided: Dear ImGui menus on the existing SDL2 + GLES 3.2 window, full controller navigation, and every feature the Android app has, built in phases. The current `desktop/` test frontend becomes this app; its scripted-run options keep working.
+Phase 0 started on `feature/desktop-shared-native`. Decided: Dear ImGui menus on the existing SDL2 + GLES 3.2 window, full controller navigation, and every feature the Android app has, built in phases. The current `desktop/` test frontend becomes this app; its scripted-run options keep working. Added 11-20: [detached screens](#detached-screens), each DS screen in its own window, sized and placed on its own (phase 1, layouts per window in phase 3).
 
 UI mockup (seven screens: library, game details, pause menu, save states, video settings, input setup, in game): https://claude.ai/artifact/Pq7RMiy7XqRLTVKk7NNU4n. Made-up games and art; private, so it has to be shared before anyone else can open it.
 
@@ -66,6 +66,26 @@ Anything you can reach through the menus for a test, you can also start from one
 **Headless and scripted.** `--hidden`, `--frames N`, `--unthrottled`, `--no-audio`, `--press F[-L]:KEYS`, `--screenshot F.bmp` and `--window-shot F.bmp` work as now, with or without the UI. `--open SCREEN` (for example `settings/video`, `pause`, `mods`, `achievements`) opens a menu screen directly, and `--ui-script F` drives the menus from a file (see [Testing](#testing)), so menu checks start from one command too.
 
 `--help` lists every option. Each phase's "done when" includes that its new features can be started and checked this way.
+
+## Detached screens
+
+Something the phone can't do: the top and bottom screens can each get their own window, moved and resized on their own. For example the top screen fullscreen on the TV and the bottom screen in a small window on a touch monitor, or both side by side at different sizes on one monitor.
+
+**Modes.** A "Screens" setting: *together* (one window, the usual layouts) or *detached* (two windows). A hotkey and a pause-menu entry switch between them while a game runs. Swap screens still works when detached: the windows keep their place and size and swap what they show.
+
+**Each window on its own.**
+- Its own size, position and monitor, remembered separately, and its own fullscreen (borderless on the monitor it's on), so one can be fullscreen and the other not.
+- Its own fit: keep aspect (black bars), integer scale, or stretch. With WideMelon the top screen's aspect follows the wide width.
+- Options for the bottom-screen window: no title bar, and always on top, so it can sit as a small touch pad over another window.
+- Window titles say which screen they show ("melonadeDS: top", "melonadeDS: bottom").
+
+**Which window does what.** The main window (the one the library opened in) keeps the menus, the pause menu, toasts and the perf overlay; ImGui draws only there (no multi-viewport). Touch comes from the mouse or a touch screen in whichever window shows the bottom screen, and the right-stick touch cursor draws there too. Keyboard and controller input work whichever window has focus. Closing the second window goes back to *together*; closing the main one quits or goes back to the library as now.
+
+**Drawing.** The UI/present thread draws both windows from the same `FrameQueue` frame with one GLES context, `SDL_GL_MakeCurrent` on each window in turn (they share a pixel format, so that works on Windows). Only the main window waits for vsync (swap interval 1); the second swaps with interval 0, otherwise two vsync waits per frame would halve the frame rate. On two monitors with different refresh rates, pacing follows the main window's monitor and the second one may tear or repeat frames; that's accepted.
+
+**Layouts and filters (phase 3).** When detached, each window gets a one-screen layout from the layout system: its own background, screen position and size inside the window, and the same filter as together mode unless a per-window filter is set. The layout editor edits the focused window's layout. Layout JSON gets a `detached` pair so the app can ignore it.
+
+**Command line.** `--detach` starts detached; `--window W,H[,X,Y]` and `--window2 W,H[,X,Y]` set each window's size and place for the run; `--window-shot F.bmp` saves both windows as `F_top.bmp` and `F_bottom.bmp` when detached. Like other overrides, they never change the saved window places.
 
 ## Game metadata
 
@@ -136,6 +156,7 @@ Each phase ends with something usable and is a separate `feature/desktop-*` bran
 - Input setup: per-device bindings for keyboard and each controller (SDL GameController with `gamecontrollerdb.txt`), primary and alternate binding like the app's `InputConfig`, hotkeys (fast forward hold/toggle, quick save/load, pause, swap screens, screenshot, fullscreen, rewind later) including button combos so a controller alone can reach them. Touch: mouse, or the right stick as a cursor with a button to tap, for controller-only play. Rumble through `SDL_GameControllerRumble`.
 - Audio: SDL audio callback with the ring buffer and skew resampling ported from `MelonDSAudio.cpp`.
 - Window: windowed, borderless fullscreen, exclusive fullscreen; remembers size and position; per-monitor DPI.
+- [Detached screens](#detached-screens): top and bottom in two windows, each with its own size, place, fullscreen and fit; touch in the bottom-screen window; switch with a hotkey or the pause menu (about 500 lines).
 - An app icon and version info in a `.rc` resource; `build.sh` makes a ready-to-zip folder.
 - Done when: you can play a game start to finish with only a controller, never touching the keyboard.
 
@@ -151,6 +172,7 @@ Each phase ends with something usable and is a separate `feature/desktop-*` bran
 - Port `DSRenderer` and `VideoFilterPipeline` to C++ with the shaders lifted from `ShaderProgramSource.kt` verbatim (all 12 filters, deband, tilt-shift, shadows, backgrounds, the Lua overlay pass). A small script checks the desktop copies still match the Kotlin strings, so they can't drift silently.
 - Layouts: the `UILayout`/`LayoutConfiguration` model and JSON format from `impl/dtos/layout`, the default layouts, and an ImGui layout editor (drag screens with mouse or controller, snap, resize). Same JSON as the app, so layouts can be copied over.
 - Backgrounds with nanosvg for the built-in SVGs.
+- Detached screens get a one-screen layout per window, editable in the layout editor (see [Detached screens](#detached-screens)).
 - Frame pacing: `FramePacing` fed by a desktop vsync source (DXGI `WaitForVBlank` on the window's output), Smooth 30 FPS, frame buffer setting.
 - WideMelon and its camera (port of `WideCamera.kt`).
 - Done when: the same game, layout and filter look the same on PC and phone side by side, and pacing on a 60 Hz and a 120/144 Hz monitor is smooth.
@@ -191,6 +213,7 @@ Android home-screen shortcuts, the external display presentation and Performance
 - Scripted runs stay the main check for renderer and core logic, hidden, never on the user's desktop.
 - A UI test hook: `--ui-script F` feeds navigation events (up, down, confirm, back, wait N frames) and `--window-shot` captures the result, so menus can be checked by agents in a hidden window.
 - Phase 0 and any shared-code change need an Android phone run before merging. Renderer results on the PC are logic checks only; Adreno and Mali still decide.
+- Detached screens: hidden runs with `--detach --window-shot` check both windows; a visible check on two monitors (different refresh rates) for pacing, once, by you.
 - Controller testing with real pads: at least an Xbox and a Switch Pro or DualSense controller (Nintendo vs Xbox face buttons).
 
 ## Open questions
