@@ -86,7 +86,7 @@ namespace
 
 void PgoDump::onSetup(JNIEnv* env, jobject emulatorConfiguration)
 {
-    std::string dumpDir = MelonDSAndroid::internalFilesDir;
+    std::string dumpDir = MelonDSAndroid::frontendContext.internalFilesDir;
     jclass configurationClass = env->GetObjectClass(emulatorConfiguration);
     jfieldID pgoDirField = env->GetFieldID(configurationClass, "pgoDumpDirectory", "Ljava/lang/String;");
     if (!pgoDirField)

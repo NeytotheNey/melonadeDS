@@ -35,8 +35,6 @@ namespace MelonDSAndroid
     OpenGLContext *openGlContext;
     AndroidFileHandler* fileHandler;
     AndroidCameraHandler* cameraHandler;
-    std::string internalFilesDir;
-    std::shared_ptr<MelonEventMessenger> eventMessenger;
     std::shared_ptr<EmulatorConfiguration> currentConfiguration;
     std::shared_ptr<Net> net;
 
@@ -54,7 +52,7 @@ namespace MelonDSAndroid
      */
     void setConfiguration(EmulatorConfiguration emulatorConfiguration) {
         currentConfiguration = std::make_shared<EmulatorConfiguration>(std::move(emulatorConfiguration));
-        internalFilesDir = currentConfiguration->internalFilesDir;
+        frontendContext.internalFilesDir = currentConfiguration->internalFilesDir;
         // Read at the compute renderer's first compile, on the emulator thread, which this runs before
         melonDS::OpenGL::SetShaderCachePath(currentConfiguration->cacheDir.empty() ? std::string() : currentConfiguration->cacheDir + "/compute_programs.bin");
         // The same for the work buffer rooms each game grew to, read when the targets are set up
@@ -69,7 +67,7 @@ namespace MelonDSAndroid
     void setup(AndroidCameraHandler* androidCameraHandler, std::shared_ptr<MelonEventMessenger> androidEventMessenger, u32* screenshotBufferPointer, int instanceId)
     {
         cameraHandler = androidCameraHandler;
-        eventMessenger = androidEventMessenger;
+        frontendContext.eventMessenger = androidEventMessenger;
         RetroAchievements::RetroAchievementsManager::EventMessenger = androidEventMessenger;
 
         // Normally cleanup() has destroyed the instance by now, but if not, stop its audio first and destroy it with the GL context current, like
@@ -369,42 +367,6 @@ namespace MelonDSAndroid
         return instance->pollGameScene();
     }
 
-    static std::atomic_bool halvesAt1xSupported = false;
-
-    void setHalvesAt1xSupported(bool supported)
-    {
-        halvesAt1xSupported.store(supported, std::memory_order_relaxed);
-    }
-
-    bool areHalvesAt1xSupported()
-    {
-        return halvesAt1xSupported.load(std::memory_order_relaxed);
-    }
-
-    static std::atomic_int outputScaleNeed = 0;
-
-    void setOutputScaleNeed(int need)
-    {
-        outputScaleNeed.store(need, std::memory_order_relaxed);
-    }
-
-    int getOutputScaleNeed()
-    {
-        return outputScaleNeed.load(std::memory_order_relaxed);
-    }
-
-    static std::atomic_bool outputDeband = false;
-
-    void setOutputDeband(bool deband)
-    {
-        outputDeband.store(deband, std::memory_order_relaxed);
-    }
-
-    bool getOutputDeband()
-    {
-        return outputDeband.load(std::memory_order_relaxed);
-    }
-
     void pause()
     {
         pauseAudio();
@@ -537,7 +499,7 @@ namespace MelonDSAndroid
         cleanupAudio();
 
         destroyInstance();
-        eventMessenger = nullptr;
+        frontendContext.eventMessenger = nullptr;
     }
 
     void destroyInstance()

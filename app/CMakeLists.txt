@@ -73,18 +73,13 @@ set(RCHEEVOS ${ANDROID-CPP}/rcheevos)
 add_subdirectory(${CORE-LIB} ./melonDS-android-lib)
 add_subdirectory(${OBOE} ./oboe)
 add_subdirectory(${FAAD2} ./faad2)
-add_subdirectory(${RCHEEVOS} ./rcheevos)
 add_subdirectory(${ANDROID-CPP}/enet ./enet)
 target_include_directories(enet INTERFACE ${ANDROID-CPP}/enet/include)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/${CORE-LIB}/cmake")
 add_subdirectory(${CORE-LIB}/src/net ./net-utils)
 
-# Lua library only (no lua.c/luac.c); lstrlib.c comes from lua/patched/, see lua/LICENSE
-file(GLOB LUA_SOURCES ${ANDROID-CPP}/lua/*.c)
-list(FILTER LUA_SOURCES EXCLUDE REGEX "/lstrlib\.c$")
-add_library(lua STATIC ${LUA_SOURCES} ${ANDROID-CPP}/lua/patched/lstrlib.c)
-target_compile_definitions(lua PRIVATE LUA_USE_POSIX)
-target_include_directories(lua PUBLIC ${ANDROID-CPP}/lua)
+# The portable native code the desktop shares (melonade-shared), with rcheevos and Lua
+include(${ANDROID-CPP}/SharedNative.cmake)
 
 add_library(
         melonDS-android-frontend
@@ -92,9 +87,6 @@ add_library(
         SHARED
 
         ${ANDROID-CPP}/AndroidMelonEventMessenger.cpp
-        ${ANDROID-CPP}/CartLoader.cpp
-        ${ANDROID-CPP}/DSiSupport.cpp
-        ${ANDROID-CPP}/EmulatorArgsBuilder.cpp
         ${ANDROID-CPP}/EmulatorMessageQueueJNI.cpp
         ${ANDROID-CPP}/JniEnvHandler.cpp
         ${ANDROID-CPP}/MelonDS.cpp
@@ -104,7 +96,6 @@ add_library(
         ${ANDROID-CPP}/MelonDSAndroidJNI.cpp
         ${ANDROID-CPP}/MelonDSAudio.cpp
         ${ANDROID-CPP}/MelonDSNandJNI.cpp
-        ${ANDROID-CPP}/MelonInstance.cpp
         ${ANDROID-CPP}/MicInputOboeCallback.cpp
         ${ANDROID-CPP}/NativeGlContext.cpp
         ${ANDROID-CPP}/OboeCallback.cpp
@@ -112,39 +103,17 @@ add_library(
         ${ANDROID-CPP}/PlatformAndroid.cpp
         ${ANDROID-CPP}/PlatformAndroid_AAC.cpp
         ${ANDROID-CPP}/RetroAchievementsMapper.cpp
-        ${ANDROID-CPP}/RewindManager.cpp
-        ${ANDROID-CPP}/RomIconBuilder.cpp
-        ${ANDROID-CPP}/SDCardArgsBuilder.cpp
-        ${ANDROID-CPP}/SaveManager.cpp
         ${ANDROID-CPP}/UriFileHandler.cpp
         ${ANDROID-CPP}/debug/AudioDiagnostics.cpp
         ${ANDROID-CPP}/debug/DebugLog.cpp
         ${ANDROID-CPP}/debug/DebugProperties.cpp
         ${ANDROID-CPP}/debug/LogQueue.cpp
-        ${ANDROID-CPP}/gamestate/GameState.cpp
-        ${ANDROID-CPP}/gamestate/pk_nds_field.cpp
-        ${ANDROID-CPP}/gamestate/pk_nds_field_gpu.cpp
         ${ANDROID-CPP}/perf/PgoDump.cpp
         ${ANDROID-CPP}/performancehint/JniPerformanceHintManager.cpp
         ${ANDROID-CPP}/performancehint/NdkPerformanceHintManager.cpp
         ${ANDROID-CPP}/performancehint/PerformanceHintManagerFactory.cpp
         ${ANDROID-CPP}/performancehint/ThreadSafePerformanceHintSession.cpp
-        ${ANDROID-CPP}/renderer/FrameQueue.cpp
-        ${ANDROID-CPP}/renderer/FramePacing.cpp
-        ${ANDROID-CPP}/renderer/ScreenshotRenderer.cpp
-        ${ANDROID-CPP}/retroachievements/RetroAchievementsManager.cpp
-        ${ANDROID-CPP}/scripting/LuaDraw.cpp
-        ${ANDROID-CPP}/scripting/LuaDrawApi.cpp
-        ${ANDROID-CPP}/scripting/LuaEngine.cpp
-        ${ANDROID-CPP}/scripting/LuaFolderApi.cpp
-        ${ANDROID-CPP}/scripting/LuaGameApi.cpp
-        ${ANDROID-CPP}/scripting/LuaMemoryApi.cpp
-        ${ANDROID-CPP}/scripting/LuaSandbox.cpp
         ${ANDROID-CPP}/scripting/LuaScriptingJNI.cpp
-        ${ANDROID-CPP}/scripting/LuaStateApi.cpp
-        ${ANDROID-CPP}/scripting/LuaStorage.cpp
-        ${ANDROID-CPP}/scripting/LuaStorageApi.cpp
-        ${ANDROID-CPP}/scripting/LuaWideApi.cpp
 )
 
 target_include_directories(melonDS-android-frontend PUBLIC
@@ -154,7 +123,7 @@ target_include_directories(melonDS-android-frontend PUBLIC
         ${FAAD2}/include
         ${RCHEEVOS}/include
 )
-target_link_libraries(melonDS-android-frontend android core net-utils oboe faad enet rcheevos lua EGL GLESv3)
+target_link_libraries(melonDS-android-frontend android melonade-shared core net-utils oboe faad enet rcheevos lua EGL GLESv3)
 
 # -Bsymbolic binds the library's own calls at link time so the core's hot paths skip the PLT; JNI exports are unaffected
 target_link_options(melonDS-android-frontend PRIVATE -Wl,-Bsymbolic)
