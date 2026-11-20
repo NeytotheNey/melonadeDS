@@ -52,17 +52,79 @@ main ones:
 | `--dither`, `--hires-capture`, `--filter2d`, `--smooth30`, `--better-polygons`, `--precise-depth` | the app's renderer settings |
 | `--set Name=Value` | a core debug switch on `GPU`, e.g. `--set LateBlit=0` (`--list-sets`) |
 | `--frames N` | quit after N frames and print frame time stats |
-| `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window when quitting |
+| `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window when quitting; detached, the windows as `F_top.bmp` and `F_bottom.bmp` |
 | `--unthrottled`, `--hidden`, `--no-audio`, `--gpu-sync` | for benchmarks and scripted runs |
+| `--profile DIR` | the profile folder (see [Settings](#settings)); a `--hidden` run without one gets a fresh temporary profile |
+| `--setting KEY=VALUE` | a setting for this run only, e.g. `--setting desktop_fit_bottom=integer` |
+| `--detach` | start with [detached screens](#windows-and-detached-screens) |
+| `--window W,H[,X,Y]`, `--window2 W,H[,X,Y]` | the main / second window's size in pixels (and desktop position) for this run |
 | `--state F` | load a savestate after the reset (DS-mode states only; point `--sav` at a copy, the state replaces the save). States from the app and from `--at F:save=` load the app's way (`MelonInstance::loadState`, which also sets the RTC again); older desktop states without the RetroAchievements section load as the core's part |
 | `--press F[-L]:KEYS` | hold keys (`a`, `start`, `up`, ... joined by `+`) over frames F..L, for scripted runs |
+| `--touch F[-L]:X,Y` | touch at X,Y in the drawable pixels of the window that shows the bottom screen over frames F..L, through the same mapping as the mouse |
+| `--at F:key=KEY` | a hotkey before frame F, as if typed in the main window (`key=F9`, `key=ctrl+r`); what it changes is saved as when typed |
 | `--game-state` | print the app's Pokemon game state scene (`app/src/main/cpp/gamestate`, the camera's auto zoom) whenever it changes, and the GPU 2D shadow's mode, which a Gen 4 game's battles turn on and off |
 | `--no-wide-battles` | with `--wide`, Gen 4 Pokemon battles stop at the edge (by default they're drawn wide on gl and compute, as in the app) |
 
 Keys: arrows = D-pad, X = A, Z = B, S = X, A = Y, Q = L, W = R, Enter = Start, Right Shift = Select,
 mouse on the bottom screen = touch, Tab (hold) = fast forward, P = pause, Ctrl+R = reset,
 F5/F6/F7 = software/OpenGL/Compute, F3/F4 = scale down/up, F2 = layout, F8 = linear filtering,
-F11 = fullscreen, F12 = screenshot. Game controllers work too, Nintendo layout.
+F9 = screens together/detached, F1 = swap screens, F10 = fit of the focused detached window,
+F11 = fullscreen of the focused window, F12 = screenshot, Esc = quit. Game controllers work too,
+Nintendo layout. Keys and controllers work whichever window has the focus.
+
+### Settings
+
+Settings live in `settings.json` in the profile folder: `%APPDATA%\melonadeDS\` by default, the exe's
+folder when a `portable.txt` sits next to the exe, or `--profile DIR`. A `--hidden` run without
+`--profile` gets a fresh temporary profile that's removed when it ends, so test runs never touch the
+real one. Keys the app has use its preference names and value types (list settings are strings);
+desktop-only ones start with `desktop_`. Keys the desktop doesn't know are kept.
+
+Options that set a setting (`--renderer`, `--scale`, `--linear`, `--vsync`, `--no-audio`, `--layout`,
+`--detach`, `--setting`) apply to that run only and are never written; a hotkey that changes one of
+them during that run changes it for the run only too. Hotkeys change and save the others.
+
+| Key | Values | |
+|---|---|---|
+| `video_renderer` | `software`, `opengl`, `compute` | F5-F7 (desktop default `compute`) |
+| `video_internal_resolution` | `"1"`-`"16"` | F3/F4 (default `"4"`) |
+| `video_filtering` | `none`, `linear` | F8 |
+| `sound_enabled` | `true`, `false` | |
+| `desktop_vsync` | `true`, `false` | the main window waits for vsync (`--vsync`) |
+| `desktop_layout` | `vertical`, `horizontal`, `top`, `bottom` | the screens together, F2 |
+| `desktop_screens` | `together`, `detached` | F9 |
+| `desktop_swap_screens` | `true`, `false` | F1 |
+| `desktop_fit_top`, `desktop_fit_bottom` | `aspect`, `integer`, `stretch` | each screen's fit when detached, F10 |
+| `desktop_fullscreen_mode` | `borderless`, `exclusive` | what F11 does to the main window |
+| `desktop_bottom_no_title`, `desktop_bottom_on_top` | `true`, `false` | the second window without a title bar, always on top |
+| `desktop_window`, `desktop_window_detached`, `desktop_window2` | `{w, h, x, y, display, display_index, maximized, fullscreen}` | the window places, saved on exit |
+
+### Windows and detached screens
+
+The process is per-monitor DPI aware: window sizes are real pixels on every monitor, and Windows
+doesn't blur-scale them on a high-DPI one. A first run opens the windows at `--window-scale` (2) times
+the monitor's scale, so at 150% a 2x window is 3x in pixels, the size it had before; `--hidden` runs
+keep the plain window scale. The main window remembers its size, position and monitor
+(found again by name; a place that's off every monitor now is centered on its monitor). F11 toggles
+fullscreen on the focused window: the main window goes borderless or exclusive
+(`desktop_fullscreen_mode`, exclusive at the monitor's own mode), the second one always borderless on
+its own monitor.
+
+Detached (F9, `--detach`), the top and bottom screens each get a window, "melonadeDS: top" (the main
+window) and "melonadeDS: bottom". Each has its own size, place, monitor and fullscreen, remembered
+separately (the main window has one place for together and one for detached), and each screen its own
+fit: keep aspect (black bars), integer scale (the biggest whole multiple, bars all around), or stretch.
+With `--wide` the top screen's aspect follows the wide width. Swap screens (F1) keeps the windows
+where they are and swaps what they show; the fit goes with the screen. Touch comes from the mouse in
+whichever window shows the bottom screen. Closing the second window goes back to together; closing
+the main one quits. The second window can have no title bar (`desktop_bottom_no_title`; drag it by
+the black bars or with Alt held, resize it at its edges) and stay on top (`desktop_bottom_on_top`).
+
+Both windows draw the same frame with one GL context, made current on each in turn. Only the main
+window waits for vsync; the second swaps with interval 0, so detaching doesn't halve the frame rate.
+WGL sets the swap interval per window on NVIDIA, which the frontend checks when it detaches (it
+prints which); on a driver that keeps it per context it's set before each swap instead.
+`--hidden` runs never go fullscreen and save no window places unless `--save-window-places` asks.
 
 A scripted check, e.g. comparing renderers on the same frame:
 
