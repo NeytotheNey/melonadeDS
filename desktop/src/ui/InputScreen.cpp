@@ -80,6 +80,12 @@ public:
             Device = input->LastDeviceId();
             printf("ui: input device %s\n", Device.c_str());
         }
+        // a capture moved to another device (its L / R pressed during it): the page follows
+        if (input->Capturing() && input->CaptureDeviceId() != Device)
+        {
+            Device = input->CaptureDeviceId();
+            printf("ui: input device %s\n", Device.c_str());
+        }
         Frontend::DeviceProfile* profile = input->Profile(Device);
         if (!profile)
         {
@@ -298,12 +304,14 @@ private:
         ImVec2 is = app.Icons->CalcTextSizeA(app.Px(36), FLT_MAX, 0, icon);
         draw->AddText(app.Icons, app.Px(36), ImVec2(IM_ROUND(ic.x - is.x / 2), IM_ROUND(ic.y - is.y / 2)), p.Primary, icon);
         y += app.Px(48);
-        std::string what = std::string(profile.Keyboard ? "Press a key for " : "Press a button for ") + Frontend::ActionLabel((Action)CaptureAction)
-            + (CaptureAlt ? " (alternate)" : "");
+        // which device it waits for, said in full: a press on another one does nothing but the hint below
+        std::string what = std::string(profile.Keyboard ? "Press a key for " : "Press a button on " + profile.Name + " for ")
+            + Frontend::ActionLabel((Action)CaptureAction) + (CaptureAlt ? " (alternate)" : "");
         y += text(app.Medium, 21, y, p.OnSurface, what) + app.Px(10);
         std::string held = input.CaptureText();
         y += text(app.Medium, 18, y, p.Primary, held.empty() ? " " : held) + app.Px(12);
-        text(app.Regular, 14, y, p.OnSurfaceVariant, "Hold several together for a combo, then let go.");
+        std::string hint = input.CaptureHint();
+        text(app.Regular, 14, y, hint.empty() ? p.OnSurfaceVariant : p.Error, hint.empty() ? "Hold several together for a combo, then let go." : hint);
         char left[96];
         snprintf(left, sizeof(left), "Cancels in %d s, or with %s", (int)std::ceil(input.CaptureSecondsLeft()),
             profile.Keyboard ? "a controller's B" : "Esc");

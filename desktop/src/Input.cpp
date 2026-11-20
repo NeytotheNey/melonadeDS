@@ -1039,6 +1039,11 @@ void Input::BeginCapture(const std::string& id, Action action, bool alt)
     fflush(stdout);
 }
 
+std::string Input::CaptureHint() const
+{
+    return CaptureOn && Clock::now() < HintUntil ? HintText : std::string();
+}
+
 void Input::NoteDevice(SDL_JoystickID source)
 {
     LastUsed = source;
@@ -1137,7 +1142,7 @@ bool Input::CaptureEvent(const SDL_Event& event)
         device = pad ? pad->Guid : "script";
         int value = event.caxis.value;
         InputPart pos = Axis((SDL_GameControllerAxis)event.caxis.axis, 1), neg = Axis((SDL_GameControllerAxis)event.caxis.axis, -1);
-        if (device != CaptureDevice)
+        if (device != CaptureDevice && std::abs(value) <= kCaptureAxisDown)
             return true;
         if (value > kCaptureAxisDown) { part = pos; down = true; }
         else if (value < -kCaptureAxisDown) { part = neg; down = true; }
@@ -1157,11 +1162,40 @@ bool Input::CaptureEvent(const SDL_Event& event)
 
     if (device != CaptureDevice)
     {
-        // the other kind of device can cancel: Esc on the keyboard, B (back) on a pad
+        if (!down)
+            return true;
+        // the other device can cancel: Esc on the keyboard, B (back) on a pad
         bool cancel = (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)
             || (event.type == SDL_CONTROLLERBUTTONDOWN && MenuButton(event.cbutton.which, event.cbutton.button) == MenuAction::Back);
         if (cancel)
+        {
             FinishCapture(CaptureResult::Cancelled);
+            return true;
+        }
+        // its tab keys move the capture to it (the setup screen's page follows): L / R on a pad, Q / W or Page Up / Down on the keyboard
+        bool tab = event.type == SDL_KEYDOWN ? MenuKeyAction(event.key.keysym.sym) == MenuAction::TabPrev
+                || MenuKeyAction(event.key.keysym.sym) == MenuAction::TabNext
+            : event.type == SDL_CONTROLLERBUTTONDOWN && (event.cbutton.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER
+                || event.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+        if (tab && Profile(device))
+        {
+            printf("input: the capture moves to %s\n", DeviceName(device).c_str());
+            fflush(stdout);
+            CaptureDevice = device;
+            CaptureParts.clear();
+            CaptureHeld.clear();
+            CaptureUntil = Clock::now() + std::chrono::milliseconds(kCaptureTimeoutMs);
+            HintUntil = {};
+            return true;
+        }
+        // anything else is said, rather than dropped without a word
+        std::string tabs = "Q/W";
+        if (DeviceProfile* other = Profile(device); other && !other->Keyboard)
+            tabs = PartLabel(Button(SDL_CONTROLLER_BUTTON_LEFTSHOULDER), *other) + "/" + PartLabel(Button(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER), *other);
+        HintText = "Waiting for " + DeviceName(CaptureDevice) + ". " + tabs + " switches to " + DeviceName(device) + ".";
+        HintUntil = Clock::now() + std::chrono::seconds(4);
+        printf("input: %s pressed during the capture: %s\n", DeviceName(device).c_str(), HintText.c_str());
+        fflush(stdout);
         return true;
     }
     if (down)

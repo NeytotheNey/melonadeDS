@@ -176,12 +176,16 @@ public:
     enum class CaptureResult { None, Bound, Cancelled, TimedOut };
     // the last capture's end, once
     CaptureResult TakeCaptureResult();
+    // the device the capture waits for (it moves to another one when that one's L or R, or Q / W, is pressed during it)
+    const std::string& CaptureDeviceId() const { return CaptureDevice; }
+    // a press on another device during the capture, said for a few seconds: which device it waits for, and how to switch to the other
+    std::string CaptureHint() const;
 
     // Every key and controller button pressed (and stick pushed), menus or game: the device it came from, which the setup screen opens
     // on. "keyboard", or the profile id (GUID) of the pad pressed last
     void NoteDevice(SDL_JoystickID source);
     std::string LastDeviceId() const;
-    // a device's name for the menus ("the keyboard", the pad's)
+    // a device's name for the menus ("Keyboard", the pad's)
     std::string DeviceName(const std::string& id);
 
     // the controller the game was last played with: rumble goes to it
@@ -234,6 +238,8 @@ private:
     std::vector<InputPart> CaptureParts;
     std::set<InputPart> CaptureHeld;
     CaptureResult LastCapture = CaptureResult::None;
+    std::string HintText;
+    std::chrono::steady_clock::time_point HintUntil {};
     SDL_JoystickID LastUsed = kKeyboard;
 };
 
