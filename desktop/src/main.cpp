@@ -198,12 +198,14 @@ void Usage()
         "  --widedrops                 log a WIDEDROPS line once a second (WideMelon's dropped polygons)\n"
         "\n"
         "  --profile DIR               settings.json in DIR instead of %%APPDATA%%\\melonadeDS (or the exe's folder with a\n"
-        "                              portable.txt there); a --hidden run without it gets a fresh temporary one\n"
+        "                              portable.txt there); a scripted run (--hidden or --frames) without it\n"
+        "                              gets a fresh temporary one, so it never reads or writes your settings\n"
         "  --setting KEY=VALUE         a setting for this run only, e.g. desktop_fit_bottom=integer (README lists them)\n"
         "  (the options that change a setting, --renderer, --scale, --linear, --vsync, --no-audio, --layout and\n"
         "  --detach, are for the run only too: none of them is written to settings.json)\n"
         "\n"
-        "  --layout vertical|horizontal|top|bottom   the screens together in one window\n"
+        "  --layout vertical|horizontal|top|bottom   the screens together in one window (with --detach: the\n"
+        "                              layout for when they're together again)\n"
         "  --detach                    the screens detached: the top and bottom screens in two windows\n"
         "  --window W,H[,X,Y]          the main window's size in pixels (and desktop position) for this run\n"
         "  --window2 W,H[,X,Y]         the same for the second window when detached\n"
@@ -240,6 +242,7 @@ using Frontend::ReadFile;
 
 bool ParseArgs(int argc, char** argv, Options& opts)
 {
+    bool layoutGiven = false, detachGiven = false;
     for (int i = 1; i < argc; i++)
     {
         std::string arg = argv[i];
@@ -274,7 +277,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             opts.SettingOverrides.emplace_back(spec.substr(0, eq), Frontend::Settings::ParseValue(spec.substr(eq + 1)));
         }
         else if (arg == "--profile") opts.ProfileDir = next();
-        else if (arg == "--detach") setting("desktop_screens", text("detached"));
+        else if (arg == "--detach") { setting("desktop_screens", text("detached")); detachGiven = true; }
         else if (arg == "--window" || arg == "--window2")
         {
             std::string spec = next();
@@ -356,6 +359,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             std::string l = next();
             if (l != "vertical" && l != "horizontal" && l != "top" && l != "bottom") { fprintf(stderr, "unknown layout %s\n", l.c_str()); return false; }
             setting("desktop_layout", text(l.c_str()));
+            layoutGiven = true;
         }
         else if (arg == "--window-scale") opts.WindowScale = std::clamp(atoi(next().c_str()), 1, 8);
         else if (arg == "--linear") setting("video_filtering", text("linear"));
@@ -377,6 +381,9 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg[0] == '-') { fprintf(stderr, "unknown option %s\n", arg.c_str()); return false; }
         else opts.RomPath = arg;
     }
+    // a --layout is the screens together, unless --detach asks for them detached
+    if (layoutGiven && !detachGiven)
+        opts.SettingOverrides.emplace_back("desktop_screens", picojson::value(std::string("together")));
     return !opts.RomPath.empty();
 }
 
@@ -780,7 +787,7 @@ int main(int argc, char** argv)
 
     // the profile and its settings, with the command line's settings on top for this run
     bool temporaryProfile = false;
-    fs::path profileDir = Frontend::ResolveProfileDir(opts.ProfileDir, opts.Hidden, Frontend::PathFromUtf8(exeDir), temporaryProfile);
+    fs::path profileDir = Frontend::ResolveProfileDir(opts.ProfileDir, opts.Hidden || opts.Frames != 0, Frontend::PathFromUtf8(exeDir), temporaryProfile);
     if (profileDir.empty())
     {
         fprintf(stderr, "can't make the profile folder %s\n", opts.ProfileDir.empty() ? "(%APPDATA%\\melonadeDS)" : opts.ProfileDir.c_str());
@@ -969,7 +976,8 @@ int main(int argc, char** argv)
         bool wide = renderer != RendererType::Software && opts.WideWidth != 256;
         planned.TopWidth = wide ? opts.WideWidth : 256;
         planned.TopMargin = wide ? opts.WideMargin : 0;
-        touchRect = windows.PlannedBottomRect(planned);
+        windows.SetFrameShape(planned);
+        touchRect = windows.BottomRect();
     }
     bool scriptTouching = false; // emulator thread
     u32 presented = 0;
@@ -1219,18 +1227,22 @@ int main(int argc, char** argv)
         emu->touchScreen((u16)std::clamp(tx, 0, 255), (u16)std::clamp(ty, 0, 191));
     };
 
+    // --touch's rect again, after anything that moves the bottom screen: a present (a new frame shape), a window resize, a hotkey (F9,
+    // F1, F2, F10), so a touch right after one uses the right window and rect. Stored even when the screen isn't shown (W 0: no touch)
+    auto refreshTouchRect = [&]
+    {
+        Frontend::Rect r = windows.BottomRect();
+        std::lock_guard guard(touchLock);
+        touchRect = r;
+    };
+
     // draws [frame] into the windows and shows them
     auto present = [&](Frame* frame)
     {
         PrepareFrame(frame);
         windows.Present(presenter, Frontend::FrameView::Of(*frame), linear, [&] { ReleaseFrame(frame); });
         presented++;
-        Frontend::Rect r = windows.BottomRect();
-        if (r.W > 0)
-        {
-            std::lock_guard guard(touchLock);
-            touchRect = r;
-        }
+        refreshTouchRect();
     };
 
     u64 lastSequence = 0;
@@ -1298,6 +1310,7 @@ int main(int argc, char** argv)
         }
         default: break;
         }
+        refreshTouchRect();
     };
     while (running)
     {
@@ -1317,7 +1330,10 @@ int main(int argc, char** argv)
                     running = false;
                 if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || ev.window.event == SDL_WINDOWEVENT_EXPOSED
                     || ev.window.event == SDL_WINDOWEVENT_CLOSE)
+                {
                     redraw = true;
+                    refreshTouchRect();
+                }
                 break;
             }
             case SDL_KEYDOWN:

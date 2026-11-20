@@ -29,6 +29,12 @@ struct WindowPlace
     std::string Display;
     int DisplayIndex = 0;
     bool Maximized = false;
+    // saved on exit only when it came from the settings or the user moved, resized, maximized or fullscreened the window: a default
+    // size is shaped by the run's options (--layout, --wide, --window-scale), which mustn't end up in the settings
+    bool Keep = false;
+    // the window's rect as the frontend last set it, to tell the user's moves from its own
+    bool HasApplied = false;
+    int AppliedX = 0, AppliedY = 0, AppliedW = 0, AppliedH = 0;
 };
 
 // --window W,H[,X,Y]
@@ -89,11 +95,12 @@ public:
     // each shows). Each window is drawn again and read from its back buffer before any swap
     void WindowShot(Presenter& presenter, const FrameView& frame, bool linear, const std::string& path);
 
-    // the window that shows the bottom screen, and where it is in that window's drawable pixels, as of the last draw
+    // the window that shows the bottom screen, and where the bottom screen is in that window's drawable pixels now (for the window's
+    // current size, layout, fit and swap, and the shape of the last frame drawn)
     SDL_Window* BottomWindow() const { return (IsDetached() && !Swap) ? SecondWindow : MainWindow; }
     Rect BottomRect() const;
-    // the bottom screen's rect for a frame shaped like [frame] before anything was drawn, for --touch at the start
-    Rect PlannedBottomRect(const FrameView& frame) const;
+    // the frame shape (top screen width and margin) BottomRect assumes before the first frame is drawn
+    void SetFrameShape(const FrameView& frame) { Shape = frame; }
 
     // the titles: [stats] after the main window's name
     void UpdateTitles(const std::string& stats);
@@ -107,8 +114,10 @@ private:
     Fit SecondFit() const;
     bool MainShowsTop() const { return !Swap; }
 
-    void OpenSecond();
+    // false when it can't (MELONADE_TEST_NO_SECOND_WINDOW=1 makes it fail, for tests)
+    bool OpenSecond();
     void CloseSecond();
+    void MarkApplied(SDL_Window* window, WindowPlace& place);
     void ApplySecondStyle();
     // the place to use for a window: the override, the stored one, or the default size
     WindowPlace& MainSlot() { return IsDetachedMode ? MainDetachedPlace : MainTogetherPlace; }
@@ -137,6 +146,7 @@ private:
     Fullscreen MainFull = Fullscreen::Off;
     bool SecondFull = false;
     ScreenRects MainRects, SecondRects;
+    FrameView Shape;
     std::string Stats;
     // whether one context's swap interval is per window (WGL_EXT_swap_control's wording) or per context (some drivers); in the latter case
     // it's set before each swap. CurrentInterval is the last one set, -1 for unknown

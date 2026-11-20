@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -59,7 +60,11 @@ Fullscreen ParseFullscreen(const std::string& name)
 int JsonInt(const picojson::object& object, const char* key, int fallback)
 {
     auto it = object.find(key);
-    return it != object.end() && it->second.is<double>() ? (int)it->second.get<double>() : fallback;
+    // in int range (a cast of one that isn't is undefined)
+    if (it == object.end() || !it->second.is<double>())
+        return fallback;
+    double value = it->second.get<double>();
+    return value > -1e9 && value < 1e9 ? (int)value : fallback;
 }
 
 // a stored place (desktop_window, desktop_window_detached, desktop_window2); false when there's none or it's broken
@@ -75,12 +80,16 @@ bool LoadPlace(const Settings& settings, const char* key, WindowPlace& place, st
     place = {};
     place.W = w;
     place.H = h;
-    auto x = object.find("x"), y = object.find("y");
-    if (x != object.end() && y != object.end() && x->second.is<double>() && y->second.is<double>())
+    if (object.count("x") && object.count("y"))
     {
-        place.X = (int)x->second.get<double>();
-        place.Y = (int)y->second.get<double>();
-        place.HasPosition = true;
+        const int none = -2000000000;
+        int x = JsonInt(object, "x", none), y = JsonInt(object, "y", none);
+        if (x != none && y != none)
+        {
+            place.X = x;
+            place.Y = y;
+            place.HasPosition = true;
+        }
     }
     auto display = object.find("display");
     if (display != object.end() && display->second.is<std::string>())
@@ -91,6 +100,7 @@ bool LoadPlace(const Settings& settings, const char* key, WindowPlace& place, st
     auto full = object.find("fullscreen");
     if (fullscreen && full != object.end() && full->second.is<std::string>())
         *fullscreen = full->second.get<std::string>();
+    place.Keep = true;
     return true;
 }
 
@@ -148,9 +158,68 @@ bool PointOnADisplay(int x, int y)
     return false;
 }
 
-// a place's window rect in desktop coordinates. [clamp] (a stored place) shrinks it to the display's usable area and centers it there
-// when its top edge isn't on any display any more (a monitor gone or moved). false when the place has no position
-bool ResolvePlace(const WindowPlace& place, bool clamp, int& x, int& y, int& w, int& h)
+int DisplayAt(int x, int y)
+{
+    for (int i = 0; i < SDL_GetNumVideoDisplays(); i++)
+    {
+        SDL_Rect bounds;
+        SDL_Point point {x, y};
+        if (SDL_GetDisplayBounds(i, &bounds) == 0 && SDL_PointInRect(&point, &bounds))
+            return i;
+    }
+    return -1;
+}
+
+// the frame Windows puts around a bordered window's client area on [display] (title bar on top, resize borders), for SDL's window style
+// at the display's DPI; all 0 for a borderless window. SDL's sizes and positions are the client area's, so this is what has to fit too
+void FrameInsets(int display, bool bordered, int& left, int& top, int& right, int& bottom)
+{
+    left = top = right = bottom = 0;
+    if (!bordered)
+        return;
+    float dpi = 0;
+    if (SDL_GetDisplayDPI(display, &dpi, nullptr, nullptr) != 0 || dpi <= 0)
+        dpi = 96;
+    RECT rect {0, 0, 100, 100};
+    const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+    if (!AdjustWindowRectExForDpi(&rect, style, FALSE, 0, (UINT)(dpi + 0.5f)))
+        AdjustWindowRectEx(&rect, style, FALSE, 0);
+    left = -rect.left;
+    top = -rect.top;
+    right = rect.right - 100;
+    bottom = rect.bottom - 100;
+}
+
+// fits a window rect (client area) into [display]'s usable area with its frame: shrunk to fit, and moved in so the title bar and the
+// edges are on it; [center] puts it in the middle instead
+void FitToDisplay(int display, bool bordered, bool center, int& x, int& y, int& w, int& h)
+{
+    SDL_Rect usable {0, 0, 0, 0};
+    if (SDL_GetDisplayUsableBounds(display, &usable) != 0 && SDL_GetDisplayBounds(display, &usable) != 0)
+        return;
+    if (usable.w <= 0 || usable.h <= 0)
+        return;
+    int left, top, right, bottom;
+    FrameInsets(display, bordered, left, top, right, bottom);
+    int maxW = std::max(usable.w - left - right, 16), maxH = std::max(usable.h - top - bottom, 16);
+    w = std::min(w, maxW);
+    h = std::min(h, maxH);
+    if (center)
+    {
+        x = usable.x + left + (maxW - w) / 2;
+        y = usable.y + top + (maxH - h) / 2;
+    }
+    else
+    {
+        x = std::clamp(x, usable.x + left, usable.x + left + maxW - w);
+        y = std::clamp(y, usable.y + top, usable.y + top + maxH - h);
+    }
+}
+
+// a place's window rect in desktop coordinates. [clamp] (a stored place) fits it into its display's usable area with its frame
+// ([bordered]), centered there when its monitor is gone or its title bar isn't on any display any more. false when the place has no
+// position
+bool ResolvePlace(const WindowPlace& place, bool clamp, bool bordered, int& x, int& y, int& w, int& h)
 {
     w = place.W;
     h = place.H;
@@ -163,22 +232,17 @@ bool ResolvePlace(const WindowPlace& place, bool clamp, int& x, int& y, int& w, 
         return true;
     }
     int display = FindDisplay(place);
-    SDL_Rect bounds {0, 0, 0, 0}, usable {0, 0, 0, 0};
+    SDL_Rect bounds {0, 0, 0, 0};
     SDL_GetDisplayBounds(display, &bounds);
-    if (SDL_GetDisplayUsableBounds(display, &usable) != 0)
-        usable = bounds;
     x = bounds.x + place.X;
     y = bounds.y + place.Y;
-    if (clamp && usable.w > 0 && usable.h > 0)
+    if (clamp)
     {
-        w = std::min(w, usable.w);
-        h = std::min(h, usable.h);
+        int left, top, right, bottom;
+        FrameInsets(display, bordered, left, top, right, bottom);
         bool foundByName = place.Display.empty() || (SDL_GetDisplayName(display) && place.Display == SDL_GetDisplayName(display));
-        if (!foundByName || !PointOnADisplay(x + w / 2, y) || !PointOnADisplay(x + w / 2, y + std::min(h, 32) - 1))
-        {
-            x = usable.x + (usable.w - w) / 2;
-            y = usable.y + (usable.h - h) / 2;
-        }
+        bool titleShown = PointOnADisplay(x + w / 2, y - top / 2 - 1) && PointOnADisplay(x + std::min(w, 64) / 2, y - top / 2 - 1);
+        FitToDisplay(display, bordered, !foundByName || !titleShown, x, y, w, h);
     }
     return true;
 }
@@ -251,13 +315,18 @@ SDL_Window* ScreenWindows::CreateMain(Settings& settings, const Options& options
     if (Opts.SecondOverride)
         SecondPlace = *Opts.SecondOverride;
 
-    const WindowPlace& place = MainSlot();
+    WindowPlace& place = MainSlot();
     int x = SDL_WINDOWPOS_CENTERED, y = SDL_WINDOWPOS_CENTERED, w, h;
-    ResolvePlace(place, clampMain, x, y, w, h);
+    // a default size is fitted to the first monitor, title bar included, and centered there (a hidden run keeps SDL's centering and
+    // the exact size, which no one sees)
+    if (!ResolvePlace(place, clampMain, true, x, y, w, h) && !Opts.Hidden && !Opts.MainOverride)
+        FitToDisplay(0, true, true, x, y, w, h);
     Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | (Opts.Hidden ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN);
     if (place.Maximized && !Opts.Hidden)
         flags |= SDL_WINDOW_MAXIMIZED;
     MainWindow = SDL_CreateWindow(Title(true).c_str(), x, y, w, h, flags);
+    if (MainWindow)
+        MarkApplied(MainWindow, place);
     return MainWindow;
 }
 
@@ -267,11 +336,28 @@ void ScreenWindows::Start(SDL_GLContext context)
     SDL_GL_SetSwapInterval(Opts.VSync ? 1 : 0);
     CurrentInterval = Opts.VSync ? 1 : 0;
     IntervalPerContext = false;
+    // the second window before the main one's fullscreen, so opening it can't take the focus from an exclusive fullscreen window
+    if (IsDetachedMode && !OpenSecond())
+    {
+        // together after all, in the together place
+        IsDetachedMode = false;
+        printf("screens: together (the second window didn't open)\n");
+        if (!(SDL_GetWindowFlags(MainWindow) & SDL_WINDOW_MAXIMIZED))
+        {
+            PlaceWindow(MainWindow, MainTogetherPlace, !Opts.MainOverride);
+            MarkApplied(MainWindow, MainTogetherPlace);
+        }
+    }
     if (MainFull != Fullscreen::Off)
         SetFullscreen(MainWindow, MainFull);
-    if (IsDetachedMode)
-        OpenSecond();
     UpdateTitles(Stats);
+}
+
+void ScreenWindows::MarkApplied(SDL_Window* window, WindowPlace& place)
+{
+    SDL_GetWindowPosition(window, &place.AppliedX, &place.AppliedY);
+    SDL_GetWindowSize(window, &place.AppliedW, &place.AppliedH);
+    place.HasApplied = true;
 }
 
 void ScreenWindows::Close()
@@ -351,15 +437,36 @@ void ScreenWindows::Track(SDL_Window* window)
     WindowPlace& place = window == MainWindow ? MainSlot() : SecondPlace;
     // a hidden window is never maximized, which says nothing about the saved place
     if (!Opts.Hidden)
-        place.Maximized = (flags & SDL_WINDOW_MAXIMIZED) != 0;
-    if (!(flags & SDL_WINDOW_MAXIMIZED))
-        RecordNormal(window, place);
+    {
+        bool maximized = (flags & SDL_WINDOW_MAXIMIZED) != 0;
+        if (maximized != place.Maximized)
+            place.Keep = true;
+        place.Maximized = maximized;
+    }
+    if (flags & SDL_WINDOW_MAXIMIZED)
+        return;
+    // the user moved or resized it since the frontend last placed it: the place is theirs now
+    int x, y, w, h;
+    SDL_GetWindowPosition(window, &x, &y);
+    SDL_GetWindowSize(window, &w, &h);
+    if (place.HasApplied && (x != place.AppliedX || y != place.AppliedY || w != place.AppliedW || h != place.AppliedH))
+        place.Keep = true;
+    RecordNormal(window, place);
 }
 
 void ScreenWindows::PlaceWindow(SDL_Window* window, const WindowPlace& place, bool clamp)
 {
     int x, y, w, h;
-    bool positioned = ResolvePlace(place, clamp, x, y, w, h);
+    bool bordered = !(SDL_GetWindowFlags(window) & SDL_WINDOW_BORDERLESS);
+    bool positioned = ResolvePlace(place, clamp, bordered, x, y, w, h);
+    if (!positioned && clamp && !Opts.Hidden)
+    {
+        // a default size: kept on the monitor the window is on, where it is
+        SDL_GetWindowPosition(window, &x, &y);
+        int display = std::max(SDL_GetWindowDisplayIndex(window), 0);
+        FitToDisplay(display, bordered, false, x, y, w, h);
+        positioned = true;
+    }
     SDL_SetWindowSize(window, w, h);
     if (positioned)
         SDL_SetWindowPosition(window, x, y);
@@ -389,11 +496,14 @@ void ScreenWindows::SetFullscreen(SDL_Window* window, Fullscreen mode)
     {
         result = SDL_SetWindowFullscreen(window, 0);
         // back to the window's own place, which can be another mode's than the one it went fullscreen in
-        const WindowPlace& place = window == MainWindow ? MainSlot() : SecondPlace;
+        WindowPlace& place = window == MainWindow ? MainSlot() : SecondPlace;
         if (place.Maximized)
             SDL_MaximizeWindow(window);
         else
+        {
             PlaceWindow(window, place, false);
+            MarkApplied(window, place);
+        }
     }
     if (result != 0)
         fprintf(stderr, "fullscreen %s: %s\n", FullscreenName(mode), SDL_GetError());
@@ -404,6 +514,7 @@ void ScreenWindows::ToggleFullscreen(Uint32 windowId)
     if (SecondWindow && windowId && windowId == SDL_GetWindowID(SecondWindow))
     {
         SecondFull = !SecondFull;
+        SecondPlace.Keep = true;
         SetFullscreen(SecondWindow, SecondFull ? Fullscreen::Borderless : Fullscreen::Off);
         printf("fullscreen %s window: %s\n", Title(false).c_str() + 12, SecondFull ? "borderless" : "off");
         return;
@@ -412,36 +523,46 @@ void ScreenWindows::ToggleFullscreen(Uint32 windowId)
     if (MainFull == Fullscreen::Off)
         next = Store->GetString("desktop_fullscreen_mode", "borderless") == "exclusive" ? Fullscreen::Exclusive : Fullscreen::Borderless;
     MainFull = next;
+    // the main window's fullscreen is saved with the together place
+    MainTogetherPlace.Keep = true;
     SetFullscreen(MainWindow, next);
     printf("fullscreen main window: %s\n", FullscreenName(next));
 }
 
-void ScreenWindows::OpenSecond()
+bool ScreenWindows::OpenSecond()
 {
     if (SecondWindow)
-        return;
-    int x, y, w, h;
-    if (!ResolvePlace(SecondPlace, !Opts.SecondOverride, x, y, w, h))
+        return true;
+    // for tests: the second window doesn't open, as when SDL or the driver refuses it
+    const char* fail = SDL_getenv("MELONADE_TEST_NO_SECOND_WINDOW");
+    if (fail && fail[0] == '1')
     {
-        // next to the main window: to its right if that's on a display, else just inside the right edge of the main window's display
+        fprintf(stderr, "can't open the second window: MELONADE_TEST_NO_SECOND_WINDOW is set\n");
+        return false;
+    }
+    bool noTitle = Store->GetBool("desktop_bottom_no_title", false);
+    bool onTop = Store->GetBool("desktop_bottom_on_top", false);
+    int x, y, w, h;
+    if (!ResolvePlace(SecondPlace, !Opts.SecondOverride, !noTitle, x, y, w, h))
+    {
+        // next to the main window: to its right, on the display that lands on (or the main window's), fitted to it with its title bar
         int mx, my, mw, mh;
         SDL_GetWindowPosition(MainWindow, &mx, &my);
         SDL_GetWindowSize(MainWindow, &mw, &mh);
         x = mx + mw + 16;
         y = my;
-        if (!Opts.Hidden && !PointOnADisplay(x + w / 2, y))
+        if (!Opts.Hidden && !Opts.SecondOverride)
         {
-            SDL_Rect usable;
-            int display = std::max(SDL_GetWindowDisplayIndex(MainWindow), 0);
-            if (SDL_GetDisplayUsableBounds(display, &usable) == 0)
+            int display = DisplayAt(x + w / 2, y);
+            if (display < 0)
             {
-                x = usable.x + usable.w - w - 16;
-                y = std::clamp(y, usable.y, std::max(usable.y, usable.y + usable.h - h));
+                // off the right edge: just inside it, on the main window's display
+                display = std::max(SDL_GetWindowDisplayIndex(MainWindow), 0);
+                x = INT_MAX / 2;
             }
+            FitToDisplay(display, !noTitle, false, x, y, w, h);
         }
     }
-    bool noTitle = Store->GetBool("desktop_bottom_no_title", false);
-    bool onTop = Store->GetBool("desktop_bottom_on_top", false);
     Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | (Opts.Hidden ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN);
     if (noTitle)
         flags |= SDL_WINDOW_BORDERLESS;
@@ -449,13 +570,18 @@ void ScreenWindows::OpenSecond()
         flags |= SDL_WINDOW_ALWAYS_ON_TOP;
     if (SecondPlace.Maximized && !Opts.Hidden)
         flags |= SDL_WINDOW_MAXIMIZED;
+    // before the window exists: an exclusive fullscreen main window minimizes when it loses the focus, which a new window shown takes.
+    // Shown without taking the focus too, so the main window keeps the keyboard
+    SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
+    SDL_SetHint(SDL_HINT_WINDOW_NO_ACTIVATION_WHEN_SHOWN, "1");
     // the same GL attributes as the main window's, so the same pixel format and the UI context can be made current on it
     SecondWindow = SDL_CreateWindow(Title(false).c_str(), x, y, w, h, flags);
+    SDL_ResetHint(SDL_HINT_WINDOW_NO_ACTIVATION_WHEN_SHOWN);
     if (!SecondWindow)
     {
         fprintf(stderr, "can't open the second window: %s\n", SDL_GetError());
-        IsDetachedMode = false;
-        return;
+        SDL_ResetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS);
+        return false;
     }
     if (noTitle)
         SDL_SetWindowHitTest(SecondWindow, HitTest, this);
@@ -465,15 +591,15 @@ void ScreenWindows::OpenSecond()
         SDL_GL_MakeCurrent(MainWindow, Context);
         SDL_DestroyWindow(SecondWindow);
         SecondWindow = nullptr;
-        IsDetachedMode = false;
-        return;
+        SDL_ResetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS);
+        return false;
     }
     SDL_GL_MakeCurrent(MainWindow, Context);
-    // an exclusive fullscreen main window would minimize whenever the second one is clicked
-    SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
+    MarkApplied(SecondWindow, SecondPlace);
     if (SecondFull)
         SetFullscreen(SecondWindow, Fullscreen::Borderless);
     CheckSwapIntervals();
+    return true;
 }
 
 void ScreenWindows::CloseSecond()
@@ -524,6 +650,7 @@ void ScreenWindows::SetInterval(int interval)
 
 void ScreenWindows::DrawAll(Presenter& presenter, const FrameView& frame, bool linear)
 {
+    Shape = frame;
     int w, h;
     SDL_GL_GetDrawableSize(MainWindow, &w, &h);
     MainRects = presenter.Draw(frame, w, h, MainLayout(), linear, MainFit(), IsDetached() ? false : Swap);
@@ -584,35 +711,44 @@ void ScreenWindows::WindowShot(Presenter& presenter, const FrameView& frame, boo
 
 Rect ScreenWindows::BottomRect() const
 {
-    if (IsDetached() && !Swap)
-        return SecondRects.Bottom;
-    return MainRects.Bottom;
-}
-
-Rect ScreenWindows::PlannedBottomRect(const FrameView& frame) const
-{
+    // where DrawAll puts it now
     int w, h;
     SDL_GL_GetDrawableSize(BottomWindow(), &w, &h);
     if (!IsDetached())
-        return Presenter::Place(frame, w, h, TogetherLayout, Fit::Aspect, Swap).Bottom;
-    return Presenter::Place(frame, w, h, Layout::BottomOnly, FitBottom).Bottom;
+        return Presenter::Place(Shape, w, h, TogetherLayout, Fit::Aspect, Swap).Bottom;
+    return Presenter::Place(Shape, w, h, Layout::BottomOnly, FitBottom).Bottom;
 }
 
 void ScreenWindows::SetDetached(bool detached)
 {
     if (detached == IsDetachedMode)
         return;
+    // the main window's place in the mode it leaves
     Track(MainWindow);
-    if (!detached)
+    if (detached)
+    {
+        // the second window first: when it doesn't open, nothing changes (no setting stored, the main window left as it is)
+        IsDetachedMode = true;
+        if (!OpenSecond())
+        {
+            IsDetachedMode = false;
+            printf("screens: still together (the second window didn't open)\n");
+            return;
+        }
+    }
+    else
+    {
         CloseSecond();
-    IsDetachedMode = detached;
+        IsDetachedMode = false;
+    }
     Store->Set("desktop_screens", picojson::value(std::string(detached ? "detached" : "together")));
     // the main window takes the new mode's place, unless it's fullscreen (it gets it when it leaves) or maximized
     Uint32 flags = SDL_GetWindowFlags(MainWindow);
     if (!(flags & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MAXIMIZED)))
+    {
         PlaceWindow(MainWindow, MainSlot(), !Opts.MainOverride);
-    if (detached)
-        OpenSecond();
+        MarkApplied(MainWindow, MainSlot());
+    }
     MainRects = SecondRects = {};
     UpdateTitles(Stats);
     printf("screens: %s\n", IsDetachedMode ? "detached" : "together");
@@ -679,15 +815,15 @@ void ScreenWindows::SavePlaces()
         return;
     Track(MainWindow);
     Track(SecondWindow);
-    // only places a window was shown in (or that were saved before), and never the command line's
+    // only places from the settings or that the user changed (WindowPlace::Keep), never the command line's
     if (!Opts.MainOverride)
     {
-        if (MainTogetherPlace.HasPosition)
+        if (MainTogetherPlace.Keep)
             Store->SetStored("desktop_window", PlaceJson(MainTogetherPlace, FullscreenName(MainFull)));
-        if (MainDetachedPlace.HasPosition)
+        if (MainDetachedPlace.Keep)
             Store->SetStored("desktop_window_detached", PlaceJson(MainDetachedPlace, nullptr));
     }
-    if (!Opts.SecondOverride && SecondPlace.HasPosition)
+    if (!Opts.SecondOverride && SecondPlace.Keep)
         Store->SetStored("desktop_window2", PlaceJson(SecondPlace, SecondFull ? "borderless" : "off"));
     Store->Save();
 }

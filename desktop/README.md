@@ -54,7 +54,7 @@ main ones:
 | `--frames N` | quit after N frames and print frame time stats |
 | `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window when quitting; detached, the windows as `F_top.bmp` and `F_bottom.bmp` |
 | `--unthrottled`, `--hidden`, `--no-audio`, `--gpu-sync` | for benchmarks and scripted runs |
-| `--profile DIR` | the profile folder (see [Settings](#settings)); a `--hidden` run without one gets a fresh temporary profile |
+| `--profile DIR` | the profile folder (see [Settings](#settings)); a scripted run (`--hidden` or `--frames`) without one gets a fresh temporary profile |
 | `--setting KEY=VALUE` | a setting for this run only, e.g. `--setting desktop_fit_bottom=integer` |
 | `--detach` | start with [detached screens](#windows-and-detached-screens) |
 | `--window W,H[,X,Y]`, `--window2 W,H[,X,Y]` | the main / second window's size in pixels (and desktop position) for this run |
@@ -75,14 +75,15 @@ Nintendo layout. Keys and controllers work whichever window has the focus.
 ### Settings
 
 Settings live in `settings.json` in the profile folder: `%APPDATA%\melonadeDS\` by default, the exe's
-folder when a `portable.txt` sits next to the exe, or `--profile DIR`. A `--hidden` run without
-`--profile` gets a fresh temporary profile that's removed when it ends, so test runs never touch the
-real one. Keys the app has use its preference names and value types (list settings are strings);
+folder when a `portable.txt` sits next to the exe, or `--profile DIR`. A scripted run (`--hidden` or
+`--frames`) without `--profile` gets a fresh temporary profile that's removed when it ends, so test
+runs never read or change the real one, visible or not. Keys the app has use its preference names and value types (list settings are strings);
 desktop-only ones start with `desktop_`. Keys the desktop doesn't know are kept.
 
 Options that set a setting (`--renderer`, `--scale`, `--linear`, `--vsync`, `--no-audio`, `--layout`,
 `--detach`, `--setting`) apply to that run only and are never written; a hotkey that changes one of
-them during that run changes it for the run only too. Hotkeys change and save the others.
+them during that run changes it for the run only too. Hotkeys change and save the others. `--layout`
+also means the screens together for that run, unless `--detach` is given too.
 
 | Key | Values | |
 |---|---|---|
@@ -97,7 +98,7 @@ them during that run changes it for the run only too. Hotkeys change and save th
 | `desktop_fit_top`, `desktop_fit_bottom` | `aspect`, `integer`, `stretch` | each screen's fit when detached, F10 |
 | `desktop_fullscreen_mode` | `borderless`, `exclusive` | what F11 does to the main window |
 | `desktop_bottom_no_title`, `desktop_bottom_on_top` | `true`, `false` | the second window without a title bar, always on top |
-| `desktop_window`, `desktop_window_detached`, `desktop_window2` | `{w, h, x, y, display, display_index, maximized, fullscreen}` | the window places, saved on exit |
+| `desktop_window`, `desktop_window_detached`, `desktop_window2` | `{w, h, x, y, display, display_index, maximized, fullscreen}` | the window places, saved on exit once they came from the file or you moved, resized, maximized or fullscreened the window (a default size, shaped by `--layout`, `--wide` or `--window-scale`, isn't saved) |
 
 ### Windows and detached screens
 
@@ -105,7 +106,7 @@ The process is per-monitor DPI aware: window sizes are real pixels on every moni
 doesn't blur-scale them on a high-DPI one. A first run opens the windows at `--window-scale` (2) times
 the monitor's scale, so at 150% a 2x window is 3x in pixels, the size it had before; `--hidden` runs
 keep the plain window scale. The main window remembers its size, position and monitor
-(found again by name; a place that's off every monitor now is centered on its monitor). F11 toggles
+(found again by name). A place is fitted to its monitor's usable area with its title bar and borders, and centered when its monitor is gone or its title bar would be off every monitor. F11 toggles
 fullscreen on the focused window: the main window goes borderless or exclusive
 (`desktop_fullscreen_mode`, exclusive at the monitor's own mode), the second one always borderless on
 its own monitor.
