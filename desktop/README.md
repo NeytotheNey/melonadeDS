@@ -40,10 +40,12 @@ run it again only if that header changes.
 
     melonade-desktop [options] [game.nds]
 
-Without a ROM it opens the start screen. Started from a console (PowerShell, cmd, bash) it writes its
-output there, or to the files it's redirected to (`> out.txt 2> err.txt`). PowerShell doesn't wait for
-a GUI program unless its output is redirected or piped, so for a run whose end you wait for, redirect it
-or use `Start-Process -Wait -NoNewWindow`.
+Without a ROM it opens the start screen. It's a GUI program: started from bash or cmd it writes to their
+console, or to the files it's redirected to (`> out.txt 2> err.txt`, as the `logs/` scripts do).
+Windows PowerShell treats a GUI program differently: it neither waits for it nor redirects `>` or `*>`
+(the file stays empty), but it does both when the output is piped, so use
+`& .\melonade-desktop.exe ... 2>&1 | Out-File out.txt`, or
+`Start-Process -Wait -NoNewWindow -RedirectStandardOutput out.txt -RedirectStandardError err.txt`.
 
 FreeBIOS and a generated firmware are used unless `--bios DIR` points at `bios9.bin`, `bios7.bin`
 (and `firmware.bin`). The save goes next to the ROM as `.sav` unless `--sav` says otherwise (an empty
