@@ -770,6 +770,9 @@ int main(int argc, char** argv)
     // GPU::Comp1x: the presenter draws a screen at 1x unless it filters linearly, as the app's surfaces tell the emulator after presenting;
     // set before the first frame here, so a run's frames don't depend on when the UI thread first presents
     MelonDSAndroid::setHalvesAt1xSupported(!opts.Linear);
+    // GPU::OutputCapDeband, which MelonInstance sets before each frame from what the presenter says (once it held for 30 frames, as on the
+    // phone), so --set OutputCapDeband stands in for the app's deband through it
+    MelonDSAndroid::setOutputDeband(SetValue(opts.Sets, "OutputCapDeband", 0) != 0);
 
     // The console, as before the shared code: FreeBIOS and a generated firmware unless --bios says otherwise
     auto args = std::make_unique<NDSArgs>();
@@ -970,6 +973,8 @@ int main(int argc, char** argv)
             }
             else if (!ApplySet(instance.getNds()->GPU, at.Action))
                 fprintf(stderr, "unknown --at %u:%s (see --list-sets)\n", at.Frame, at.Action.c_str());
+            else if (at.Action.rfind("OutputCapDeband=", 0) == 0)
+                MelonDSAndroid::setOutputDeband(SetValue({at.Action}, "OutputCapDeband", 0) != 0);
             printf("at frame %u: %s\n", at.Frame, at.Action.c_str());
         }
         return true;
