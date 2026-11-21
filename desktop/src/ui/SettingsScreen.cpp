@@ -1,12 +1,17 @@
-// Settings, on five tabs (L / R switch them): Video, Display, Emulation, Audio and Controls. Each change goes through Host::ChangeSetting,
+// Settings, on six tabs (L / R switch them): Video, Display, Emulation, Audio, Controls and Library (the ROM folders, and the metadata and art
+// sync: the RetroAchievements Web API key, the libretro thumbnails, Refresh metadata, Clear downloaded art). Each change goes through Host::ChangeSetting,
 // which saves it and applies it at once where the running game allows it; the rest (JIT, the console, the BIOS) wait for the next game
 // that starts, and the rows say so. The keys are the app's preference names where it has the setting, desktop_ ones otherwise
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <ctime>
 #include <string>
 
 #include "Icons.h"
 #include "Input.h"
+#include "Library.h"
+#include "MetadataSync.h"
 #include "Screens.h"
 #include "Settings.h"
 #include "Ui.h"
@@ -31,9 +36,9 @@ const Option kConsoles[] = {{"ds", "DS"}, {"dsi", "DSi"}};
 const Option kLatency[] = {{"low", "Low (Slower)"}, {"medium", "Medium"}, {"high", "High (Faster)"}};
 const Option kSpeeds[] = {{"-1", "Unlimited"}, {"1.5", "1.5x"}, {"2", "2x"}, {"3", "3x"}, {"4", "4x"}, {"8", "8x"}};
 
-const char* const kTabNames[] = {"Video", "Display", "Emulation", "Audio", "Controls"};
-const char* const kTabIds[] = {"video", "display", "emulation", "audio", "controls"};
-constexpr int kTabCount = 5;
+const char* const kTabNames[] = {"Video", "Display", "Emulation", "Audio", "Controls", "Library"};
+const char* const kTabIds[] = {"video", "display", "emulation", "audio", "controls", "library"};
+constexpr int kTabCount = 6;
 
 const char* kNextGame = "Applies when a game starts";
 
@@ -68,9 +73,35 @@ public:
 
     void Clear(App& app) override
     {
-        // X on a folder row: back to none
+        // X on the key's row: the key removed
+        if (FocusedKey == "ra_key")
+        {
+            Host& host = app.GetHost();
+            if (host.RaKeySource && !host.RaKeySource().empty() && host.RemoveRaKey)
+            {
+                host.RemoveRaKey();
+                app.Toast("Web API key removed");
+            }
+            return;
+        }
+        // X on a folder row: back to none; on a ROM folder, out of the library
         if (FocusedKey == "bios_dir" || FocusedKey == "dsi_bios_dir")
             Change(app, FocusedKey, picojson::value(std::string()));
+        else if (FocusedKey.rfind("rom_folder:", 0) == 0)
+        {
+            std::vector<std::string> folders = Store(app).GetStringList("rom_search_dirs");
+            size_t index = (size_t)atoi(FocusedKey.c_str() + 11);
+            if (index < folders.size())
+            {
+                app.Toast("Removed " + folders[index] + " from the library");
+                folders.erase(folders.begin() + index);
+                SetRomFolders(app, folders);
+                // the focus to the row that's there now
+                WantFocus = true;
+                FocusId = 0;
+                FocusRow = folders.empty() ? std::string("addfolder") : "rom_folder:" + std::to_string(std::min(index, folders.size() - 1));
+            }
+        }
     }
 
     void Draw(App& app) override
@@ -109,14 +140,19 @@ public:
         case 1: DrawDisplay(app); break;
         case 2: DrawEmulation(app); break;
         case 3: DrawAudio(app); break;
-        default: DrawControls(app); break;
+        case 4: DrawControls(app); break;
+        default: DrawLibrary(app); break;
         }
         ImGui::Dummy(ImVec2(1, app.Px(24)));
         ImGui::EndChild();
         ImGui::PopStyleVar(2);
 
         bool folder = FocusedKey == "bios_dir" || FocusedKey == "dsi_bios_dir";
-        if (folder)
+        if (FocusedKey.rfind("rom_folder:", 0) == 0)
+            FooterHints(app, {{"A|Enter", "Change folder"}, {"X|Del", "Remove"}, {"L/R|Q/W", "Tabs"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
+        else if (FocusedKey == "ra_key")
+            FooterHints(app, {{"A|Enter", "Enter a key"}, {"X|Del", "Remove"}, {"L/R|Q/W", "Tabs"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
+        else if (folder)
             FooterHints(app, {{"A|Enter", "Choose folder"}, {"X|Del", "Clear"}, {"L/R|Q/W", "Tabs"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
         else
             FooterHints(app, {{"A|Enter", "Change"}, {"\xe2\x80\xb9 \xe2\x80\xba", "Previous / next"}, {"L/R|Q/W", "Tabs"}, {"B|Esc", "Back"}},
@@ -144,9 +180,16 @@ private:
             app.Toast("Applies the next time a game starts");
     }
 
-    // the first row of a tab has the focus when it opens
-    bool TakeFirst()
+    // the first row of a tab has the focus when it opens (or the row FocusRow names)
+    bool TakeFirst(const char* key = nullptr)
     {
+        if (!FocusRow.empty())
+        {
+            bool mine = key && FocusRow == key;
+            if (mine)
+                FocusRow.clear();
+            return mine;
+        }
         bool first = First;
         First = false;
         return first;
@@ -276,7 +319,6 @@ private:
         Folder(app, "bios_dir", "DS BIOS folder", "bios9.bin, bios7.bin, firmware.bin");
         Folder(app, "dsi_bios_dir", "DSi BIOS folder", "bios9.bin, bios7.bin, firmware.bin, nand.bin");
         Toggle(app, "show_bios", Icon::PlayArrow, "Show boot screen", custom ? kNextGame : "Needs the custom BIOS and firmware", false);
-        Toggle(app, "desktop_rumble_pak", Icon::Vibration, "Rumble Pak in the GBA slot", "For games that rumble. Applies when a game starts", false);
         SectionLabel(app, "Speed");
         Choice(app, "fast_forward_speed_multiplier", Icon::FastForward, "Fast-forward max speed", kSpeeds, "-1");
     }
@@ -325,6 +367,198 @@ private:
         Note(app, "The right stick moves a touch cursor over the bottom screen; the right trigger taps it. The mouse touches too.");
     }
 
+    void SetRomFolders(App& app, const std::vector<std::string>& folders)
+    {
+        picojson::array list;
+        for (const std::string& f : folders)
+            list.emplace_back(f);
+        Change(app, "rom_search_dirs", picojson::value(list));
+    }
+
+    // the ROM folders (rom_search_dirs, the app's key), each one changed with A or removed with X, then adding one and a rescan
+    void DrawLibrary(App& app)
+    {
+        Host& host = app.GetHost();
+        Frontend::Settings& s = Store(app);
+        std::vector<std::string> folders = s.GetStringList("rom_search_dirs");
+        SectionLabel(app, "ROM folders");
+        for (size_t i = 0; i < folders.size(); i++)
+        {
+            std::string key = "rom_folder:" + std::to_string(i);
+            std::string name = Frontend::PathToUtf8(Frontend::PathFromUtf8(folders[i]).filename());
+            if (name.empty())
+                name = folders[i];
+            std::string id = "##" + key;
+            if (DetailRow(app, id.c_str(), Icon::Folder, name.c_str(), folders[i].c_str(), TakeFirst(key.c_str())))
+            {
+                if (host.Hidden || !host.PickFolder)
+                    app.Toast("The folder picker doesn't open in a hidden run");
+                else if (std::optional<std::string> picked = host.PickFolder(folders[i]))
+                {
+                    bool known = false;
+                    for (size_t j = 0; j < folders.size(); j++)
+                        known = known || (j != i && Frontend::Library::SameFolder(folders[j], *picked));
+                    if (known)
+                        app.Toast("That folder is in the library already");
+                    else
+                    {
+                        folders[i] = *picked;
+                        SetRomFolders(app, folders);
+                    }
+                }
+            }
+            if (ImGui::IsItemFocused())
+                FocusedKey = key;
+        }
+        if (MenuRow(app, "##addfolder", Icon::CreateNewFolder, "Add a ROM folder", nullptr, TakeFirst("addfolder")))
+        {
+            if (host.Hidden || !host.PickFolder)
+                app.Toast("The folder picker doesn't open in a hidden run");
+            else if (std::optional<std::string> picked = host.PickFolder(folders.empty() ? "" : folders.back()))
+            {
+                bool known = std::any_of(folders.begin(), folders.end(), [&](const std::string& f) { return Frontend::Library::SameFolder(f, *picked); });
+                if (known)
+                    app.Toast("That folder is in the library already");
+                else
+                {
+                    folders.push_back(*picked);
+                    SetRomFolders(app, folders);
+                }
+            }
+        }
+        Track("addfolder");
+        SectionLabel(app, "Library");
+        std::string status;
+        if (host.Library)
+        {
+            Frontend::Library::Progress progress = host.Library->GetProgress();
+            size_t games = host.Library->Entries()->size();
+            if (progress.Scanning)
+                status = progress.Found ? "Scanning " + std::to_string(progress.Done) + " of " + std::to_string(progress.Found) : std::string("Scanning");
+            else
+                status = std::to_string(games) + (games == 1 ? " game" : " games");
+        }
+        if (MenuRow(app, "##rescan", Icon::Refresh, "Rescan the library", status.c_str(), TakeFirst("rescan")) && host.Library)
+        {
+            host.Library->Rescan();
+            app.Toast("Scanning the ROM folders again");
+        }
+        Track("rescan");
+        Note(app, "The library looks in these folders and their subfolders for .nds and .dsi files, and for .zip and .7z archives with "
+                  "one in them. A rescan reads only new and changed files. Files that are online-only (OneDrive) are listed without "
+                  "being downloaded.");
+        if (s.IsOverridden("rom_search_dirs"))
+            Note(app, "--rom-folder set these folders for this run: changes here last until it ends.");
+        DrawMetadata(app);
+    }
+
+    // the metadata and art sync: the Web API key (typed on the keyboard, shown as dots, stored encrypted), its test, the libretro
+    // thumbnails, Refresh metadata, Clear downloaded art, and what the sync is doing
+    void DrawMetadata(App& app)
+    {
+        Host& host = app.GetHost();
+        Frontend::MetadataSync* sync = host.Metadata;
+        // the key typed, stored once the keyboard closes (blank changes nothing, as the app's dialog)
+        if (EditingKey && !app.KeyboardOpen())
+        {
+            EditingKey = false;
+            std::string key = KeyBuffer;
+            KeyBuffer.assign(KeyBuffer.size(), '\0');
+            KeyBuffer.clear();
+            key.erase(0, key.find_first_not_of(" \t"));
+            key.erase(key.find_last_not_of(" \t") + 1);
+            if (!key.empty() && host.SaveRaKey)
+            {
+                bool stored = host.SaveRaKey(key);
+                if (sync)
+                    sync->ResetKeyTest();
+                if (stored)
+                    app.Toast("Web API key saved");
+            }
+        }
+        SectionLabel(app, "Metadata and art");
+        // what the sync has done and is doing
+        if (sync && host.Library)
+        {
+            Frontend::MetadataSync::Status st = sync->GetStatus();
+            size_t games = 0, withArt = 0;
+            for (const Frontend::LibraryEntry& e : *host.Library->Entries())
+            {
+                if (e.State != Frontend::LibraryEntry::kRead)
+                    continue;
+                games++;
+                withArt += e.ArtFile.empty() ? 0 : 1;
+            }
+            std::string line = "Art: " + std::to_string(withArt) + " of " + std::to_string(games) + (games == 1 ? " game" : " games");
+            if (st.LastSync > 0)
+            {
+                time_t t = (time_t)(st.LastSync / 1000);
+                tm local {};
+                localtime_s(&local, &t);
+                char when[64];
+                strftime(when, sizeof(when), "%b %d, %I:%M %p", &local);
+                line += std::string(", last synced ") + when;
+            }
+            else
+                line += ", never synced";
+            if (st.Off)
+                line += ". Off for this run (--no-sync)";
+            else if (st.Running)
+                line += ". " + (st.Activity.empty() ? std::string("Syncing") : st.Activity) + "\xe2\x80\xa6";
+            else if (st.Waiting)
+                line += ". Waiting until the game is closed";
+            else if (st.RetryLater)
+                line += ". Stopped early, it tries again later" + (st.LastStop.empty() ? std::string() : " (" + st.LastStop + ")");
+            else if (!st.LastStop.empty())
+                line += ". Last sync: " + st.LastStop;
+            Note(app, line.c_str());
+        }
+        std::string source = host.RaKeySource ? host.RaKeySource() : "";
+        std::string keyDetail = source.empty() ? "Not set: details and art then come from the libretro thumbnails only"
+            : source == "saved" ? "\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2  Saved, encrypted for your Windows account"
+            : "\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2  From the command line, for this run only";
+        if (DetailRow(app, "##ra_key", Icon::Key, "RetroAchievements Web API key", keyDetail.c_str(), TakeFirst("ra_key")))
+        {
+            KeyBuffer.clear();
+            EditingKey = true;
+            app.OpenKeyboard(&KeyBuffer, "RetroAchievements Web API key", 64, true);
+        }
+        Track("ra_key");
+        if (sync)
+        {
+            Frontend::MetadataSync::Status st = sync->GetStatus();
+            using T = Frontend::MetadataSync::KeyTest;
+            const char* test = st.Test == T::Testing ? "Testing\xe2\x80\xa6" : st.Test == T::Valid ? "The key works"
+                : st.Test == T::Rejected ? "RetroAchievements rejected the key" : st.Test == T::Failed ? "Couldn't reach RetroAchievements"
+                : st.Test == T::Empty ? "No key to test" : nullptr;
+            if (MenuRow(app, "##ra_key_test", Icon::TaskAlt, "Test the key", test, TakeFirst("ra_key_test")))
+                sync->TestKey("");
+            Track("ra_key_test");
+        }
+        Toggle(app, "desktop_libretro_thumbnails", Icon::Image, "Use libretro thumbnails",
+            "Box art and title screens by No-Intro name, for games RetroAchievements has no art for; no account needed", true);
+        if (MenuRow(app, "##refresh_metadata", Icon::CloudDownload, "Refresh metadata", "Over two weeks old, or art that failed",
+                TakeFirst("refresh_metadata")) && sync)
+        {
+            sync->RefreshMetadata();
+            app.Toast(sync->GetStatus().Off ? "Marked for a refresh: --no-sync holds it until the next run" : "Refreshing what's due");
+        }
+        Track("refresh_metadata");
+        if (MenuRow(app, "##clear_art", Icon::DeleteSweep, "Clear downloaded art", "The next sync downloads it again", TakeFirst("clear_art")) && sync)
+        {
+            sync->ClearArt();
+            app.Toast("Downloaded art cleared");
+        }
+        Track("clear_art");
+
+        Note(app, "Game details and art come from RetroAchievements with your Web API key (on retroachievements.org, under Settings), "
+                  "and from the libretro thumbnails, which need no account. Each game is looked up once and its art kept in the profile's "
+                  "media folder; nothing syncs while a game runs.");
+    }
+
+    std::string FocusRow;
+    std::string KeyBuffer;
+    bool EditingKey = false;
     int TabIndex = 0;
     bool ResetScroll = true;
     bool First = true;

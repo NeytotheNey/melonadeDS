@@ -96,7 +96,7 @@ public:
             app.Toast("Reset");
         }
         Divider(app);
-        if (MenuRow(app, "##tostart", Icon::Logout, "Quit to start screen", nullptr) && host.QuitToStart)
+        if (MenuRow(app, "##tostart", Icon::Logout, "Quit to library", nullptr) && host.QuitToStart)
             host.QuitToStart();
         if (MenuRow(app, "##quit", Icon::Power, "Quit melonadeDS", nullptr) && host.Quit)
             host.Quit();

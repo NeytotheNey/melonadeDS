@@ -13,15 +13,30 @@ namespace fs = std::filesystem;
 namespace Frontend
 {
 
+// Through Windows' own conversions, which never throw: text that isn't valid UTF-8 (a zip entry's name in another code page) or a name
+// with a lone surrogate (which NTFS allows) comes out with U+FFFD in place of what can't be converted, where std::filesystem's own
+// conversions would throw
 fs::path PathFromUtf8(const std::string& text)
 {
-    return fs::path(std::u8string(text.begin(), text.end()));
+    if (text.empty())
+        return fs::path();
+    int len = MultiByteToWideChar(CP_UTF8, 0, text.data(), (int)text.size(), nullptr, 0);
+    std::wstring wide(len > 0 ? len : 0, L'\0');
+    if (len > 0)
+        MultiByteToWideChar(CP_UTF8, 0, text.data(), (int)text.size(), wide.data(), len);
+    return fs::path(std::move(wide));
 }
 
 std::string PathToUtf8(const fs::path& path)
 {
-    std::u8string text = path.u8string();
-    return std::string(text.begin(), text.end());
+    const std::wstring& wide = path.native();
+    if (wide.empty())
+        return std::string();
+    int len = WideCharToMultiByte(CP_UTF8, 0, wide.data(), (int)wide.size(), nullptr, 0, nullptr, nullptr);
+    std::string text(len > 0 ? len : 0, '\0');
+    if (len > 0)
+        WideCharToMultiByte(CP_UTF8, 0, wide.data(), (int)wide.size(), text.data(), len, nullptr, nullptr);
+    return text;
 }
 
 fs::path ResolveProfileDir(const std::string& profileArg, bool scripted, const fs::path& exeDir, bool& temporary)
@@ -119,6 +134,7 @@ bool Settings::Save()
         fprintf(stderr, "settings: can't replace %s (error %lu)\n", PathToUtf8(File()).c_str(), GetLastError());
         return false;
     }
+    Unsaved = false;
     return true;
 }
 
@@ -185,6 +201,21 @@ int Settings::GetInt(const std::string& key, int fallback) const
     return fallback;
 }
 
+std::vector<std::string> Settings::GetStringList(const std::string& key) const
+{
+    std::vector<std::string> list;
+    const picojson::value* value = Find(key);
+    if (value && value->is<picojson::array>())
+    {
+        for (const picojson::value& item : value->get<picojson::array>())
+        {
+            if (item.is<std::string>() && !item.get<std::string>().empty())
+                list.push_back(item.get<std::string>());
+        }
+    }
+    return list;
+}
+
 void Settings::Set(const std::string& key, const picojson::value& value, bool save)
 {
     auto over = Overrides.find(key);
@@ -199,6 +230,8 @@ void Settings::Set(const std::string& key, const picojson::value& value, bool sa
     Stored[key] = value;
     if (save)
         Save();
+    else
+        Unsaved = true;
 }
 
 void Settings::SetStored(const std::string& key, const picojson::value& value)

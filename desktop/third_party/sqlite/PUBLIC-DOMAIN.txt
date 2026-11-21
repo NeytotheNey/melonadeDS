@@ -1,0 +1,3 @@
+SQLite (sqlite3.c and sqlite3.h, the 3.54.1 amalgamation) is in the public domain: its authors have
+dedicated the code to the public domain, and anyone may copy, modify, publish, use, compile, sell or
+distribute it, in source or compiled form, for any purpose. See https://www.sqlite.org/copyright.html

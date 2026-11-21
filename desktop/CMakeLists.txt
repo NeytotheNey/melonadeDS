@@ -60,8 +60,35 @@ target_include_directories(imgui PUBLIC "${IMGUI_DIR}" PRIVATE "${GL_DIR}/shim")
 target_compile_definitions(imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS PRIVATE IMGUI_IMPL_OPENGL_ES3)
 target_link_libraries(imgui PRIVATE SDL2::SDL2)
 
+# the game library's vendored C libraries (third_party/README.md): SQLite for library.db, miniz for zip files, the LZMA SDK's 7z decoder
+# (stb_image, for the downloaded art, is a header that src/ArtImage.cpp builds)
+set(THIRD_PARTY "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+add_library(sqlite3 STATIC "${THIRD_PARTY}/sqlite/sqlite3.c")
+# no extensions loaded from DLLs; double-quoted strings are identifiers only (SQLite's advice for new code)
+target_compile_definitions(sqlite3 PRIVATE SQLITE_OMIT_LOAD_EXTENSION SQLITE_DQS=0 SQLITE_THREADSAFE=1 SQLITE_DEFAULT_MEMSTATUS=0)
+add_library(miniz STATIC "${THIRD_PARTY}/miniz/miniz.c")
+add_library(lzma7z STATIC
+    "${THIRD_PARTY}/lzma/7zAlloc.c" "${THIRD_PARTY}/lzma/7zArcIn.c" "${THIRD_PARTY}/lzma/7zBuf.c" "${THIRD_PARTY}/lzma/7zBuf2.c"
+    "${THIRD_PARTY}/lzma/7zCrc.c" "${THIRD_PARTY}/lzma/7zCrcOpt.c" "${THIRD_PARTY}/lzma/7zDec.c" "${THIRD_PARTY}/lzma/7zFile.c"
+    "${THIRD_PARTY}/lzma/7zStream.c" "${THIRD_PARTY}/lzma/Bcj2.c" "${THIRD_PARTY}/lzma/Bra.c" "${THIRD_PARTY}/lzma/Bra86.c"
+    "${THIRD_PARTY}/lzma/BraIA64.c" "${THIRD_PARTY}/lzma/CpuArch.c" "${THIRD_PARTY}/lzma/Delta.c" "${THIRD_PARTY}/lzma/Lzma2Dec.c"
+    "${THIRD_PARTY}/lzma/LzmaDec.c" "${THIRD_PARTY}/lzma/Ppmd7.c" "${THIRD_PARTY}/lzma/Ppmd7Dec.c")
+# as the SDK's own 7z decoder sample builds it (C/Util/7z/makefile.gcc)
+target_compile_definitions(lzma7z PRIVATE Z7_PPMD_SUPPORT Z7_EXTRACT_ONLY)
+
+# rcheevos' ROM hashes (rc_hash, the Nintendo DS method the library uses), which the app's rcheevos target leaves out: hash.c and
+# hash_rom.c from the same vendored copy, without the disc, zip and encrypted hashers they'd need the rest of rhash for
+set(RCHEEVOS_DIR "${APP_CPP}/rcheevos")
+add_library(rhash-rom STATIC "${RCHEEVOS_DIR}/src/rhash/hash.c" "${RCHEEVOS_DIR}/src/rhash/hash_rom.c")
+target_include_directories(rhash-rom PRIVATE "${RCHEEVOS_DIR}/include" "${RCHEEVOS_DIR}/src")
+target_compile_definitions(rhash-rom PRIVATE RC_DISABLE_LUA=1 RC_HASH_NO_DISC RC_HASH_NO_ZIP RC_HASH_NO_ENCRYPTED)
+# md5, rc_path_* and the rest it calls are in rcheevos
+target_link_libraries(rhash-rom PRIVATE rcheevos)
+
 add_executable(melonade-desktop
     src/main.cpp
+    src/ArtImage.cpp
+    src/ArtImage.h
     src/Audio.cpp
     src/Audio.h
     src/Controls.cpp
@@ -74,34 +101,55 @@ add_executable(melonade-desktop
     src/EmulatorThread.h
     src/FileDialog.cpp
     src/FileDialog.h
+    src/Http.cpp
+    src/Http.h
     src/ImageFile.cpp
     src/ImageFile.h
     src/Input.cpp
     src/Input.h
+    src/Library.cpp
+    src/Library.h
+    src/LibraryDb.cpp
+    src/LibraryDb.h
+    src/Metadata.h
+    src/MetadataSync.cpp
+    src/MetadataSync.h
     src/PlatformBase.cpp
     src/Frontend.h
     src/Presenter.cpp
     src/Presenter.h
     src/Resources.h
     src/resources.rc
+    src/RomFile.cpp
+    src/RomFile.h
+    src/RomConfig.cpp
+    src/RomConfig.h
     src/RunOptions.h
     src/SaveSlots.cpp
     src/SaveSlots.h
     src/ScreenWindows.cpp
     src/ScreenWindows.h
+    src/Secret.cpp
+    src/Secret.h
     src/Settings.cpp
     src/Settings.h
     src/UiScript.cpp
     src/UiScript.h
+    src/ui/GameDetailsScreen.cpp
+    src/ui/GameSettingsScreen.cpp
     src/ui/Host.h
     src/ui/Icons.h
     src/ui/InputScreen.cpp
     src/ui/KeyboardTestScreen.cpp
+    src/ui/LibraryCards.cpp
+    src/ui/LibraryCards.h
+    src/ui/LibraryScreen.cpp
+    src/ui/MosaicLayout.cpp
+    src/ui/MosaicLayout.h
     src/ui/PauseScreen.cpp
     src/ui/Screen.h
     src/ui/Screens.h
     src/ui/SettingsScreen.cpp
-    src/ui/StartScreen.cpp
     src/ui/StatesScreen.cpp
     src/ui/Theme.cpp
     src/ui/Theme.h
@@ -141,8 +189,10 @@ target_include_directories(melonade-desktop PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party" "${CMAKE_BINARY_DIR}/generated")
 # Windows 10 APIs (SetProcessInformation for power throttling)
 target_compile_definitions(melonade-desktop PRIVATE _WIN32_WINNT=0x0A00)
-# ole32/uuid: COM for the file dialog (shell32) and the slot screenshots (windowscodecs, WIC); all system DLLs
-target_link_libraries(melonade-desktop PRIVATE melonade-shared core imgui SDL2::SDL2main SDL2::SDL2 winmm ole32 uuid shell32 windowscodecs)
+# ole32/uuid: COM for the file dialog (shell32) and the slot screenshots (windowscodecs, WIC); winhttp for the metadata sync's requests,
+# bcrypt for the ROMs' MD5 and SHA1, crypt32 for the Web API key (DPAPI); all system DLLs
+# rhash-rom before melonade-shared, whose rcheevos it calls into
+target_link_libraries(melonade-desktop PRIVATE rhash-rom melonade-shared core imgui sqlite3 miniz lzma7z SDL2::SDL2main SDL2::SDL2 winmm ole32 uuid shell32 windowscodecs winhttp bcrypt crypt32)
 
 if (MINGW)
     # a GUI program (no console window of its own; a run from a console writes to it, see AttachParentConsole in main.cpp); static so the

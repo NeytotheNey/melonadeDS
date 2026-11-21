@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include <vector>
 
 #include "picojson/picojson.h"
 
@@ -38,11 +39,15 @@ public:
     std::string GetString(const std::string& key, const std::string& fallback) const;
     bool GetBool(const std::string& key, bool fallback) const;
     int GetInt(const std::string& key, int fallback) const;
+    // a list of strings (rom_search_dirs); empty when the key is missing or isn't an array
+    std::vector<std::string> GetStringList(const std::string& key) const;
 
     // a change made while running (a hotkey, later the menus): stored and saved, unless the command line overrides the key, in which case
     // only the override changes, so the setting the command line gave stays the run's and isn't written. [save] false leaves the write
     // for a later Save()
     void Set(const std::string& key, const picojson::value& value, bool save = true);
+    // writes the file if a Set(..., false) left a change unwritten (the library's last focused game, at a game's start and at exit)
+    bool SaveIfChanged() { return Unsaved ? Save() : true; }
     // a stored value written whatever the overrides say (the window places, which have overrides of their own)
     void SetStored(const std::string& key, const picojson::value& value);
     const picojson::value* FindStored(const std::string& key) const;
@@ -59,6 +64,7 @@ private:
     picojson::object Stored;
     std::map<std::string, picojson::value> Overrides;
     bool KeepBadFile = false;
+    bool Unsaved = false;
 };
 
 }

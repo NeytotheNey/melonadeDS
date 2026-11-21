@@ -4,6 +4,7 @@
 
 #include <initializer_list>
 #include <string>
+#include <vector>
 
 #include "imgui.h"
 
@@ -18,6 +19,10 @@ ImVec2 TextSize(App& app, ImFont* font, float size, const char* text, float wrap
 // [text] cut with an ellipsis to fit [width] window pixels
 std::string Ellipsize(App& app, ImFont* font, float size, const std::string& text, float width);
 void IconAt(App& app, ImWchar icon, float size, ImVec2 center, ImU32 color);
+// text slanted like italics (the glyphs sheared, since the app's Roboto has no italic face here); returns its size like TextAt
+ImVec2 ItalicTextAt(App& app, ImFont* font, float size, ImVec2 pos, ImU32 color, const char* text);
+// [text] on at most [lines] lines of [width] window pixels, broken at spaces where it can, the last line cut with an ellipsis
+std::vector<std::string> WrapLines(App& app, ImFont* font, float size, const std::string& text, float width, int lines);
 
 // the focus ring around [min, max] (window pixels)
 void FocusRing(App& app, ImDrawList* draw, ImVec2 min, ImVec2 max, float rounding);

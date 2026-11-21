@@ -4,7 +4,7 @@ The Windows app, growing out of the desktop test frontend (`docs/plan-desktop-ap
 same core and the same OpenGL and Compute renderers as the Android app (`melonDS-android-lib`), in an
 SDL2 window, and the app's own native code around them: `MelonInstance` with its saves, savestates,
 frame queue, game state reads and the rest of `melonade-shared` (`app/src/main/cpp/SharedNative.cmake`).
-Its menus ([below](#menus)) are Dear ImGui screens made for a TV and a controller first.
+Its menus ([below](#menus)) are Dear ImGui screens made for a TV and a controller first, starting on the [game library](#game-library).
 
 Like the app it runs on two threads, each with its own GLES context (shared through SDL): the
 emulator thread (`src/EmulatorThread.cpp`, a port of the app's `emulate()`) runs the frames and
@@ -41,9 +41,10 @@ run it again only if that header changes.
 
 ## Running
 
-    melonade-desktop [options] [game.nds]
+    melonade-desktop [options] [game.nds|.dsi|.zip|.7z]
 
-Without a ROM it opens the start screen. It's a GUI program: started from bash or cmd it writes to their
+Without a ROM it opens the game library. A zip or 7z is unpacked into the profile's `rom-cache` folder first (its save and slots stay
+next to the archive). It's a GUI program: started from bash or cmd it writes to their
 console (test runs only: `--hidden`, `--frames`, `--ui-script`, `--verbose`, `--help`; a run to play lets go of the console, so
 Ctrl+C there can't end the game), or to the files it's redirected to (`> out.txt 2> err.txt`, as the `logs/` scripts do).
 Windows PowerShell treats a GUI program differently: it neither waits for it nor redirects `>` or `*>`
@@ -68,7 +69,15 @@ main ones:
 | `--set Name=Value` | a core debug switch on `GPU`, e.g. `--set LateBlit=0` (`--list-sets`) |
 | `--frames N` | quit after N frames and print frame time stats: the game's frames, plus the UI's while no game frame runs (the start screen, a menu over the paused game) |
 | `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window, menus included, when `--frames` or `--ui-script` ends the run; detached, the windows as `F_top.bmp` and `F_bottom.bmp` |
-| `--open SCREEN` | open a menu screen at the start: `start`, `pause`, `pause/save`, `pause/load`, `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`), `input`, `keyboard`; with a game, once its first frame is shown |
+| `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `pause`, `pause/save`, `pause/load`, `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`), `input`, `keyboard`; with a game, once its first frame is shown |
+| `--rom-folder DIR` | a folder for the game library, repeated for more; for the run only, in place of the saved `rom_search_dirs`, never written |
+| `--rom-config KEY=VALUE` | over the booted game's own settings for this run, never stored: `console=default\|ds\|dsi`, `gba-slot=default\|none\|gba-rom\|rumble-pak\|memory-expansion`, `gba-rom=FILE.gba`, `name=TEXT`; repeat it for more |
+| `--pretend-title-art`, `--pretend-wide-tiles N` | every game counts as having title-screen art, so the Mosaic view makes one in six of them wide by ROM hash, as the app does; `--pretend-wide-tiles N` makes one in N of the games with title art (downloaded, or pretended) wide by path instead, for a test library of copies of a few ROMs |
+| `--no-sync` | no network at all for the run: the [metadata sync](#metadata-and-art) makes no requests (the art on disk still shows, and the ROMs' hashes are still computed) |
+| `--sync-now` | scan the library and sync at the start, without the library screen (with `--open settings/library`, say), with RetroAchievements' hash library fetched whatever its age |
+| `--ra-web-api-key KEY` | a RetroAchievements Web API key for this run only, never stored |
+| `--metadata-base-url URL`, `--thumbnails-base-url URL`, `--dat-url URL` | the sync's hosts for this run (a local test server): `URL/dorequest.php`, `URL/API/API_GetGame.php` and `URL/Images/...` in place of retroachievements.org and media.retroachievements.org; `URL/Named_Boxarts/<name>.png` and `URL/Named_Titles/<name>.png` for the libretro thumbnails; the DAT's address |
+| `--sync-backoff S` | a sync that stopped early tries again after S seconds, then twice that (default 900, the app's 15 minutes), for tests |
 | `--ui-script F` | drive the menus from a file, see [UI scripts](#ui-scripts) |
 | `--state-dir DIR` | the command line's game's savestate slots (`.ml0`-`.ml8`) in DIR instead of next to the ROM, for tests (without it, a test run keeps them in its temporary profile) |
 | `--unthrottled`, `--hidden`, `--no-audio`, `--gpu-sync` | for benchmarks and scripted runs |
@@ -76,7 +85,7 @@ main ones:
 | `--audio-log`, `--audio-wav F.wav`, `--audio-trace F.csv` | the sound: the ring's fill and ratio once a second, what the callback plays (before the volume), every callback's and frame's fill |
 | `--console ds\|dsi`, `--dsi-bios DIR` | the console for this run (`console_type`, `dsi_bios_dir`); DSi needs `--bios` too |
 | `--sharper-rotated-2d`, `--gl-seams`, `--no-edge-marking` | the app's renderer settings, like `--filter2d` |
-| `--gba rumble` | the Rumble Pak in the GBA slot (`desktop_rumble_pak` for every game) |
+| `--gba rumble` | the Rumble Pak in the GBA slot for the command line's game, over its game settings (a game's own GBA slot setting does it from the menus) |
 | `--profile DIR` | the profile folder (see [Settings](#settings)); a scripted run (`--hidden` or `--frames`) without one gets a fresh temporary profile |
 | `--setting KEY=VALUE` | a setting for this run only, e.g. `--setting desktop_fit_bottom=integer` |
 | `--detach` | start with [detached screens](#windows-and-detached-screens) |
@@ -104,7 +113,7 @@ runs never read or change the real one, visible or not. Keys the app has use its
 desktop-only ones start with `desktop_`. Keys the desktop doesn't know are kept.
 
 Options that set a setting (`--renderer`, `--scale`, `--linear`, `--vsync`, `--no-audio`, `--layout`,
-`--detach`, `--setting`) apply to that run only and are never written; a hotkey that changes one of
+`--detach`, `--rom-folder`, `--setting`) apply to that run only and are never written; a hotkey that changes one of
 them during that run changes it for the run only too. Hotkeys change and save the others. `--layout`
 also means the screens together for that run, unless `--detach` is given too.
 
@@ -117,7 +126,6 @@ also means the screens together for that run, unless `--detach` is given too.
 | `enable_jit` | `true`, `false` | from the next game on (desktop default off) |
 | `console_type` | `ds`, `dsi` | from the next game on; DSi needs the custom BIOS and both folders below |
 | `use_custom_bios`, `bios_dir`, `dsi_bios_dir`, `show_bios` | | the custom BIOS and firmware (off: FreeBIOS) and the boot screen, from the next game on |
-| `desktop_rumble_pak` | `true`, `false` | the Rumble Pak in the GBA slot, from the next game on |
 | `fast_forward_speed_multiplier` | `"-1"` (unlimited), `"1.5"`, `"2"`, `"3"`, `"4"`, `"8"` | |
 | `sound_enabled` | `true`, `false` | |
 | `volume` | 0-256 | |
@@ -133,7 +141,10 @@ also means the screens together for that run, unless `--detach` is given too.
 | `desktop_bottom_no_title`, `desktop_bottom_on_top` | `true`, `false` | the second window without a title bar, always on top |
 | `desktop_theme` | `system`, `light`, `dark` | the menus' theme; `system` follows Windows' app mode |
 | (`input.json`) | | the input mapping, in a file of its own next to `settings.json`, see [Input](#input) |
-| `desktop_recent_roms` | a list of paths | the start screen's recent games, newest first (10) |
+| `rom_search_dirs` | a list of folders | the game library's ROM folders (the app's key; its values are content URIs, these are paths) |
+| `rom_list_view_mode` | `list`, `grid` | the library's view (the app's key; desktop default `grid`, the app's `list`) |
+| `rom_sorting_mode`, `rom_sorting_order` | `alphabetically`, `recently_played`; `ascending`, `descending` | the library's sort, as the app stores it |
+| `desktop_recent_roms` | a list of paths | the games opened last, newest first (10): where the Open ROM dialog starts |
 | `desktop_window`, `desktop_window_detached`, `desktop_window2` | `{w, h, x, y, display, display_index, maximized, fullscreen}` | the window places, saved on exit once they came from the file or you moved, resized, maximized or fullscreened the window (a default size, shaped by `--layout`, `--wide` or `--window-scale`, isn't saved) |
 
 ### Menus
@@ -148,14 +159,28 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
   Outlined icons. Laid out for 1280x720 and scaled with the window (a 1080p TV is 1.5x), never smaller
   than the monitor's own scale; a narrow window gets fewer columns.
 - **Input**: keyboard (arrows, Enter, Esc or Backspace = back, Delete = clear, Q/W or Page Up/Down = tabs), mouse, and
-  controllers (D-pad or left stick, A = choose, B = back, X = clear, L/R = tabs, Start or Guide = back to the game), A and B
-  where each pad's face layout puts them.
+  controllers (D-pad or left stick, A = choose, B = back, X = clear, L/R = tabs, Start or Guide = back to the game, or with no game
+  the library's menu), A and B where each pad's face layout puts them.
   While a menu is open the game is paused and gets no input; keys and buttons held when it closes stay
   away from the game until they're released. The F-key hotkeys still work in the menus.
-- **Start screen** (no ROM): Open ROM through the Windows file dialog (`.nds` and `.dsi`; zip and 7z
-  aren't read by the shared ROM loader, so they're not offered), the recent games, Settings, Quit.
+- **Library** (no game running): see [Game library](#game-library).
+- **Game details** (a game chosen in the library): its icon, title, developer, file, game code, region, size, when it was last played,
+  its RetroAchievements hash and its game settings that aren't the default, with Play focused (a zip or 7z says it's unpacking
+  meanwhile) and Game settings beside it. Back goes back to the game's tile. Play and Game settings only take a press that began on
+  this screen, so the press that opened it can't start the game (the app's `CarriedOverKeyFilter`).
+- **Game settings** (`src/ui/GameSettingsScreen.cpp`; from the details, a featured mosaic tile's menu button, or holding confirm or
+  the mouse on a tile for half a second, the app's long press): the app's ROM settings for what the desktop applies when the game
+  boots. Display name (the on-screen keyboard; X goes back to the banner's title), Boot system (Default, which follows Settings >
+  Emulation > Console, DS or DSi; locked to DSi for a DSiWare title, as the app does) and GBA slot (None by default as in the app, GBA
+  ROM with its file through the Windows file dialog and its save next to it as `--gba` does, Rumble Pak, Memory expansion; the file is
+  kept while another slot is chosen), then Reset to defaults. They're kept by the ROM's RetroAchievements hash, so they survive the
+  file being moved or renamed and every copy of the game shares them (by path for a ROM rc_hash refuses). The app's
+  microphone source, controller layout, widescreen and mods are listed as "Coming later" (phases 6, 3 and 4), and its Motion Paks are
+  left out until the desktop reads a controller's gyro. Changes are stored at once and apply the next time the game starts, from the
+  library or the command line. The command line beats them: `--rom-config` for the run, then `--console` and `--gba`.
+  `--open library/settings` opens the first game's.
 - **Pause menu** (the Pause binding: Esc, Guide, or Select + Start held; over the last frame, dimmed): Resume, Save state, Load state,
-  Detached screens, Swap screens, Settings, Reset, Quit to start screen, Quit.
+  Detached screens, Swap screens, Settings, Reset, Quit to library, Quit.
 - **Save state / Load state**: the app's nine slots next to the ROM (`<rom>.ml0`, the quick slot, to
   `.ml8`, so states move between phone and PC), saved and loaded through `MelonInstance` on the
   emulator thread. Loading a state takes its save into memory only (`SaveManager::SyncFromState`), so
@@ -164,10 +189,11 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
   them in its own files; they don't travel with the states. The screenshot is read from the frame the
   game is paused on, since the app's `ScreenshotRenderer` only takes one as the next frame runs. Saving over a used slot asks
   first, and X (Delete) on a used slot deletes it, once asked, to the recycle bin with its screenshot.
-- **Settings**: five tabs (L / R): Video (renderer, internal resolution, the renderer settings, JIT), Display (screens together or
+- **Settings**: six tabs (L / R): Video (renderer, internal resolution, the renderer settings, JIT), Display (screens together or
   detached, layout, swap, each detached screen's fit, the bottom window's title bar and on-top, fullscreen mode, vsync, filter,
-  theme), Emulation (console, custom BIOS and its folders through the Windows folder picker, boot screen, Rumble Pak, fast-forward
-  speed), Audio (on/off, volume, latency, mute while fast forwarding) and Controls (the input setup, rumble). A change is saved at
+  theme), Emulation (console, custom BIOS and its folders through the Windows folder picker, boot screen, fast-forward
+  speed), Audio (on/off, volume, latency, mute while fast forwarding), Controls (the input setup, rumble) and Library (the ROM folders:
+  A changes one through the folder picker, X removes it, then Add a ROM folder and Rescan the library). A change is saved at
   once and applied to a running game where the core allows it; the rows that wait for the next game say so, and a toast says it
   when a game runs. `--open settings/audio` opens a tab.
 - **Buttons and hotkeys** (Settings > Controls, `--open input`): one device at a time (L / R: the keyboard, the controllers plugged
@@ -188,16 +214,18 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
 | `key NAME` | a key pressed and released, as typed (`key escape`, `key return`, `key f9`) |
 | `pad NAME` | a controller button pressed and released, as SDL names it (`pad start`, `pad guide`, `pad b`); with `--virtual-pad`, on that pad |
 | `pad-down NAME`, `pad-up NAME`, `key-down NAME`, `key-up NAME` | a button or key held over the next steps, or let go (combos, holds); `key-repeat NAME` sends a repeated KEYDOWN, as a held key does |
-| `mouse-down X Y`, `mouse-up X Y` | the left mouse button at X,Y of the main window |
+| `mouse-down X Y`, `mouse-up X Y` | the pointer moved to X,Y of the main window and the left button pressed there or let go (a `wait` between the two holds it: a long press) |
 | `axis NAME VALUE` | a stick or trigger of the `--virtual-pad` (`axis rightx 20000`, `axis righttrigger 32767`) |
 | `wait N` | N passes of the frame loop (UI frames while a menu is up) |
 | `sleep MS` | MS milliseconds of real time, the game running on unless it's held |
 | `frame N` | the game run to its frame N and held there (paused before frame N runs) |
 | `shot F.bmp` | the window as drawn now, menus included (detached: `F_top.bmp`, `F_bottom.bmp`) |
 | `screenshot F.bmp` | the game's last frame at the internal resolution |
+| `wait-scan` | until the library's scan, and a zip or 7z being unpacked to play, are done |
+| `wait-sync` | until the metadata sync has nothing to do (while a game runs, it waits for the game) and the art it published is drawn |
 | `quit` | the end of the run (the run also ends after the last step) |
 
-It starts on the start screen, or once the game's first frame is shown. Each step gets a press and a
+It starts on the library, or once the game's first frame is shown. Each step gets a press and a
 release, two passes of the loop. `--window-shot` is taken when the script ends the run. With a ROM,
 point `--sav` at a copy and `--state-dir` at a test folder, so slot saves never touch the real ones:
 
@@ -216,6 +244,126 @@ point `--sav` at a copy and `--state-dir` at a test folder, so slot saves never 
     down
     confirm
     ...
+
+### Game library
+
+The home screen (`src/ui/LibraryScreen.cpp`, the app's launcher from `docs/plan-launcher.md`): the games in the ROM folders as a
+**List** (banner icon, title, developer and file name, when it was last played), a **Grid** (9:10 cards with the banner icon on a card
+tinted with its colors, the title on two lines, region and developer tags) or a **Mosaic**, cycled with L / R or the List / Grid / Mosaic
+buttons (`rom_list_view_mode`: `list`, `grid` or `mosaic`, the app's values). Above them: Sort (Title A-Z and Z-A, Recently played and
+Least recently played, as the app sorts), Filter (All, Played, Not played; not saved, as in the app), Search (the title and the file
+name, typed on the on-screen keyboard; X clears it) and a menu (Open ROM, ROM folders, Rescan the library, Settings, Quit), which Start
+or Guide opens too. The D-pad moves between games with the focus ring, up from the first row reaches the controls, left and right stop
+at the edges, and the view scrolls with the focus. A press on a game opens its details when it's let go; held for half a second (the
+mouse too) it opens the game's settings instead. The game the focus was on (`desktop_library_focus`, its path) and the view are kept
+for the next run. Every view draws only the rows on screen (`ImGuiListClipper`) and makes each icon's texture the first time it's
+drawn, so a library of hundreds of games scrolls as one of six. A game without a banner title shows its file name and an italic "No
+metadata"; one with a display name of its own (its game settings) shows that. An empty library says why: no folders yet (Add a ROM
+folder, Open ROM), nothing found in them (Add a ROM folder, Rescan), or nothing matching the search or filter (Show all games).
+
+The **Mosaic** (`src/ui/MosaicLayout.cpp`, a port of the app's `MosaicLayout.kt`) packs square-ish cells (at least 150 wide and 150
+tall at 720p, so seven columns there, never fewer than four) like CSS's dense grid, under a label for the order ("A TO Z", "RECENTLY
+PLAYED"). The two most recently played games lead as 2x2 featured tiles whatever the sort, with a Continue or Recent label, when they
+were played and a menu button for the game's settings; the first one also has a Continue pill that starts it at once. Down on a
+featured tile goes into its pill (or menu button), up comes back out, and left and right move between the two. A game with title-screen
+art on disk (`LibraryEntry::HasTitleArt`) gets a 2x1 tile if its RetroAchievements hash, hashed as Kotlin's `String.hashCode`, is a
+multiple of six, so the same games are wide on the phone and the PC and a filter or sort doesn't reshuffle them (`--pretend-title-art`
+and `--pretend-wide-tiles N` widen the choice for tests). A tile with art has it filling the tile, cut to fit, with the title on a scrim
+(a wide tile shows the title screen, its top screen when the image has both); one without shows the banner icon on its tinted card
+with the title under it. The packing is redone when the tiles' sizes or the number of columns change (art arriving that changes no
+tile's size moves nothing), and the clipper draws the bands (rows no tile crosses) that are on screen.
+
+**Scanning** (`src/Library.cpp`) runs on a worker thread when the library is first shown (not for a game started from the command
+line), when the folders change, and on Rescan. It walks the folders and their subfolders for `.nds`, `.dsi`, `.zip` and `.7z` files,
+and reads each new or changed one (its size or last write time differs) as the app's ROM processors do (`src/RomFile.cpp`): the
+header's game code, region and DSiWare flag (a header too short or ARM9/ARM7 code over 0x3BFE00 bytes is not a ROM), the banner's
+title in Windows' display language with English to fall back on (the app reads English only; `MELONADE_BANNER_LANGUAGE=0`-`7` picks
+one for a test), its developer line, its icon (the shared `RomIconBuilder`; one of a single color counts as none) and the
+RetroAchievements hash (rcheevos' `rc_hash` Nintendo DS method, the one the app's `RomProcessor` copies). An archive's ROM is the first
+`.nds`, `.dsi` or `.ids` file in it; a zip is only decompressed as far as those reads go, a 7z is decoded whole (the LZMA SDK decodes
+whole blocks). Unchanged files aren't opened again, files that are gone drop out (unless their folder isn't there at all, a drive
+unplugged), and online-only files (OneDrive's cloud files) are listed with no metadata instead of being downloaded, then read once
+they're on the disk. A file that can't be read (a damaged archive, one too big for memory, a locked file) is listed without details
+and read again at the next scan; an archive whose ROM claims more than 1 GB isn't decompressed at all. While `--rom-folder` sets the
+folders for a run, the saved folders' rows stay in the database, only hidden. A zip's names without the UTF-8 flag are read as code page
+437, and a file whose name UTF-8 can't hold (a lone surrogate) is skipped. The header shows the progress ("Scanning 12 of 40"). Quitting
+stops a scan or an unpack at the next block it reads, a 7z decode included. Japanese, Korean and Chinese titles draw with Windows' own
+fonts, merged into Roboto.
+
+**library.db** (SQLite, in the profile folder, so a hidden run's is temporary) holds a `roms` table (path, the archive's entry, the
+file's size and time, what was read, the icon as 32x32 RGBA, the whole ROM's `crc32`/`md5`/`sha1`, which the metadata sync fills), a
+`play_history` table (last played, by path, so it outlives rescans and covers games started from the command line) and, since schema
+version 2, a `rom_config` table: each game's own settings by its `game` key, the ROM's RetroAchievements hash (or its path when rc_hash
+refuses it), one row per field that differs from the default under the app's `RomConfigDto` names and values (`runtimeConsoleType` =
+`DS`/`DSi`, `customName`, `gbaSlotConfig.type` = `GbaRom`/`RumblePak`/`MemoryExpansion`, `gbaSlotConfig.gbaRomPath`; rows with other
+keys are left alone). A game booted from outside the library is read for its hash before it boots.
+Schema version 3 adds the metadata sync's tables (see below). The version is `PRAGMA user_version`; a new version is a new entry in
+`LibraryDb.cpp`'s migrations, run once when the file opens, so an older `library.db` gets the new tables the first time this build opens it.
+
+**Playing** a game from the library, the Open ROM dialog or the command line records when it was played, and applies its game
+settings (the console and the GBA slot; the log says `game settings: ... (by <hash>); boots as DS (<why>)`). A zip or 7z is unpacked into
+the profile's `rom-cache` folder first (on the worker, so the menus keep drawing; the command line's on the spot), named for the
+archive, its entry, size and time so a changed archive is unpacked again; the cache keeps the last three. The save and the slots go
+next to the archive, as for a plain ROM.
+
+### Metadata and art
+
+The library's details and art (`src/MetadataSync.cpp`) come from RetroAchievements as the app gets them (`RomMetadataSyncWorker`,
+`RomMetadataSyncPlanner`, `docs/plan-launcher.md` sections 2 and 3), with the libretro thumbnails as the fallback that needs no
+account. A sync runs on a worker thread after each library scan, when a Web API key is saved, on Refresh metadata and with `--sync-now`,
+never while a game runs: a game starting stops it (its requests are cancelled, a key test's too) and the library coming back asks for it
+again. A scan that finishes while a sync runs, or while one waits to try again, leaves it as it is (the app's KEEP). Removing the key
+stops only the RetroAchievements part of a running sync, and turning the libretro thumbnails off only theirs. In order:
+
+1. **ROM hashes**: each ROM's CRC32, MD5 and SHA1, once per file (one pass over the decompressed ROM; online-only files are skipped),
+   into `roms`.
+2. **Hash library**: RetroAchievements' connect API `hashlibrary` for DS (18) and DSi (78), replaced at most once a day, needs no key.
+   It says which game id each ROM's RetroAchievements hash is, and which hashes RetroAchievements doesn't know.
+3. **RetroAchievements**, with a Web API key: `API_GetGame` once per distinct game for the life of the install (rows with
+   `fetch_status` 0 ok or 1 not found aren't asked again; 2 failed is retried every sync), half a second apart, in batches of 20 with the
+   art after each batch: box art, else the title screen, else the icon, plus the title screen for the mosaic's wide tiles, from
+   `media.retroachievements.org`, two downloads at a time in random order. The app's rules: a 429 stops the run and it tries again 15
+   minutes later (then 30, 60, ...; five runs in all, as the app's `MAX_RUN_ATTEMPTS`), counting only while no game runs; a 5xx, a 404, a redirect, no connection or an answer that isn't game data marks that game
+   failed and stops the same way; another 4xx or a malformed answer marks the game failed and goes on; 401/403 (the key) stops for good.
+   Three "not found" in a row trigger one control call for game 1: an answer means they stand, anything else counts them as failed and
+   stops. An image that fails for good (404, too large, not an image) has its path cleared, which moves the game to its next kind; three
+   image failures in a row (or a 429) stop the art for the run, so a blocked or broken media host can't clear the library's paths.
+4. **libretro thumbnails** (Settings > Library, on by default), for games RetroAchievements has no box art or title screen for: the
+   No-Intro DS DAT from libretro-database (downloaded the first sync, kept in the profile's `libretro` folder, again after Refresh
+   metadata once it's two weeks old), each ROM's name by its CRC32, else by its game code (a trimmed ROM's CRC32 never matches the
+   full-size dump) with its region's and the retail release preferred, then `Named_Boxarts/<name>.png` and `Named_Titles/<name>.png` with
+   each of ``&*/:`<>?\|"`` in the name made `_`. They come from the libretro-thumbnails repository on GitHub
+   (`raw.githubusercontent.com/libretro-thumbnails/Nintendo_-_Nintendo_DS/master`): `thumbnails.libretro.com` answered 404 for the DS
+   folder on 2026-11-21. Many games have no title screen there, so a missing image doesn't count as a failure; it's remembered
+   (`libretro_art`, until a refresh two weeks later) only once an image of the same run was saved, and ten missing in a row with none
+   saved stop the run, so a blanket 404 can't mark the whole library. Three other failures in a row, or a 429, stop it as above.
+
+Art goes in `<profile>\media\ra\<game id>\<box|title|icon>.png` and `<profile>\media\libretro\<name> ~<hash>\<box|title>.png`, and
+stays until Clear downloaded art. The libretro folder is the thumbnail's name made safe for Windows (control characters, leading spaces,
+trailing dots and spaces dropped, so `.` and `..` have none and are skipped; a reserved device name such as `CON` or `COM1.txt` gets a
+`_` in front; at most 120 bytes) with the name's hash after it, so no two names share one, and the final path is checked to be in
+`media\libretro`. An image over 4096 pixels a side or 4 megapixels in all doesn't count as an image (its size is read before it's
+decoded). WebP, which RetroAchievements allows and stb_image can't read, is decoded with Windows' WIC when Windows has a WebP decoder
+(Windows 11, and 10 with the WebP Image Extensions); without one, a WebP is skipped without counting as a failure or clearing its path.
+Requests have a two-minute deadline in all (ten for the DAT), so a server sending a byte at a time can't hold the sync. The menus key each image's texture to the file's save stamp, so art replaced on disk (a game whose image changed, or art cleared and
+downloaded again) shows the new image at once. A tile prefers RetroAchievements' box art, then its title screen, then libretro's box art and title screen,
+and the RetroAchievements icon last. The menus read images with stb_image on a worker thread, shrunk to at most 512 pixels a side, and
+make their textures as they're first drawn (the ones not drawn for a while go once there are more than 160). The game's title falls
+back on RetroAchievements' when the banner has none, as the app's `displayTitle`.
+
+The **details screen** lists RetroAchievements' publisher, developer, genre and release date (by its granularity: "Aug 22, 2005", "Nov
+2005" or "2007"), and two credit lines: where the details came from, as the app's sheet tells them apart ("Metadata from
+RetroAchievements · cached 3 days ago", "· due for a refresh", "Not found on RetroAchievements · checked today", "No metadata from
+RetroAchievements yet · last tried today", "Hash not found on RetroAchievements", "Can't be looked up on RetroAchievements", "No
+RetroAchievements Web API key set", "RetroAchievements metadata not downloaded yet"), and where the art came from with the credits.
+
+**Settings > Library** has the RetroAchievements Web API key (from retroachievements.org, under Settings; typed on the on-screen keyboard
+as dots, or pasted with Ctrl+V; X removes it), stored in `settings.json`'s `desktop_ra_web_api_key` encrypted with Windows' DPAPI for
+the Windows user, so the file alone gives it to no one; Test the key (one `API_GetGame` call for game 1); Use libretro thumbnails
+(`desktop_libretro_thumbnails`); Refresh metadata (rows fetched over two weeks ago, or whose image failed, fetched again, and libretro
+images found missing that long ago asked for again); Clear downloaded art (the sync stops and the media folder is deleted; the next
+sync downloads the art again with no API calls); and a status line ("Art: 5 of 7 games, last synced Nov 21, 01:01 AM", and what it's
+doing). Requests carry the User-Agent `melonadeDS-desktop/<version>` and nothing about the user; the key is never logged.
 
 ### Input
 
@@ -307,6 +455,10 @@ A scripted check, e.g. comparing renderers on the same frame:
   RetroAchievements are compiled in (shared code) but not set up yet. Pacing is the app's timer
   limiter at the DS's 59.83 Hz instead of the app's 60.
 - DS mode only (no DSi NAND), no multiplayer, Wi-Fi, mic or camera.
+- The library reads banner titles in Windows' display language (English when the banner has none in it); the app reads English.
+- No metadata or art sync yet (phase 2 step C), so the Mosaic has no art and no wide tiles outside tests. The game settings have no
+  microphone, layout, widescreen or mods yet; the app's long press is holding confirm or the mouse for half a second here. They're
+  kept by RetroAchievements hash, where the app keeps them with each ROM file.
 - A hidden run (`--hidden`) takes no input from real controllers, only `--ui-script`'s and its `--virtual-pad`'s, and never
   opens the file or folder dialog.
 - The sound goes through a deeper buffer than the app's, with larger targets (see [Sound](#sound)).

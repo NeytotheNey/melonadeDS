@@ -26,6 +26,8 @@ public:
     virtual void Tab(App&, int /*direction*/) {}
     // X (Delete): clears what has the focus, where a screen has something to clear
     virtual void Clear(App&) {}
+    // Start or Guide while no game runs (with one, they go back to it): the library opens its menu
+    virtual void MenuButton(App&) {}
 
     // App's: which item has the focus, to give it back when the screen is on top again, and whether it has to be set
     ImGuiID FocusId = 0;
