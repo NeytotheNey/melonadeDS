@@ -302,7 +302,6 @@ private:
         Folder(app, "bios_dir", "DS BIOS folder", "bios9.bin, bios7.bin, firmware.bin");
         Folder(app, "dsi_bios_dir", "DSi BIOS folder", "bios9.bin, bios7.bin, firmware.bin, nand.bin");
         Toggle(app, "show_bios", Icon::PlayArrow, "Show boot screen", custom ? kNextGame : "Needs the custom BIOS and firmware", false);
-        Toggle(app, "desktop_rumble_pak", Icon::Vibration, "Rumble Pak in the GBA slot", "For games that rumble. Applies when a game starts", false);
         SectionLabel(app, "Speed");
         Choice(app, "fast_forward_speed_multiplier", Icon::FastForward, "Fast-forward max speed", kSpeeds, "-1");
     }

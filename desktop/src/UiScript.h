@@ -8,7 +8,7 @@
 //                      --virtual-pad, on that pad through SDL's own events
 //   pad-down NAME, pad-up NAME   a controller button pressed (held over the next steps) or let go
 //   key-down NAME, key-up NAME   the same for a key; key-repeat NAME: a repeated KEYDOWN, as a held key sends them
-//   mouse-down X Y, mouse-up X Y   the left mouse button at X,Y of the main window (its points)
+//   mouse-down X Y, mouse-up X Y   the pointer moved to X,Y of the main window (its points) and the left button pressed or let go there
 //   axis NAME VALUE    a stick or trigger of the --virtual-pad at VALUE (-32768 to 32767; triggers 0 to 32767): axis rightx 20000
 //   wait N             N passes of the frame loop (UI frames while a menu is up)
 //   sleep MS           MS milliseconds of real time (the game runs on meanwhile, unless it's held)

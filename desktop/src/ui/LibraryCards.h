@@ -16,6 +16,10 @@ class App;
 // the banner icon on its tinted card over [min, max] (rounded [rounding]), at the biggest whole multiple of 32 pixels that fits
 // [fraction] of the card's width; the game's mark when it has no icon, a cloud for a file not read yet
 void GameArt(App& app, ImDrawList* draw, const Frontend::LibraryEntry& entry, ImVec2 min, ImVec2 max, float rounding, float fraction);
+// the same with the icon centered in [iconMin, iconMax] instead of the card's middle (a mosaic tile, with its text under it), sized by
+// that area
+void GameArtIn(App& app, ImDrawList* draw, const Frontend::LibraryEntry& entry, ImVec2 min, ImVec2 max, float rounding, ImVec2 iconMin,
+    ImVec2 iconMax, float fraction);
 
 // "Played 3 days ago", "Played yesterday", ... ("" when never); [now] in ms since 1970 (0: the clock's)
 std::string PlayedText(int64_t lastPlayedMs, int64_t now = 0);

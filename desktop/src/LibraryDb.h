@@ -7,7 +7,10 @@
 //                 compares), what was read from it, and the banner icon (32x32 RGBA)
 //   play_history  when each file was last played, by path, kept apart from roms so a rescan, a folder removed and added again, or a
 //                 game booted from the command line keeps it
-// Step C's metadata tables come as version 2 and up: a new entry in kMigrations (LibraryDb.cpp), run once on open
+// Schema version 2 (phase 2 step B) adds:
+//   rom_config    each game's own settings (RomConfig.h), by the ROM's RetroAchievements hash (its path when it has none), so they
+//                 survive a move or a rename: one row per field that differs from the default, under the app's RomConfigDto names
+// Step C's metadata tables come as version 3 and up: a new entry in kMigrations (LibraryDb.cpp), run once on open
 #pragma once
 
 #include <cstdint>
@@ -45,6 +48,10 @@ public:
     // all of them or none
     bool DeleteRoms(const std::vector<int64_t>& ids);
     bool SetPlayed(const std::string& path, int64_t when);
+    // rom_config: each game's fields (key, value), by its lowercased game key (Library::ConfigKey)
+    bool LoadConfigs(std::map<std::string, std::map<std::string, std::string>>& out);
+    // [game]'s rows for [keys] replaced by [fields] (the ones not in [keys] stay), in one transaction
+    bool StoreConfig(const std::string& game, const std::map<std::string, std::string>& fields, const std::vector<std::string>& keys);
 
 private:
     bool Exec(const char* sql);

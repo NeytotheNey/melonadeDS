@@ -10,11 +10,14 @@
 namespace Ui
 {
 
-// the game library, the home screen when no game runs; [openDetails]: the first game's details once the scan is done (--open
-// library/details)
-std::unique_ptr<Screen> MakeLibraryScreen(bool openDetails = false);
-// a game's details, with Play
+// what the library opens by itself once its scan is done (--open library/details, library/settings): the first game's details or settings
+enum class LibraryOpen { None, Details, Settings };
+// the game library, the home screen when no game runs
+std::unique_ptr<Screen> MakeLibraryScreen(LibraryOpen open = LibraryOpen::None);
+// a game's details, with Play and its settings
 std::unique_ptr<Screen> MakeGameDetailsScreen(const Frontend::LibraryEntry& entry);
+// a game's own settings (RomConfig: its display name, console and GBA slot), kept in the library by its path
+std::unique_ptr<Screen> MakeGameSettingsScreen(const Frontend::LibraryEntry& entry);
 std::unique_ptr<Screen> MakePauseScreen();
 // the savestate slots, on the Save tab or the Load tab
 std::unique_ptr<Screen> MakeStatesScreen(bool save);

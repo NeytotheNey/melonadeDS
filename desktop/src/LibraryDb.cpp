@@ -14,7 +14,7 @@ namespace
 {
 
 // Each schema version's changes, in order; a database at an older version gets the ones after it, each in a transaction with the new
-// user_version. Step C (metadata and art sync) adds version 2 here
+// user_version. Step C (metadata and art sync) adds version 3 here
 struct Migration { int Version; const char* Sql; };
 const Migration kMigrations[] = {
     {1,
@@ -42,6 +42,13 @@ const Migration kMigrations[] = {
         "CREATE TABLE play_history ("
         "  path TEXT NOT NULL PRIMARY KEY COLLATE NOCASE,"
         "  last_played INTEGER NOT NULL"         // ms since 1970
+        ");"},
+    {2,
+        "CREATE TABLE rom_config ("
+        "  game TEXT NOT NULL COLLATE NOCASE,"   // the ROM's RetroAchievements hash, or its path when rc_hash refused it
+        "  key TEXT NOT NULL,"                   // the app's RomConfigDto field: runtimeConsoleType, customName, gbaSlotConfig.type, ...
+        "  value TEXT NOT NULL,"                 // its value as the app writes it (DS, DSi, RumblePak, ...)
+        "  PRIMARY KEY (game, key)"
         ");"},
 };
 
@@ -295,6 +302,64 @@ bool LibraryDb::SetPlayed(const std::string& path, int64_t when)
     up.Text(1, path);
     up.Int(2, when);
     return up && sqlite3_step(up.S) == SQLITE_DONE;
+}
+
+bool LibraryDb::LoadConfigs(std::map<std::string, std::map<std::string, std::string>>& out)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return false;
+    Statement q(Db, "SELECT game, key, value FROM rom_config");
+    if (!q)
+        return false;
+    while (sqlite3_step(q.S) == SQLITE_ROW)
+    {
+        std::string path = q.ColText(0);
+        for (char& c : path)
+            c = (char)tolower((unsigned char)c);
+        out[path][q.ColText(1)] = q.ColText(2);
+    }
+    return true;
+}
+
+bool LibraryDb::StoreConfig(const std::string& game, const std::map<std::string, std::string>& fields, const std::vector<std::string>& keys)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return false;
+    if (!Exec("BEGIN IMMEDIATE"))
+        return false;
+    bool ok = true;
+    {
+        Statement del(Db, "DELETE FROM rom_config WHERE game = ? AND key = ?");
+        ok = (bool)del;
+        for (const std::string& key : keys)
+        {
+            if (!ok)
+                break;
+            sqlite3_reset(del.S);
+            del.Text(1, game);
+            del.Text(2, key);
+            ok = sqlite3_step(del.S) == SQLITE_DONE;
+        }
+        Statement ins(Db, "INSERT INTO rom_config (game, key, value) VALUES (?, ?, ?)");
+        ok = ok && (bool)ins;
+        for (const auto& [key, value] : fields)
+        {
+            if (!ok)
+                break;
+            sqlite3_reset(ins.S);
+            ins.Text(1, game);
+            ins.Text(2, key);
+            ins.Text(3, value);
+            ok = sqlite3_step(ins.S) == SQLITE_DONE;
+        }
+    }
+    if (ok && Exec("COMMIT"))
+        return true;
+    fprintf(stderr, "library: can't store the settings of %s: %s\n", game.c_str(), sqlite3_errmsg(Db));
+    Exec("ROLLBACK");
+    return false;
 }
 
 }

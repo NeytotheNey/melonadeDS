@@ -91,5 +91,12 @@ constexpr ImWchar FolderZip = 0xeb2c;     // folder_zip
 constexpr ImWchar HardDrive = 0xf80e;     // hard_drive
 constexpr ImWchar Trophy = 0xea23;        // trophy
 constexpr ImWchar Person = 0xe7fd;        // person
+constexpr ImWchar Mosaic = 0xe660;        // auto_awesome_mosaic
+constexpr ImWchar Dashboard = 0xe871;     // dashboard
+constexpr ImWchar Mic = 0xe029;           // mic
+constexpr ImWchar AspectRatio = 0xe85b;   // aspect_ratio
+constexpr ImWchar Extension = 0xe87b;     // extension
+constexpr ImWchar Edit = 0xe3c9;          // edit
+constexpr ImWchar SimCard = 0xe32b;       // sim_card
 
 }

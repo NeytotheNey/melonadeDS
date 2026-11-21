@@ -46,6 +46,8 @@ public:
     // only the override changes, so the setting the command line gave stays the run's and isn't written. [save] false leaves the write
     // for a later Save()
     void Set(const std::string& key, const picojson::value& value, bool save = true);
+    // writes the file if a Set(..., false) left a change unwritten (the library's last focused game, at a game's start and at exit)
+    bool SaveIfChanged() { return Unsaved ? Save() : true; }
     // a stored value written whatever the overrides say (the window places, which have overrides of their own)
     void SetStored(const std::string& key, const picojson::value& value);
     const picojson::value* FindStored(const std::string& key) const;
@@ -62,6 +64,7 @@ private:
     picojson::object Stored;
     std::map<std::string, picojson::value> Overrides;
     bool KeepBadFile = false;
+    bool Unsaved = false;
 };
 
 }

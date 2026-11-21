@@ -134,6 +134,7 @@ bool Settings::Save()
         fprintf(stderr, "settings: can't replace %s (error %lu)\n", PathToUtf8(File()).c_str(), GetLastError());
         return false;
     }
+    Unsaved = false;
     return true;
 }
 
@@ -229,6 +230,8 @@ void Settings::Set(const std::string& key, const picojson::value& value, bool sa
     Stored[key] = value;
     if (save)
         Save();
+    else
+        Unsaved = true;
 }
 
 void Settings::SetStored(const std::string& key, const picojson::value& value)

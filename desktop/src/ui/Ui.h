@@ -18,6 +18,7 @@
 #include "Controls.h"
 #include "Host.h"
 #include "Screen.h"
+#include "Screens.h"
 #include "Theme.h"
 #include "PlatformOGL.h"
 
@@ -56,9 +57,9 @@ public:
     void Pop();
     // every screen closed: back to the game
     void CloseAll();
-    // the library alone (no game), the home screen; [openDetails] as MakeLibraryScreen's
-    void ShowStart(bool openDetails = false);
-    // --open: "library" (or "start"), "library/details", "pause", "pause/save", "pause/load", "settings", "settings/library", "keyboard";
+    // the library alone (no game), the home screen; [open] as MakeLibraryScreen's
+    void ShowStart(LibraryOpen open = LibraryOpen::None);
+    // --open: "library" (or "start"), "library/details", "library/settings", "pause", "pause/save", "pause/load", "settings", "settings/library", "keyboard";
     // false for a name it doesn't know
     bool OpenPath(const std::string& path);
     void OpenPause();

@@ -393,7 +393,7 @@ void App::ResetMouse()
     io.ClearInputMouse();
 }
 
-void App::ShowStart(bool openDetails)
+void App::ShowStart(LibraryOpen open)
 {
     while (!Stack.empty())
     {
@@ -401,7 +401,7 @@ void App::ShowStart(bool openDetails)
         Stack.pop_back();
     }
     KeyboardTarget = nullptr;
-    Push(MakeLibraryScreen(openDetails));
+    Push(MakeLibraryScreen(open));
 }
 
 void App::OpenPause()
@@ -412,12 +412,12 @@ void App::OpenPause()
 bool App::OpenPath(const std::string& path)
 {
     bool game = HostPtr->GameRunning && HostPtr->GameRunning();
-    if (path == "start" || path == "library" || path == "library/details")
+    if (path == "start" || path == "library" || path == "library/details" || path == "library/settings")
     {
         // the home screen, which a running game would have to stop for
         if (game)
             return false;
-        ShowStart(path == "library/details");
+        ShowStart(path == "library/details" ? LibraryOpen::Details : path == "library/settings" ? LibraryOpen::Settings : LibraryOpen::None);
     }
     else if (path == "pause" || path == "pause/save" || path == "pause/load")
     {
@@ -498,9 +498,13 @@ void App::Back()
 
 void App::Menu()
 {
-    // Start or Guide in the menus: back to the game
-    if (!Busy && HostPtr->GameRunning && HostPtr->GameRunning() && !KeyboardOpen())
+    // Start or Guide in the menus: back to the game, or with none the screen's own (the library's menu)
+    if (Busy || KeyboardOpen())
+        return;
+    if (HostPtr->GameRunning && HostPtr->GameRunning())
         CloseAll();
+    else if (Screen* top = Top())
+        top->MenuButton(*this);
 }
 
 void App::SendPadKey(ImGuiKey key)

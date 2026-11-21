@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "LibraryDb.h"
+#include "RomConfig.h"
 
 namespace Frontend
 {
@@ -45,8 +46,12 @@ struct LibraryEntry
     std::string FileName;      // the file's name (the archive's for a ROM in one)
     int64_t LastPlayed = 0;    // ms since 1970, 0 when never played
     uint32_t Tint = 0;         // the icon's average color (RGBA), 0 without an icon
+    RomConfig Config;          // the game's own settings (rom_config)
+    // it has title-screen art on disk, which the mosaic gives a wide tile to (one in six of them, by IsWideMosaicGame). Step C's art sync
+    // sets it; until then only --pretend-title-art does, for tests
+    bool HasTitleArt = false;
 
-    // the banner's title, or the file name without its extension when there's none
+    // the display name the game's settings give it, else the banner's title, else the file name without its extension
     std::string Name() const;
     // a banner title was read (otherwise there's nothing but the file: "No metadata")
     bool HasMetadata() const { return !Title.empty(); }
@@ -89,6 +94,24 @@ public:
 
     // a game booted from [path] (the archive's path for one in an archive): its last-played time now, in play_history
     void MarkPlayed(const std::string& path);
+    // A game's own settings (RomConfig.h), by its key (ConfigKey: the RetroAchievements hash, or the path without one), and changed:
+    // stored in rom_config and in the list's entries with that key (every copy of the game). False when the database couldn't store it
+    // (it still holds for the run)
+    static std::string ConfigKey(const std::string& raHash, const std::string& path);
+    static std::string ConfigKey(const LibraryEntry& e) { return ConfigKey(e.RaHash, e.Path); }
+    RomConfig GetConfig(const std::string& key) const;
+    bool SetConfig(const std::string& key, const RomConfig& config);
+
+    // What identifies a game that's booting, [path] (the archive's for one in an archive): its RetroAchievements hash (for its
+    // settings) and whether it's DSiWare, from the list, or read from [romFile] (the file that boots) for a game outside it
+    struct Identity
+    {
+        std::string RaHash;
+        bool DsiWare = false;
+        bool Read = false; // known: from the list, or [romFile] was a DS ROM
+    };
+    Identity IdentityFor(const std::string& path, const std::string& romFile);
+
     // the absolute, normalized form paths are stored in (a drive's root keeps its backslash: "E:\")
     static std::string NormalizePath(const std::string& path);
     // the same folder, however it's written
@@ -104,6 +127,12 @@ public:
     std::function<void(std::function<void()>)> PostToUi;
     // the game the library's focus was on last, by id, so the library can go back to it after a game
     int64_t LastFocused = 0;
+    // --pretend-title-art: every game counts as having title-screen art (HasTitleArt), so the mosaic's wide tiles can be checked before
+    // step C downloads any. Set before Open
+    bool PretendTitleArt = false;
+    // --pretend-wide-tiles N: with PretendTitleArt, the mosaic makes one in N games wide by their path instead of the app's one in six
+    // by ROM hash (a library of copies of a few ROMs has a few hashes), to check the packing with many wide tiles
+    int PretendWideOneIn = 0;
 
 private:
     void Run();
@@ -134,6 +163,10 @@ private:
     // the worker's own copy of every row (Publish reads it under Lock), and the last-played times (under Lock)
     std::vector<LibraryEntry> Rows;
     std::map<std::string, int64_t> Plays;
+    // the games' own settings, by ConfigKey (under Lock)
+    std::map<std::string, RomConfig> Configs;
+    // rc_hash reads through a global: one ROM at a time (the scan, and a game booted from outside the list)
+    std::mutex HashLock;
     // ids for rows the database couldn't store, unique for the run
     int64_t NextTempId = -1;
 };

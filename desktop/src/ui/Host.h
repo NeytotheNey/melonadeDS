@@ -57,6 +57,8 @@ struct Host
     std::function<bool(const std::string& key, const picojson::value& value)> ChangeSetting;
     // the Windows folder picker (UTF-8), starting in [start]; nothing when it was cancelled, or in a hidden run
     std::function<std::optional<std::string>(const std::string& start)> PickFolder;
+    // the file dialog for a GBA ROM (a game's GBA slot), the same way
+    std::function<std::optional<std::string>(const std::string& start)> PickGbaRom;
 };
 
 }

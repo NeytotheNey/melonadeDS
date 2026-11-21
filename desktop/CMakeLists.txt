@@ -114,6 +114,8 @@ add_executable(melonade-desktop
     src/resources.rc
     src/RomFile.cpp
     src/RomFile.h
+    src/RomConfig.cpp
+    src/RomConfig.h
     src/RunOptions.h
     src/SaveSlots.cpp
     src/SaveSlots.h
@@ -124,6 +126,7 @@ add_executable(melonade-desktop
     src/UiScript.cpp
     src/UiScript.h
     src/ui/GameDetailsScreen.cpp
+    src/ui/GameSettingsScreen.cpp
     src/ui/Host.h
     src/ui/Icons.h
     src/ui/InputScreen.cpp
@@ -131,6 +134,8 @@ add_executable(melonade-desktop
     src/ui/LibraryCards.cpp
     src/ui/LibraryCards.h
     src/ui/LibraryScreen.cpp
+    src/ui/MosaicLayout.cpp
+    src/ui/MosaicLayout.h
     src/ui/PauseScreen.cpp
     src/ui/Screen.h
     src/ui/Screens.h

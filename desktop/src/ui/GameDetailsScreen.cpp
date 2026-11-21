@@ -1,7 +1,8 @@
-// A game's details, from the library: its art, title and developer, the file, game code, region, size, when it was last played and its
-// RetroAchievements hash, with Play focused. Play boots it as Open ROM does (a zip or 7z unpacked first, which the button says). Back
-// goes back to the library, with the focus on the game's tile again. The press that opened the screen can't press Play: Play only takes
-// a press that started here (the app's CarriedOverKeyFilter)
+// A game's details, from the library: its art, title and developer, the file, game code, region, size, when it was last played, its
+// RetroAchievements hash and the game settings that differ from the defaults, with Play focused and Game settings beside it (left and
+// right move between them, as on the app's sheet). Play boots it as Open ROM does (a zip or 7z unpacked first, which the button says).
+// Back goes back to the library, with the focus on the game's tile again. The press that opened the screen can't press Play: Play only
+// takes a press that started here (the app's CarriedOverKeyFilter)
 #include <algorithm>
 #include <cmath>
 
@@ -37,6 +38,9 @@ public:
     {
         const Palette& p = app.Colors();
         Host& host = app.GetHost();
+        // the game's settings as they are now (the settings screen over this one changes them)
+        if (host.Library)
+            Entry.Config = host.Library->GetConfig(Frontend::Library::ConfigKey(Entry));
         ImVec2 win = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
         ImDrawList* draw = ImGui::GetWindowDrawList();
         float pad = app.Px(40), footer = FooterHeight(app);
@@ -95,6 +99,31 @@ public:
         facts.push_back({Icon::Schedule, "Last played", PlayedDate(Entry.LastPlayed)});
         if (Entry.State == LibraryEntry::kRead)
             facts.push_back({Icon::Trophy, "RetroAchievements hash", Entry.RaHash.empty() ? "None (rc_hash refused the ROM)" : Entry.RaHash, true});
+        // the game's own settings, the ones that aren't the default
+        {
+            const Frontend::RomConfig& c = Entry.Config;
+            std::string own;
+            auto add = [&](const std::string& part) { own += (own.empty() ? "" : ",  ") + part; };
+            if (Entry.DsiWare)
+                add("Boots as DSi (DSiWare)");
+            else if (c.ConsoleType != Frontend::RomConfig::Console::Default)
+                add(std::string("Boots as ") + Frontend::RomConfig::ConsoleName(c.ConsoleType));
+            if (c.Gba != Frontend::RomConfig::GbaSlot::None)
+            {
+                std::string slot = std::string("GBA slot: ") + Frontend::RomConfig::GbaSlotName(c.Gba);
+                if (c.Gba == Frontend::RomConfig::GbaSlot::GbaRom)
+                    slot += c.GbaRomPath.empty() ? " (not set)" : " (" + Frontend::PathToUtf8(Frontend::PathFromUtf8(c.GbaRomPath).filename()) + ")";
+                add(slot);
+            }
+            if (!c.CustomName.empty())
+            {
+                LibraryEntry banner = Entry;
+                banner.Config = Frontend::RomConfig();
+                add("Renamed from " + banner.Name());
+            }
+            if (!own.empty())
+                facts.push_back({Icon::Tune, "Game settings", own, true});
+        }
         float colW = std::floor((width - app.Px(24)) / 2);
         bool twoColumns = colW >= app.Px(200);
         if (!twoColumns)
@@ -146,7 +175,20 @@ public:
         const char* label = unpacking ? "Unpacking\xe2\x80\xa6" : Starting ? "Starting\xe2\x80\xa6" : "Play";
         const char* detail = Entry.IsArchive() && !Starting ? "Unpacked first, then kept for the next few games" : nullptr;
         ImGui::SetCursorScreenPos(ImVec2(x, y));
-        bool pressed = BigButton(app, "##play", Icon::PlayArrow, label, detail, true, std::min(width, app.Px(360)), true);
+        // Play and Game settings side by side, or one over the other on a narrow window
+        float playW = std::min(width, app.Px(360)), settingsW = app.Px(250);
+        bool side = width >= playW + app.Px(16) + settingsW;
+        bool pressed = BigButton(app, "##play", Icon::PlayArrow, label, detail, true, playW, true);
+        float playH = ImGui::GetItemRectSize().y;
+        ImGui::SetCursorScreenPos(side ? ImVec2(x + playW + app.Px(16), y) : ImVec2(x, y + playH + app.Px(12)));
+        // (a held confirm from the library doesn't press it either)
+        bool settings = BigButton(app, "##gamesettings", Icon::Tune, "Game settings", nullptr, false, side ? settingsW : playW);
+        if (settings && armedBefore && !Starting)
+        {
+            printf("ui: game settings of %s\n", Entry.Name().c_str());
+            fflush(stdout);
+            app.Push(MakeGameSettingsScreen(Entry));
+        }
         // a press counts once nothing was held when the screen opened
         if (pressed && armedBefore && !Starting && host.BootRom)
         {
@@ -158,7 +200,8 @@ public:
         else if (pressed && !armedBefore)
             printf("ui: play ignored (the press began on the library)\n");
 
-        FooterHints(app, {{"A|Enter", "Play"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
+        FooterHints(app, {{"A|Enter", "Choose"}, {"\xe2\x80\xb9 \xe2\x80\xba", "Play / Game settings"}, {"B|Esc", "Back"}},
+            p.SurfaceContainerLowest);
     }
 
 private:

@@ -148,6 +148,8 @@ constexpr int kCachedRoms = 3;
 
 std::string LibraryEntry::Name() const
 {
+    if (!Config.CustomName.empty())
+        return Config.CustomName;
     if (!Title.empty())
         return Title;
     return PathToUtf8(PathFromUtf8(FileName).stem());
@@ -190,8 +192,17 @@ void Library::Open(const fs::path& profileDir, int bannerLanguage)
     {
         std::lock_guard guard(Lock);
         Db.LoadPlays(Plays);
+        std::map<std::string, std::map<std::string, std::string>> configs;
+        Db.LoadConfigs(configs);
+        for (const auto& [key, fields] : configs)
+        {
+            RomConfig config = RomConfig::FromFields(fields);
+            if (!config.IsDefault())
+                Configs[key] = config;
+        }
     }
-    printf("library: %zu files in library.db (schema version %d), banner language %d\n", Rows.size(), Db.SchemaVersion(), Language);
+    printf("library: %zu files in library.db (schema version %d), %zu with settings of their own, banner language %d\n", Rows.size(),
+        Db.SchemaVersion(), Configs.size(), Language);
     fflush(stdout);
     Publish();
     Worker = std::thread([this] { Run(); });
@@ -294,6 +305,63 @@ void Library::MarkPlayed(const std::string& path)
     fflush(stdout);
 }
 
+std::string Library::ConfigKey(const std::string& raHash, const std::string& path)
+{
+    // the hash's 32 hex digits, or a path (which has a backslash, so the two can't meet)
+    return raHash.empty() ? Lower(NormalizePath(path)) : Lower(raHash);
+}
+
+RomConfig Library::GetConfig(const std::string& key) const
+{
+    std::lock_guard guard(Lock);
+    auto it = Configs.find(Lower(key));
+    return it != Configs.end() ? it->second : RomConfig();
+}
+
+bool Library::SetConfig(const std::string& key, const RomConfig& config)
+{
+    std::string k = Lower(key);
+    {
+        std::lock_guard guard(Lock);
+        if (config.IsDefault())
+            Configs.erase(k);
+        else
+            Configs[k] = config;
+        auto copy = std::make_shared<std::vector<LibraryEntry>>(*Snapshot);
+        for (LibraryEntry& e : *copy)
+        {
+            if (ConfigKey(e) == k)
+                e.Config = config;
+        }
+        Snapshot = copy;
+    }
+    Gen++;
+    bool ok = Db.StoreConfig(k, config.ToFields(), RomConfig::Keys());
+    printf("library: settings of %s: %s\n", k.c_str(), config.Describe().c_str());
+    fflush(stdout);
+    return ok;
+}
+
+Library::Identity Library::IdentityFor(const std::string& path, const std::string& romFile)
+{
+    std::string norm = NormalizePath(path);
+    {
+        std::lock_guard guard(Lock);
+        for (const LibraryEntry& e : *Snapshot)
+        {
+            if (e.State == LibraryEntry::kRead && _stricmp(e.Path.c_str(), norm.c_str()) == 0)
+                return {e.RaHash, e.DsiWare, true};
+        }
+    }
+    Identity id;
+    std::unique_ptr<RomData> data = OpenRomFile(PathFromUtf8(romFile));
+    RomInfo info;
+    std::lock_guard guard(HashLock);
+    if (data && ReadRomInfo(*data, Language, info))
+        id = {info.RaHash, info.DsiWare, true};
+    return id;
+}
+
 void Library::Publish()
 {
     auto list = std::make_shared<std::vector<LibraryEntry>>();
@@ -313,6 +381,9 @@ void Library::Publish()
         list->push_back(row);
         auto played = Plays.find(lower);
         list->back().LastPlayed = played != Plays.end() ? played->second : 0;
+        auto config = Configs.find(ConfigKey(row));
+        list->back().Config = config != Configs.end() ? config->second : RomConfig();
+        list->back().HasTitleArt = PretendTitleArt;
     }
     Snapshot = list;
     Gen++;
@@ -574,7 +645,10 @@ void Library::Scan()
                     if (broken)
                         error = "can't open it";
                 }
-                ok = data && ReadRomInfo(*data, Language, info);
+                {
+                    std::lock_guard hashGuard(HashLock);
+                    ok = data && ReadRomInfo(*data, Language, info);
+                }
                 broken = broken || (!ok && data && data->Failed());
             }
             catch (const std::exception& x)

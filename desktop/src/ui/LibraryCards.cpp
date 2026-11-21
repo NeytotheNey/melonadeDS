@@ -16,12 +16,18 @@ namespace Ui
 
 void GameArt(App& app, ImDrawList* draw, const Frontend::LibraryEntry& entry, ImVec2 min, ImVec2 max, float rounding, float fraction)
 {
+    GameArtIn(app, draw, entry, min, max, rounding, min, max, fraction);
+}
+
+void GameArtIn(App& app, ImDrawList* draw, const Frontend::LibraryEntry& entry, ImVec2 min, ImVec2 max, float rounding, ImVec2 iconMin,
+    ImVec2 iconMax, float fraction)
+{
     const Palette& p = app.Colors();
-    float w = max.x - min.x, h = max.y - min.y;
     // the card takes some of the icon's color, more in the dark theme, where the surface is darker
     ImU32 card = entry.Tint ? Blend(p.SurfaceContainerHigh, entry.Tint | 0xFF000000u, p.Dark ? 0.30f : 0.38f) : p.SurfaceContainerHighest;
     draw->AddRectFilled(min, max, card, rounding);
-    ImVec2 c(min.x + w / 2, min.y + h / 2);
+    float w = iconMax.x - iconMin.x, h = iconMax.y - iconMin.y;
+    ImVec2 c(iconMin.x + w / 2, iconMin.y + h / 2);
     if (entry.Icon)
     {
         GLuint texture = app.IconTexture(entry.Id, entry.Icon);

@@ -12,7 +12,9 @@ namespace Frontend
 namespace
 {
 
-std::optional<std::string> ShowOpenDialog(SDL_Window* parent, const std::string& startDir, bool folders)
+enum class Kind { Rom, Folder, GbaRom };
+
+std::optional<std::string> ShowOpenDialog(SDL_Window* parent, const std::string& startDir, Kind kind)
 {
     HWND owner = nullptr;
     SDL_SysWMinfo info;
@@ -26,10 +28,21 @@ std::optional<std::string> ShowOpenDialog(SDL_Window* parent, const std::string&
 
     DWORD options = 0;
     dialog->GetOptions(&options);
-    if (folders)
+    if (kind == Kind::Folder)
     {
         dialog->SetTitle(L"Choose a folder");
         dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PICKFOLDERS | FOS_PATHMUSTEXIST);
+    }
+    else if (kind == Kind::GbaRom)
+    {
+        const COMDLG_FILTERSPEC filters[] = {
+            {L"GBA games (*.gba)", L"*.gba"},
+            {L"All files", L"*.*"},
+        };
+        dialog->SetFileTypes(2, filters);
+        dialog->SetFileTypeIndex(1);
+        dialog->SetTitle(L"GBA ROM for the GBA slot");
+        dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST);
     }
     else
     {
@@ -76,12 +89,19 @@ std::optional<std::string> ShowOpenDialog(SDL_Window* parent, const std::string&
 
 std::optional<std::string> OpenRomDialog(SDL_Window* parent, const std::string& startDir)
 {
-    return ShowOpenDialog(parent, startDir, false);
+    return ShowOpenDialog(parent, startDir, Kind::Rom);
 }
 
 std::optional<std::string> OpenFolderDialog(SDL_Window* parent, const std::string& startDir)
 {
-    return ShowOpenDialog(parent, startDir, true);
+    return ShowOpenDialog(parent, startDir, Kind::Folder);
+}
+
+std::optional<std::string> OpenGbaRomDialog(SDL_Window* parent, const std::string& startDir)
+{
+    // (it opens in the ROM's folder)
+    std::string dir = startDir.empty() ? "" : PathToUtf8(PathFromUtf8(startDir).parent_path());
+    return ShowOpenDialog(parent, dir, Kind::GbaRom);
 }
 
 }

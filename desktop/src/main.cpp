@@ -145,7 +145,6 @@ struct Options
     // the files of a DSi boot (console_type dsi), which the configuration points at while the game runs
     struct DsiFiles { std::string Bios9, Bios7, Firmware, Nand, DsBios9, DsBios7; } Dsi;
     int ConsoleType = 0;       // console_type: 0 DS, 1 DSi
-    bool RumblePak = false;    // desktop_rumble_pak
     float FastForwardSpeed = 0; // fast_forward_speed_multiplier, 0 for unlimited
     bool FixedTime = false;    // the RTC starts at 2026-01-01 12:00 instead of now
     bool VSync = false;
@@ -184,6 +183,10 @@ struct Options
     std::string UiScriptPath;  // --ui-script
     std::string StateDir;      // --state-dir: the savestate slots' folder instead of the ROM's
     std::vector<std::string> RomFolders; // --rom-folder: the library's folders for this run (rom_search_dirs)
+    // --rom-config KEY=VALUE: over the booted game's own settings (RomConfig) for this run, never stored
+    std::vector<std::pair<std::string, std::string>> RomConfigOverrides;
+    bool PretendTitleArt = false; // --pretend-title-art: every game counts as having title art (the mosaic's wide tiles)
+    int PretendWideOneIn = 0;     // --pretend-wide-tiles N: one in N of them wide, by path
 };
 
 void Usage()
@@ -276,13 +279,22 @@ void Usage()
         "  --cache-dir DIR             Compute program cache directory\n"
         "  --verbose                   debug log lines on the console too\n"
         "\n"
-        "  --open SCREEN               open a menu screen at the start: library (or start), library/details (the\n"
-        "                              first game's, once the scan is done), pause, pause/save, pause/load,\n"
+        "  --open SCREEN               open a menu screen at the start: library (or start), library/details or\n"
+        "                              library/settings (the first game's details or game settings, once the scan\n"
+        "                              is done), pause, pause/save, pause/load,\n"
         "                              settings, settings/video (display, emulation, audio, controls, library),\n"
         "                              input, keyboard (a text field and the on-screen keyboard); with a\n"
         "                              game, once its first frame is shown\n"
         "  --rom-folder DIR            a folder for the game library (repeat it for more), for this run only:\n"
         "                              in place of the saved ones (rom_search_dirs), never written\n"
+        "  --rom-config KEY=VALUE      over the game's own settings (library.db's rom_config) for this run, for\n"
+        "                              whichever game boots (repeat it for more): console=default|ds|dsi,\n"
+        "                              gba-slot=none|gba-rom|rumble-pak|memory-expansion, gba-rom=FILE.gba,\n"
+        "                              name=TEXT; never stored. --console and --gba beat the stored ones too\n"
+        "  --pretend-title-art         every game counts as having title-screen art, so the Mosaic view gives one in\n"
+        "                              six of them a wide tile (a test until the art sync downloads real art)\n"
+        "  --pretend-wide-tiles N      the same, but one in N games is wide, picked by path (a library of copies of a\n"
+        "                              few ROMs has a few hashes), to check the packing with many wide tiles\n"
         "  --ui-script FILE            drive the menus from FILE, one step a line: up, down, left, right, confirm,\n"
         "                              back, tab-next, tab-prev, menu, text STRING, key NAME, pad NAME, wait N,\n"
         "                              wait-scan (until the library's scan is done), frame N (the game held at its\n"
@@ -470,6 +482,25 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--ui-script") opts.UiScriptPath = next();
         else if (arg == "--state-dir") opts.StateDir = next();
         else if (arg == "--rom-folder") opts.RomFolders.push_back(next());
+        else if (arg == "--rom-config")
+        {
+            std::string spec = next();
+            size_t eq = spec.find('=');
+            std::string error;
+            Frontend::RomConfig check;
+            if (eq == std::string::npos || !check.Apply(spec.substr(0, eq), spec.substr(eq + 1), error))
+            {
+                fprintf(stderr, "bad --rom-config %s (KEY=VALUE: %s)\n", spec.c_str(), error.empty() ? "no =" : error.c_str());
+                return false;
+            }
+            opts.RomConfigOverrides.emplace_back(spec.substr(0, eq), spec.substr(eq + 1));
+        }
+        else if (arg == "--pretend-title-art") opts.PretendTitleArt = true;
+        else if (arg == "--pretend-wide-tiles")
+        {
+            opts.PretendTitleArt = true;
+            opts.PretendWideOneIn = std::max(1, atoi(next().c_str()));
+        }
         else if (arg == "-h" || arg == "--help") { Usage(); exit(0); }
         else if (arg[0] == '-') { fprintf(stderr, "unknown option %s\n", arg.c_str()); return false; }
         else opts.RomPath = arg;
@@ -527,7 +558,6 @@ void ApplySettings(Options& opts, const Frontend::Settings& settings)
     opts.DsiBiosDir = settings.GetString("dsi_bios_dir", "");
     opts.BootScreen = settings.GetBool("show_bios", false);
     opts.ConsoleType = settings.GetString("console_type", "ds") == "dsi" ? 1 : 0;
-    opts.RumblePak = settings.GetBool("desktop_rumble_pak", false);
     opts.FastForwardSpeed = FastForwardSpeed(settings);
 }
 
@@ -1169,6 +1199,8 @@ int main(int argc, char** argv)
     Frontend::Library library;
     library.PostToUi = [&](std::function<void()> task) { messenger->Post(std::move(task)); };
     library.SetFolders(settings.GetStringList("rom_search_dirs"), settings.IsOverridden("rom_search_dirs"));
+    library.PretendTitleArt = opts.PretendTitleArt;
+    library.PretendWideOneIn = opts.PretendWideOneIn;
     library.Open(profileDir, Frontend::BannerLanguage());
 
     // the sound, through the SDL audio callback (Audio.h)
@@ -1502,9 +1534,12 @@ int main(int argc, char** argv)
     };
     // [romFile]: the file to load, when it isn't [path] itself (a zip or 7z's ROM, unpacked); [path] names the game (its save, slots,
     // last-played time). A zip or 7z given without one is unpacked here
+    // why the last boot failed, in words for a toast, when there's more to say than "Couldn't open" (a DSi boot without its files)
+    std::string bootError;
     auto bootGame = [&](const std::string& path, bool commandLine, std::string romFile = "") -> bool
     {
         stopGame();
+        bootError.clear();
         if (romFile.empty())
         {
             std::string error;
@@ -1520,6 +1555,43 @@ int main(int argc, char** argv)
         renderer = opts.Renderer;
         scale = opts.Scale;
         linear = opts.Linear;
+        // what the library waited to write (its last focused game)
+        settings.SaveIfChanged();
+
+        // The game's own settings (library.db, by its RetroAchievements hash: from the library, or read from the ROM for a game outside
+        // it), with --rom-config's on top: the console here, the GBA slot below. The command line beats them: --rom-config console=, then
+        // --console (console_type given for the run), then a DSiWare title's DSi (the app's RomConfig.forDsiWareTitle), then the game's own
+        Frontend::Library::Identity identity = library.IdentityFor(path, romFile);
+        Frontend::RomConfig stored = library.GetConfig(Frontend::Library::ConfigKey(identity.RaHash, path));
+        Frontend::RomConfig game = stored;
+        bool consoleArg = false;
+        for (const auto& [key, value] : opts.RomConfigOverrides)
+        {
+            std::string error;
+            game.Apply(key, value, error);
+            consoleArg |= key == "console";
+        }
+        const char* consoleFrom = "the Console setting";
+        using Console = Frontend::RomConfig::Console;
+        if (consoleArg && game.ConsoleType != Console::Default)
+        {
+            opts.ConsoleType = game.ConsoleType == Console::Dsi ? 1 : 0;
+            consoleFrom = "--rom-config";
+        }
+        else if (consoleArg || settings.IsOverridden("console_type"))
+            consoleFrom = consoleArg ? "the Console setting (--rom-config console=default)" : "--console";
+        else if (identity.DsiWare)
+        {
+            opts.ConsoleType = 1;
+            consoleFrom = "DSiWare";
+        }
+        else if (stored.ConsoleType != Console::Default)
+        {
+            opts.ConsoleType = stored.ConsoleType == Console::Dsi ? 1 : 0;
+            consoleFrom = "the game's settings";
+        }
+        printf("game settings: %s%s (by %s); boots as %s (%s)\n", game.Describe().c_str(), opts.RomConfigOverrides.empty() ? "" : " with --rom-config",
+            identity.RaHash.empty() ? "path" : identity.RaHash.c_str(), opts.ConsoleType == 1 ? "DSi" : "DS", consoleFrom);
 
         // The console, as before the shared code: FreeBIOS and a generated firmware unless --bios says otherwise
         std::unique_ptr<NDSArgs> args;
@@ -1530,6 +1602,7 @@ int main(int argc, char** argv)
             {
                 fprintf(stderr, "DSi mode needs the custom BIOS on, with the DS BIOS folder and the DSi BIOS folder (bios9.bin, bios7.bin, "
                     "firmware.bin, nand.bin) set\n");
+                bootError = "DSi mode needs the custom BIOS and the DSi BIOS folder (Settings > Emulation)";
                 return false;
             }
             std::string ds = settings.GetString("bios_dir", ""), dsi = opts.DsiBiosDir;
@@ -1540,6 +1613,7 @@ int main(int argc, char** argv)
             if (!built || !*built)
             {
                 fprintf(stderr, "the DSi BIOS, firmware or NAND in %s didn't load\n", dsi.c_str());
+                bootError = "The DSi BIOS, firmware or NAND didn't load";
                 return false;
             }
             args = std::move(*built);
@@ -1600,17 +1674,35 @@ int main(int argc, char** argv)
                 romFile.c_str(), savePath.c_str());
             return false;
         }
-        // the Rumble Pak in the GBA slot (desktop_rumble_pak, or --gba rumble), for the games that rumble
-        if ((opts.RumblePak && (!commandLine || opts.GbaRomPath.empty())) || (commandLine && opts.GbaRomPath == "rumble"))
+        // The GBA slot: the command line's --gba for its game, else the game's own setting (empty by default, as in the app)
+        using Slot = Frontend::RomConfig::GbaSlot;
+        Slot slot = game.Gba;
+        std::string gbaRom = game.GbaRomPath;
+        if (commandLine && !opts.GbaRomPath.empty())
+        {
+            slot = opts.GbaRomPath == "rumble" ? Slot::RumblePak : Slot::GbaRom;
+            gbaRom = opts.GbaRomPath;
+        }
+        if (slot == Slot::RumblePak)
         {
             instance->loadRumblePak();
             printf("GBA slot: Rumble Pak\n");
         }
-        else if (commandLine && !opts.GbaRomPath.empty())
+        else if (slot == Slot::MemoryExpansion)
         {
-            std::string gbaSave = fs::path(opts.GbaRomPath).replace_extension(".sav").string();
-            if (!EnsureSaveFile(gbaSave) || !instance->loadGbaRom(opts.GbaRomPath, gbaSave))
-                fprintf(stderr, "%s isn't a GBA ROM the core can parse\n", opts.GbaRomPath.c_str());
+            instance->loadGbaMemoryExpansion();
+            printf("GBA slot: Memory expansion\n");
+        }
+        else if (slot == Slot::GbaRom && gbaRom.empty())
+            fprintf(stderr, "GBA slot: no GBA ROM chosen, so it's empty\n");
+        else if (slot == Slot::GbaRom)
+        {
+            // its save next to it, as --gba has always done
+            std::string gbaSave = Frontend::PathToUtf8(Frontend::PathFromUtf8(gbaRom).replace_extension(".sav"));
+            if (!EnsureSaveFile(gbaSave) || !instance->loadGbaRom(gbaRom, gbaSave))
+                fprintf(stderr, "%s isn't a GBA ROM the core can parse\n", gbaRom.c_str());
+            else
+                printf("GBA slot: %s\n", gbaRom.c_str());
         }
         emu = instance.get();
         romPath = path;
@@ -1799,7 +1891,7 @@ int main(int argc, char** argv)
             // back to the library (the game that ran before is stopped)
             if (!emu && ui.TopId() != "library")
                 ui.ShowStart();
-            ui.Toast("Couldn't open " + Frontend::PathToUtf8(Frontend::PathFromUtf8(path).filename()));
+            ui.Toast(!bootError.empty() ? bootError : "Couldn't open " + Frontend::PathToUtf8(Frontend::PathFromUtf8(path).filename()));
         }
     };
     host.BootRom = [&](const std::string& path) -> bool
@@ -1851,6 +1943,12 @@ int main(int argc, char** argv)
         if (opts.Hidden)
             return std::nullopt;
         return Frontend::OpenFolderDialog(window, start);
+    };
+    host.PickGbaRom = [&](const std::string& start) -> std::optional<std::string>
+    {
+        if (opts.Hidden)
+            return std::nullopt;
+        return Frontend::OpenGbaRomDialog(window, start);
     };
     // the renderer settings again, on the emulator thread when a game runs (MakeConfiguration reads them there)
     auto applyToggles = [&]
@@ -1970,7 +2068,7 @@ int main(int argc, char** argv)
         }
         // the console, the BIOS, the JIT and the GBA slot are set up as a game boots
         if (key == "enable_jit" || key == "console_type" || key == "use_custom_bios" || key == "bios_dir" || key == "dsi_bios_dir"
-            || key == "show_bios" || key == "desktop_rumble_pak")
+            || key == "show_bios")
             return false;
         // the rest is read when it's used (desktop_fullscreen_mode at the next F11)
         return true;
@@ -1982,14 +2080,16 @@ int main(int argc, char** argv)
     }
 
     // the command line's ROM, unless --open asks for the library
-    bool openLibrary = opts.OpenScreen == "start" || opts.OpenScreen == "library" || opts.OpenScreen == "library/details";
+    bool openLibrary = opts.OpenScreen == "start" || opts.OpenScreen == "library" || opts.OpenScreen == "library/details"
+        || opts.OpenScreen == "library/settings";
     if (!opts.RomPath.empty() && !openLibrary)
     {
         if (!bootGame(opts.RomPath, true))
             return 1;
     }
     else
-        ui.ShowStart(opts.OpenScreen == "library/details");
+        ui.ShowStart(opts.OpenScreen == "library/details" ? Ui::LibraryOpen::Details
+                     : opts.OpenScreen == "library/settings" ? Ui::LibraryOpen::Settings : Ui::LibraryOpen::None);
     // --open: with a game once its first frame is shown, like the script
     std::string pendingOpen = openLibrary ? "" : opts.OpenScreen;
 
@@ -2329,6 +2429,15 @@ int main(int argc, char** argv)
         case Kind::MouseDown:
         case Kind::MouseUp:
         {
+            // the pointer moved there first: the menus (ImGui) take a click where the mouse last moved, and a hidden window has no
+            // mouse position of its own
+            SDL_Event motion {};
+            motion.type = SDL_MOUSEMOTION;
+            motion.motion.windowID = SDL_GetWindowID(window);
+            motion.motion.x = step.Value;
+            motion.motion.y = (int)step.Number;
+            motion.motion.state = step.Type == Kind::MouseUp ? SDL_BUTTON_LMASK : 0;
+            SDL_PushEvent(&motion);
             SDL_Event event {};
             bool down = step.Type == Kind::MouseDown;
             event.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
@@ -2652,6 +2761,8 @@ int main(int argc, char** argv)
     input.StopRumble();
     emuThread.Stop();
     emu = nullptr;
+    // what waited to be written (the library's last focused game)
+    settings.SaveIfChanged();
     ui.Shutdown();
     // its worker done (a scan stops between two files)
     library.Close();
