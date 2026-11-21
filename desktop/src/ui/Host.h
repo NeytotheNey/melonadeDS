@@ -10,7 +10,7 @@
 #include "picojson/picojson.h"
 #include "SaveSlots.h"
 
-namespace Frontend { class Settings; class Input; class Library; }
+namespace Frontend { class Settings; class Input; class Library; class MetadataSync; }
 
 namespace Ui
 {
@@ -22,6 +22,14 @@ struct Host
     Frontend::Input* Input = nullptr;
     // the game library: its list, its scan and its folders (rom_search_dirs, changed through ChangeSetting)
     Frontend::Library* Library = nullptr;
+    // the metadata and art sync (its status, the key test, Refresh metadata, Clear downloaded art)
+    Frontend::MetadataSync* Metadata = nullptr;
+    // the RetroAchievements Web API key saved (encrypted in settings.json) and used, or removed
+    // (false when it couldn't be stored: it's used for the run only, and a toast says so)
+    std::function<bool(const std::string& key)> SaveRaKey;
+    std::function<void()> RemoveRaKey;
+    // where the key in use came from: "" none, "saved", "command line" (--ra-web-api-key, for the run only)
+    std::function<std::string()> RaKeySource;
     // a hidden (scripted) run: no file dialog
     bool Hidden = false;
 

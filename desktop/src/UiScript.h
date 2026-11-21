@@ -16,6 +16,8 @@
 //   shot FILE.bmp      the window as drawn now, menus included (as --window-shot; detached: FILE_top.bmp and FILE_bottom.bmp)
 //   screenshot FILE.bmp the game's last frame at the internal resolution (as --screenshot)
 //   wait-scan          until the library's scan (and a game being unpacked) is done
+//   wait-sync          until the metadata sync has nothing to do (while a game runs it waits for the game) and the art it published
+//                      is on screen
 //   quit               the run ends here (it also ends after the last line)
 // Each step takes two passes of the frame loop (a press and its release; a pass is a UI frame while a menu is up), so the menus react to
 // one before the next. The script starts on the library, or with a game once its first frame is shown
@@ -29,7 +31,7 @@ namespace Frontend
 
 struct UiStep
 {
-    enum class Kind { Action, Text, Key, Pad, PadDown, PadUp, KeyDown, KeyUp, KeyRepeat, MouseDown, MouseUp, Axis, Wait, Sleep, Frame, Shot, Screenshot, WaitScan, Quit } Type;
+    enum class Kind { Action, Text, Key, Pad, PadDown, PadUp, KeyDown, KeyUp, KeyRepeat, MouseDown, MouseUp, Axis, Wait, Sleep, Frame, Shot, Screenshot, WaitScan, WaitSync, Quit } Type;
     std::string Arg;  // the action's name, the text, the key's or button's name, the file
     std::string Text; // the line as written
     unsigned Number = 0;

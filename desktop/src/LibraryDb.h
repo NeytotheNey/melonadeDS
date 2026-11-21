@@ -10,7 +10,15 @@
 // Schema version 2 (phase 2 step B) adds:
 //   rom_config    each game's own settings (RomConfig.h), by the ROM's RetroAchievements hash (its path when it has none), so they
 //                 survive a move or a rename: one row per field that differs from the default, under the app's RomConfigDto names
-// Step C's metadata tables come as version 3 and up: a new entry in kMigrations (LibraryDb.cpp), run once on open
+// Schema version 3 (phase 2 step C, the metadata sync) adds:
+//   ra_hash_library   RetroAchievements' hash library for DS (18) and DSi (78): every registered ROM hash to its game id, from the connect
+//                     API's hashlibrary, replaced at most once a day (the app's ra_game_hash_library)
+//   ra_game_metadata  one row per game id: what API_GetGame said (the app's ra_game_metadata, plus the title), when, and fetch_status
+//                     (0 ok, 1 not found, 2 failed or due for a refresh)
+//   libretro_art      a libretro thumbnail (No-Intro name and kind) that wasn't there (404), so it isn't asked for again until a refresh
+//   sync_state        when the hash library, the libretro DAT and the last sync were done
+// and fills roms' crc32, md5 and sha1 (the whole ROM's, for the libretro DAT), which the sync computes once per file
+// Later versions: a new entry in kMigrations (LibraryDb.cpp), run once on open
 #pragma once
 
 #include <cstdint>
@@ -26,6 +34,7 @@ namespace Frontend
 {
 
 struct LibraryEntry;
+struct RaGameRow;
 
 class LibraryDb
 {
@@ -52,6 +61,28 @@ public:
     bool LoadConfigs(std::map<std::string, std::map<std::string, std::string>>& out);
     // [game]'s rows for [keys] replaced by [fields] (the ones not in [keys] stay), in one transaction
     bool StoreConfig(const std::string& game, const std::map<std::string, std::string>& fields, const std::vector<std::string>& keys);
+
+    // ra_hash_library: hash (lowercase) to game id; replaced for one console id at a time, all or nothing
+    bool LoadHashLibrary(std::map<std::string, int64_t>& out);
+    bool StoreHashLibrary(int consoleId, const std::vector<std::pair<std::string, int64_t>>& hashes);
+    // ra_game_metadata
+    bool LoadGames(std::map<int64_t, RaGameRow>& out);
+    bool StoreGame(const RaGameRow& row);
+    // fetch_status 2 on the rows fetched at or before [cutoff] (ms since 1970), so the next sync fetches them again; how many
+    int MarkGamesForRefetch(int64_t cutoff);
+    // roms' hashes, by row id, with the file's size and time they're for (only the rows that have them)
+    struct RomHashRow { int64_t Id; uint64_t FileSize; int64_t FileTime; std::string Crc32, Md5, Sha1; };
+    bool LoadRomHashes(std::vector<RomHashRow>& out);
+    // stored only if the row still has that size and time (a rescan that read the file again in the meantime cleared them)
+    bool StoreRomHashes(const RomHashRow& row);
+    // libretro_art: "name|kind" to when it was found missing
+    bool LoadLibretroMissing(std::map<std::string, int64_t>& out);
+    bool StoreLibretroMissing(const std::string& name, const std::string& kind, int64_t when);
+    // the marks made at or before [cutoff] forgotten (Refresh metadata); how many
+    int ForgetLibretroMissing(int64_t cutoff);
+    // sync_state
+    std::string GetState(const std::string& key);
+    bool SetState(const std::string& key, const std::string& value);
 
 private:
     bool Exec(const char* sql);

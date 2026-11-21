@@ -54,6 +54,8 @@
 #include "Frontend.h"
 #include "Input.h"
 #include "Library.h"
+#include "MetadataSync.h"
+#include "Secret.h"
 #include "Presenter.h"
 #include "RomFile.h"
 #include "RunOptions.h"
@@ -187,6 +189,10 @@ struct Options
     std::vector<std::pair<std::string, std::string>> RomConfigOverrides;
     bool PretendTitleArt = false; // --pretend-title-art: every game counts as having title art (the mosaic's wide tiles)
     int PretendWideOneIn = 0;     // --pretend-wide-tiles N: one in N of them wide, by path
+    // the metadata sync (MetadataSync.h): --no-sync, --sync-now, the test servers, and a Web API key for the run only
+    bool NoSync = false, SyncNow = false;
+    std::string MetadataBaseUrl, ThumbnailsBaseUrl, DatUrl, RaWebApiKey;
+    int SyncBackoffMs = 0;     // --sync-backoff S: the first wait after a sync stopped early (tests; 15 minutes otherwise)
 };
 
 void Usage()
@@ -292,12 +298,27 @@ void Usage()
         "                              gba-slot=none|gba-rom|rumble-pak|memory-expansion, gba-rom=FILE.gba,\n"
         "                              name=TEXT; never stored. --console and --gba beat the stored ones too\n"
         "  --pretend-title-art         every game counts as having title-screen art, so the Mosaic view gives one in\n"
-        "                              six of them a wide tile (a test until the art sync downloads real art)\n"
-        "  --pretend-wide-tiles N      the same, but one in N games is wide, picked by path (a library of copies of a\n"
-        "                              few ROMs has a few hashes), to check the packing with many wide tiles\n"
+        "                              six of them a wide tile (without downloaded art)\n"
+        "  --pretend-wide-tiles N      one in N games with title-screen art (downloaded, or with --pretend-title-art)\n"
+        "                              is wide, picked by path instead of the ROM hash (a library of copies of a few\n"
+        "                              ROMs has a few hashes), to check the packing with many wide tiles\n"
+        "  --no-sync                   no network at all for this run: the metadata and art sync makes no requests\n"
+        "                              (the art already downloaded still shows, and ROM hashes are still computed)\n"
+        "  --sync-now                  scan the library and sync its metadata at the start, without opening the\n"
+        "                              library, with RetroAchievements' hash library fetched whatever its age\n"
+        "  --ra-web-api-key KEY        a RetroAchievements Web API key for this run only, never stored\n"
+        "  --metadata-base-url URL     RetroAchievements' hosts for this run (a test server): URL/dorequest.php,\n"
+        "                              URL/API/API_GetGame.php and URL/Images/... in place of retroachievements.org\n"
+        "                              and media.retroachievements.org\n"
+        "  --thumbnails-base-url URL   the libretro thumbnails' host for this run: URL/Named_Boxarts/<name>.png and\n"
+        "                              URL/Named_Titles/<name>.png\n"
+        "  --dat-url URL               the No-Intro DS DAT's address for this run (default: libretro-database's)\n"
+        "  --sync-backoff S            a sync that stopped early tries again after S seconds, then twice that, ...\n"
+        "                              (default 900, the app's 15 minutes), for tests\n"
         "  --ui-script FILE            drive the menus from FILE, one step a line: up, down, left, right, confirm,\n"
         "                              back, tab-next, tab-prev, menu, text STRING, key NAME, pad NAME, wait N,\n"
-        "                              wait-scan (until the library's scan is done), frame N (the game held at its\n"
+        "                              wait-scan (until the library's scan is done), wait-sync (until the metadata\n"
+        "                              sync is idle and its art drawn), frame N (the game held at its\n"
         "                              frame N), shot FILE.bmp, screenshot FILE.bmp, quit. It starts on the library\n"
         "                              or once the game's first frame is shown, and the run ends after its last line\n"
         "                              (README: UI scripts)\n"
@@ -496,9 +517,15 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             opts.RomConfigOverrides.emplace_back(spec.substr(0, eq), spec.substr(eq + 1));
         }
         else if (arg == "--pretend-title-art") opts.PretendTitleArt = true;
+        else if (arg == "--no-sync") opts.NoSync = true;
+        else if (arg == "--sync-now") opts.SyncNow = true;
+        else if (arg == "--metadata-base-url") opts.MetadataBaseUrl = next();
+        else if (arg == "--thumbnails-base-url") opts.ThumbnailsBaseUrl = next();
+        else if (arg == "--dat-url") opts.DatUrl = next();
+        else if (arg == "--ra-web-api-key") opts.RaWebApiKey = next();
+        else if (arg == "--sync-backoff") opts.SyncBackoffMs = std::max(1, atoi(next().c_str())) * 1000;
         else if (arg == "--pretend-wide-tiles")
         {
-            opts.PretendTitleArt = true;
             opts.PretendWideOneIn = std::max(1, atoi(next().c_str()));
         }
         else if (arg == "-h" || arg == "--help") { Usage(); exit(0); }
@@ -1201,7 +1228,38 @@ int main(int argc, char** argv)
     library.SetFolders(settings.GetStringList("rom_search_dirs"), settings.IsOverridden("rom_search_dirs"));
     library.PretendTitleArt = opts.PretendTitleArt;
     library.PretendWideOneIn = opts.PretendWideOneIn;
+    // the metadata and art sync, asked for after each scan (on the library's worker)
+    Frontend::MetadataSync metadata;
+    library.OnScanDone = [&] { metadata.Request(); };
     library.Open(profileDir, Frontend::BannerLanguage());
+    {
+        Frontend::MetadataSync::Config config;
+        config.NoSync = opts.NoSync;
+        config.SyncNow = opts.SyncNow;
+        if (opts.SyncBackoffMs > 0)
+            config.BackoffMs = opts.SyncBackoffMs;
+        auto base = [](std::string url) { while (!url.empty() && url.back() == '/') url.pop_back(); return url; };
+        if (!opts.MetadataBaseUrl.empty())
+            config.RaBase = config.MediaBase = base(opts.MetadataBaseUrl);
+        if (!opts.ThumbnailsBaseUrl.empty())
+            config.ThumbnailsBase = base(opts.ThumbnailsBaseUrl);
+        if (!opts.DatUrl.empty())
+            config.DatUrl = opts.DatUrl;
+        // a generic User-Agent: the app and its version, nothing about the user
+        config.UserAgent = "melonadeDS-desktop/" MELONADE_VERSION_NAME;
+        // the key: the command line's for the run, else the one saved (DPAPI, settings.json's desktop_ra_web_api_key)
+        std::string key = opts.RaWebApiKey;
+        if (key.empty())
+        {
+            std::string stored = settings.GetString("desktop_ra_web_api_key", "");
+            if (!stored.empty() && !Frontend::UnprotectSecret(stored, key))
+                fprintf(stderr, "metadata: the saved Web API key can't be read (another Windows account's?); it's ignored\n");
+        }
+        metadata.Open(library, config, key, settings.GetBool("desktop_libretro_thumbnails", true));
+        // --sync-now: the scan now (its end asks for the sync), whatever screen opens
+        if (opts.SyncNow)
+            library.EnsureScanned();
+    }
 
     // the sound, through the SDL audio callback (Audio.h)
     Frontend::AudioOutput audio;
@@ -1527,6 +1585,8 @@ int main(int argc, char** argv)
         ffToggle = false;
         updateFastForward();
         windows.UpdateTitles("");
+        // back to the library: the sync that was held off, or asked for meanwhile
+        metadata.GameEnded();
         // with the process's handle count, so a leak over many boots shows
         DWORD handles = 0;
         GetProcessHandleCount(GetCurrentProcess(), &handles);
@@ -1707,6 +1767,8 @@ int main(int argc, char** argv)
         emu = instance.get();
         romPath = path;
         commandLineGame = commandLine;
+        // no sync while a game runs (one running stops), as the app's EmulatorViewModel
+        metadata.GameStarted();
         // the slots: --state-dir for the command line's game only; otherwise next to the ROM, or in a test run in the profile
         fs::path stateDir = commandLine && !opts.StateDir.empty() ? Frontend::PathFromUtf8(opts.StateDir)
             : temporaryProfile ? profileDir / "states" : fs::path();
@@ -1792,6 +1854,41 @@ int main(int argc, char** argv)
     messenger->OnRumbleStop = [&] { input.StopRumble(); };
     host.Settings = &settings;
     host.Library = &library;
+    host.Metadata = &metadata;
+    // the key in use: the command line's (for the run), the saved one, or none
+    std::string raKeySource = !opts.RaWebApiKey.empty() ? "command line" : metadata.HasApiKey() ? "saved" : "";
+    host.RaKeySource = [&] { return raKeySource; };
+    host.SaveRaKey = [&](const std::string& key) -> bool
+    {
+        bool kept = true;
+        std::string stored = Frontend::ProtectSecret(key);
+        if (stored.empty())
+        {
+            ui.Toast("Windows couldn't encrypt the key; it's used for this run only");
+            raKeySource = "command line";
+            kept = false;
+        }
+        else
+        {
+            // stored, not an override: a key typed in the menus is kept even when --ra-web-api-key gave the run's
+            settings.SetStored("desktop_ra_web_api_key", picojson::value(stored));
+            settings.Save();
+            raKeySource = "saved";
+        }
+        printf("settings: desktop_ra_web_api_key = (encrypted)\n");
+        fflush(stdout);
+        metadata.SetApiKey(key);
+        return kept;
+    };
+    host.RemoveRaKey = [&]
+    {
+        settings.SetStored("desktop_ra_web_api_key", picojson::value(std::string()));
+        settings.Save();
+        raKeySource.clear();
+        printf("settings: desktop_ra_web_api_key removed\n");
+        fflush(stdout);
+        metadata.SetApiKey("");
+    };
     host.Hidden = opts.Hidden;
     host.GameRunning = [&] { return emu != nullptr; };
     host.GameTitle = [&] { return Frontend::PathToUtf8(Frontend::PathFromUtf8(romPath).stem()); };
@@ -2004,6 +2101,11 @@ int main(int argc, char** argv)
             library.Rescan();
             return true;
         }
+        if (key == "desktop_libretro_thumbnails")
+        {
+            metadata.SetLibretro(settings.GetBool(key, true));
+            return true;
+        }
         if (key == "video_renderer")
         {
             std::string r = text();
@@ -2101,6 +2203,8 @@ int main(int argc, char** argv)
     std::chrono::steady_clock::time_point scriptSleepUntil {};
     bool scriptWaitFrame = false;
     bool scriptWaitScan = false;
+    bool scriptWaitSync = false;
+    int scriptSyncQuiet = 0;
     u32 scriptFrame = 0;
     std::function<void()> scriptRelease;
 
@@ -2311,6 +2415,18 @@ int main(int argc, char** argv)
             scriptDelay = 1;
             return;
         }
+        if (scriptWaitSync)
+        {
+            // idle, with its art drawn, for a few passes in a row (a publish lands a frame before the art is asked for)
+            bool quiet = !metadata.Busy() && !ui.ArtPending();
+            scriptSyncQuiet = quiet ? scriptSyncQuiet + 1 : 0;
+            if (scriptSyncQuiet < 4)
+                return;
+            scriptWaitSync = false;
+            printf("script: the metadata sync is idle (requests: %s)\n", metadata.RequestCounts().c_str());
+            scriptDelay = 1;
+            return;
+        }
         if (scriptWaitFrame)
         {
             if (emu && emuThread.HeldAt() != scriptFrame && !emuThread.IsFinished())
@@ -2499,6 +2615,10 @@ int main(int argc, char** argv)
             break;
         case Kind::WaitScan:
             scriptWaitScan = true;
+            break;
+        case Kind::WaitSync:
+            scriptWaitSync = true;
+            scriptSyncQuiet = 0;
             break;
         case Kind::Quit:
             scriptEnded = true;
@@ -2764,7 +2884,8 @@ int main(int argc, char** argv)
     // what waited to be written (the library's last focused game)
     settings.SaveIfChanged();
     ui.Shutdown();
-    // its worker done (a scan stops between two files)
+    // the sync stopped (its requests cancelled), then the library's worker (a scan stops between two files)
+    metadata.Close();
     library.Close();
     MelonDSAndroid::frontendContext.eventMessenger = nullptr;
     presenter.Free();

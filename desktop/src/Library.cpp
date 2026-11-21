@@ -152,6 +152,8 @@ std::string LibraryEntry::Name() const
         return Config.CustomName;
     if (!Title.empty())
         return Title;
+    if (RaGame && !RaGame->Title.empty())
+        return RaGame->Title;
     return PathToUtf8(PathFromUtf8(FileName).stem());
 }
 
@@ -183,6 +185,7 @@ bool Library::SameFolder(const std::string& a, const std::string& b)
 void Library::Open(const fs::path& profileDir, int bannerLanguage)
 {
     Language = bannerLanguage;
+    Profile = profileDir;
     CacheDir = (profileDir / "rom-cache").make_preferred();
     if (!Db.Open(profileDir / "library.db"))
         fprintf(stderr, "library: the library is kept in memory for this run\n");
@@ -342,6 +345,16 @@ bool Library::SetConfig(const std::string& key, const RomConfig& config)
     return ok;
 }
 
+void Library::SetMetadata(std::shared_ptr<const MetadataIndex> index, bool libretro)
+{
+    {
+        std::lock_guard guard(Lock);
+        Meta = std::move(index);
+        MetaLibretro = libretro;
+    }
+    Publish();
+}
+
 Library::Identity Library::IdentityFor(const std::string& path, const std::string& romFile)
 {
     std::string norm = NormalizePath(path);
@@ -383,7 +396,9 @@ void Library::Publish()
         list->back().LastPlayed = played != Plays.end() ? played->second : 0;
         auto config = Configs.find(ConfigKey(row));
         list->back().Config = config != Configs.end() ? config->second : RomConfig();
-        list->back().HasTitleArt = PretendTitleArt;
+        if (Meta)
+            ApplyMetadata(*Meta, MetaLibretro, list->back());
+        list->back().HasTitleArt = PretendTitleArt || !list->back().TitleArtFile.empty();
     }
     Snapshot = list;
     Gen++;
@@ -760,6 +775,8 @@ void Library::Scan()
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(), games, read, unchanged, online, failed,
         notRoms, removed);
     fflush(stdout);
+    if (OnScanDone && !Stopping)
+        OnScanDone();
 }
 
 }

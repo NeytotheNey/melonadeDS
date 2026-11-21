@@ -13,6 +13,7 @@
 #include "imgui_internal.h"
 #include "Icons.h"
 #include "LibraryCards.h"
+#include "MetadataSync.h"
 #include "MosaicLayout.h"
 #include "Screens.h"
 #include "Settings.h"
@@ -303,6 +304,10 @@ public:
             status = "Looking for games\xe2\x80\xa6";
         else if (total > 0)
             status = std::to_string(total) + (total == 1 ? " game" : " games");
+        // the metadata sync at work (Settings > Library says what it's doing)
+        bool syncing = !progress.Scanning && !progress.Preparing && total > 0 && host.Metadata && host.Metadata->GetStatus().Running;
+        if (syncing)
+            status += "  \xc2\xb7  Getting details and art\xe2\x80\xa6";
         if (!status.empty())
         {
             float room = win.x + size.x - pad - (m0.x + mark + app.Px(200));
@@ -310,7 +315,7 @@ public:
             ImVec2 s = TextSize(app, app.Regular, 16, fitted.c_str());
             float sx = win.x + size.x - pad - s.x;
             TextAt(app, app.Regular, 16, ImVec2(sx, m0.y + (mark - s.y) / 2), p.OnSurfaceVariant, fitted.c_str());
-            if (progress.Scanning || progress.Preparing)
+            if (progress.Scanning || progress.Preparing || syncing)
                 IconAt(app, Icon::Sync, 20, ImVec2(sx - app.Px(16), m0.y + mark / 2), p.Primary);
         }
 
@@ -748,7 +753,16 @@ private:
                     if (focused)
                         FocusRing(app, draw, at, max, radius);
                     ImVec2 a0(at.x + inset, at.y + inset), a1(a0.x + artW, a0.y + artH);
-                    GameArt(app, draw, e, a0, a1, app.Px(12), 0.62f);
+                    if (GameArt(app, draw, e, a0, a1, app.Px(12), 0.62f) && e.Icon)
+                    {
+                        // the banner icon as a badge in the art's corner, as the app's grid tile
+                        float b = app.Px(40);
+                        ImVec2 b0(a0.x + app.Px(8), a1.y - app.Px(8) - b), b1(b0.x + b, b0.y + b);
+                        draw->AddRectFilled(ImVec2(b0.x - app.Px(3), b0.y - app.Px(3)), ImVec2(b1.x + app.Px(3), b1.y + app.Px(3)),
+                            WithAlpha(p.SurfaceContainerHighest, 0.92f), app.Px(8));
+                        if (GLuint icon = app.IconTexture(e.Id, e.Icon))
+                            draw->AddImage(ImTextureRef((ImTextureID)(intptr_t)icon), b0, b1);
+                    }
                     if (e.State == LibraryEntry::kNotRead)
                         IconAt(app, Icon::Cloud, 18, ImVec2(a1.x - app.Px(16), a0.y + app.Px(16)), p.OnSurfaceVariant);
                     ImU32 on = focused ? p.OnSecondaryContainer : p.OnSurface;
@@ -803,6 +817,14 @@ private:
             }
             return IsWideMosaicGame(e.RaHash);
         });
+        // the same tiles in the same order (a sync published art that changes no tile's size): no new packing, so nothing moves
+        bool same = !Bands.empty() && entries.size() == PackedSizes.size() && columns == PackedColumns
+            && std::equal(entries.begin(), entries.end(), PackedSizes.begin(), [](const MosaicEntry& x, const MosaicEntry& y)
+            { return x.Item == y.Item && x.Size == y.Size; });
+        if (same)
+            return;
+        PackedSizes = entries;
+        PackedColumns = columns;
         Bands = PackMosaic(entries, columns);
         RowBand.clear();
         ItemTile.assign(Visible.size(), {0, 0});
@@ -959,6 +981,15 @@ private:
         }
 
         float radius = featured ? app.Px(20) : app.Px(14);
+        // the art fills the tile, with the title on a scrim (the app's tile with art): a wide tile's title screen, else the game's art
+        const Frontend::ArtRef& artFile = tile.Size == MosaicSize::Wide && !e.TitleArtFile.empty() ? e.TitleArtFile : e.ArtFile;
+        bool art = false;
+        if (!artFile.empty())
+        {
+            draw->AddRectFilled(t0, t1, p.SurfaceContainerHighest, radius);
+            art = ArtImage(app, draw, artFile, IsTitleArt(artFile), t0, t1, radius, true);
+        }
+        const ImU32 onArt = IM_COL32(255, 255, 255, 255), onArtSub = IM_COL32(255, 255, 255, 205);
         if (!featured)
         {
             // the icon over the title (two lines at the bottom), as the app's tile without art
@@ -966,14 +997,17 @@ private:
             float lineH = TextSize(app, app.Medium, 15, "Ag").y;
             std::vector<std::string> lines = WrapLines(app, app.Medium, 15, e.Name(), size.x - 2 * tx, 2);
             float textH = lines.size() * lineH;
-            GameArtIn(app, draw, e, t0, t1, radius, ImVec2(t0.x + app.Px(8), t0.y + app.Px(8)),
-                ImVec2(t1.x - app.Px(8), t1.y - app.Px(12) - textH), 0.75f);
+            if (art)
+                Scrim(app, draw, t0, t1, t1.y - app.Px(16) - textH, radius);
+            else
+                GameArtIn(app, draw, e, t0, t1, radius, ImVec2(t0.x + app.Px(8), t0.y + app.Px(8)),
+                    ImVec2(t1.x - app.Px(8), t1.y - app.Px(12) - textH), 0.75f);
             if (held || hovered)
                 draw->AddRectFilled(t0, t1, WithAlpha(p.OnSurface, held ? 0.12f : 0.08f), radius);
             float y = t1.y - app.Px(10) - textH;
             for (const std::string& line : lines)
             {
-                TextAt(app, app.Medium, 15, ImVec2(t0.x + tx, y), p.OnSurface, line.c_str());
+                TextAt(app, app.Medium, 15, ImVec2(t0.x + tx, y), art ? onArt : p.OnSurface, line.c_str());
                 y += lineH;
             }
             if (focused)
@@ -994,7 +1028,10 @@ private:
         float playedY = y;
         y -= app.Px(4) + lines.size() * titleLineH;
         float titleY = y;
-        GameArtIn(app, draw, e, t0, t1, radius, ImVec2(t0.x + pad, t0.y + app.Px(48)), ImVec2(t1.x - pad, titleY - app.Px(8)), 0.8f);
+        if (art)
+            Scrim(app, draw, t0, t1, titleY - app.Px(12), radius);
+        else
+            GameArtIn(app, draw, e, t0, t1, radius, ImVec2(t0.x + pad, t0.y + app.Px(48)), ImVec2(t1.x - pad, titleY - app.Px(8)), 0.8f);
         if (held || hovered)
             draw->AddRectFilled(t0, t1, WithAlpha(p.OnSurface, held ? 0.12f : 0.08f), radius);
         // the label in the corner
@@ -1005,11 +1042,11 @@ private:
         TextAt(app, app.Medium, 12, ImVec2(e0.x + app.Px(7), e0.y + app.Px(3)), p.OnSecondaryContainer, eyebrow);
         for (const std::string& line : lines)
         {
-            TextAt(app, app.Medium, 19, ImVec2(t0.x + pad, titleY), p.OnSurface, line.c_str());
+            TextAt(app, app.Medium, 19, ImVec2(t0.x + pad, titleY), art ? onArt : p.OnSurface, line.c_str());
             titleY += titleLineH;
         }
         if (!played.empty())
-            TextAt(app, app.Regular, 14, ImVec2(t0.x + pad, playedY), p.OnSurfaceVariant, played.c_str());
+            TextAt(app, app.Regular, 14, ImVec2(t0.x + pad, playedY), art ? onArtSub : p.OnSurfaceVariant, played.c_str());
         if (focused)
             FocusRing(app, draw, t0, t1, radius);
 
@@ -1098,7 +1135,7 @@ private:
                 draw->AddCircleFilled(c, menuD / 2, WithAlpha(p.OnSurface, 0.08f));
             if (mf)
                 draw->AddCircle(c, menuD / 2 + app.Px(4), p.Primary, 0, std::max(2.f, IM_ROUND(app.Px(3))));
-            IconAt(app, Icon::MoreVert, 24, c, mf ? p.OnSecondaryContainer : p.OnSurfaceVariant);
+            IconAt(app, Icon::MoreVert, 24, c, mf ? p.OnSecondaryContainer : art ? onArt : p.OnSurfaceVariant);
             if (chosen)
                 OpenSettings(app, e);
         }
@@ -1323,6 +1360,8 @@ private:
     ImGuiID InsideTile = 0, InsidePill = 0, InsideMenu = 0;
     // the mosaic as packed for the games shown (VisibleGen) at a number of columns
     uint64_t VisibleGen = 0, MosaicGen = ~0ull;
+    std::vector<MosaicEntry> PackedSizes;
+    int PackedColumns = 0;
     int MosaicColumns = 0, MosaicRows = 0;
     std::vector<MosaicBand> Bands;
     std::vector<int> RowBand;                  // each row's band

@@ -61,6 +61,7 @@ target_compile_definitions(imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS PRIVATE
 target_link_libraries(imgui PRIVATE SDL2::SDL2)
 
 # the game library's vendored C libraries (third_party/README.md): SQLite for library.db, miniz for zip files, the LZMA SDK's 7z decoder
+# (stb_image, for the downloaded art, is a header that src/ArtImage.cpp builds)
 set(THIRD_PARTY "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 add_library(sqlite3 STATIC "${THIRD_PARTY}/sqlite/sqlite3.c")
 # no extensions loaded from DLLs; double-quoted strings are identifiers only (SQLite's advice for new code)
@@ -86,6 +87,8 @@ target_link_libraries(rhash-rom PRIVATE rcheevos)
 
 add_executable(melonade-desktop
     src/main.cpp
+    src/ArtImage.cpp
+    src/ArtImage.h
     src/Audio.cpp
     src/Audio.h
     src/Controls.cpp
@@ -98,6 +101,8 @@ add_executable(melonade-desktop
     src/EmulatorThread.h
     src/FileDialog.cpp
     src/FileDialog.h
+    src/Http.cpp
+    src/Http.h
     src/ImageFile.cpp
     src/ImageFile.h
     src/Input.cpp
@@ -106,6 +111,9 @@ add_executable(melonade-desktop
     src/Library.h
     src/LibraryDb.cpp
     src/LibraryDb.h
+    src/Metadata.h
+    src/MetadataSync.cpp
+    src/MetadataSync.h
     src/PlatformBase.cpp
     src/Frontend.h
     src/Presenter.cpp
@@ -121,6 +129,8 @@ add_executable(melonade-desktop
     src/SaveSlots.h
     src/ScreenWindows.cpp
     src/ScreenWindows.h
+    src/Secret.cpp
+    src/Secret.h
     src/Settings.cpp
     src/Settings.h
     src/UiScript.cpp
@@ -179,9 +189,10 @@ target_include_directories(melonade-desktop PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party" "${CMAKE_BINARY_DIR}/generated")
 # Windows 10 APIs (SetProcessInformation for power throttling)
 target_compile_definitions(melonade-desktop PRIVATE _WIN32_WINNT=0x0A00)
-# ole32/uuid: COM for the file dialog (shell32) and the slot screenshots (windowscodecs, WIC); all system DLLs
+# ole32/uuid: COM for the file dialog (shell32) and the slot screenshots (windowscodecs, WIC); winhttp for the metadata sync's requests,
+# bcrypt for the ROMs' MD5 and SHA1, crypt32 for the Web API key (DPAPI); all system DLLs
 # rhash-rom before melonade-shared, whose rcheevos it calls into
-target_link_libraries(melonade-desktop PRIVATE rhash-rom melonade-shared core imgui sqlite3 miniz lzma7z SDL2::SDL2main SDL2::SDL2 winmm ole32 uuid shell32 windowscodecs)
+target_link_libraries(melonade-desktop PRIVATE rhash-rom melonade-shared core imgui sqlite3 miniz lzma7z SDL2::SDL2main SDL2::SDL2 winmm ole32 uuid shell32 windowscodecs winhttp bcrypt crypt32)
 
 if (MINGW)
     # a GUI program (no console window of its own; a run from a console writes to it, see AttachParentConsole in main.cpp); static so the

@@ -72,7 +72,12 @@ main ones:
 | `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `pause`, `pause/save`, `pause/load`, `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`), `input`, `keyboard`; with a game, once its first frame is shown |
 | `--rom-folder DIR` | a folder for the game library, repeated for more; for the run only, in place of the saved `rom_search_dirs`, never written |
 | `--rom-config KEY=VALUE` | over the booted game's own settings for this run, never stored: `console=default\|ds\|dsi`, `gba-slot=default\|none\|gba-rom\|rumble-pak\|memory-expansion`, `gba-rom=FILE.gba`, `name=TEXT`; repeat it for more |
-| `--pretend-title-art`, `--pretend-wide-tiles N` | every game counts as having title-screen art, so the Mosaic view makes one in six of them wide by ROM hash, as the app does (or one in N by path, for a test library of copies); for tests until step C downloads art |
+| `--pretend-title-art`, `--pretend-wide-tiles N` | every game counts as having title-screen art, so the Mosaic view makes one in six of them wide by ROM hash, as the app does; `--pretend-wide-tiles N` makes one in N of the games with title art (downloaded, or pretended) wide by path instead, for a test library of copies of a few ROMs |
+| `--no-sync` | no network at all for the run: the [metadata sync](#metadata-and-art) makes no requests (the art on disk still shows, and the ROMs' hashes are still computed) |
+| `--sync-now` | scan the library and sync at the start, without the library screen (with `--open settings/library`, say), with RetroAchievements' hash library fetched whatever its age |
+| `--ra-web-api-key KEY` | a RetroAchievements Web API key for this run only, never stored |
+| `--metadata-base-url URL`, `--thumbnails-base-url URL`, `--dat-url URL` | the sync's hosts for this run (a local test server): `URL/dorequest.php`, `URL/API/API_GetGame.php` and `URL/Images/...` in place of retroachievements.org and media.retroachievements.org; `URL/Named_Boxarts/<name>.png` and `URL/Named_Titles/<name>.png` for the libretro thumbnails; the DAT's address |
+| `--sync-backoff S` | a sync that stopped early tries again after S seconds, then twice that (default 900, the app's 15 minutes), for tests |
 | `--ui-script F` | drive the menus from a file, see [UI scripts](#ui-scripts) |
 | `--state-dir DIR` | the command line's game's savestate slots (`.ml0`-`.ml8`) in DIR instead of next to the ROM, for tests (without it, a test run keeps them in its temporary profile) |
 | `--unthrottled`, `--hidden`, `--no-audio`, `--gpu-sync` | for benchmarks and scripted runs |
@@ -217,6 +222,7 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
 | `shot F.bmp` | the window as drawn now, menus included (detached: `F_top.bmp`, `F_bottom.bmp`) |
 | `screenshot F.bmp` | the game's last frame at the internal resolution |
 | `wait-scan` | until the library's scan, and a zip or 7z being unpacked to play, are done |
+| `wait-sync` | until the metadata sync has nothing to do (while a game runs, it waits for the game) and the art it published is drawn |
 | `quit` | the end of the run (the run also ends after the last step) |
 
 It starts on the library, or once the game's first frame is shown. Each step gets a press and a
@@ -260,11 +266,12 @@ tall at 720p, so seven columns there, never fewer than four) like CSS's dense gr
 PLAYED"). The two most recently played games lead as 2x2 featured tiles whatever the sort, with a Continue or Recent label, when they
 were played and a menu button for the game's settings; the first one also has a Continue pill that starts it at once. Down on a
 featured tile goes into its pill (or menu button), up comes back out, and left and right move between the two. A game with title-screen
-art gets a 2x1 tile if its RetroAchievements hash, hashed as Kotlin's `String.hashCode`, is a multiple of six, so the same games are wide
-on the phone and the PC and a filter or sort doesn't reshuffle them; no game has art until step C (`LibraryEntry::HasTitleArt`), so
-`--pretend-title-art` and `--pretend-wide-tiles N` stand in for it in tests. Every tile shows the banner icon on its tinted card with
-the title under it, as the other views do without art. The packing is redone when the games shown or the number of columns change,
-and the clipper draws the bands (rows no tile crosses) that are on screen.
+art on disk (`LibraryEntry::HasTitleArt`) gets a 2x1 tile if its RetroAchievements hash, hashed as Kotlin's `String.hashCode`, is a
+multiple of six, so the same games are wide on the phone and the PC and a filter or sort doesn't reshuffle them (`--pretend-title-art`
+and `--pretend-wide-tiles N` widen the choice for tests). A tile with art has it filling the tile, cut to fit, with the title on a scrim
+(a wide tile shows the title screen, its top screen when the image has both); one without shows the banner icon on its tinted card
+with the title under it. The packing is redone when the tiles' sizes or the number of columns change (art arriving that changes no
+tile's size moves nothing), and the clipper draws the bands (rows no tile crosses) that are on screen.
 
 **Scanning** (`src/Library.cpp`) runs on a worker thread when the library is first shown (not for a game started from the command
 line), when the folders change, and on Rescan. It walks the folders and their subfolders for `.nds`, `.dsi`, `.zip` and `.7z` files,
@@ -284,20 +291,79 @@ stops a scan or an unpack at the next block it reads, a 7z decode included. Japa
 fonts, merged into Roboto.
 
 **library.db** (SQLite, in the profile folder, so a hidden run's is temporary) holds a `roms` table (path, the archive's entry, the
-file's size and time, what was read, the icon as 32x32 RGBA, empty `crc32`/`md5`/`sha1` columns for step C's metadata match), a
+file's size and time, what was read, the icon as 32x32 RGBA, the whole ROM's `crc32`/`md5`/`sha1`, which the metadata sync fills), a
 `play_history` table (last played, by path, so it outlives rescans and covers games started from the command line) and, since schema
 version 2, a `rom_config` table: each game's own settings by its `game` key, the ROM's RetroAchievements hash (or its path when rc_hash
 refuses it), one row per field that differs from the default under the app's `RomConfigDto` names and values (`runtimeConsoleType` =
 `DS`/`DSi`, `customName`, `gbaSlotConfig.type` = `GbaRom`/`RumblePak`/`MemoryExpansion`, `gbaSlotConfig.gbaRomPath`; rows with other
 keys are left alone). A game booted from outside the library is read for its hash before it boots.
-Its schema version is `PRAGMA user_version` (2 now); a new version is a new entry in `LibraryDb.cpp`'s migrations, run once when the file
-opens, so a step A `library.db` gets the new table the first time this build opens it.
+Schema version 3 adds the metadata sync's tables (see below). The version is `PRAGMA user_version`; a new version is a new entry in
+`LibraryDb.cpp`'s migrations, run once when the file opens, so an older `library.db` gets the new tables the first time this build opens it.
 
 **Playing** a game from the library, the Open ROM dialog or the command line records when it was played, and applies its game
 settings (the console and the GBA slot; the log says `game settings: ... (by <hash>); boots as DS (<why>)`). A zip or 7z is unpacked into
 the profile's `rom-cache` folder first (on the worker, so the menus keep drawing; the command line's on the spot), named for the
 archive, its entry, size and time so a changed archive is unpacked again; the cache keeps the last three. The save and the slots go
 next to the archive, as for a plain ROM.
+
+### Metadata and art
+
+The library's details and art (`src/MetadataSync.cpp`) come from RetroAchievements as the app gets them (`RomMetadataSyncWorker`,
+`RomMetadataSyncPlanner`, `docs/plan-launcher.md` sections 2 and 3), with the libretro thumbnails as the fallback that needs no
+account. A sync runs on a worker thread after each library scan, when a Web API key is saved, on Refresh metadata and with `--sync-now`,
+never while a game runs: a game starting stops it (its requests are cancelled, a key test's too) and the library coming back asks for it
+again. A scan that finishes while a sync runs, or while one waits to try again, leaves it as it is (the app's KEEP). Removing the key
+stops only the RetroAchievements part of a running sync, and turning the libretro thumbnails off only theirs. In order:
+
+1. **ROM hashes**: each ROM's CRC32, MD5 and SHA1, once per file (one pass over the decompressed ROM; online-only files are skipped),
+   into `roms`.
+2. **Hash library**: RetroAchievements' connect API `hashlibrary` for DS (18) and DSi (78), replaced at most once a day, needs no key.
+   It says which game id each ROM's RetroAchievements hash is, and which hashes RetroAchievements doesn't know.
+3. **RetroAchievements**, with a Web API key: `API_GetGame` once per distinct game for the life of the install (rows with
+   `fetch_status` 0 ok or 1 not found aren't asked again; 2 failed is retried every sync), half a second apart, in batches of 20 with the
+   art after each batch: box art, else the title screen, else the icon, plus the title screen for the mosaic's wide tiles, from
+   `media.retroachievements.org`, two downloads at a time in random order. The app's rules: a 429 stops the run and it tries again 15
+   minutes later (then 30, 60, ...; five runs in all, as the app's `MAX_RUN_ATTEMPTS`), counting only while no game runs; a 5xx, a 404, a redirect, no connection or an answer that isn't game data marks that game
+   failed and stops the same way; another 4xx or a malformed answer marks the game failed and goes on; 401/403 (the key) stops for good.
+   Three "not found" in a row trigger one control call for game 1: an answer means they stand, anything else counts them as failed and
+   stops. An image that fails for good (404, too large, not an image) has its path cleared, which moves the game to its next kind; three
+   image failures in a row (or a 429) stop the art for the run, so a blocked or broken media host can't clear the library's paths.
+4. **libretro thumbnails** (Settings > Library, on by default), for games RetroAchievements has no box art or title screen for: the
+   No-Intro DS DAT from libretro-database (downloaded the first sync, kept in the profile's `libretro` folder, again after Refresh
+   metadata once it's two weeks old), each ROM's name by its CRC32, else by its game code (a trimmed ROM's CRC32 never matches the
+   full-size dump) with its region's and the retail release preferred, then `Named_Boxarts/<name>.png` and `Named_Titles/<name>.png` with
+   each of ``&*/:`<>?\|"`` in the name made `_`. They come from the libretro-thumbnails repository on GitHub
+   (`raw.githubusercontent.com/libretro-thumbnails/Nintendo_-_Nintendo_DS/master`): `thumbnails.libretro.com` answered 404 for the DS
+   folder on 2026-11-21. Many games have no title screen there, so a missing image doesn't count as a failure; it's remembered
+   (`libretro_art`, until a refresh two weeks later) only once an image of the same run was saved, and ten missing in a row with none
+   saved stop the run, so a blanket 404 can't mark the whole library. Three other failures in a row, or a 429, stop it as above.
+
+Art goes in `<profile>\media\ra\<game id>\<box|title|icon>.png` and `<profile>\media\libretro\<name> ~<hash>\<box|title>.png`, and
+stays until Clear downloaded art. The libretro folder is the thumbnail's name made safe for Windows (control characters, leading spaces,
+trailing dots and spaces dropped, so `.` and `..` have none and are skipped; a reserved device name such as `CON` or `COM1.txt` gets a
+`_` in front; at most 120 bytes) with the name's hash after it, so no two names share one, and the final path is checked to be in
+`media\libretro`. An image over 4096 pixels a side or 4 megapixels in all doesn't count as an image (its size is read before it's
+decoded). WebP, which RetroAchievements allows and stb_image can't read, is decoded with Windows' WIC when Windows has a WebP decoder
+(Windows 11, and 10 with the WebP Image Extensions); without one, a WebP is skipped without counting as a failure or clearing its path.
+Requests have a two-minute deadline in all (ten for the DAT), so a server sending a byte at a time can't hold the sync. The menus key each image's texture to the file's save stamp, so art replaced on disk (a game whose image changed, or art cleared and
+downloaded again) shows the new image at once. A tile prefers RetroAchievements' box art, then its title screen, then libretro's box art and title screen,
+and the RetroAchievements icon last. The menus read images with stb_image on a worker thread, shrunk to at most 512 pixels a side, and
+make their textures as they're first drawn (the ones not drawn for a while go once there are more than 160). The game's title falls
+back on RetroAchievements' when the banner has none, as the app's `displayTitle`.
+
+The **details screen** lists RetroAchievements' publisher, developer, genre and release date (by its granularity: "Aug 22, 2005", "Nov
+2005" or "2007"), and two credit lines: where the details came from, as the app's sheet tells them apart ("Metadata from
+RetroAchievements · cached 3 days ago", "· due for a refresh", "Not found on RetroAchievements · checked today", "No metadata from
+RetroAchievements yet · last tried today", "Hash not found on RetroAchievements", "Can't be looked up on RetroAchievements", "No
+RetroAchievements Web API key set", "RetroAchievements metadata not downloaded yet"), and where the art came from with the credits.
+
+**Settings > Library** has the RetroAchievements Web API key (from retroachievements.org, under Settings; typed on the on-screen keyboard
+as dots, or pasted with Ctrl+V; X removes it), stored in `settings.json`'s `desktop_ra_web_api_key` encrypted with Windows' DPAPI for
+the Windows user, so the file alone gives it to no one; Test the key (one `API_GetGame` call for game 1); Use libretro thumbnails
+(`desktop_libretro_thumbnails`); Refresh metadata (rows fetched over two weeks ago, or whose image failed, fetched again, and libretro
+images found missing that long ago asked for again); Clear downloaded art (the sync stops and the media folder is deleted; the next
+sync downloads the art again with no API calls); and a status line ("Art: 5 of 7 games, last synced Nov 21, 01:01 AM", and what it's
+doing). Requests carry the User-Agent `melonadeDS-desktop/<version>` and nothing about the user; the key is never logged.
 
 ### Input
 

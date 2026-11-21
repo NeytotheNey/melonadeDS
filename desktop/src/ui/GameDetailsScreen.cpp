@@ -8,6 +8,7 @@
 
 #include "Icons.h"
 #include "LibraryCards.h"
+#include "MetadataSync.h"
 #include "Screens.h"
 #include "Settings.h"
 #include "Ui.h"
@@ -38,7 +39,20 @@ public:
     {
         const Palette& p = app.Colors();
         Host& host = app.GetHost();
-        // the game's settings as they are now (the settings screen over this one changes them)
+        // the game as the library has it now (the metadata sync fills in its details and art meanwhile), and its settings as they are
+        // now (the settings screen over this one changes them)
+        if (host.Library && host.Library->Generation() != SeenGen)
+        {
+            SeenGen = host.Library->Generation();
+            for (const LibraryEntry& e : *host.Library->Entries())
+            {
+                if (e.Id == Entry.Id)
+                {
+                    Entry = e;
+                    break;
+                }
+            }
+        }
         if (host.Library)
             Entry.Config = host.Library->GetConfig(Frontend::Library::ConfigKey(Entry));
         ImVec2 win = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
@@ -83,6 +97,19 @@ public:
         std::string file = Entry.FileName;
         if (!Entry.Entry.empty())
             file += "  \xe2\x80\xba  " + Frontend::PathToUtf8(Frontend::PathFromUtf8(Entry.Entry).filename());
+        // what RetroAchievements says about it, first (as the app's sheet)
+        if (const Frontend::RaGameRow* g = Entry.RaGame.get(); g && g->HasData())
+        {
+            if (!g->Publisher.empty())
+                facts.push_back({Icon::Storefront, "Publisher", g->Publisher});
+            if (!g->Developer.empty())
+                facts.push_back({Icon::Code, "Developer", g->Developer});
+            if (!g->Genre.empty())
+                facts.push_back({Icon::Category, "Genre", g->Genre});
+            std::string released = Frontend::FormatReleaseDate(g->Released, g->ReleasedGranularity);
+            if (!released.empty())
+                facts.push_back({Icon::CalendarMonth, "Released", released});
+        }
         facts.push_back({Entry.IsArchive() ? Icon::FolderZip : Icon::Description, "File", file});
         facts.push_back({Icon::Folder, "Folder", Frontend::PathToUtf8(Frontend::PathFromUtf8(Entry.Path).parent_path())});
         if (Entry.State == LibraryEntry::kRead)
@@ -200,12 +227,29 @@ public:
         else if (pressed && !armedBefore)
             printf("ui: play ignored (the press began on the library)\n");
 
+        // where the details and the art came from, along the bottom (the app's credit line)
+        {
+            bool hasKey = host.Metadata && host.Metadata->HasApiKey();
+            bool libretro = !host.Settings || host.Settings->GetBool("desktop_libretro_thumbnails", true);
+            std::string credit = MetadataCredit(Entry, hasKey), artCredit = ArtCredit(Entry, libretro);
+            float lineH = TextSize(app, app.Regular, 14, "Ag").y;
+            float cy = win.y + size.y - footer - app.Px(16) - 2 * lineH - app.Px(4);
+            float cw = win.x + size.x - pad - (win.x + pad);
+            if (!credit.empty() && cy > ImGui::GetItemRectMax().y + app.Px(12))
+            {
+                TextAt(app, app.Regular, 14, ImVec2(win.x + pad, cy), p.OnSurfaceVariant, Ellipsize(app, app.Regular, 14, credit, cw).c_str());
+                TextAt(app, app.Regular, 14, ImVec2(win.x + pad, cy + lineH + app.Px(4)), p.OnSurfaceVariant,
+                    Ellipsize(app, app.Regular, 14, artCredit + "  \xc2\xb7  Game data: RetroAchievements.org; art belongs to its publishers", cw).c_str());
+            }
+        }
+
         FooterHints(app, {{"A|Enter", "Choose"}, {"\xe2\x80\xb9 \xe2\x80\xba", "Play / Game settings"}, {"B|Esc", "Back"}},
             p.SurfaceContainerLowest);
     }
 
 private:
     LibraryEntry Entry;
+    uint64_t SeenGen = 0;
     bool Armed = false;
     bool Starting = false;
 };

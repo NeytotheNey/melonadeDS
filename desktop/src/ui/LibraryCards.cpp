@@ -14,18 +14,35 @@
 namespace Ui
 {
 
-void GameArt(App& app, ImDrawList* draw, const Frontend::LibraryEntry& entry, ImVec2 min, ImVec2 max, float rounding, float fraction)
+bool GameArt(App& app, ImDrawList* draw, const Frontend::LibraryEntry& entry, ImVec2 min, ImVec2 max, float rounding, float fraction)
 {
-    GameArtIn(app, draw, entry, min, max, rounding, min, max, fraction);
+    return GameArtIn(app, draw, entry, min, max, rounding, min, max, fraction);
 }
 
-void GameArtIn(App& app, ImDrawList* draw, const Frontend::LibraryEntry& entry, ImVec2 min, ImVec2 max, float rounding, ImVec2 iconMin,
+bool IsTitleArt(const Frontend::ArtRef& file)
+{
+    const std::string& p = file.Path;
+    return p.size() >= 9 && p.compare(p.size() - 9, 9, "title.png") == 0;
+}
+
+void Scrim(App& app, ImDrawList* draw, ImVec2 min, ImVec2 max, float top, float rounding)
+{
+    // a soft edge, then the text's band
+    float soft = app.Px(28);
+    ImU32 clear = IM_COL32(0, 0, 0, 0), dark = IM_COL32(0, 0, 0, 170);
+    draw->AddRectFilledMultiColor(ImVec2(min.x, top - soft), ImVec2(max.x, top), clear, clear, dark, dark);
+    draw->AddRectFilled(ImVec2(min.x, top), max, dark, rounding, ImDrawFlags_RoundBottom);
+}
+
+bool GameArtIn(App& app, ImDrawList* draw, const Frontend::LibraryEntry& entry, ImVec2 min, ImVec2 max, float rounding, ImVec2 iconMin,
     ImVec2 iconMax, float fraction)
 {
     const Palette& p = app.Colors();
     // the card takes some of the icon's color, more in the dark theme, where the surface is darker
     ImU32 card = entry.Tint ? Blend(p.SurfaceContainerHigh, entry.Tint | 0xFF000000u, p.Dark ? 0.30f : 0.38f) : p.SurfaceContainerHighest;
     draw->AddRectFilled(min, max, card, rounding);
+    if (!entry.ArtFile.empty() && ArtImage(app, draw, entry.ArtFile, false, min, max, rounding, false))
+        return true;
     float w = iconMax.x - iconMin.x, h = iconMax.y - iconMin.y;
     ImVec2 c(iconMin.x + w / 2, iconMin.y + h / 2);
     if (entry.Icon)
@@ -45,6 +62,45 @@ void GameArtIn(App& app, ImDrawList* draw, const Frontend::LibraryEntry& entry, 
         float size = std::clamp(std::min(w, h) * 0.32f / app.GetScale(), 18.f, 72.f);
         IconAt(app, icon, size, c, p.OnSurfaceVariant);
     }
+    return false;
+}
+
+bool ArtImage(App& app, ImDrawList* draw, const Frontend::ArtRef& file, bool topScreen, ImVec2 min, ImVec2 max, float rounding, bool cover)
+{
+    int tw = 0, th = 0;
+    GLuint texture = app.ArtTexture(file.Path, file.Stamp, topScreen, tw, th);
+    if (!texture || tw <= 0 || th <= 0)
+        return false;
+    float bw = max.x - min.x, bh = max.y - min.y;
+    if (bw <= 0 || bh <= 0)
+        return true;
+    float ta = (float)tw / th, ba = bw / bh;
+    ImVec2 p0 = min, p1 = max, uv0(0, 0), uv1(1, 1);
+    if (cover)
+    {
+        // the middle of the image, as much as has the box's shape
+        if (ta > ba)
+        {
+            float f = ba / ta;
+            uv0.x = (1 - f) / 2;
+            uv1.x = 1 - uv0.x;
+        }
+        else
+        {
+            float f = ta / ba;
+            uv0.y = (1 - f) / 2;
+            uv1.y = 1 - uv0.y;
+        }
+    }
+    else
+    {
+        // all of it, centered, on whole pixels
+        float w = ta > ba ? bw : bh * ta, h = ta > ba ? bw / ta : bh;
+        p0 = ImVec2(IM_ROUND(min.x + (bw - w) / 2), IM_ROUND(min.y + (bh - h) / 2));
+        p1 = ImVec2(IM_ROUND(p0.x + w), IM_ROUND(p0.y + h));
+    }
+    draw->AddImageRounded(ImTextureRef((ImTextureID)(intptr_t)texture), p0, p1, uv0, uv1, IM_COL32_WHITE, rounding);
+    return true;
 }
 
 std::string PlayedText(int64_t lastPlayedMs, int64_t now)
@@ -108,6 +164,60 @@ std::string RegionShort(const std::string& gameCode)
     case 'A': return "World";
     default: return Frontend::RegionName(gameCode);
     }
+}
+
+std::string DaysAgo(int64_t ms)
+{
+    int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    int64_t days = std::max<int64_t>(0, (now - ms) / (24ll * 60 * 60 * 1000));
+    return days == 0 ? "today" : days == 1 ? "yesterday" : std::to_string(days) + " days ago";
+}
+
+std::string MetadataCredit(const Frontend::LibraryEntry& e, bool hasKey)
+{
+    using Frontend::RaGameRow;
+    if (e.State != Frontend::LibraryEntry::kRead)
+        return "";
+    const char* dot = "  \xc2\xb7  ";
+    if (const RaGameRow* g = e.RaGame.get())
+    {
+        // an image that failed for good clears the fetch time, so the next manual refresh fetches the game again
+        std::string ago = g->FetchedAt > 0 ? DaysAgo(g->FetchedAt) : "";
+        switch (g->FetchStatus)
+        {
+        case RaGameRow::kOk:
+            return std::string("Metadata from RetroAchievements") + (ago.empty() ? "" : dot + std::string("cached ") + ago);
+        case RaGameRow::kNotFound:
+            return std::string("Not found on RetroAchievements") + (ago.empty() ? "" : dot + std::string("checked ") + ago);
+        default:
+            // both a failed fetch and a refresh asked for leave a row this way
+            if (g->HasData())
+                return hasKey ? std::string("Metadata from RetroAchievements") + dot + "due for a refresh" : "Metadata from RetroAchievements";
+            if (hasKey)
+                return std::string("No metadata from RetroAchievements yet") + (ago.empty() ? "" : dot + std::string("last tried ") + ago);
+            return "No RetroAchievements Web API key set";
+        }
+    }
+    if (e.RaHashState == Frontend::kRaHashMissing)
+        return "Can't be looked up on RetroAchievements";
+    if (e.RaHashState == Frontend::kRaHashUnmatched)
+        return "Hash not found on RetroAchievements";
+    return hasKey ? "RetroAchievements metadata not downloaded yet" : "No RetroAchievements Web API key set";
+}
+
+std::string ArtCredit(const Frontend::LibraryEntry& e, bool libretro)
+{
+    if (e.State != Frontend::LibraryEntry::kRead)
+        return "";
+    if (e.ArtSource == Frontend::kArtRetroAchievements)
+        return "Art from RetroAchievements (retroachievements.org)";
+    if (e.ArtSource == Frontend::kArtLibretro)
+        return "Art from the libretro thumbnails (No-Intro: " + e.LibretroName + ")";
+    if (!libretro)
+        return "No art downloaded (libretro thumbnails are off)";
+    if (!e.LibretroName.empty())
+        return "No art downloaded yet (No-Intro: " + e.LibretroName + ")";
+    return "No art downloaded";
 }
 
 std::string SizeText(uint64_t bytes)

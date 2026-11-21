@@ -5,11 +5,15 @@
 #pragma once
 
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <SDL.h>
@@ -88,7 +92,8 @@ public:
     void TrackFocus(bool isDefault);
 
     // the on-screen keyboard over the screen, editing [target] (kept alive by the caller until it closes); the physical keyboard types too
-    void OpenKeyboard(std::string* target, const std::string& title, size_t maxLength = 32);
+    // [masked]: the text shown as dots (a key); Ctrl+V pastes into it as into any field
+    void OpenKeyboard(std::string* target, const std::string& title, size_t maxLength = 32, bool masked = false);
     bool KeyboardOpen() const { return KeyboardTarget != nullptr; }
 
     // a slot thumbnail's texture (the file read and uploaded once per [stamp]); 0 when it can't be read
@@ -96,6 +101,13 @@ public:
     // a game's 32 x 32 RGBA banner icon as a texture (nearest filtering, for the pixels), made the first time it's drawn and kept for
     // [key] (the ROM's id) until its data changes (the cache holds the data, so a new icon can never look like the old one)
     GLuint IconTexture(long long key, const std::shared_ptr<const std::vector<unsigned char>>& rgba);
+    // A downloaded image (the library's art, a UTF-8 path) as a texture, shrunk to at most 512 pixels a side ([topScreen]: a title screen of
+    // both screens cut to its top one): read on a worker thread the first time it's asked for and made a texture here once it's ready, so
+    // 0 until then (and for a file that can't be read). Kept while it's drawn; the ones not drawn for a while go once there are many
+    // [stamp] changes when the file is saved again: a texture of another stamp is read again
+    GLuint ArtTexture(const std::string& file, uint64_t stamp, bool topScreen, int& width, int& height);
+    // images asked for and not ready yet (what --ui-script's wait-sync also waits for)
+    bool ArtPending();
 
 private:
     void ApplyScale(int w, int h);
@@ -151,6 +163,21 @@ private:
     std::map<std::filesystem::path, Texture> Textures;
     struct IconTex { GLuint Id = 0; std::shared_ptr<const std::vector<unsigned char>> Data; };
     std::map<long long, IconTex> IconTextures;
+    // the art: textures by file (with "#top" for a top screen), what the worker has to read and what it has read
+    void UploadArt();
+    void StopArtWorker();
+    struct ArtTex { GLuint Id = 0; int W = 0, H = 0; bool Failed = false; bool Queued = false; uint64_t LastUsed = 0, FailedAt = 0, Stamp = 0; };
+    std::map<std::string, ArtTex> ArtTextures;
+    struct ArtDecoded { std::string Key; uint64_t Stamp = 0; std::vector<unsigned char> Rgba; int W = 0, H = 0; };
+    struct ArtJob { std::string Key; uint64_t Stamp = 0; };
+    std::mutex ArtLock;
+    std::condition_variable ArtWake;
+    std::deque<ArtJob> ArtQueue;
+    std::vector<ArtDecoded> ArtDone;
+    std::thread ArtWorker;
+    bool ArtStopping = false;
+    uint64_t FrameNumber = 0;
+    bool KeyboardMasked = false;
 
     std::vector<unsigned char> FontData[3];
     // the system's CJK fonts merged into Regular and Medium (file mappings)

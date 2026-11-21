@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "Library.h"
+#include "Metadata.h"
 #include "Settings.h"
 #include "sqlite/sqlite3.h"
 
@@ -14,7 +15,7 @@ namespace
 {
 
 // Each schema version's changes, in order; a database at an older version gets the ones after it, each in a transaction with the new
-// user_version. Step C (metadata and art sync) adds version 3 here
+// user_version
 struct Migration { int Version; const char* Sql; };
 const Migration kMigrations[] = {
     {1,
@@ -49,6 +50,31 @@ const Migration kMigrations[] = {
         "  key TEXT NOT NULL,"                   // the app's RomConfigDto field: runtimeConsoleType, customName, gbaSlotConfig.type, ...
         "  value TEXT NOT NULL,"                 // its value as the app writes it (DS, DSi, RumblePak, ...)
         "  PRIMARY KEY (game, key)"
+        ");"},
+    {3,
+        "CREATE TABLE ra_hash_library ("
+        "  hash TEXT NOT NULL PRIMARY KEY COLLATE NOCASE," // rc_hash's MD5, 32 lowercase hex digits
+        "  game_id INTEGER NOT NULL,"
+        "  console_id INTEGER NOT NULL"               // 18 Nintendo DS, 78 Nintendo DSi
+        ");"
+        "CREATE TABLE ra_game_metadata ("
+        "  game_id INTEGER PRIMARY KEY,"
+        "  title TEXT, publisher TEXT, developer TEXT, genre TEXT,"
+        "  released TEXT,"                            // YYYY-MM-DD, or with a time after it
+        "  released_granularity TEXT,"                // day, month, year or NULL
+        "  image_box_art TEXT, image_title TEXT, image_ingame TEXT, image_icon TEXT," // /Images/NNNNNN.png, NULL for none
+        "  fetched_at INTEGER NOT NULL,"              // ms since 1970; 0 after an image failed for good
+        "  fetch_status INTEGER NOT NULL"             // 0 ok, 1 not found, 2 failed (retried every sync)
+        ");"
+        "CREATE TABLE libretro_art ("
+        "  name TEXT NOT NULL,"                       // the No-Intro name, as in the DAT
+        "  kind TEXT NOT NULL,"                       // box or title
+        "  missing_at INTEGER NOT NULL,"              // when the server said it has none (ms since 1970)
+        "  PRIMARY KEY (name, kind)"
+        ");"
+        "CREATE TABLE sync_state ("
+        "  key TEXT NOT NULL PRIMARY KEY,"            // hash_library_18, hash_library_78, libretro_dat, last_sync
+        "  value TEXT NOT NULL"
         ");"},
 };
 
@@ -146,6 +172,207 @@ bool LibraryDb::Migrate()
         Version = m.Version;
     }
     return true;
+}
+
+bool LibraryDb::LoadHashLibrary(std::map<std::string, int64_t>& out)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return false;
+    Statement q(Db, "SELECT hash, game_id FROM ra_hash_library");
+    if (!q)
+        return false;
+    while (sqlite3_step(q.S) == SQLITE_ROW)
+    {
+        std::string hash = q.ColText(0);
+        for (char& c : hash)
+            c = (char)tolower((unsigned char)c);
+        out[hash] = q.ColInt(1);
+    }
+    return true;
+}
+
+bool LibraryDb::StoreHashLibrary(int consoleId, const std::vector<std::pair<std::string, int64_t>>& hashes)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return false;
+    if (!Exec("BEGIN IMMEDIATE"))
+        return false;
+    bool ok;
+    {
+        Statement del(Db, "DELETE FROM ra_hash_library WHERE console_id = ?");
+        del.Int(1, consoleId);
+        ok = del && sqlite3_step(del.S) == SQLITE_DONE;
+        // (a hash both consoles list keeps the last one's game)
+        Statement ins(Db, "INSERT OR REPLACE INTO ra_hash_library (hash, game_id, console_id) VALUES (?, ?, ?)");
+        ok = ok && (bool)ins;
+        for (const auto& [hash, game] : hashes)
+        {
+            if (!ok)
+                break;
+            sqlite3_reset(ins.S);
+            ins.Text(1, hash);
+            ins.Int(2, game);
+            ins.Int(3, consoleId);
+            ok = sqlite3_step(ins.S) == SQLITE_DONE;
+        }
+    }
+    if (ok && Exec("COMMIT"))
+        return true;
+    fprintf(stderr, "library: can't store the hash library: %s\n", sqlite3_errmsg(Db));
+    Exec("ROLLBACK");
+    return false;
+}
+
+bool LibraryDb::LoadGames(std::map<int64_t, RaGameRow>& out)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return false;
+    Statement q(Db, "SELECT game_id, title, publisher, developer, genre, released, released_granularity, image_box_art, image_title,"
+        " image_ingame, image_icon, fetched_at, fetch_status FROM ra_game_metadata");
+    if (!q)
+        return false;
+    while (sqlite3_step(q.S) == SQLITE_ROW)
+    {
+        RaGameRow r;
+        r.GameId = q.ColInt(0);
+        r.Title = q.ColText(1);
+        r.Publisher = q.ColText(2);
+        r.Developer = q.ColText(3);
+        r.Genre = q.ColText(4);
+        r.Released = q.ColText(5);
+        r.ReleasedGranularity = q.ColText(6);
+        r.ImageBoxArt = q.ColText(7);
+        r.ImageTitle = q.ColText(8);
+        r.ImageIngame = q.ColText(9);
+        r.ImageIcon = q.ColText(10);
+        r.FetchedAt = q.ColInt(11);
+        r.FetchStatus = (int)q.ColInt(12);
+        out[r.GameId] = std::move(r);
+    }
+    return true;
+}
+
+bool LibraryDb::StoreGame(const RaGameRow& r)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return false;
+    Statement up(Db, "INSERT OR REPLACE INTO ra_game_metadata (game_id, title, publisher, developer, genre, released, released_granularity,"
+        " image_box_art, image_title, image_ingame, image_icon, fetched_at, fetch_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    up.Int(1, r.GameId);
+    up.TextOrNull(2, r.Title);
+    up.TextOrNull(3, r.Publisher);
+    up.TextOrNull(4, r.Developer);
+    up.TextOrNull(5, r.Genre);
+    up.TextOrNull(6, r.Released);
+    up.TextOrNull(7, r.ReleasedGranularity);
+    up.TextOrNull(8, r.ImageBoxArt);
+    up.TextOrNull(9, r.ImageTitle);
+    up.TextOrNull(10, r.ImageIngame);
+    up.TextOrNull(11, r.ImageIcon);
+    up.Int(12, r.FetchedAt);
+    up.Int(13, r.FetchStatus);
+    bool ok = up && sqlite3_step(up.S) == SQLITE_DONE;
+    if (!ok)
+        fprintf(stderr, "library: can't store game %lld: %s\n", (long long)r.GameId, sqlite3_errmsg(Db));
+    return ok;
+}
+
+int LibraryDb::MarkGamesForRefetch(int64_t cutoff)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return 0;
+    Statement up(Db, "UPDATE ra_game_metadata SET fetch_status = 2 WHERE fetched_at <= ? AND fetch_status != 2");
+    up.Int(1, cutoff);
+    return up && sqlite3_step(up.S) == SQLITE_DONE ? sqlite3_changes(Db) : 0;
+}
+
+bool LibraryDb::LoadRomHashes(std::vector<RomHashRow>& out)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return false;
+    Statement q(Db, "SELECT id, file_size, file_time, crc32, md5, sha1 FROM roms WHERE crc32 IS NOT NULL");
+    if (!q)
+        return false;
+    while (sqlite3_step(q.S) == SQLITE_ROW)
+        out.push_back({q.ColInt(0), (uint64_t)q.ColInt(1), q.ColInt(2), q.ColText(3), q.ColText(4), q.ColText(5)});
+    return true;
+}
+
+bool LibraryDb::StoreRomHashes(const RomHashRow& r)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return false;
+    Statement up(Db, "UPDATE roms SET crc32 = ?, md5 = ?, sha1 = ? WHERE id = ? AND file_size = ? AND file_time = ?");
+    up.Text(1, r.Crc32);
+    up.TextOrNull(2, r.Md5);
+    up.TextOrNull(3, r.Sha1);
+    up.Int(4, r.Id);
+    up.Int(5, (int64_t)r.FileSize);
+    up.Int(6, r.FileTime);
+    return up && sqlite3_step(up.S) == SQLITE_DONE && sqlite3_changes(Db) == 1;
+}
+
+bool LibraryDb::LoadLibretroMissing(std::map<std::string, int64_t>& out)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return false;
+    Statement q(Db, "SELECT name, kind, missing_at FROM libretro_art");
+    if (!q)
+        return false;
+    while (sqlite3_step(q.S) == SQLITE_ROW)
+        out[q.ColText(0) + "|" + q.ColText(1)] = q.ColInt(2);
+    return true;
+}
+
+bool LibraryDb::StoreLibretroMissing(const std::string& name, const std::string& kind, int64_t when)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return false;
+    Statement up(Db, "INSERT OR REPLACE INTO libretro_art (name, kind, missing_at) VALUES (?, ?, ?)");
+    up.Text(1, name);
+    up.Text(2, kind);
+    up.Int(3, when);
+    return up && sqlite3_step(up.S) == SQLITE_DONE;
+}
+
+int LibraryDb::ForgetLibretroMissing(int64_t cutoff)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return 0;
+    Statement del(Db, "DELETE FROM libretro_art WHERE missing_at <= ?");
+    del.Int(1, cutoff);
+    return del && sqlite3_step(del.S) == SQLITE_DONE ? sqlite3_changes(Db) : 0;
+}
+
+std::string LibraryDb::GetState(const std::string& key)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return "";
+    Statement q(Db, "SELECT value FROM sync_state WHERE key = ?");
+    q.Text(1, key);
+    return q && sqlite3_step(q.S) == SQLITE_ROW ? q.ColText(0) : std::string();
+}
+
+bool LibraryDb::SetState(const std::string& key, const std::string& value)
+{
+    std::lock_guard guard(Lock);
+    if (!Db)
+        return false;
+    Statement up(Db, "INSERT OR REPLACE INTO sync_state (key, value) VALUES (?, ?)");
+    up.Text(1, key);
+    up.Text(2, value);
+    return up && sqlite3_step(up.S) == SQLITE_DONE;
 }
 
 bool LibraryDb::LoadRoms(std::vector<LibraryEntry>& out)

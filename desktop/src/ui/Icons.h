@@ -98,5 +98,15 @@ constexpr ImWchar AspectRatio = 0xe85b;   // aspect_ratio
 constexpr ImWchar Extension = 0xe87b;     // extension
 constexpr ImWchar Edit = 0xe3c9;          // edit
 constexpr ImWchar SimCard = 0xe32b;       // sim_card
+constexpr ImWchar Key = 0xe73c;           // key
+constexpr ImWchar Image = 0xe251;         // image
+constexpr ImWchar DeleteSweep = 0xe16c;   // delete_sweep
+constexpr ImWchar CloudDownload = 0xe2c0; // cloud_download
+constexpr ImWchar CloudOff = 0xe2c1;      // cloud_off
+constexpr ImWchar Category = 0xe574;      // category
+constexpr ImWchar CalendarMonth = 0xebcc; // calendar_month
+constexpr ImWchar Storefront = 0xea12;    // storefront
+constexpr ImWchar Code = 0xe86f;          // code
+constexpr ImWchar TaskAlt = 0xe2e6;       // task_alt
 
 }

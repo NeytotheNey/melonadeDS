@@ -9,6 +9,7 @@
 | SQLite | 3.54.1 (2026-10-16, the amalgamation) | https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip, `sqlite3.c` and `sqlite3.h` | public domain (`sqlite/PUBLIC-DOMAIN.txt`, https://www.sqlite.org/copyright.html) | the game library's `library.db` (`src/LibraryDb.cpp`) |
 | miniz | 3.1.2 (release `3.1.2`, 2026-07-01) | https://github.com/richgel999/miniz/releases/download/3.1.2/miniz-3.1.2.zip, `miniz.c`, `miniz.h` and `LICENSE` | MIT (`miniz/LICENSE`) | zip files in the library and on the command line (`src/RomFile.cpp`) |
 | LZMA SDK | 25.01 (2025-08) | https://www.7-zip.org/a/lzma2501.7z, the 7z decoder's C files from `C/` (the ones `C/Util/7z/makefile.gcc` builds, without `7zMain.c`) and the headers they include, plus `DOC/lzma-sdk.txt` | public domain (`lzma/lzma-sdk.txt`) | 7z files in the library and on the command line (`src/RomFile.cpp`) |
+| stb_image | 2.34 (commit `1da9ade1e66195252114f5da497f244704a6c58d`, 2026-11-19, the release bump) | https://github.com/nothings/stb, `stb_image.h` and `LICENSE` at that commit | public domain or MIT, either (`stb/LICENSE`) | the downloaded art in the library (`src/ArtImage.cpp`) |
 | SDL_GameControllerDB | commit `4e87e3c6c2574f49e1cdf8526b6f829b61e5ccb3` (2026-11-17; the repo has no tags) | https://github.com/mdqinc/SDL_GameControllerDB, `gamecontrollerdb.txt` and `LICENSE` at that commit | zlib (`gamecontrollerdb/LICENSE`) | controller mappings SDL lacks, read at start from next to the exe (`src/main.cpp`), shipped in the release folder |
 
 ImGui: the core files (`imgui*.cpp`, `imgui*.h`, `imconfig.h`, `imstb_*.h`, `LICENSE.txt`) and the SDL2 and OpenGL3 backends
@@ -32,6 +33,9 @@ opsz 24, wght 400: the outlined look), by `fonts/material-symbols/subset.py` (fo
 
 The fonts are built into the exe (`src/resources.rc`).
 
+stb_image: the header as it is at that commit, unchanged; `src/ArtImage.cpp` builds it with PNG, JPEG, GIF and BMP only, no stdio and
+no HDR, a 4096-pixel limit on each side, and (in `ArtImage.cpp`) at most 4 megapixels, checked with `stbi_info` before decoding.
+
 SDL_GameControllerDB: the file as it is at that commit, unchanged; `build.sh` copies it next to the exe. To update it, take the file at a newer
 commit and change the commit and hash here.
 
@@ -44,6 +48,7 @@ SHA-256:
 | `Roboto_v3.016.zip` (the download) | `1653dbe12f248da8fb0b9920db7b9496cd677ed3981154f6f15285c8bd4e334f` |
 | `Roboto-Regular.ttf` | `39548fd9d6250717a5fcfe00b1b0ade234c1f5be8a40818c37e995c13c844df1` |
 | `Roboto-Medium.ttf` | `663bedb17df44144ea2ccf4c3a3c1853547bcfed2395ad29904502ea92c74bcb` |
+| `stb_image.h` | `dfc2aadda6295f67f677587773f25e5bf8c8ad427ed0db7c518525c91e72e020` |
 | `gamecontrollerdb.txt` | `a9994e85b0d608cfcb4df0e1424523e488829acb1017b6a2a2adf8df6478cb26` |
 | `sqlite-amalgamation-3540100.zip` (the download) | `0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9` |
 | `sqlite3.c` | `0c657666d819f261cc4007526ad57e1669de9949df7a8ea847aa284a2bf0ee52` |

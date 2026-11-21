@@ -10,6 +10,7 @@
 #include "backends/imgui_impl_opengl3.h"
 #include "backends/imgui_impl_sdl2.h"
 
+#include "ArtImage.h"
 #include "Icons.h"
 #include "ImageFile.h"
 #include "Input.h"
@@ -160,6 +161,13 @@ void App::Shutdown()
     for (auto& [key, texture] : IconTextures)
         glDeleteTextures(1, &texture.Id);
     IconTextures.clear();
+    StopArtWorker();
+    for (auto& [key, texture] : ArtTextures)
+    {
+        if (texture.Id)
+            glDeleteTextures(1, &texture.Id);
+    }
+    ArtTextures.clear();
     Stack.clear();
     Closed.clear();
     ImGui_ImplOpenGL3_Shutdown();
@@ -224,6 +232,8 @@ void App::BuildFrame()
     io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
     int w = (int)(io.DisplaySize.x * io.DisplayFramebufferScale.x), h = (int)(io.DisplaySize.y * io.DisplayFramebufferScale.y);
     ApplyScale(std::max(w, 1), std::max(h, 1));
+    FrameNumber++;
+    UploadArt();
     ImGui::NewFrame();
 
     auto now = std::chrono::steady_clock::now();
@@ -631,6 +641,17 @@ bool App::ProcessEvent(const SDL_Event& event)
         {
             if (down && (key == SDLK_BACKSPACE))
                 KeyboardBackspace();
+            else if (down && key == SDLK_v && (event.key.keysym.mod & KMOD_CTRL))
+            {
+                // pasted (a key copied from the RetroAchievements site), one line of it
+                if (char* clip = SDL_GetClipboardText())
+                {
+                    std::string text = clip;
+                    SDL_free(clip);
+                    text = text.substr(0, text.find_first_of("\r\n"));
+                    KeyboardType(text.c_str());
+                }
+            }
             else if (down && !event.key.repeat && (key == SDLK_RETURN || key == SDLK_KP_ENTER || key == SDLK_ESCAPE))
                 KeyboardTarget = nullptr;
             else if (key == SDLK_UP || key == SDLK_DOWN || key == SDLK_LEFT || key == SDLK_RIGHT)
@@ -740,9 +761,10 @@ bool App::ProcessEvent(const SDL_Event& event)
     }
 }
 
-void App::OpenKeyboard(std::string* target, const std::string& title, size_t maxLength)
+void App::OpenKeyboard(std::string* target, const std::string& title, size_t maxLength, bool masked)
 {
     KeyboardTarget = target;
+    KeyboardMasked = masked;
     KeyboardTitle = title;
     KeyboardMax = maxLength;
     KeyboardShift = false;
@@ -814,6 +836,14 @@ void App::DrawKeyboard()
     draw->AddRectFilled(f0, f1, p.SurfaceContainerHighest, Px(12));
     draw->AddRect(f0, f1, p.Primary, Px(12), std::max(1.f, Px(2)));
     std::string shown = KeyboardTarget ? *KeyboardTarget : "";
+    if (KeyboardMasked)
+    {
+        // a dot for each character (keys are ASCII)
+        std::string dots;
+        for (size_t i = 0; i < shown.size(); i++)
+            dots += "\xe2\x80\xa2";
+        shown = dots;
+    }
     ImVec2 ts = TextSize(*this, Regular, 22, shown.empty() ? "Ag" : shown.c_str());
     float tx = f0.x + Px(16), ty = f0.y + (Px(56) - ts.y) / 2;
     ImVec2 drawn = TextAt(*this, Regular, 22, ImVec2(tx, ty), p.OnSurface, shown.c_str());
@@ -958,6 +988,166 @@ GLuint App::Thumbnail(const std::filesystem::path& file, long long stamp, int& w
     width = texture.W;
     height = texture.H;
     return texture.Id;
+}
+
+GLuint App::ArtTexture(const std::string& file, uint64_t stamp, bool topScreen, int& width, int& height)
+{
+    width = height = 0;
+    if (file.empty())
+        return 0;
+    std::string key = topScreen ? file + "#top" : file;
+    ArtTex& texture = ArtTextures[key];
+    texture.LastUsed = FrameNumber;
+    // the file saved again since (art replaced, or cleared and downloaded again): read again
+    if (texture.Stamp != stamp)
+    {
+        if (texture.Id)
+            glDeleteTextures(1, &texture.Id);
+        texture.Id = 0;
+        texture.Failed = false;
+        texture.Queued = false;
+        texture.Stamp = stamp;
+    }
+    if (texture.Id)
+    {
+        width = texture.W;
+        height = texture.H;
+        return texture.Id;
+    }
+    // (one that failed is tried again after a while: the sync may have saved it since)
+    if ((texture.Failed && FrameNumber - texture.FailedAt < 600) || texture.Queued)
+        return 0;
+    texture.Queued = true;
+    {
+        std::lock_guard guard(ArtLock);
+        ArtQueue.push_back({key, stamp});
+        if (!ArtWorker.joinable())
+        {
+            ArtStopping = false;
+            ArtWorker = std::thread([this]
+            {
+                std::unique_lock lock(ArtLock);
+                for (;;)
+                {
+                    ArtWake.wait(lock, [&] { return ArtStopping || !ArtQueue.empty(); });
+                    if (ArtStopping)
+                        return;
+                    // the newest first: what's on screen now, after a fast scroll
+                    ArtJob job = ArtQueue.back();
+                    ArtQueue.pop_back();
+                    const std::string& next = job.Key;
+                    lock.unlock();
+                    bool top = next.size() > 4 && next.compare(next.size() - 4, 4, "#top") == 0;
+                    Frontend::ArtPixels pixels;
+                    bool ok = Frontend::LoadArt(Frontend::PathFromUtf8(top ? next.substr(0, next.size() - 4) : next), 512, top, pixels);
+                    lock.lock();
+                    ArtDecoded decoded;
+                    decoded.Key = next;
+                    decoded.Stamp = job.Stamp;
+                    if (ok)
+                    {
+                        decoded.Rgba = std::move(pixels.Rgba);
+                        decoded.W = pixels.Width;
+                        decoded.H = pixels.Height;
+                    }
+                    ArtDone.push_back(std::move(decoded));
+                }
+            });
+        }
+    }
+    ArtWake.notify_all();
+    return 0;
+}
+
+bool App::ArtPending()
+{
+    {
+        std::lock_guard guard(ArtLock);
+        if (!ArtQueue.empty() || !ArtDone.empty())
+            return true;
+    }
+    for (const auto& [key, texture] : ArtTextures)
+    {
+        if (texture.Queued)
+            return true;
+    }
+    return false;
+}
+
+void App::UploadArt()
+{
+    std::vector<ArtDecoded> done;
+    {
+        std::lock_guard guard(ArtLock);
+        // a few a frame, so a screen full of new art doesn't stall one
+        size_t n = std::min<size_t>(ArtDone.size(), 8);
+        for (size_t i = 0; i < n; i++)
+            done.push_back(std::move(ArtDone[i]));
+        ArtDone.erase(ArtDone.begin(), ArtDone.begin() + n);
+    }
+    for (ArtDecoded& d : done)
+    {
+        auto it = ArtTextures.find(d.Key);
+        // (an older stamp's, or one evicted meanwhile)
+        if (it == ArtTextures.end() || it->second.Stamp != d.Stamp)
+            continue;
+        ArtTex& texture = it->second;
+        texture.Queued = false;
+        if (d.Rgba.empty())
+        {
+            texture.Failed = true;
+            texture.FailedAt = FrameNumber;
+            printf("ui: can't read the art %s\n", d.Key.c_str());
+            fflush(stdout);
+            continue;
+        }
+        glGenTextures(1, &texture.Id);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, texture.Id);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, d.W, d.H, 0, GL_RGBA, GL_UNSIGNED_BYTE, d.Rgba.data());
+        glBindTexture(GL_TEXTURE_2D, 0);
+        texture.W = d.W;
+        texture.H = d.H;
+    }
+    // over 160 (about 160 MB at most), the ones not drawn for the last few seconds go, the longest unused first
+    constexpr size_t kMaxArt = 160;
+    if (ArtTextures.size() > kMaxArt)
+    {
+        std::vector<std::pair<uint64_t, std::string>> old;
+        for (const auto& [key, texture] : ArtTextures)
+        {
+            if (!texture.Queued && texture.LastUsed + 180 < FrameNumber)
+                old.emplace_back(texture.LastUsed, key);
+        }
+        std::sort(old.begin(), old.end());
+        for (size_t i = 0; i < old.size() && ArtTextures.size() > kMaxArt; i++)
+        {
+            auto it = ArtTextures.find(old[i].second);
+            if (it->second.Id)
+                glDeleteTextures(1, &it->second.Id);
+            ArtTextures.erase(it);
+        }
+    }
+}
+
+void App::StopArtWorker()
+{
+    {
+        std::lock_guard guard(ArtLock);
+        ArtStopping = true;
+        ArtQueue.clear();
+    }
+    ArtWake.notify_all();
+    if (ArtWorker.joinable())
+        ArtWorker.join();
+    ArtDone.clear();
 }
 
 }

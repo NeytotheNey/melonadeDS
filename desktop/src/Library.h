@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "LibraryDb.h"
+#include "Metadata.h"
 #include "RomConfig.h"
 
 namespace Frontend
@@ -47,11 +48,23 @@ struct LibraryEntry
     int64_t LastPlayed = 0;    // ms since 1970, 0 when never played
     uint32_t Tint = 0;         // the icon's average color (RGBA), 0 without an icon
     RomConfig Config;          // the game's own settings (rom_config)
-    // it has title-screen art on disk, which the mosaic gives a wide tile to (one in six of them, by IsWideMosaicGame). Step C's art sync
-    // sets it; until then only --pretend-title-art does, for tests
+    // it has title-screen art on disk, which the mosaic gives a wide tile to (one in six of them, by IsWideMosaicGame): TitleArtFile, or
+    // every game with --pretend-title-art
     bool HasTitleArt = false;
 
-    // the display name the game's settings give it, else the banner's title, else the file name without its extension
+    // What the metadata sync knows (Metadata.h, ApplyMetadata): the RetroAchievements game the ROM's hash names (0: none), whether the
+    // hash library knows the hash, its API_GetGame row (null without one), the tile's art on disk (RetroAchievements' box art, else title,
+    // else icon, else libretro's box art, else its title screen) and the title screen for a wide tile, the No-Intro name the libretro DAT
+    // gives it, and its CRC32
+    int64_t RaGameId = 0;
+    int RaHashState = kRaHashUnknown;
+    std::shared_ptr<const RaGameRow> RaGame;
+    ArtRef ArtFile, TitleArtFile;
+    int ArtSource = kArtNone;
+    std::string LibretroName, Crc32;
+
+    // the display name the game's settings give it, else the banner's title, else RetroAchievements' title, else the file name without its
+    // extension (the app's displayTitle)
     std::string Name() const;
     // a banner title was read (otherwise there's nothing but the file: "No metadata")
     bool HasMetadata() const { return !Title.empty(); }
@@ -130,9 +143,18 @@ public:
     // --pretend-title-art: every game counts as having title-screen art (HasTitleArt), so the mosaic's wide tiles can be checked before
     // step C downloads any. Set before Open
     bool PretendTitleArt = false;
-    // --pretend-wide-tiles N: with PretendTitleArt, the mosaic makes one in N games wide by their path instead of the app's one in six
-    // by ROM hash (a library of copies of a few ROMs has a few hashes), to check the packing with many wide tiles
+    // --pretend-wide-tiles N: the mosaic makes one in N games with title art (HasTitleArt) wide by their path instead of the app's one in
+    // six by ROM hash (a library of copies of a few ROMs has a few hashes), to check the packing with many wide tiles
     int PretendWideOneIn = 0;
+
+    // What the metadata sync knows (MetadataSync), put into the entries from the next publish on; [libretro]: the libretro thumbnails
+    // are in use. Any thread
+    void SetMetadata(std::shared_ptr<const MetadataIndex> index, bool libretro);
+    // runs on the worker after each scan (main.cpp: the metadata sync is asked for)
+    std::function<void()> OnScanDone;
+    // the database, which the metadata sync shares (its calls take its own lock)
+    LibraryDb& Database() { return Db; }
+    const std::filesystem::path& ProfileDir() const { return Profile; }
 
 private:
     void Run();
@@ -143,7 +165,10 @@ private:
     std::string PrepareFile(const std::string& path, std::string& error);
 
     LibraryDb Db;
-    std::filesystem::path CacheDir;
+    std::filesystem::path Profile, CacheDir;
+    // (under Lock)
+    std::shared_ptr<const MetadataIndex> Meta;
+    bool MetaLibretro = true;
     int Language = 1;
 
     mutable std::mutex Lock;

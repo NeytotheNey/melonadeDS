@@ -1,13 +1,17 @@
-// Settings, on six tabs (L / R switch them): Video, Display, Emulation, Audio, Controls and Library (the ROM folders). Each change goes through Host::ChangeSetting,
+// Settings, on six tabs (L / R switch them): Video, Display, Emulation, Audio, Controls and Library (the ROM folders, and the metadata and art
+// sync: the RetroAchievements Web API key, the libretro thumbnails, Refresh metadata, Clear downloaded art). Each change goes through Host::ChangeSetting,
 // which saves it and applies it at once where the running game allows it; the rest (JIT, the console, the BIOS) wait for the next game
 // that starts, and the rows say so. The keys are the app's preference names where it has the setting, desktop_ ones otherwise
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <ctime>
 #include <string>
 
 #include "Icons.h"
 #include "Input.h"
 #include "Library.h"
+#include "MetadataSync.h"
 #include "Screens.h"
 #include "Settings.h"
 #include "Ui.h"
@@ -69,6 +73,17 @@ public:
 
     void Clear(App& app) override
     {
+        // X on the key's row: the key removed
+        if (FocusedKey == "ra_key")
+        {
+            Host& host = app.GetHost();
+            if (host.RaKeySource && !host.RaKeySource().empty() && host.RemoveRaKey)
+            {
+                host.RemoveRaKey();
+                app.Toast("Web API key removed");
+            }
+            return;
+        }
         // X on a folder row: back to none; on a ROM folder, out of the library
         if (FocusedKey == "bios_dir" || FocusedKey == "dsi_bios_dir")
             Change(app, FocusedKey, picojson::value(std::string()));
@@ -135,6 +150,8 @@ public:
         bool folder = FocusedKey == "bios_dir" || FocusedKey == "dsi_bios_dir";
         if (FocusedKey.rfind("rom_folder:", 0) == 0)
             FooterHints(app, {{"A|Enter", "Change folder"}, {"X|Del", "Remove"}, {"L/R|Q/W", "Tabs"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
+        else if (FocusedKey == "ra_key")
+            FooterHints(app, {{"A|Enter", "Enter a key"}, {"X|Del", "Remove"}, {"L/R|Q/W", "Tabs"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
         else if (folder)
             FooterHints(app, {{"A|Enter", "Choose folder"}, {"X|Del", "Clear"}, {"L/R|Q/W", "Tabs"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
         else
@@ -432,9 +449,116 @@ private:
                   "being downloaded.");
         if (s.IsOverridden("rom_search_dirs"))
             Note(app, "--rom-folder set these folders for this run: changes here last until it ends.");
+        DrawMetadata(app);
+    }
+
+    // the metadata and art sync: the Web API key (typed on the keyboard, shown as dots, stored encrypted), its test, the libretro
+    // thumbnails, Refresh metadata, Clear downloaded art, and what the sync is doing
+    void DrawMetadata(App& app)
+    {
+        Host& host = app.GetHost();
+        Frontend::MetadataSync* sync = host.Metadata;
+        // the key typed, stored once the keyboard closes (blank changes nothing, as the app's dialog)
+        if (EditingKey && !app.KeyboardOpen())
+        {
+            EditingKey = false;
+            std::string key = KeyBuffer;
+            KeyBuffer.assign(KeyBuffer.size(), '\0');
+            KeyBuffer.clear();
+            key.erase(0, key.find_first_not_of(" \t"));
+            key.erase(key.find_last_not_of(" \t") + 1);
+            if (!key.empty() && host.SaveRaKey)
+            {
+                bool stored = host.SaveRaKey(key);
+                if (sync)
+                    sync->ResetKeyTest();
+                if (stored)
+                    app.Toast("Web API key saved");
+            }
+        }
+        SectionLabel(app, "Metadata and art");
+        // what the sync has done and is doing
+        if (sync && host.Library)
+        {
+            Frontend::MetadataSync::Status st = sync->GetStatus();
+            size_t games = 0, withArt = 0;
+            for (const Frontend::LibraryEntry& e : *host.Library->Entries())
+            {
+                if (e.State != Frontend::LibraryEntry::kRead)
+                    continue;
+                games++;
+                withArt += e.ArtFile.empty() ? 0 : 1;
+            }
+            std::string line = "Art: " + std::to_string(withArt) + " of " + std::to_string(games) + (games == 1 ? " game" : " games");
+            if (st.LastSync > 0)
+            {
+                time_t t = (time_t)(st.LastSync / 1000);
+                tm local {};
+                localtime_s(&local, &t);
+                char when[64];
+                strftime(when, sizeof(when), "%b %d, %I:%M %p", &local);
+                line += std::string(", last synced ") + when;
+            }
+            else
+                line += ", never synced";
+            if (st.Off)
+                line += ". Off for this run (--no-sync)";
+            else if (st.Running)
+                line += ". " + (st.Activity.empty() ? std::string("Syncing") : st.Activity) + "\xe2\x80\xa6";
+            else if (st.Waiting)
+                line += ". Waiting until the game is closed";
+            else if (st.RetryLater)
+                line += ". Stopped early, it tries again later" + (st.LastStop.empty() ? std::string() : " (" + st.LastStop + ")");
+            else if (!st.LastStop.empty())
+                line += ". Last sync: " + st.LastStop;
+            Note(app, line.c_str());
+        }
+        std::string source = host.RaKeySource ? host.RaKeySource() : "";
+        std::string keyDetail = source.empty() ? "Not set: details and art then come from the libretro thumbnails only"
+            : source == "saved" ? "\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2  Saved, encrypted for your Windows account"
+            : "\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2  From the command line, for this run only";
+        if (DetailRow(app, "##ra_key", Icon::Key, "RetroAchievements Web API key", keyDetail.c_str(), TakeFirst("ra_key")))
+        {
+            KeyBuffer.clear();
+            EditingKey = true;
+            app.OpenKeyboard(&KeyBuffer, "RetroAchievements Web API key", 64, true);
+        }
+        Track("ra_key");
+        if (sync)
+        {
+            Frontend::MetadataSync::Status st = sync->GetStatus();
+            using T = Frontend::MetadataSync::KeyTest;
+            const char* test = st.Test == T::Testing ? "Testing\xe2\x80\xa6" : st.Test == T::Valid ? "The key works"
+                : st.Test == T::Rejected ? "RetroAchievements rejected the key" : st.Test == T::Failed ? "Couldn't reach RetroAchievements"
+                : st.Test == T::Empty ? "No key to test" : nullptr;
+            if (MenuRow(app, "##ra_key_test", Icon::TaskAlt, "Test the key", test, TakeFirst("ra_key_test")))
+                sync->TestKey("");
+            Track("ra_key_test");
+        }
+        Toggle(app, "desktop_libretro_thumbnails", Icon::Image, "Use libretro thumbnails",
+            "Box art and title screens by No-Intro name, for games RetroAchievements has no art for; no account needed", true);
+        if (MenuRow(app, "##refresh_metadata", Icon::CloudDownload, "Refresh metadata", "Over two weeks old, or art that failed",
+                TakeFirst("refresh_metadata")) && sync)
+        {
+            sync->RefreshMetadata();
+            app.Toast(sync->GetStatus().Off ? "Marked for a refresh: --no-sync holds it until the next run" : "Refreshing what's due");
+        }
+        Track("refresh_metadata");
+        if (MenuRow(app, "##clear_art", Icon::DeleteSweep, "Clear downloaded art", "The next sync downloads it again", TakeFirst("clear_art")) && sync)
+        {
+            sync->ClearArt();
+            app.Toast("Downloaded art cleared");
+        }
+        Track("clear_art");
+
+        Note(app, "Game details and art come from RetroAchievements with your Web API key (on retroachievements.org, under Settings), "
+                  "and from the libretro thumbnails, which need no account. Each game is looked up once and its art kept in the profile's "
+                  "media folder; nothing syncs while a game runs.");
     }
 
     std::string FocusRow;
+    std::string KeyBuffer;
+    bool EditingKey = false;
     int TabIndex = 0;
     bool ResetScroll = true;
     bool First = true;
