@@ -13,7 +13,7 @@ You run tests of the melonadeDS Android app (debug package `me.magnum.melonds.de
 - **Every adb command takes `-s <serial>`.** Another agent may be driving the other phone at the same time. Never touch a device you weren't given, and never run `adb kill-server` or `adb disconnect` without a serial.
 - **Loading a save state overwrites the game's real `.sav`.** Before any state load, pull the `.sav` (and the state files you use) into the run folder's `backup/`, then push it back after and check the hash matches. Say in the report that you did.
 - **Installing kills a running session.** Check `dumpsys activity` for the app in front before installing; if a game looks active and the caller didn't say the phone is free, stop and report.
-- **Never write to the user's ROM and save folders on the PC** (`C:\Users\neyto\OneDrive\Documents\Games`, the NAS ROMs share). Read only.
+- **Never write to the user's ROM and save folders on the PC** (`D:\Games\Dumps\DS`, the NAS ROMs share). Read only.
 - Clear any `debug.melonade.*` props you set when you're done, and remove your temp files from `/data/local/tmp/` and `/data/misc/perfetto-traces/`. If cleanup is refused or held, list what's left.
 - Only run what the caller asked. Put anything odd you notice on the way under "Also noticed".
 

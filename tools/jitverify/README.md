@@ -54,7 +54,7 @@ code 0 identical, 1 different, 2 a usage or input error (a missing file or field
 ## PC
 
 ```powershell
-$rom = "C:\Users\neyto\OneDrive\Documents\Games\Golden Sun Dark Dawn\Golden Sun - Dark Dawn (USA) (En,Es).nds"
+$rom = "D:\Games\Dumps\DS\Golden Sun Dark Dawn\Golden Sun - Dark Dawn (USA) (En,Es).nds"
 $p = "--press","400:a","--press","700:a","--press","1000:start","--press","1300:a"
 & .\build-jitverify\windows-x64\jitverify.exe --frames 3000 @p --out logs\jitverify\a.txt $rom
 & .\build-jitverify\windows-x64\jitverify.exe --frames 3000 @p --ldmdirect 0 --out logs\jitverify\b.txt $rom
@@ -68,7 +68,7 @@ $adb = "C:\Tools\android-sdk\platform-tools\adb.exe"
 & $adb shell mkdir -p /data/local/tmp/jitverify/out
 & $adb push build-jitverify\android-arm64\jitverify.stripped /data/local/tmp/jitverify/jitverify
 & $adb shell chmod +x /data/local/tmp/jitverify/jitverify
-& $adb push "C:\Users\neyto\OneDrive\Documents\Games\Golden Sun Dark Dawn\Golden Sun - Dark Dawn (USA) (En,Es).nds" /data/local/tmp/jitverify/gs.nds
+& $adb push "D:\Games\Dumps\DS\Golden Sun Dark Dawn\Golden Sun - Dark Dawn (USA) (En,Es).nds" /data/local/tmp/jitverify/gs.nds
 & $adb shell "cd /data/local/tmp/jitverify && ./jitverify --frames 3000 --press 400:a --press 700:a --press 1000:start --press 1300:a --out out/gs-a.txt gs.nds"
 & $adb pull /data/local/tmp/jitverify/out/gs-a.txt logs\jitverify\
 ```
