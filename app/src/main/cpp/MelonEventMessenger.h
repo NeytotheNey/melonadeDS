@@ -32,6 +32,8 @@ public:
     virtual void onLuaSetLayout(int scriptId, const std::string& optionKey) = 0;
     // melon.screen.tilt_shift()'s values, clamped; both strengths are 0 and the color is negative (not passed) when the script no longer wants the effect
     virtual void onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation, float contrast, float color) = 0;
+    // melon.screen.bloom()'s and vignette()'s values, clamped; a strength of 0 is that effect off (its other values then the defaults)
+    virtual void onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize) = 0;
     // melon.wide's requests, clamped: the zoom (negative for the player's), the pan if [hasPan], whether native is held, and the vertical pan if
     // [hasPanY]; all off when the script no longer asks for anything
     virtual void onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY) = 0;

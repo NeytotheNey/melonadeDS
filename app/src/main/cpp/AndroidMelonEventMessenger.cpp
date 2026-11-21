@@ -187,6 +187,21 @@ void AndroidMelonEventMessenger::onLuaTiltShift(int scriptId, float top, float b
     MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_TILT_SHIFT, sizeof(data), &data);
 }
 
+void AndroidMelonEventMessenger::onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize)
+{
+    // Read in this order by AndroidEmulatorManager (EventLuaBloom)
+    struct {
+        int32_t scriptId;
+        float strength;
+        float threshold;
+        float radius;
+        float vignette;
+        float vignetteSize;
+    } data = { (int32_t) scriptId, strength, threshold, radius, vignette, vignetteSize };
+
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_BLOOM, sizeof(data), &data);
+}
+
 void AndroidMelonEventMessenger::onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY)
 {
     // Read in this order by AndroidEmulatorManager (EventLuaWideCamera)

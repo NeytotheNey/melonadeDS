@@ -3,6 +3,7 @@ package me.magnum.melonds.common.opengl
 import android.opengl.GLES30
 import me.magnum.melonds.domain.model.SCREEN_GAP
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
+import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.TiltShift
 
 private const val INVALID_ATTRIBUTE = -1
@@ -30,6 +31,11 @@ class Shader(
     private val uniformTiltShift: Int
     // Only declared by the tilt-shift pre-passes that apply the color boost: the blur's last one and the color-only one
     private val uniformTiltShiftBoost: Int
+    // Only declared by the bloom pre-passes (see ShaderProgramSource.BloomBrightPrePassShader and the ones after it): the bloom's strength,
+    // threshold and radius, the vignette's strength and size, and the blurred glow's texture, on unit 1
+    private val uniformBloom: Int
+    private val uniformVignette: Int
+    private val uniformGlowTex: Int
     // Only declared by ShaderProgramSource.NoFilterHalvesAt1xShader, with its coordinate textures (VideoFilterPipeline.bindHalvesAt1xCoordinates)
     private val uniformHalvesAt1x: Int
     private val uniformCoordXTex: Int
@@ -47,6 +53,9 @@ class Shader(
         uniformBottomScreenWide = GLES30.glGetUniformLocation(programId, "bottomScreenWide")
         uniformTiltShift = GLES30.glGetUniformLocation(programId, "tiltShift")
         uniformTiltShiftBoost = GLES30.glGetUniformLocation(programId, "tiltShiftBoost")
+        uniformBloom = GLES30.glGetUniformLocation(programId, "bloom")
+        uniformVignette = GLES30.glGetUniformLocation(programId, "vignette")
+        uniformGlowTex = GLES30.glGetUniformLocation(programId, "glowTex")
         uniformHalvesAt1x = GLES30.glGetUniformLocation(programId, "halvesAt1x")
         uniformCoordXTex = GLES30.glGetUniformLocation(programId, "coordXTex")
         uniformCoordYTex = GLES30.glGetUniformLocation(programId, "coordYTex")
@@ -117,6 +126,21 @@ class Shader(
         }
         if (uniformTiltShiftBoost != INVALID_UNIFORM) {
             GLES30.glUniform2f(uniformTiltShiftBoost, tiltShift.appliedSaturation, tiltShift.appliedContrast)
+        }
+    }
+
+    /**
+     * Sets the bloom's strength, threshold and radius, the vignette's strength and size, and that the glow is on unit 1; call after [use].
+     */
+    fun setBloom(bloom: Bloom) {
+        if (uniformBloom != INVALID_UNIFORM) {
+            GLES30.glUniform3f(uniformBloom, bloom.strength, bloom.threshold, bloom.radius)
+        }
+        if (uniformVignette != INVALID_UNIFORM) {
+            GLES30.glUniform2f(uniformVignette, bloom.vignette, bloom.vignetteSize)
+        }
+        if (uniformGlowTex != INVALID_UNIFORM) {
+            GLES30.glUniform1i(uniformGlowTex, 1)
         }
     }
 

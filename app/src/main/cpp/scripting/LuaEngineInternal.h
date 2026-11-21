@@ -92,6 +92,21 @@ struct LuaTiltShift
 };
 
 /**
+ * What melon.screen.bloom() and melon.screen.vignette() ask for, clamped, each call setting its own half; a default one is off, and a half that
+ * means off is made the default half so that they compare equal
+ */
+struct LuaBloom
+{
+    float strength = 0.0f;
+    float threshold = 0.7f;
+    float radius = 3.0f;
+    float vignette = 0.0f;
+    float vignetteSize = 0.6f;
+
+    bool operator==(const LuaBloom&) const = default;
+};
+
+/**
  * What a script's melon.wide calls ask of the WideMelon camera, clamped to what any game could take (the app clamps further); a default one
  * asks for nothing
  */
@@ -139,6 +154,10 @@ struct LuaScript
     std::optional<LuaTiltShift> tiltShift;
     // What the app was last told, so that a script can call tilt_shift() every frame and only changes cost an event
     LuaTiltShift sentTiltShift;
+    // melon.screen.bloom() and vignette(): kept until the script changes them or stops, since each call sets only its half, and what the app was
+    // last told of them
+    LuaBloom bloom;
+    LuaBloom sentBloom;
     // melon.wide: kept until the script changes it or stops (not a per-call request), and what the app was last told of it
     LuaWideCamera wideCamera;
     LuaWideCamera sentWideCamera;

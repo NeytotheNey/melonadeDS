@@ -94,6 +94,11 @@ void DesktopEventMessenger::onLuaTiltShift(int scriptId, float top, float bottom
     POST_LOG("Lua script %d: tilt shift %.2f %.2f\n", scriptId, top, bottom);
 }
 
+void DesktopEventMessenger::onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize)
+{
+    POST_LOG("Lua script %d: bloom %.2f vignette %.2f\n", scriptId, strength, vignette);
+}
+
 void DesktopEventMessenger::onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY)
 {
     POST_LOG("Lua script %d: wide camera zoom %.2f\n", scriptId, zoom);

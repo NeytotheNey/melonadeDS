@@ -70,6 +70,7 @@ main ones:
 | `--filter NAME` | the [screen filter](#screen-filters) for the run (`video_filtering`): `none`, `linear`, `xbr2`, `hq2x`, `hq4x`, `quilez`, `lcd`, `scanlines`, `scale2x`, `fxaa`, `sharp`, `mmpx`, the app's `VideoFiltering` names in any case; `--linear` is `--filter linear` |
 | `--deband on\|off`, `--ds-colors on\|off`, `--screen-shadow on\|off` | smooth gradients (`video_deband`), the DS screen colors (`video_ds_screen_colors`) and the screen shadow (`video_screen_shadow`) for the run |
 | `--tilt-shift TOP,BOTTOM,CENTER,WIDTH,RADIUS[,SATURATION,CONTRAST[,COLOR]]` | the Lua tilt-shift's passes over the top screen, for tests until scripts drive them (phase 4): the blur's strength above and below the sharp band (0-1), the band's center and width (fractions of the screen's height), the radius in DS pixels (up to 64), and the color boost with what it follows (the app's `TiltShift`) |
+| `--bloom STRENGTH[,THRESHOLD,RADIUS[,VIGNETTE,SIZE]]` | the Lua bloom's and vignette's passes over the top screen, for tests until scripts drive them, clamped as `melon.screen.bloom` and `vignette` clamp them: the glow's strength (0-2), the luma it starts at (0-1, 0.7 left out) and its radius in DS pixels (0-8, 3), then the vignette's strength (0-1) and where it starts as a fraction of the half-diagonal (0-1, 0.6); both strengths at 0 is none (the app's `Bloom`). Only `--window-shot` shows them |
 | `--output-cap` | the windows' screen size goes to the core after each present (GPU::OutputCap, as the app's surfaces send it), so the frame is drawn no bigger than the screens are shown; without it the frame stays at the internal resolution |
 | `--window-shot-linear` | the window shot drawn with the linear filter, whatever the run's filter |
 | `--set Name=Value` | a core debug switch on `GPU`, e.g. `--set LateBlit=0` (`--list-sets`) |
@@ -424,14 +425,14 @@ fill, the filtered fill, the ratio, underruns and overflows once a second.
 The screens are drawn the way the app's `DSRenderer` draws them, through ports of its code in `src/render/`: `ScreenRenderer` (the
 screen quads, the screen shadow, deband in the screen shader where that's cheaper than the pre-pass, GPU::Comp1x's 1x shader and the
 output cap's need; one per window, as the app has one per surface), `VideoFilterPipeline` (the filter's pre-passes in order at their
-scale, deband as a pre-pass, the 1x expand pass, the Lua tilt-shift passes) and `Shader` (the app's `Shader` and `ShaderFactory`). The
+scale, deband as a pre-pass, the 1x expand pass, the Lua bloom, vignette and tilt-shift passes) and `Shader` (the app's `Shader` and `ShaderFactory`). The
 filters are the app's twelve (`VideoFiltering`; the settings list leaves out Scanlines as the app's does), with smooth gradients
 (deband), the DS screen colors (Pokefan531's color profile) and the screen shadow. `Presenter` still places the screens with the four
 layouts and the fits; the app's layouts, backgrounds and layout editor come next. `--window-shot` shows the filtered screens,
 `--screenshot` the raw frame as before.
 
 The shaders aren't copied by hand. `shaders/` holds what `ShaderProgramSource.kt` and `VideoFilterShaderProvider.kt` give: a `.vert`
-and a `.frag` for every shader (the tilt-shift ones built on each `get()` too), and `shaders.json` with each shader's texture filtering
+and a `.frag` for every shader (the tilt-shift and bloom ones built on each `get()` too), and `shaders.json` with each shader's texture filtering
 and the filter table (each filter's screen shader, its pre-passes with their scale and `nativeResolutionOnly`, and whether it can fold
 deband in). The build embeds the folder in the exe (`EmbedShaders.cmake` makes `generated/shader_files.inc`). The app's JVM unit test
 `DesktopShaderExportTest` writes them, from PowerShell at the repo root:

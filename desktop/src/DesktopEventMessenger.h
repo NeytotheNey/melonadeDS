@@ -45,6 +45,7 @@ public:
     void onLuaFastForward(int scriptId, bool enabled) override;
     void onLuaSetLayout(int scriptId, const std::string& optionKey) override;
     void onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation, float contrast, float color) override;
+    void onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize) override;
     void onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY) override;
     void onLuaStateLoaded() override;
     void onLuaStorageSaved() override;

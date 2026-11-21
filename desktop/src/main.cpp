@@ -162,6 +162,8 @@ struct Options
     Frontend::RendererConfig Render;
     // --tilt-shift: the Lua tilt-shift's passes over the top screen, for tests until the scripts drive it (phase 4)
     std::optional<Frontend::TiltShift> TiltShift;
+    // --bloom: the Lua bloom's and vignette's passes over the top screen, the same way
+    std::optional<Frontend::Bloom> Bloom;
     // --output-cap: the windows' output scale need goes to the core (GPU::OutputCap) after each present, as the app's surfaces send theirs
     bool OutputCap = false;
     bool Hidden = false;
@@ -284,6 +286,10 @@ void Usage()
         "                              the Lua tilt-shift's passes over the top screen, for tests: the blur's strength\n"
         "                              above and below (0-1), the sharp band's center and width (0-1 of the screen), the\n"
         "                              radius in DS pixels, the color boost and what it follows (0-1)\n"
+        "  --bloom STRENGTH[,THRESHOLD,RADIUS[,VIGNETTE,SIZE]]\n"
+        "                              the Lua bloom's and vignette's passes over the top screen, for tests: the glow's\n"
+        "                              strength (0-2), the luma it starts at (0-1, 0.7) and its radius in DS pixels (0-8,\n"
+        "                              3), the vignette's strength (0-1) and where it starts (0-1 of the half-diagonal, 0.6)\n"
         "  --output-cap                send the windows' screen size to the core (GPU::OutputCap), as the app does: the\n"
         "                              frame is drawn no bigger than the screens are shown\n"
         "  --vsync                     wait for vsync on swap (pacing stays at the DS's 59.83 Hz)\n"
@@ -540,6 +546,26 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             if (count == 8)
                 tilt.Color = std::clamp(color, 0.f, 1.f);
             opts.TiltShift = tilt;
+        }
+        else if (arg == "--bloom")
+        {
+            std::string spec = next();
+            Frontend::Bloom bloom;
+            int count = sscanf(spec.c_str(), "%f,%f,%f,%f,%f", &bloom.Strength, &bloom.Threshold, &bloom.Radius, &bloom.Vignette,
+                &bloom.VignetteSize);
+            if (count != 1 && count != 3 && count != 5)
+            {
+                fprintf(stderr, "bad --bloom %s (STRENGTH[,THRESHOLD,RADIUS[,VIGNETTE,SIZE]])\n", spec.c_str());
+                return false;
+            }
+            // held to what a script could ask for (melon.screen.bloom and vignette)
+            bloom.Strength = std::clamp(bloom.Strength, 0.f, 2.f);
+            bloom.Threshold = std::clamp(bloom.Threshold, 0.f, 1.f);
+            bloom.Radius = std::clamp(bloom.Radius, 0.f, 8.f);
+            bloom.Vignette = std::clamp(bloom.Vignette, 0.f, 1.f);
+            bloom.VignetteSize = std::clamp(bloom.VignetteSize, 0.f, 1.f);
+            // as the app's LuaBloomRequests, which drops a request for neither
+            opts.Bloom = bloom.IsOff() ? std::nullopt : std::optional<Frontend::Bloom>(bloom);
         }
         else if (arg == "--output-cap") opts.OutputCap = true;
         else if (arg == "--vsync") setting("desktop_vsync", picojson::value(true));
@@ -1284,6 +1310,7 @@ int main(int argc, char** argv)
     }
     presenter.SetRendererConfig(opts.Render);
     presenter.SetTiltShift(opts.TiltShift);
+    presenter.SetBloom(opts.Bloom);
 
     std::string cacheDir = opts.CacheDir.empty() ? exeDir + "cache" : opts.CacheDir;
     std::error_code ec;
@@ -1786,7 +1813,7 @@ int main(int argc, char** argv)
             opts.BootScreen = false;
         }
 
-        // GPU::Comp1x: the presenter draws a screen at 1x only with no filter, deband or tilt-shift, as the app's surfaces tell the emulator
+        // GPU::Comp1x: the presenter draws a screen at 1x only with no filter, deband or Lua effect, as the app's surfaces tell the emulator
         // after presenting; set before the first frame here, so a run's frames don't depend on when the UI thread first presents
         MelonDSAndroid::setHalvesAt1xSupported(presenter.CanDrawHalvesAt1x(windows.SurfaceCount()));
         auto instance = std::make_unique<MelonDSAndroid::MelonInstance>(0, MakeConfiguration(opts, renderer, scale), std::move(args),

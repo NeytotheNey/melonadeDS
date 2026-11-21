@@ -36,8 +36,8 @@ struct RendererConfig
 };
 
 // DebandFold.kt's shouldFoldDeband: deband inside the screen shader, once per drawn pixel, when the switch is on, the filter takes it, no
-// tilt-shift runs and the screens draw fewer pixels than the frame has texels
-bool ShouldFoldDeband(bool isSwitchOn, bool canFilterFold, bool isTiltShiftActive, long long drawnPixels, long long frameTexels);
+// Lua tilt-shift, bloom or vignette runs and the screens draw fewer pixels than the frame has texels
+bool ShouldFoldDeband(bool isSwitchOn, bool canFilterFold, bool isLuaEffectActive, long long drawnPixels, long long frameTexels);
 
 class ScreenRenderer
 {
@@ -54,10 +54,11 @@ public:
     void UpdateScreenAreas(const Rect& top, const Rect& bottom, int surfaceW, int surfaceH);
     // runs the filter's pre-passes, clears the bound framebuffer (the window, at its viewport) and draws the screens; the caller sets up the
     // state the core left behind first
-    void DrawFrame(const FrameView& frame, const std::optional<TiltShift>& tiltShift);
+    void DrawFrame(const FrameView& frame, const std::optional<TiltShift>& tiltShift, const std::optional<Bloom>& bloom);
 
-    // GPU::Comp1x: whether a frame with a screen at 1x can be drawn as it is (the no-filter shader without deband or a tilt-shift)
-    bool CanDrawHalvesAt1x(bool isTiltShiftOn) const;
+    // GPU::Comp1x: whether a frame with a screen at 1x can be drawn as it is (the no-filter shader without deband or a Lua tilt-shift, bloom
+    // or vignette)
+    bool CanDrawHalvesAt1x(bool isLuaEffectOn) const;
     // GPU::OutputCap: how many times their native size the screens are shown at, at most (0 before any were placed)
     int OutputScaleNeed() const { return ScreensOutputScaleNeed; }
     // whether the filter debands, as the output cap's any-ratio rule asks (GPU::OutputCapDeband)

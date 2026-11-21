@@ -60,6 +60,7 @@ import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.layout.LayoutDisplayPair
 import me.magnum.melonds.domain.model.layout.ScreenFold
 import me.magnum.melonds.domain.model.camera.WideCameraRequest
+import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.ui.emulator.camera.WideCameraSettings
 import me.magnum.melonds.ui.emulator.camera.WideCameraState
@@ -209,6 +210,11 @@ class EmulatorViewModel @Inject constructor(
     private val luaTiltShiftRequests = LuaTiltShiftRequests()
     private val _luaTiltShift = MutableStateFlow<TiltShift?>(null)
     val luaTiltShift = _luaTiltShift.asStateFlow()
+
+    // Bloom and vignette scripts asked for with melon.screen.bloom() and vignette(), or null for neither; main thread only
+    private val luaBloomRequests = LuaBloomRequests()
+    private val _luaBloom = MutableStateFlow<Bloom?>(null)
+    val luaBloom = _luaBloom.asStateFlow()
 
     // What scripts ask of the WideMelon camera with melon.wide; main thread only
     private val luaWideCameraRequests = LuaWideCameraRequests()
@@ -830,6 +836,7 @@ class EmulatorViewModel @Inject constructor(
                     is EmulatorEvent.LuaFastForward -> sendLuaUiEvent(LuaUiEvent.Request(LuaUiSetting.FAST_FORWARD, it.scriptId, it.enabled))
                     is EmulatorEvent.LuaSetLayout -> onLuaLayoutRequest(it.scriptId, it.optionKey)
                     is EmulatorEvent.LuaTiltShift -> _luaTiltShift.value = luaTiltShiftRequests.onScriptRequest(it.scriptId, it.tiltShift)
+                    is EmulatorEvent.LuaBloom -> _luaBloom.value = luaBloomRequests.onScriptRequest(it.scriptId, it.bloom)
                     is EmulatorEvent.LuaWideCamera -> _luaWideCamera.value = luaWideCameraRequests.onScriptRequest(it.scriptId, it.request)
                     // Like after the player's load, the achievements' primed and progress indicators start over
                     EmulatorEvent.LuaStateLoaded -> _achievementsEvent.tryEmit(RAEventUi.Reset)
@@ -1215,16 +1222,19 @@ class EmulatorViewModel @Inject constructor(
             is LuaUiEvent.ScriptStopped -> {
                 _luaLayoutId.value = luaLayoutRequests.onScriptStopped(event.scriptId)
                 _luaTiltShift.value = luaTiltShiftRequests.onScriptStopped(event.scriptId)
+                _luaBloom.value = luaBloomRequests.onScriptStopped(event.scriptId)
                 _luaWideCamera.value = luaWideCameraRequests.onScriptStopped(event.scriptId)
             }
             is LuaUiEvent.ScriptStarted -> {
                 luaLayoutRequests.onScriptStarted(event.scriptId)
                 luaTiltShiftRequests.onScriptStarted(event.scriptId)
+                luaBloomRequests.onScriptStarted(event.scriptId)
                 luaWideCameraRequests.onScriptStarted(event.scriptId)
             }
             LuaUiEvent.SessionEnded -> {
                 _luaLayoutId.value = luaLayoutRequests.onSessionEnded()
                 _luaTiltShift.value = luaTiltShiftRequests.onSessionEnded()
+                _luaBloom.value = luaBloomRequests.onSessionEnded()
                 _luaWideCamera.value = luaWideCameraRequests.onSessionEnded()
             }
             is LuaUiEvent.SessionStarted,

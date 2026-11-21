@@ -1,4 +1,5 @@
-// What the presentation reads of a frame (the app's PresentFrameWrapper.kt) and the Lua tilt-shift a script asks for (TiltShift.kt)
+// What the presentation reads of a frame (the app's PresentFrameWrapper.kt) and the Lua tilt-shift and bloom a script asks for (TiltShift.kt,
+// Bloom.kt)
 #pragma once
 
 #include <algorithm>
@@ -54,6 +55,19 @@ struct TiltShift
     float AppliedSaturation() const { return 1.f + (Saturation - 1.f) * Color.value_or(std::max(Top, Bottom)); }
     float AppliedContrast() const { return 1.f + (Contrast - 1.f) * Color.value_or(std::max(Top, Bottom)); }
     bool HasColorBoost() const { return AppliedSaturation() != 1.f || AppliedContrast() != 1.f; }
+};
+
+// Bloom.kt: a glow over the DS top screen of what's brighter than [Threshold] (a luma, 0 to 1), blurred [Radius] DS pixels wide, at [Strength]
+// (0 to 2), and a vignette that darkens it from [VignetteSize] of the half-diagonal out to the corners, where it's [Vignette] (0 to 1)
+struct Bloom
+{
+    float Strength = 0, Threshold = 0.7f, Radius = 3, Vignette = 0, VignetteSize = 0.6f;
+
+    bool operator==(const Bloom&) const = default;
+
+    bool HasBloom() const { return Strength > 0.f && Radius > 0.f; }
+    bool HasVignette() const { return Vignette > 0.f; }
+    bool IsOff() const { return !HasBloom() && !HasVignette(); }
 };
 
 }

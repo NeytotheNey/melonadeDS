@@ -34,6 +34,7 @@ import me.magnum.melonds.domain.model.emulator.RomLaunchResult
 import me.magnum.melonds.domain.model.emulator.resolveValues
 import me.magnum.melonds.domain.model.retroachievements.GameAchievementData
 import me.magnum.melonds.domain.model.camera.WideCameraRequest
+import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.domain.model.retroachievements.RAEvent
 import me.magnum.melonds.domain.model.rom.Rom
@@ -183,6 +184,17 @@ class AndroidEmulatorManager(
                 val panY = data.getFloat().takeIf { hasPanY }
                 val request = WideCameraRequest(zoom = zoom, pan = pan, holdNative = holdNative, panY = panY)
                 _emulatorEvents.tryEmit(EmulatorEvent.LuaWideCamera(scriptId, request))
+            }
+            EmulatorEventType.EventLuaBloom -> {
+                val scriptId = data.getInt()
+                val bloom = Bloom(
+                    strength = data.getFloat(),
+                    threshold = data.getFloat(),
+                    radius = data.getFloat(),
+                    vignette = data.getFloat(),
+                    vignetteSize = data.getFloat(),
+                )
+                _emulatorEvents.tryEmit(EmulatorEvent.LuaBloom(scriptId, bloom))
             }
         }
     }

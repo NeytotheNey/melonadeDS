@@ -112,6 +112,9 @@ Shader::Shader(GLuint program, GLenum textureFiltering)
     UniformBottomScreenWide = glGetUniformLocation(Program, "bottomScreenWide");
     UniformTiltShift = glGetUniformLocation(Program, "tiltShift");
     UniformTiltShiftBoost = glGetUniformLocation(Program, "tiltShiftBoost");
+    UniformBloom = glGetUniformLocation(Program, "bloom");
+    UniformVignette = glGetUniformLocation(Program, "vignette");
+    UniformGlowTex = glGetUniformLocation(Program, "glowTex");
     UniformHalvesAt1x = glGetUniformLocation(Program, "halvesAt1x");
     UniformCoordXTex = glGetUniformLocation(Program, "coordXTex");
     UniformCoordYTex = glGetUniformLocation(Program, "coordYTex");
@@ -170,6 +173,16 @@ void Shader::SetTiltShift(const TiltShift& tiltShift) const
         glUniform4f(UniformTiltShift, tiltShift.BandTop(), tiltShift.BandBottom(), tiltShift.TopRadius(), tiltShift.BottomRadius());
     if (UniformTiltShiftBoost >= 0)
         glUniform2f(UniformTiltShiftBoost, tiltShift.AppliedSaturation(), tiltShift.AppliedContrast());
+}
+
+void Shader::SetBloom(const Bloom& bloom) const
+{
+    if (UniformBloom >= 0)
+        glUniform3f(UniformBloom, bloom.Strength, bloom.Threshold, bloom.Radius);
+    if (UniformVignette >= 0)
+        glUniform2f(UniformVignette, bloom.Vignette, bloom.VignetteSize);
+    if (UniformGlowTex >= 0)
+        glUniform1i(UniformGlowTex, 1);
 }
 
 void Shader::SetHalvesAt1x(int halvesAt1x, int scale, int halfScale) const

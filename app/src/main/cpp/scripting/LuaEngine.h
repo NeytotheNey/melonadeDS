@@ -271,6 +271,8 @@ private:
     template <std::optional<bool> LuaScript::* request> static int luaSetBoolRequest(lua_State* L);
     static int luaScreenSetLayout(lua_State* L);
     static int luaScreenTiltShift(lua_State* L);
+    static int luaScreenBloom(lua_State* L);
+    static int luaScreenVignette(lua_State* L);
 
     std::vector<LuaScriptSource> pendingScripts;
     // Outlives every script's state, which may point into its images

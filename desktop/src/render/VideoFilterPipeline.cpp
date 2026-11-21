@@ -10,6 +10,8 @@ namespace
 {
 
 const char* DEBAND_DEFINE = "DEBAND";
+// the bloom's last pass without the glow, for a vignette on its own (BloomCombinePrePassShader)
+const char* VIGNETTE_ONLY_DEFINE = "VIGNETTE_ONLY";
 const GLenum COLOR_ATTACHMENTS[] = {GL_COLOR_ATTACHMENT0};
 
 const ShaderProgramSource* FindShader(const char* name)
@@ -63,7 +65,7 @@ public:
 
     // the input through this pass's shader into the target; the caller binds the quad and sets the viewport and blending
     void Render(GLuint inputTexture, int inputWidth, int inputHeight, int topScreenWidth, int topScreenHeight, bool isBottomScreenWide,
-        const std::optional<TiltShift>& tiltShift, int halvesAt1x = 0, int scaleAt1x = 1, int halfScaleAt1x = 1)
+        const std::optional<TiltShift>& tiltShift, int halvesAt1x = 0, int scaleAt1x = 1, int halfScaleAt1x = 1, const Bloom* bloom = nullptr)
     {
         glBindFramebuffer(GL_FRAMEBUFFER, Framebuffer);
         // The quad covers every texel, so the old contents never have to be loaded
@@ -84,6 +86,8 @@ public:
         Program->SetBottomScreenWide(isBottomScreenWide);
         if (tiltShift)
             Program->SetTiltShift(*tiltShift);
+        if (bloom)
+            Program->SetBloom(*bloom);
         Program->SetHalvesAt1x(halvesAt1x, scaleAt1x, halfScaleAt1x);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
@@ -113,6 +117,12 @@ private:
 struct VideoFilterPipeline::TiltShiftPasses
 {
     std::unique_ptr<PrePass> Horizontal, Vertical;
+};
+
+// the glow's passes at DS-native resolution, then the one that adds it (and the vignette) at the input's
+struct VideoFilterPipeline::BloomPasses
+{
+    std::unique_ptr<PrePass> Bright, Horizontal, Vertical, Combine;
 };
 
 VideoFilterPipeline::VideoFilterPipeline(const VideoFilter& filter, bool colorCorrection)
@@ -272,7 +282,7 @@ GLuint VideoFilterPipeline::ExpandHalvesAt1x(const FrameView& frame)
 }
 
 const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift,
-    bool foldDeband)
+    const std::optional<Bloom>& bloom, bool foldDeband)
 {
     Output.Set(frame.Texture, frame.Width, frame.Height);
 
@@ -292,8 +302,11 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     // Without a blur, or if its passes can't be built, only the color boost is left to apply, in one pass. Each is only tried once
     TiltShiftPasses* tiltShiftPasses = tiltShift && tiltShift->HasBlur() ? GetTiltShiftPasses() : nullptr;
     PrePass* tiltShiftColorPass = tiltShift && !tiltShiftPasses && tiltShift->HasColorBoost() ? GetTiltShiftColorPass() : nullptr;
+    // The same for the bloom: without a glow, or if its passes can't be built, only the vignette is left, in a pass that reads no glow
+    BloomPasses* bloomPasses = bloom && bloom->HasBloom() ? GetBloomPasses() : nullptr;
+    PrePass* vignettePass = bloom && !bloomPasses && bloom->HasVignette() ? GetVignettePass() : nullptr;
     bool runsDeband = DebandPass && !foldDeband;
-    if (!runsDeband && PrePasses.empty() && !tiltShiftPasses && !tiltShiftColorPass)
+    if (!runsDeband && PrePasses.empty() && !tiltShiftPasses && !tiltShiftColorPass && !bloomPasses && !vignettePass)
         return Output;
 
     int width = frame.Width;
@@ -302,9 +315,10 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
         return Output;
 
     std::optional<TiltShift> appliedTiltShift = tiltShiftPasses || tiltShiftColorPass ? tiltShift : std::nullopt;
+    std::optional<Bloom> appliedBloom = bloomPasses || vignettePass ? bloom : std::nullopt;
     bool isSameFrame = frame.Sequence != 0 && frame.Sequence == LastFrameSequence && frame.Texture == LastFrameTextureId && width == LastFrameWidth
         && height == LastFrameHeight && isBottomScreenWide == LastFrameBottomScreenWide && appliedTiltShift == LastFrameTiltShift
-        && runsDeband == LastFrameRanDeband;
+        && appliedBloom == LastFrameBloom && runsDeband == LastFrameRanDeband;
     if (isSameFrame)
     {
         Output.Set(LastOutputTextureId, LastOutputWidth, LastOutputHeight);
@@ -334,6 +348,8 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
         }
     }
 
+    if (isComplete && appliedBloom)
+        RenderBloom(bloomPasses, *appliedBloom, frame, isBottomScreenWide);
     if (isComplete && tiltShiftPasses)
     {
         isComplete = RenderPass(*tiltShiftPasses->Horizontal, frame.TopWidth, isBottomScreenWide, appliedTiltShift)
@@ -358,6 +374,7 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     LastFrameHeight = height;
     LastFrameBottomScreenWide = isBottomScreenWide;
     LastFrameTiltShift = appliedTiltShift;
+    LastFrameBloom = appliedBloom;
     LastFrameRanDeband = runsDeband;
     LastOutputTextureId = InputTexture;
     LastOutputWidth = InputWidth;
@@ -368,18 +385,7 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
 
 bool VideoFilterPipeline::RenderPass(PrePass& pass, int topScreenWidth, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift)
 {
-    if (!IsStateSaved)
-    {
-        SaveState();
-        IsStateSaved = true;
-        glDisable(GL_BLEND);
-        glActiveTexture(GL_TEXTURE0);
-        if (!QuadVao)
-            CreateQuad();
-        glBindVertexArray(QuadVao);
-        glBindBuffer(GL_ARRAY_BUFFER, QuadVbo);
-    }
-
+    BeginPasses();
     int outputWidth = InputWidth * pass.Scale;
     int outputHeight = InputHeight * pass.Scale;
     if (!pass.PrepareTarget(outputWidth, outputHeight))
@@ -390,6 +396,123 @@ bool VideoFilterPipeline::RenderPass(PrePass& pass, int topScreenWidth, bool isB
     InputWidth = outputWidth;
     InputHeight = outputHeight;
     return true;
+}
+
+// the GL state the passes change saved and their quad bound, before a frame's first pass
+void VideoFilterPipeline::BeginPasses()
+{
+    if (IsStateSaved)
+        return;
+    SaveState();
+    IsStateSaved = true;
+    glDisable(GL_BLEND);
+    glActiveTexture(GL_TEXTURE0);
+    if (!QuadVao)
+        CreateQuad();
+    glBindVertexArray(QuadVao);
+    glBindBuffer(GL_ARRAY_BUFFER, QuadVbo);
+}
+
+// [bloom] over the current input, whose size it keeps: the glow through [passes] and their combine pass, or the vignette alone without them. A
+// target that can't be made leaves the bloom out (the vignette stays when it's only the glow's), logged once, so the frame is still drawn
+void VideoFilterPipeline::RenderBloom(BloomPasses* passes, const Bloom& bloom, const FrameView& frame, bool isBottomScreenWide)
+{
+    BeginPasses();
+    GLuint glowTexture = passes ? RenderGlow(*passes, bloom, frame, isBottomScreenWide) : 0;
+    PrePass* combine = passes && glowTexture ? passes->Combine.get() : bloom.HasVignette() ? GetVignettePass() : nullptr;
+    if (!combine)
+        return;
+    if (!combine->PrepareTarget(InputWidth, InputHeight))
+    {
+        LogBloomTarget();
+        return;
+    }
+
+    // The glow's target is linear from when it was made, and no pass reads it with anything else
+    if (glowTexture)
+    {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, glowTexture);
+        glActiveTexture(GL_TEXTURE0);
+    }
+    glViewport(0, 0, InputWidth, InputHeight);
+    combine->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
+    if (glowTexture)
+    {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0);
+    }
+    InputTexture = combine->Texture;
+}
+
+// the current input's bright parts, blurred, at DS-native resolution (the frame's size in DS pixels): the texture of the glow's last pass, or 0
+// if one of its targets can't be made
+GLuint VideoFilterPipeline::RenderGlow(BloomPasses& passes, const Bloom& bloom, const FrameView& frame, bool isBottomScreenWide)
+{
+    int width = frame.TopWidth;
+    int height = frame.FrameHeight();
+    bool isReady = width > 0 && passes.Bright->PrepareTarget(width, height) && passes.Horizontal->PrepareTarget(width, height)
+        && passes.Vertical->PrepareTarget(width, height);
+    if (!isReady)
+    {
+        LogBloomTarget();
+        return 0;
+    }
+
+    glViewport(0, 0, width, height);
+    passes.Bright->Render(InputTexture, InputWidth, InputHeight, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
+    passes.Horizontal->Render(passes.Bright->Texture, width, height, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
+    passes.Vertical->Render(passes.Horizontal->Texture, width, height, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
+    return passes.Vertical->Texture;
+}
+
+void VideoFilterPipeline::LogBloomTarget()
+{
+    if (!HasLoggedBloomTarget)
+    {
+        HasLoggedBloomTarget = true;
+        fprintf(stderr, "a bloom target can't be made, so the bloom is left out\n");
+    }
+}
+
+VideoFilterPipeline::BloomPasses* VideoFilterPipeline::GetBloomPasses()
+{
+    if (!IsBloomBuilt)
+    {
+        IsBloomBuilt = true;
+        std::unique_ptr<Shader> bright = CreateShaderProgramOrNull(FindShader("BloomBrightPrePassShader"));
+        std::unique_ptr<Shader> horizontal = CreateShaderProgramOrNull(FindShader("BloomBlurHorizontalPrePassShader"));
+        std::unique_ptr<Shader> vertical = CreateShaderProgramOrNull(FindShader("BloomBlurVerticalPrePassShader"));
+        std::unique_ptr<Shader> combine = CreateShaderProgramOrNull(FindShader("BloomCombinePrePassShader"));
+        if (bright && horizontal && vertical && combine)
+        {
+            BloomPassesBuilt = std::make_unique<BloomPasses>();
+            BloomPassesBuilt->Bright = std::make_unique<PrePass>(std::move(bright), 1, false);
+            BloomPassesBuilt->Horizontal = std::make_unique<PrePass>(std::move(horizontal), 1, false);
+            BloomPassesBuilt->Vertical = std::make_unique<PrePass>(std::move(vertical), 1, false);
+            BloomPassesBuilt->Combine = std::make_unique<PrePass>(std::move(combine), 1, false);
+        }
+        else
+        {
+            // The frame is drawn without the glow rather than not at all (what did build goes with the unique_ptrs)
+            fprintf(stderr, "bloom shaders failed to build, so the glow is left out\n");
+        }
+    }
+    return BloomPassesBuilt.get();
+}
+
+VideoFilterPipeline::PrePass* VideoFilterPipeline::GetVignettePass()
+{
+    if (!IsVignetteBuilt)
+    {
+        IsVignetteBuilt = true;
+        if (std::unique_ptr<Shader> shader = CreateShaderProgramOrNull(FindShader("BloomCombinePrePassShader"), false, {VIGNETTE_ONLY_DEFINE}))
+            VignettePass = std::make_unique<PrePass>(std::move(shader), 1, false);
+        else
+            fprintf(stderr, "vignette shader failed to build, so the vignette is left out\n");
+    }
+    return VignettePass.get();
 }
 
 VideoFilterPipeline::TiltShiftPasses* VideoFilterPipeline::GetTiltShiftPasses()

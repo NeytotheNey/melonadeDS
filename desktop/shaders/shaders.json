@@ -2,6 +2,10 @@
   "generatedBy": "app/src/test/java/me/magnum/melonds/common/opengl/DesktopShaderExportTest.kt",
   "shaders": [
     {"name": "BackgroundShader", "textureFiltering": "LINEAR"},
+    {"name": "BloomBlurHorizontalPrePassShader", "textureFiltering": "LINEAR"},
+    {"name": "BloomBlurVerticalPrePassShader", "textureFiltering": "LINEAR"},
+    {"name": "BloomBrightPrePassShader", "textureFiltering": "LINEAR"},
+    {"name": "BloomCombinePrePassShader", "textureFiltering": "LINEAR"},
     {"name": "DebandPrePassShader", "textureFiltering": "LINEAR"},
     {"name": "ExpandHalvesAt1xPrePassShader", "textureFiltering": "NEAREST"},
     {"name": "FxaaPrePassShader", "textureFiltering": "LINEAR"},

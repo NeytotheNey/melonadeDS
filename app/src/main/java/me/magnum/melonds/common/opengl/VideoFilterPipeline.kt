@@ -2,6 +2,7 @@ package me.magnum.melonds.common.opengl
 
 import android.opengl.GLES30
 import android.util.Log
+import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import me.magnum.melonds.domain.model.render.TiltShift
 import java.nio.ByteBuffer
@@ -34,6 +35,8 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     private companion object {
         const val TAG = "VideoFilterPipeline"
         const val DEBAND_DEFINE = "DEBAND"
+        // The bloom's last pass without the glow, for a vignette on its own (ShaderProgramSource.BloomCombinePrePassShader)
+        const val VIGNETTE_ONLY_DEFINE = "VIGNETTE_ONLY"
         val COLOR_ATTACHMENTS = intArrayOf(GLES30.GL_COLOR_ATTACHMENT0)
     }
 
@@ -150,8 +153,8 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
 
     /**
      * Whether a frame with screens at 1x drawn through [getHalvesAt1xShader] looks the same as the full frame through this pipeline: only the
-     * no-filter shader with no pre-pass, as long as the 1x shader didn't fail to build. A Lua tilt-shift adds passes of its own, which the caller
-     * checks. Only looks at state, so it's free to ask on every frame.
+     * no-filter shader with no pre-pass, as long as the 1x shader didn't fail to build. A Lua tilt-shift, bloom or vignette adds passes of its
+     * own, which the caller checks. Only looks at state, so it's free to ask on every frame.
      */
     val canDrawHalvesAt1x: Boolean
         get() = isNoFilter && !(isHalvesAt1xShaderBuilt && halvesAt1xShader == null)
@@ -238,6 +241,12 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     // The same for a script that only asks for the color boost right now, which needs none of the above
     private var tiltShiftColorPass: PrePass? = null
     private var isTiltShiftColorBuilt = false
+    // The same for a script's bloom, and for its vignette on its own; a target that can't be made is only logged once
+    private var bloomPasses: BloomPasses? = null
+    private var isBloomBuilt = false
+    private var vignettePass: PrePass? = null
+    private var isVignetteBuilt = false
+    private var hasLoggedBloomTarget = false
 
     // Returned by renderPrePasses(), reused so that no garbage is created on every frame
     private val output = FilterOutput()
@@ -255,6 +264,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     private var lastFrameBottomScreenWide = false
     // A fade changes the blur without a new frame (and scripts can stop it while paused), so the same frame is filtered again
     private var lastFrameTiltShift: TiltShift? = null
+    private var lastFrameBloom: Bloom? = null
     // Whether the deband pre-pass ran for that frame, since the screen shader can take it over (or hand it back) on the same frame
     private var lastFrameRanDeband = false
     // What renderPrePasses() returned for that frame
@@ -278,12 +288,18 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     private var isStateSaved = false
 
     /**
-     * Runs the pre-passes, then the [tiltShift] if there's one, and returns the texture the screen shader should draw, whose size the caller
-     * sets as the shader's texSize (a scaled pass makes it bigger); call it before drawing to the surface and for invalid frames too, and set the
-     * program, VAO, array buffer and texture unit 0 again afterwards. With [foldDeband] the deband pre-pass is left out, for a frame drawn with
-     * [getDebandScreenShader].
+     * Runs the pre-passes, then the [bloom] and the [tiltShift] if there are any (in that order, so the tilt-shift's blur softens the glow too),
+     * and returns the texture the screen shader should draw, whose size the caller sets as the shader's texSize (a scaled pass makes it bigger);
+     * call it before drawing to the surface and for invalid frames too, and set the program, VAO, array buffer and texture unit 0 again
+     * afterwards. With [foldDeband] the deband pre-pass is left out, for a frame drawn with [getDebandScreenShader].
      */
-    fun renderPrePasses(frame: PresentFrameWrapper, isBottomScreenWide: Boolean, tiltShift: TiltShift?, foldDeband: Boolean = false): FilterOutput {
+    fun renderPrePasses(
+        frame: PresentFrameWrapper,
+        isBottomScreenWide: Boolean,
+        tiltShift: TiltShift?,
+        bloom: Bloom?,
+        foldDeband: Boolean = false,
+    ): FilterOutput {
         output.set(frame.textureId, frame.textureWidth, frame.textureHeight)
 
         if (!frame.isValidFrame) {
@@ -293,7 +309,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             return output
         }
 
-        // debug.melonade.comp1x: a frame with screens at 1x that comes here (any filter but the no-filter shader alone, a Lua tilt-shift, or the
+        // debug.melonade.comp1x: a frame with screens at 1x that comes here (any filter but the no-filter shader alone, a Lua effect, or the
         // 1x shader didn't build) becomes the full frame first, which then goes through everything below exactly as the full frame would
         val frameTextureId = if (frame.halvesAt1x != 0) expandHalvesAt1x(frame) else frame.textureId
         output.set(frameTextureId, frame.textureWidth, frame.textureHeight)
@@ -302,8 +318,11 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         // boost doesn't jump as the bands reach or leave 0 even then. Each is only tried once
         val tiltShiftPasses = if (tiltShift != null && tiltShift.hasBlur) getTiltShiftPasses() else null
         val tiltShiftColorPass = if (tiltShift != null && tiltShiftPasses == null && tiltShift.hasColorBoost) getTiltShiftColorPass() else null
+        // The same for the bloom: without a glow, or if its passes can't be built, only the vignette is left, in a pass that reads no glow
+        val bloomPasses = if (bloom != null && bloom.hasBloom) getBloomPasses() else null
+        val vignettePass = if (bloom != null && bloomPasses == null && bloom.hasVignette) getVignettePass() else null
         val runsDeband = debandPass != null && !foldDeband
-        if (!runsDeband && prePasses.isEmpty() && tiltShiftPasses == null && tiltShiftColorPass == null) {
+        if (!runsDeband && prePasses.isEmpty() && tiltShiftPasses == null && tiltShiftColorPass == null && bloomPasses == null && vignettePass == null) {
             return output
         }
 
@@ -314,9 +333,10 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         }
 
         val appliedTiltShift = if (tiltShiftPasses != null || tiltShiftColorPass != null) tiltShift else null
+        val appliedBloom = if (bloomPasses != null || vignettePass != null) bloom else null
         val isSameFrame = frame.frameSequence != 0L && frame.frameSequence == lastFrameSequence && frame.textureId == lastFrameTextureId &&
                 width == lastFrameWidth && height == lastFrameHeight && isBottomScreenWide == lastFrameBottomScreenWide &&
-                appliedTiltShift == lastFrameTiltShift && runsDeband == lastFrameRanDeband
+                appliedTiltShift == lastFrameTiltShift && appliedBloom == lastFrameBloom && runsDeband == lastFrameRanDeband
         if (isSameFrame) {
             output.set(lastOutputTextureId, lastOutputWidth, lastOutputHeight)
             return output
@@ -349,6 +369,9 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             }
         }
 
+        if (isComplete && appliedBloom != null) {
+            renderBloom(bloomPasses, appliedBloom, frame, isBottomScreenWide)
+        }
         if (isComplete && tiltShiftPasses != null) {
             isComplete = renderPass(tiltShiftPasses.horizontal, frame.topScreenWidth, isBottomScreenWide, appliedTiltShift) &&
                     renderPass(tiltShiftPasses.vertical, frame.topScreenWidth, isBottomScreenWide, appliedTiltShift)
@@ -372,6 +395,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         lastFrameHeight = height
         lastFrameBottomScreenWide = isBottomScreenWide
         lastFrameTiltShift = appliedTiltShift
+        lastFrameBloom = appliedBloom
         lastFrameRanDeband = runsDeband
         lastOutputTextureId = inputTexture
         lastOutputWidth = inputWidth
@@ -384,18 +408,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
      * Draws the current input through [pass], whose target becomes the next input, and returns false if its target can't be drawn to.
      */
     private fun renderPass(pass: PrePass, topScreenWidth: Int, isBottomScreenWide: Boolean, tiltShift: TiltShift?): Boolean {
-        if (!isStateSaved) {
-            saveState()
-            isStateSaved = true
-            GLES30.glDisable(GLES30.GL_BLEND)
-            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-            if (quadVao == 0) {
-                createQuad()
-            }
-            GLES30.glBindVertexArray(quadVao)
-            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
-        }
-
+        beginPasses()
         val outputWidth = inputWidth * pass.scale
         val outputHeight = inputHeight * pass.scale
         if (!pass.prepareTarget(outputWidth, outputHeight)) {
@@ -407,6 +420,120 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         inputWidth = outputWidth
         inputHeight = outputHeight
         return true
+    }
+
+    /**
+     * Saves the GL state the passes change and binds their quad, before a frame's first pass.
+     */
+    private fun beginPasses() {
+        if (isStateSaved) {
+            return
+        }
+        saveState()
+        isStateSaved = true
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        if (quadVao == 0) {
+            createQuad()
+        }
+        GLES30.glBindVertexArray(quadVao)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, quadVbo)
+    }
+
+    /**
+     * Draws [bloom] over the current input, whose size it keeps: the glow through [passes] and their combine pass, or the vignette alone
+     * without them. A target that can't be made leaves the bloom out (the vignette stays when it's only the glow's), logged once, so the frame
+     * is still drawn.
+     */
+    private fun renderBloom(passes: BloomPasses?, bloom: Bloom, frame: PresentFrameWrapper, isBottomScreenWide: Boolean) {
+        beginPasses()
+        val glowTexture = if (passes != null) renderGlow(passes, bloom, frame, isBottomScreenWide) else 0
+        val combine = if (passes != null && glowTexture != 0) passes.combine else if (bloom.hasVignette) getVignettePass() else null
+        if (combine == null) {
+            return
+        }
+        if (!combine.prepareTarget(inputWidth, inputHeight)) {
+            logBloomTarget()
+            return
+        }
+
+        // The glow's target is linear from when it was made, and no pass reads it with anything else
+        if (glowTexture != 0) {
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, glowTexture)
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        }
+        GLES30.glViewport(0, 0, inputWidth, inputHeight)
+        combine.render(inputTexture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
+        if (glowTexture != 0) {
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        }
+        inputTexture = combine.texture
+    }
+
+    /**
+     * The current input's bright parts, blurred, at DS-native resolution (the frame's size in DS pixels): the texture of the glow's last pass,
+     * or 0 if one of its targets can't be made.
+     */
+    private fun renderGlow(passes: BloomPasses, bloom: Bloom, frame: PresentFrameWrapper, isBottomScreenWide: Boolean): Int {
+        val width = frame.topScreenWidth
+        val height = frame.frameHeight
+        val isReady = width > 0 && passes.bright.prepareTarget(width, height) && passes.horizontal.prepareTarget(width, height) &&
+                passes.vertical.prepareTarget(width, height)
+        if (!isReady) {
+            logBloomTarget()
+            return 0
+        }
+
+        GLES30.glViewport(0, 0, width, height)
+        passes.bright.render(inputTexture, inputWidth, inputHeight, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
+        passes.horizontal.render(passes.bright.texture, width, height, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
+        passes.vertical.render(passes.horizontal.texture, width, height, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
+        return passes.vertical.texture
+    }
+
+    private fun logBloomTarget() {
+        if (!hasLoggedBloomTarget) {
+            hasLoggedBloomTarget = true
+            Log.e(TAG, "A bloom target can't be made, so the bloom is left out")
+        }
+    }
+
+    private fun getBloomPasses(): BloomPasses? {
+        if (!isBloomBuilt) {
+            isBloomBuilt = true
+            val bright = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.BloomBrightPrePassShader)
+            val horizontal = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.BloomBlurHorizontalPrePassShader)
+            val vertical = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.BloomBlurVerticalPrePassShader)
+            val combine = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.BloomCombinePrePassShader)
+            if (bright != null && horizontal != null && vertical != null && combine != null) {
+                bloomPasses = BloomPasses(PrePass(bright, 1, false), PrePass(horizontal, 1, false), PrePass(vertical, 1, false), PrePass(combine, 1, false))
+            } else {
+                // The frame is drawn without the glow rather than not at all
+                Log.e(TAG, "Bloom shaders failed to build, so the glow is left out")
+                bright?.delete()
+                horizontal?.delete()
+                vertical?.delete()
+                combine?.delete()
+            }
+        }
+        return bloomPasses
+    }
+
+    private fun getVignettePass(): PrePass? {
+        if (!isVignetteBuilt) {
+            isVignetteBuilt = true
+            val shader = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.BloomCombinePrePassShader, extraDefines = listOf(VIGNETTE_ONLY_DEFINE))
+            if (shader != null) {
+                vignettePass = PrePass(shader, 1, false)
+            } else {
+                // The frame is drawn without the vignette rather than not at all
+                Log.e(TAG, "Vignette shader failed to build, so the vignette is left out")
+            }
+        }
+        return vignettePass
     }
 
     private fun getTiltShiftPasses(): TiltShiftPasses? {
@@ -461,6 +588,15 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         tiltShiftPasses = null
         tiltShiftColorPass?.delete()
         tiltShiftColorPass = null
+        bloomPasses?.let {
+            it.bright.delete()
+            it.horizontal.delete()
+            it.vertical.delete()
+            it.combine.delete()
+        }
+        bloomPasses = null
+        vignettePass?.delete()
+        vignettePass = null
         if (quadVao != 0) {
             GLES30.glDeleteVertexArrays(1, intArrayOf(quadVao), 0)
             GLES30.glDeleteBuffers(1, intArrayOf(quadVbo), 0)
@@ -517,6 +653,9 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     }
 
     private class TiltShiftPasses(val horizontal: PrePass, val vertical: PrePass)
+
+    // The glow's passes at DS-native resolution, then the one that adds it (and the vignette) at the input's
+    private class BloomPasses(val bright: PrePass, val horizontal: PrePass, val vertical: PrePass, val combine: PrePass)
 
     private class PrePass(private val shader: Shader, val scale: Int, val nativeResolutionOnly: Boolean) {
         private var framebuffer = 0
@@ -576,6 +715,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             halvesAt1x: Int = 0,
             scaleAt1x: Int = 1,
             halfScaleAt1x: Int = 1,
+            bloom: Bloom? = null,
         ) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
             // The quad covers every texel, so the old contents never have to be loaded
@@ -594,6 +734,9 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             shader.setBottomScreenWide(isBottomScreenWide)
             if (tiltShift != null) {
                 shader.setTiltShift(tiltShift)
+            }
+            if (bloom != null) {
+                shader.setBloom(bloom)
             }
             shader.setHalvesAt1x(halvesAt1x, scaleAt1x, halfScaleAt1x)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)

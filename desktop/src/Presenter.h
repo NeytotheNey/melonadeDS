@@ -48,6 +48,8 @@ public:
     const RendererConfig& GetRendererConfig() const { return Config; }
     // the Lua tilt-shift over the top screen (none by default; --tilt-shift for tests until the scripts drive it)
     void SetTiltShift(const std::optional<TiltShift>& tiltShift) { CurrentTiltShift = tiltShift; }
+    // the Lua bloom and vignette over the top screen (none by default; --bloom for tests until the scripts drive them)
+    void SetBloom(const std::optional<Bloom>& bloom) { CurrentBloom = bloom; }
 
     // where [layout]'s screens of [frame] go in a drawable windowW x windowH with [fit], centered. [swap] trades the screens' places: the
     // bottom screen first (above or left), or the other screen for TopOnly and BottomOnly. Only the frame's top screen size is read
@@ -74,6 +76,7 @@ public:
 private:
     RendererConfig Config;
     std::optional<TiltShift> CurrentTiltShift;
+    std::optional<Bloom> CurrentBloom;
     ScreenRenderer Surfaces[SURFACE_COUNT];
 
     GLuint CursorProgram = 0;

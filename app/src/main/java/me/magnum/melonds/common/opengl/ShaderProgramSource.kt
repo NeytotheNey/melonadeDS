@@ -1030,6 +1030,148 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "}"
         )
 
+        // The bloom's values (Shader.setBloom): strength (x), threshold (y) and radius in DS pixels (z)
+        private const val BLOOM_UNIFORM = "uniform vec3 bloom;\n"
+
+        // Black, for the texels of a bloom target outside the DS top screen, which never glow
+        private const val BLOOM_BLACK = "vec4(0.0, 0.0, 0.0, 1.0)"
+
+        // The first bloom pass, at DS-native resolution (VideoFilterPipeline makes its target topScreenWidth x frameLayout.w): each texel is the
+        // average of the input texels it covers (four bilinear taps, exact at 2x and 4x), then only what's brighter than the threshold is kept,
+        // easing in over a soft knee so the glow has no hard edge. Only the DS top screen; the rest is black
+        val BloomBrightPrePassShader get() = ShaderProgramSource(
+            TextureFiltering.LINEAR,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    SCREEN_UNIFORMS +
+                    "varying vec2 uv;\n" +
+                    BLOOM_UNIFORM +
+                    screenBandFunctions("texture2D") +
+                    "" +
+                    "const vec3 BLOOM_LUMA = vec3(0.299, 0.587, 0.114);\n" +
+                    "// Half the soft knee's width, as a luma: the glow eases in from threshold - BLOOM_KNEE to threshold + BLOOM_KNEE\n" +
+                    "const float BLOOM_KNEE = 0.1;\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    vec4 band = screenBand(uv);\n" +
+                    "    // The gap, the DS bottom screen, and the sides beside the top screen when only the bottom one is wide\n" +
+                    "    if (uv.y >= topScreenEnd || (band.z >= 0.0 && (uv.x < band.z || uv.x > band.w))) {\n" +
+                    "        gl_FragColor = $BLOOM_BLACK;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "" +
+                    "    // A quarter of this pass's texel, which is one DS pixel\n" +
+                    "    vec2 tap = 0.25 / vec2(topScreenWidth, frameLayout.w);\n" +
+                    "    vec3 color = 0.25 * (\n" +
+                    "        sampleScreen(uv - tap, band) + sampleScreen(uv + tap, band) +\n" +
+                    "        sampleScreen(uv + vec2(tap.x, -tap.y), band) + sampleScreen(uv + vec2(-tap.x, tap.y), band));\n" +
+                    "    float luma = dot(color, BLOOM_LUMA);\n" +
+                    "    float knee = clamp(luma - bloom.y + BLOOM_KNEE, 0.0, 2.0 * BLOOM_KNEE);\n" +
+                    "    knee = knee * knee / (4.0 * BLOOM_KNEE);\n" +
+                    "    float weight = max(knee, luma - bloom.y) / max(luma, 0.0001);\n" +
+                    "    // Swap back to the frame texture's channel order, since sampleScreen() reads the BGR texels as RGB\n" +
+                    "    gl_FragColor = vec4((color * weight).bgr, 1.0);\n" +
+                    "}"
+        )
+
+        // One direction of the bloom's blur, at DS-native resolution like the bright pass: a Gaussian whose sigma is half the radius, from 9
+        // bilinear samples a quarter of the radius apart (at most 2 texels, what bilinear filtering can bridge), kept inside the DS top screen
+        private fun bloomBlurPrePassShader(direction: String): ShaderProgramSource {
+            return ShaderProgramSource(
+                TextureFiltering.LINEAR,
+                PRE_PASS_VERT_SHADER,
+                PRECISION_HEADER +
+                        SCREEN_UNIFORMS +
+                        "varying vec2 uv;\n" +
+                        BLOOM_UNIFORM +
+                        screenBandFunctions("texture2D") +
+                        "" +
+                        "const vec2 BLUR_DIRECTION = $direction;\n" +
+                        "// A Gaussian whose sigma is 2 samples at offsets of 0 to 4 samples, adding up to 1\n" +
+                        "const float WEIGHT_0 = 0.204162;\n" +
+                        "const float WEIGHT_1 = 0.180174;\n" +
+                        "const float WEIGHT_2 = 0.123832;\n" +
+                        "const float WEIGHT_3 = 0.066282;\n" +
+                        "const float WEIGHT_4 = 0.027631;\n" +
+                        "" +
+                        "void main() {\n" +
+                        "    // Only the DS top screen has a glow\n" +
+                        "    if (uv.y >= topScreenEnd) {\n" +
+                        "        gl_FragColor = $BLOOM_BLACK;\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "" +
+                        "    // This pass's texels are DS pixels\n" +
+                        "    vec4 band = screenBand(uv);\n" +
+                        "    vec2 spacing = BLUR_DIRECTION * bloom.z / 4.0 / texSize;\n" +
+                        "    vec3 color = WEIGHT_0 * sampleScreen(uv, band);\n" +
+                        "    color += WEIGHT_1 * (sampleScreen(uv - spacing, band) + sampleScreen(uv + spacing, band));\n" +
+                        "    color += WEIGHT_2 * (sampleScreen(uv - spacing * 2.0, band) + sampleScreen(uv + spacing * 2.0, band));\n" +
+                        "    color += WEIGHT_3 * (sampleScreen(uv - spacing * 3.0, band) + sampleScreen(uv + spacing * 3.0, band));\n" +
+                        "    color += WEIGHT_4 * (sampleScreen(uv - spacing * 4.0, band) + sampleScreen(uv + spacing * 4.0, band));\n" +
+                        "    // Swap back to the frame texture's channel order, since sampleScreen() reads the BGR texels as RGB\n" +
+                        "    gl_FragColor = vec4(color.bgr, 1.0);\n" +
+                        "}"
+            )
+        }
+
+        // Built when a script first asks for a glow (see VideoFilterPipeline), which runs them after the bright pass in this order
+        val BloomBlurHorizontalPrePassShader get() = bloomBlurPrePassShader("vec2(1.0, 0.0)")
+        val BloomBlurVerticalPrePassShader get() = bloomBlurPrePassShader("vec2(0.0, 1.0)")
+
+        // The bloom's last pass, at the input's resolution: the blurred glow on unit 1 (glowTex, DS-native, sampled linear) added at the bloom's
+        // strength, then the vignette, a smooth darkening from vignette.y of the half-diagonal out to the corners, where it's vignette.x. Both
+        // on the DS top screen only, its SCREEN_HEIGHT rows inside the WideMelon camera's margin for the vignette. With VIGNETTE_ONLY defined
+        // (VideoFilterPipeline) there's no glow to read, for the vignette on its own
+        val BloomCombinePrePassShader get() = ShaderProgramSource(
+            TextureFiltering.LINEAR,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    SCREEN_UNIFORMS +
+                    "varying vec2 uv;\n" +
+                    "#ifndef VIGNETTE_ONLY\n" +
+                    "uniform sampler2D glowTex;\n" +
+                    BLOOM_UNIFORM +
+                    "#endif\n" +
+                    "// The vignette's strength (x) and where it starts (y)\n" +
+                    "uniform vec2 vignette;\n" +
+                    "uniform float bottomScreenWide;\n" +
+                    FRAME_LAYOUT_UNIFORM +
+                    "#define topScreenEnd frameLayout.x\n" +
+                    "" +
+                    "// The DS top screen's columns (xy) and its SCREEN_HEIGHT rows inside the camera's margin (zw), as u and v coordinates\n" +
+                    "vec4 topScreenRect() {\n" +
+                    "    float halfWidth = bottomScreenWide > 0.5 && topScreenWidth > ${SCREEN_WIDTH}.0 ? 0.5 * ${SCREEN_WIDTH}.0 / topScreenWidth : 0.5;\n" +
+                    "    float margin = (topScreenEnd * frameLayout.w - ${SCREEN_HEIGHT}.0) * 0.5;\n" +
+                    "    return vec4(0.5 - halfWidth, 0.5 + halfWidth, margin / frameLayout.w, (margin + ${SCREEN_HEIGHT}.0) / frameLayout.w);\n" +
+                    "}\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    vec3 texel = texture2D(tex, uv).rgb;\n" +
+                    "    // The gap and the DS bottom screen stay as they are\n" +
+                    "    if (uv.y >= topScreenEnd) {\n" +
+                    "        gl_FragColor = vec4(texel, 1.0);\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "" +
+                    "    vec3 color = texel.bgr;\n" +
+                    "    vec4 rect = topScreenRect();\n" +
+                    "    // Both in DS pixels, so the darkening is round on the screen whatever its width\n" +
+                    "    vec2 dsPixels = vec2(topScreenWidth, frameLayout.w);\n" +
+                    "#ifndef VIGNETTE_ONLY\n" +
+                    "    // Kept on the glow's texel centers inside the top screen, so the black around it doesn't darken its edges\n" +
+                    "    vec2 glowHalfTexel = 0.5 / dsPixels;\n" +
+                    "    vec2 glowUv = clamp(uv, vec2(rect.x, 0.0) + glowHalfTexel, vec2(rect.y, topScreenEnd) - glowHalfTexel);\n" +
+                    "    color += bloom.x * texture2D(glowTex, glowUv).bgr;\n" +
+                    "#endif\n" +
+                    "    vec2 offset = (uv - 0.5 * (rect.xz + rect.yw)) * dsPixels;\n" +
+                    "    vec2 halfSize = 0.5 * (rect.yw - rect.xz) * dsPixels;\n" +
+                    "    float t = clamp((length(offset) / length(halfSize) - vignette.y) / max(1.0 - vignette.y, 0.001), 0.0, 1.0);\n" +
+                    "    color *= 1.0 - vignette.x * t * t * (3.0 - 2.0 * t);\n" +
+                    "    gl_FragColor = vec4(clamp(color, 0.0, 1.0).bgr, 1.0);\n" +
+                    "}"
+        )
+
         // sharp-shimmerless
         // Author: zadpos (Woohyun Kang)
         // License: Public domain

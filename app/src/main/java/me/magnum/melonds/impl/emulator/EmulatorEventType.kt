@@ -146,4 +146,15 @@ enum class EmulatorEventType(val event: Int) {
      * * vertical pan (`f32`), the window's offset down from center in DS pixels
      */
     EventLuaWideCamera(308),
+
+    /**
+     * A Lua script wants its bloom or vignette changed. Data:
+     * * script ID (`i32`)
+     * * bloom strength (`f32`), 0 to 2, 0 for no bloom
+     * * bloom threshold (`f32`), a luma from 0 to 1
+     * * bloom radius (`f32`), 0 to 8 DS pixels
+     * * vignette strength (`f32`), 0 to 1, 0 for no vignette
+     * * vignette size (`f32`), where it starts as a fraction of the half-diagonal, 0 to 1
+     */
+    EventLuaBloom(309),
 }

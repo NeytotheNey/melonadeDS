@@ -264,9 +264,9 @@ namespace melonDS { class NDS; }
  *                  (GPU::CompClear)
  *   comp1x N       OpenGL and compute, experiment K2c (docs/plan-gpu-discovery.md): a screen with no 3D, 3D or held wings or hi-res capture
  *                  lines is composited at 1x into a corner of its half of the frame, which the screen shader shows nearest-upscaled. Only
- *                  with the "None" filter, no deband and no Lua tilt-shift on every surface (otherwise both screens are drawn in full), not
- *                  with filtered 2D or GPU 2D lines. 1 in a wide view only (pixel-exact), 2 the 256 view too (its mediump full draw rounds
- *                  differently on fp16 GPUs), 3 checks: the full draw as usual, and every 30 frames a 1x draw compared with it. With
+ *                  with the "None" filter, no deband and no Lua tilt-shift, bloom or vignette on every surface (otherwise both screens are
+ *                  drawn in full), not with filtered 2D or GPU 2D lines. 1 in a wide view only (pixel-exact), 2 the 256 view too (its
+ *                  mediump full draw rounds differently on fp16 GPUs), 3 checks: the full draw as usual, and every 30 frames a 1x draw compared with it. With
  *                  scenestats or gltimers on (always in 3) a COMP1X line once a second counts the frames per screen at 1x and why the
  *                  others weren't. 0 draws as before; 1 is the default in every build (GPU::Comp1x). With filtered 2D (K3) such a screen
  *                  is drawn at the filter map's scale instead of 1x (4x at 8x, 12x and 16x; 2x at 4x and 6x with filter2d 2), in either

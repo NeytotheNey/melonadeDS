@@ -20,6 +20,10 @@ static const int kStorageSaveInterval = 600;
 static const lua_Number kMaxTiltShiftRadius = 12.0;
 // melon.screen.tilt_shift(): the largest saturation and contrast multipliers
 static const lua_Number kMaxTiltShiftBoost = 2.0;
+// melon.screen.bloom(): the strongest glow, and its widest radius in DS pixels, where the blur's samples are 2 texels apart, the most bilinear
+// filtering can bridge
+static const lua_Number kMaxBloomStrength = 2.0;
+static const lua_Number kMaxBloomRadius = 8.0;
 
 /**
  * A new table on the stack with [functions] in it, like luaL_newlib() for a table whose size isn't known here
@@ -459,6 +463,12 @@ void LuaEngine::sendRequests(LuaScript& script)
             const LuaTiltShift& tiltShift = script.sentTiltShift;
             eventMessenger->onLuaTiltShift(script.id, tiltShift.top, tiltShift.bottom, tiltShift.center, tiltShift.width, tiltShift.radius, tiltShift.saturation, tiltShift.contrast, tiltShift.color);
         }
+        if (script.bloom != script.sentBloom)
+        {
+            script.sentBloom = script.bloom;
+            const LuaBloom& bloom = script.sentBloom;
+            eventMessenger->onLuaBloom(script.id, bloom.strength, bloom.threshold, bloom.radius, bloom.vignette, bloom.vignetteSize);
+        }
         if (script.wideCamera != script.sentWideCamera)
         {
             script.sentWideCamera = script.wideCamera;
@@ -509,6 +519,8 @@ int LuaEngine::setupScript(lua_State* L)
         { "show_controls", luaSetBoolRequest<&LuaScript::showControls> },
         { "set_layout", luaScreenSetLayout },
         { "tilt_shift", luaScreenTiltShift },
+        { "bloom", luaScreenBloom },
+        { "vignette", luaScreenVignette },
         { nullptr, nullptr },
     };
     static const luaL_Reg emuFunctions[] = {
@@ -646,6 +658,15 @@ void LuaEngine::closeScript(LuaScript& script)
         if (eventMessenger)
             eventMessenger->onLuaTiltShift(script.id, off.top, off.bottom, off.center, off.width, off.radius, off.saturation, off.contrast, off.color);
         script.sentTiltShift = off;
+    }
+    // The same for the bloom and vignette, which a reloaded script starts without
+    script.bloom = LuaBloom();
+    if (script.sentBloom != LuaBloom())
+    {
+        LuaBloom off;
+        if (eventMessenger)
+            eventMessenger->onLuaBloom(script.id, off.strength, off.threshold, off.radius, off.vignette, off.vignetteSize);
+        script.sentBloom = off;
     }
     // The same for the camera: a reloaded script starts asking for nothing
     script.wideCamera = LuaWideCamera();
@@ -810,23 +831,23 @@ int LuaEngine::luaScreenSetLayout(lua_State* L)
 }
 
 /**
- * Argument [argument] clamped to 0..1, or an error if it's not a number
+ * Argument [argument] clamped to 0..[max], or an error if it's not a number
  */
-static float checkTiltShiftStrength(lua_State* L, int argument)
+static float checkStrength(lua_State* L, int argument, lua_Number max)
 {
     lua_Number value = luaL_checknumber(L, argument);
     if (std::isnan(value))
         luaL_argerror(L, argument, "number expected, got NaN");
-    return (float) std::clamp<lua_Number>(value, 0.0, 1.0);
+    return (float) std::clamp<lua_Number>(value, 0.0, max);
 }
 
 /**
- * The [name] field of the options table at index 3 clamped to 0..[max], or [defaultValue] if it's nil
+ * The [name] field of the options table at index [table] clamped to 0..[max], or [defaultValue] if it's nil
  */
-static float getTiltShiftOption(lua_State* L, const char* name, float defaultValue, lua_Number max)
+static float getNumberOption(lua_State* L, int table, const char* name, float defaultValue, lua_Number max)
 {
     float result = defaultValue;
-    if (lua_getfield(L, 3, name) != LUA_TNIL)
+    if (lua_getfield(L, table, name) != LUA_TNIL)
     {
         int isNumber;
         lua_Number value = lua_tonumberx(L, -1, &isNumber);
@@ -842,17 +863,17 @@ int LuaEngine::luaScreenTiltShift(lua_State* L)
 {
     LuaScript& script = getScript(L);
     LuaTiltShift tiltShift;
-    tiltShift.top = checkTiltShiftStrength(L, 1);
-    tiltShift.bottom = checkTiltShiftStrength(L, 2);
+    tiltShift.top = checkStrength(L, 1, 1.0);
+    tiltShift.bottom = checkStrength(L, 2, 1.0);
     if (!lua_isnoneornil(L, 3))
     {
         luaL_checktype(L, 3, LUA_TTABLE);
-        tiltShift.center = getTiltShiftOption(L, "center", tiltShift.center, 1.0);
-        tiltShift.width = getTiltShiftOption(L, "width", tiltShift.width, 1.0);
-        tiltShift.radius = getTiltShiftOption(L, "radius", tiltShift.radius, kMaxTiltShiftRadius);
-        tiltShift.saturation = getTiltShiftOption(L, "saturation", tiltShift.saturation, kMaxTiltShiftBoost);
-        tiltShift.contrast = getTiltShiftOption(L, "contrast", tiltShift.contrast, kMaxTiltShiftBoost);
-        tiltShift.color = getTiltShiftOption(L, "color", tiltShift.color, 1.0);
+        tiltShift.center = getNumberOption(L, 3, "center", tiltShift.center, 1.0);
+        tiltShift.width = getNumberOption(L, 3, "width", tiltShift.width, 1.0);
+        tiltShift.radius = getNumberOption(L, 3, "radius", tiltShift.radius, kMaxTiltShiftRadius);
+        tiltShift.saturation = getNumberOption(L, 3, "saturation", tiltShift.saturation, kMaxTiltShiftBoost);
+        tiltShift.contrast = getNumberOption(L, 3, "contrast", tiltShift.contrast, kMaxTiltShiftBoost);
+        tiltShift.color = getNumberOption(L, 3, "color", tiltShift.color, 1.0);
     }
 
     // Off is off, whatever the options are, so going over them while it's off costs no events. It's off with neither a blur nor a color boost to draw
@@ -865,6 +886,64 @@ int LuaEngine::luaScreenTiltShift(lua_State* L)
 
     if (!script.engine->isUnloading)
         script.tiltShift = tiltShift;
+    return 0;
+}
+
+int LuaEngine::luaScreenBloom(lua_State* L)
+{
+    LuaScript& script = getScript(L);
+    const LuaBloom defaults;
+    float strength = checkStrength(L, 1, kMaxBloomStrength);
+    float threshold = defaults.threshold;
+    float radius = defaults.radius;
+    if (!lua_isnoneornil(L, 2))
+    {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        threshold = getNumberOption(L, 2, "threshold", threshold, 1.0);
+        radius = getNumberOption(L, 2, "radius", radius, kMaxBloomRadius);
+    }
+
+    // A glow that draws nothing is the default half, so going over the options while it's off costs no events
+    if (strength <= 0.0f || radius <= 0.0f)
+    {
+        strength = defaults.strength;
+        threshold = defaults.threshold;
+        radius = defaults.radius;
+    }
+
+    if (!script.engine->isUnloading)
+    {
+        script.bloom.strength = strength;
+        script.bloom.threshold = threshold;
+        script.bloom.radius = radius;
+    }
+    return 0;
+}
+
+int LuaEngine::luaScreenVignette(lua_State* L)
+{
+    LuaScript& script = getScript(L);
+    const LuaBloom defaults;
+    float vignette = checkStrength(L, 1, 1.0);
+    float size = defaults.vignetteSize;
+    if (!lua_isnoneornil(L, 2))
+    {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        size = getNumberOption(L, 2, "size", size, 1.0);
+    }
+
+    // The same for the vignette's half
+    if (vignette <= 0.0f)
+    {
+        vignette = defaults.vignette;
+        size = defaults.vignetteSize;
+    }
+
+    if (!script.engine->isUnloading)
+    {
+        script.bloom.vignette = vignette;
+        script.bloom.vignetteSize = size;
+    }
     return 0;
 }
 

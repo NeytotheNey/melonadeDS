@@ -644,6 +644,14 @@ class EmulatorActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.luaBloom.collect {
+                    mainScreenRenderer.bloom = it
+                    presentation?.updateBloom(it)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.wideCameraState.collect {
                     wideCameraController.setState(it)
                     updateWideCameraTouch()
@@ -927,6 +935,7 @@ class EmulatorActivity : AppCompatActivity() {
 
                 updateRendererConfiguration(viewModel.runtimeRendererConfiguration.value)
                 updateTiltShift(viewModel.luaTiltShift.value)
+                updateBloom(viewModel.luaBloom.value)
                 updateBackground(viewModel.secondaryScreenBackground.value)
                 if (binding.viewLayoutControls.areScreensSwapped()) {
                     swapScreens()

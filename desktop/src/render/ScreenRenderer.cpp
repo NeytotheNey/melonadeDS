@@ -67,9 +67,9 @@ int GetOutputScaleNeed(float width, float height)
 
 }
 
-bool ShouldFoldDeband(bool isSwitchOn, bool canFilterFold, bool isTiltShiftActive, long long drawnPixels, long long frameTexels)
+bool ShouldFoldDeband(bool isSwitchOn, bool canFilterFold, bool isLuaEffectActive, long long drawnPixels, long long frameTexels)
 {
-    return isSwitchOn && canFilterFold && !isTiltShiftActive && drawnPixels >= 1 && drawnPixels < frameTexels;
+    return isSwitchOn && canFilterFold && !isLuaEffectActive && drawnPixels >= 1 && drawnPixels < frameTexels;
 }
 
 void ScreenRenderer::Release()
@@ -282,9 +282,9 @@ void ScreenRenderer::UpdateShader()
     MustRebuildScreenFilter = false;
 }
 
-bool ScreenRenderer::CanDrawHalvesAt1x(bool isTiltShiftOn) const
+bool ScreenRenderer::CanDrawHalvesAt1x(bool isLuaEffectOn) const
 {
-    if (isTiltShiftOn)
+    if (isLuaEffectOn)
         return false;
     // before the filter is built for the configuration (the first frame of a game, or a change, asks before the next draw), what it will be
     bool isFilterCurrent = ScreenFilter && Config.Filtering == ScreenFilterFiltering && Config.Deband == ScreenFilterDeband
@@ -294,7 +294,7 @@ bool ScreenRenderer::CanDrawHalvesAt1x(bool isTiltShiftOn) const
     return ScreenFilter->CanDrawHalvesAt1x();
 }
 
-void ScreenRenderer::DrawFrame(const FrameView& frame, const std::optional<TiltShift>& tiltShift)
+void ScreenRenderer::DrawFrame(const FrameView& frame, const std::optional<TiltShift>& tiltShift, const std::optional<Bloom>& bloom)
 {
     // The screens' UVs follow the width of the frame being presented, and the rows of its layout, which the camera's margin makes taller
     if (frame.IsValid() && frame.TopWidth != FrameTopScreenWidth)
@@ -317,31 +317,31 @@ void ScreenRenderer::DrawFrame(const FrameView& frame, const std::optional<TiltS
     // no-filter shader. Any other way, RenderPrePasses expands it into the full frame first
     VideoFilterPipeline* filter = ScreenFilter.get();
     const Shader* halvesAt1xShader = nullptr;
-    if (frame.IsValid() && frame.HalvesAt1x != 0 && !tiltShift && filter && filter->CanDrawHalvesAt1x())
+    if (frame.IsValid() && frame.HalvesAt1x != 0 && !tiltShift && !bloom && filter && filter->CanDrawHalvesAt1x())
         halvesAt1xShader = filter->GetHalvesAt1xShader();
 
     // debug.melonade.debandfold: deband inside the screen shader, once per drawn pixel, instead of the pre-pass over every frame texel, when
     // ShouldFoldDeband allows it for this frame and layout; the pre-pass otherwise, or if the deband screen shader doesn't build
     long long frameTexels = (long long)frame.Width * frame.Height;
-    // Only a tilt-shift that adds passes (VideoFilterPipeline::RenderPrePasses) keeps deband in the pre-pass
-    bool isTiltShiftActive = tiltShift && (tiltShift->HasBlur() || tiltShift->HasColorBoost());
+    // Only a Lua effect that adds passes (a tilt-shift, bloom or vignette, see VideoFilterPipeline::RenderPrePasses) keeps deband in the pre-pass
+    bool isLuaEffectActive = (tiltShift && (tiltShift->HasBlur() || tiltShift->HasColorBoost())) || (bloom && !bloom->IsOff());
     const Shader* debandScreenShader = nullptr;
     if (frame.IsValid() && !halvesAt1xShader && filter
-        && ShouldFoldDeband(IsDebandFoldOn, filter->CanFoldDeband(), isTiltShiftActive, ScreensDrawnPixels, frameTexels))
+        && ShouldFoldDeband(IsDebandFoldOn, filter->CanFoldDeband(), isLuaEffectActive, ScreensDrawnPixels, frameTexels))
         debandScreenShader = filter->GetDebandScreenShader();
     if (frame.IsValid() && (debandScreenShader != nullptr) != WasDebandFolded)
     {
         WasDebandFolded = debandScreenShader != nullptr;
         if (VerboseLog)
-            printf("DEBANDFOLD: %s (filter %d, tilt-shift %d, drawn %lld px, frame %lld texels)\n",
-                WasDebandFolded ? "screen shader" : "pre-pass or none", filter && filter->CanFoldDeband(), isTiltShiftActive, ScreensDrawnPixels,
+            printf("DEBANDFOLD: %s (filter %d, Lua effect %d, drawn %lld px, frame %lld texels)\n",
+                WasDebandFolded ? "screen shader" : "pre-pass or none", filter && filter->CanFoldDeband(), isLuaEffectActive, ScreensDrawnPixels,
                 frameTexels);
     }
 
     // Pre-passes must run before anything is drawn to the window; also called for no frame, to clear the cache
     const FilterOutput* screenTexture = nullptr;
     if (!halvesAt1xShader && filter)
-        screenTexture = &filter->RenderPrePasses(frame, IsBottomScreenWideInQuads, tiltShift, debandScreenShader != nullptr);
+        screenTexture = &filter->RenderPrePasses(frame, IsBottomScreenWideInQuads, tiltShift, bloom, debandScreenShader != nullptr);
 
     glClear(GL_COLOR_BUFFER_BIT);
     if (!frame.IsValid())

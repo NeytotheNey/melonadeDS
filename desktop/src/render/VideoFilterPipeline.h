@@ -1,6 +1,6 @@
 // Port of the app's VideoFilterPipeline.kt: the GL objects of a VideoFilter (screen shader, pre-pass shaders and their targets), and the
-// pre-passes run over a frame before its screens are drawn: deband (unless the screen shader takes it), the filter's own, then a Lua
-// tilt-shift; and GPU::Comp1x's 1x shader and expand pass. UI thread only, with its GL context current
+// pre-passes run over a frame before its screens are drawn: deband (unless the screen shader takes it), the filter's own, then a Lua bloom
+// and vignette, then a Lua tilt-shift; and GPU::Comp1x's 1x shader and expand pass. UI thread only, with its GL context current
 #pragma once
 
 #include <memory>
@@ -48,22 +48,30 @@ public:
     // 0 active
     void BindHalvesAt1xCoordinates(int width, int height);
     // whether a frame with screens at 1x drawn with GetHalvesAt1xShader looks as the full frame does here: the no-filter shader alone, as long as
-    // the 1x shader didn't fail to build. A Lua tilt-shift's passes are the caller's to check
+    // the 1x shader didn't fail to build. A Lua tilt-shift's or bloom's passes are the caller's to check
     bool CanDrawHalvesAt1x() const { return IsNoFilter && !(IsHalvesAt1xShaderBuilt && !HalvesAt1xShader); }
     // the 1x shader with this pipeline's color correction, built the first time; null if it can't be (RenderPrePasses expands the frame then)
     const Shader* GetHalvesAt1xShader();
 
-    // runs the pre-passes, then [tiltShift] if there's one, and returns the texture the screen shader should draw with its size (texSize); call
-    // it before drawing to the window and for no frame too, then set the program, vertex array, array buffer and texture unit 0 again. With
-    // [foldDeband] the deband pre-pass is left out, for a frame drawn with GetDebandScreenShader
+    // runs the pre-passes, then [bloom] and [tiltShift] if there are any (in that order, so the tilt-shift's blur softens the glow too), and
+    // returns the texture the screen shader should draw with its size (texSize); call it before drawing to the window and for no frame too,
+    // then set the program, vertex array, array buffer and texture unit 0 again. With [foldDeband] the deband pre-pass is left out, for a frame
+    // drawn with GetDebandScreenShader
     const FilterOutput& RenderPrePasses(const FrameView& frame, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift,
-        bool foldDeband = false);
+        const std::optional<Bloom>& bloom, bool foldDeband = false);
 
 private:
     class PrePass;
     struct TiltShiftPasses;
+    struct BloomPasses;
 
     bool RenderPass(PrePass& pass, int topScreenWidth, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift);
+    void BeginPasses();
+    void RenderBloom(BloomPasses* passes, const Bloom& bloom, const FrameView& frame, bool isBottomScreenWide);
+    GLuint RenderGlow(BloomPasses& passes, const Bloom& bloom, const FrameView& frame, bool isBottomScreenWide);
+    void LogBloomTarget();
+    BloomPasses* GetBloomPasses();
+    PrePass* GetVignettePass();
     GLuint ExpandHalvesAt1x(const FrameView& frame);
     PrePass* GetExpandPass();
     TiltShiftPasses* GetTiltShiftPasses();
@@ -101,6 +109,12 @@ private:
     bool IsTiltShiftBuilt = false;
     std::unique_ptr<PrePass> TiltShiftColorPass;
     bool IsTiltShiftColorBuilt = false;
+    // the same for a script's bloom, and for its vignette on its own; a target that can't be made is only logged once
+    std::unique_ptr<BloomPasses> BloomPassesBuilt;
+    bool IsBloomBuilt = false;
+    std::unique_ptr<PrePass> VignettePass;
+    bool IsVignetteBuilt = false;
+    bool HasLoggedBloomTarget = false;
 
     FilterOutput Output;
 
@@ -112,6 +126,7 @@ private:
     int LastFrameWidth = 0, LastFrameHeight = 0;
     bool LastFrameBottomScreenWide = false;
     std::optional<TiltShift> LastFrameTiltShift;
+    std::optional<Bloom> LastFrameBloom;
     bool LastFrameRanDeband = false;
     GLuint LastOutputTextureId = 0;
     int LastOutputWidth = 0, LastOutputHeight = 0;
