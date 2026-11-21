@@ -85,7 +85,7 @@ The `GLOPAQUE` counters need the debug-tools desktop build: `cmake -G Ninja -S d
 
 ## WatermelonDS at 16x: what they do differently (11-12, code reading)
 
-Read from `C:\Dev\WatermelonDS`, not measured. Their "16x" really rasterizes 3D at 4096x3072, but **everything after the 3D pass runs at the screen's size**: the app caps the output scale at min(ceil(surfaceW/256), ceil(surfaceH/192)), halving while above it (their `MelonInstance.cpp:3256-3284`). The 3D is linear-blitted once to an output-size snapshot (`VulkanOutput.cpp:9651-9722`), then 2D, compositing, hi-res capture and the frame image all run at the output size. That's why their cost only doubles from 8x to 16x. That's what K4 copied.
+Read from `D:\Dev\WatermelonDS`, not measured. Their "16x" really rasterizes 3D at 4096x3072, but **everything after the 3D pass runs at the screen's size**: the app caps the output scale at min(ceil(surfaceW/256), ceil(surfaceH/192)), halving while above it (their `MelonInstance.cpp:3256-3284`). The 3D is linear-blitted once to an output-size snapshot (`VulkanOutput.cpp:9651-9722`), then 2D, compositing, hi-res capture and the frame image all run at the output size. That's why their cost only doubles from 8x to 16x. That's what K4 copied.
 
 Their 3D frame is otherwise close to ours: RGBA8 color and attr, D24S8, no MSAA, no transient attachments, one render pass with CLEAR loads and DONT_CARE stores for attr/depth when nothing reads them (what D1 does now), edge+fog in one scissored pass only when needed.
 

@@ -4,7 +4,7 @@ Plan for bringing everything PokeDaisy's widescreen ("EXPAND") does into WideMel
 
 Why: WideMelon works in every game and stays correct around display capture, but EXPAND does more for the Pokemon games: game-aware auto zoom, 2D carried into the margins, and full battle scenes. Getting to parity also makes it realistic to offer our core to PokeDaisy, since they could drop their own widescreen code (`pk_nds_wide.cpp`, 1,641 lines, and about 40% of their melonDS patch) instead of porting it onto our renderer.
 
-PokeDaisy is GPL-3.0 like us. Code we copy keeps its credit and a note on where it came from. Their repo is at `C:\Dev\pokedaisy`.
+PokeDaisy is GPL-3.0 like us. Code we copy keeps its credit and a note on where it came from. Their repo is at `D:\Dev\pokedaisy`.
 
 ## How the two differ
 
