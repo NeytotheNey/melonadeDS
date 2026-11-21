@@ -28,7 +28,7 @@ void setStampingEnabled(bool isEnabled);
 
 void write(int priority, const char* tag, const char* text);
 
-void print(int priority, const char* tag, const char* format, ...) __attribute__((format(printf, 3, 4)));
+void print(int priority, const char* tag, const char* format, ...) __attribute__((format(MELONADE_PRINTF_FORMAT, 3, 4)));
 
 void vprint(int priority, const char* tag, const char* format, va_list args);
 

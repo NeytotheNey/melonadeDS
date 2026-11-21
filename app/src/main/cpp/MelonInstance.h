@@ -194,7 +194,7 @@ private:
     bool outputDeband = false;
     bool pendingOutputDeband = false;
 
-    // Replaced by updateConfiguration() from other threads, so only used through std::atomic_load and std::atomic_store
+    // Replaced by updateConfiguration() from other threads, so only used through loadConfiguration() and storeConfiguration() (MelonInstance.cpp)
     std::shared_ptr<EmulatorConfiguration> currentConfiguration;
     FrameQueue frameQueue;
     std::unique_ptr<ScreenshotRenderer> screenshotRenderer;

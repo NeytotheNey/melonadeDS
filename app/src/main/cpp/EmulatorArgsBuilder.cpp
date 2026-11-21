@@ -1,5 +1,7 @@
 #include <assert.h>
-#include <codecvt>
+#include <cstring>
+#include <stdexcept>
+#include <string>
 #include <optional>
 #include "Args.h"
 #include "Configuration.h"
@@ -15,6 +17,79 @@ using namespace melonDS::Platform;
 
 namespace MelonDSAndroid
 {
+
+// The firmware's nickname and message are UTF-16; this is as strict as libc++'s std::codecvt_utf8_utf16 (the app's), so overlong forms,
+// surrogates, code points past U+10FFFF and cut-off sequences throw std::range_error
+static std::u16string utf8ToUtf16(const char* text)
+{
+    std::u16string result;
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(text);
+    while (*p != 0)
+    {
+        unsigned char lead = *p;
+        int trailCount;
+        char32_t codePoint;
+        // The allowed range of the first trail byte, narrower after E0, ED, F0 and F4
+        unsigned char firstTrailMin = 0x80;
+        unsigned char firstTrailMax = 0xBF;
+        if (lead < 0x80)
+        {
+            trailCount = 0;
+            codePoint = lead;
+        }
+        else if (lead >= 0xC2 && lead <= 0xDF)
+        {
+            trailCount = 1;
+            codePoint = lead & 0x1F;
+        }
+        else if (lead >= 0xE0 && lead <= 0xEF)
+        {
+            trailCount = 2;
+            codePoint = lead & 0x0F;
+            if (lead == 0xE0)
+                firstTrailMin = 0xA0;
+            else if (lead == 0xED)
+                firstTrailMax = 0x9F;
+        }
+        else if (lead >= 0xF0 && lead <= 0xF4)
+        {
+            trailCount = 3;
+            codePoint = lead & 0x07;
+            if (lead == 0xF0)
+                firstTrailMin = 0x90;
+            else if (lead == 0xF4)
+                firstTrailMax = 0x8F;
+        }
+        else
+        {
+            throw std::range_error("utf8ToUtf16: invalid UTF-8");
+        }
+
+        // A trail byte out of range, including the terminating 0, stops before reading past it
+        for (int i = 1; i <= trailCount; i++)
+        {
+            unsigned char trail = p[i];
+            unsigned char min = i == 1 ? firstTrailMin : 0x80;
+            unsigned char max = i == 1 ? firstTrailMax : 0xBF;
+            if (trail < min || trail > max)
+                throw std::range_error("utf8ToUtf16: invalid UTF-8");
+            codePoint = (codePoint << 6) | (trail & 0x3F);
+        }
+        p += trailCount + 1;
+
+        if (codePoint < 0x10000)
+        {
+            result.push_back((char16_t) codePoint);
+        }
+        else
+        {
+            codePoint -= 0x10000;
+            result.push_back((char16_t) (0xD800 + (codePoint >> 10)));
+            result.push_back((char16_t) (0xDC00 + (codePoint & 0x3FF)));
+        }
+    }
+    return result;
+}
 
 std::unique_ptr<ARM9BIOSImage> loadARM9BIOS(const EmulatorConfiguration& configuration) noexcept
 {
@@ -99,7 +174,7 @@ void customizeFirmware(const EmulatorConfiguration& configuration, Firmware& fir
         auto &currentData = firmware.GetEffectiveUserData();
 
         // setting up username
-        std::u16string username = std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>{}.from_bytes(firmwareConfig.username);
+        std::u16string username = utf8ToUtf16(firmwareConfig.username);
         if (!username.empty())
         { // If the frontend defines a username, take it. If not, leave the existing one.
             size_t usernameLength = std::min((int) username.length(), 10);
@@ -134,7 +209,7 @@ void customizeFirmware(const EmulatorConfiguration& configuration, Firmware& fir
         }
 
         // setup message
-        std::u16string message = std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>{}.from_bytes(firmwareConfig.message);
+        std::u16string message = utf8ToUtf16(firmwareConfig.message);
         if (!message.empty())
         {
             size_t messageLength = std::min((int) message.length(), 26);
@@ -374,10 +449,9 @@ std::optional<DSi_NAND::NANDImage> loadNAND(const EmulatorConfiguration& configu
             auto firmcfg = configuration.firmwareConfiguration;
 
             // we store relevant strings as UTF-8, so we need to convert them to UTF-16
-            //auto converter = wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>{};
 
             // setting up username
-            auto username = std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>{}.from_bytes(firmcfg.username);
+            auto username = utf8ToUtf16(firmcfg.username);
             size_t usernameLength = std::min((int) username.length(), 10);
             memset(&settings.Nickname, 0, sizeof(settings.Nickname));
             memcpy(&settings.Nickname, username.data(), usernameLength * sizeof(char16_t));
@@ -393,7 +467,7 @@ std::optional<DSi_NAND::NANDImage> loadNAND(const EmulatorConfiguration& configu
             settings.BirthdayDay = firmcfg.birthdayDay;
 
             // setup message
-            auto message = std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>{}.from_bytes(firmcfg.message);;
+            auto message = utf8ToUtf16(firmcfg.message);;
             size_t messageLength = std::min((int) message.length(), 26);
             memset(&settings.Message, 0, sizeof(settings.Message));
             memcpy(&settings.Message, message.data(), messageLength * sizeof(char16_t));

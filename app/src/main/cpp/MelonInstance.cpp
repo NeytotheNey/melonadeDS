@@ -49,6 +49,21 @@ const int REWIND_SCREENSHOT_SIZE = 256 * 384 * 4;
 // GPU::OutputCap: the frames a new need from the frontend has to hold for before the renderer gets it (MelonInstance::runFrame)
 const int OUTPUT_NEED_STABLE_FRAMES = 30;
 
+// MelonInstance::currentConfiguration's atomic access: the NDK's libc++ has no std::atomic<std::shared_ptr> yet, and libstdc++ deprecates
+// these free functions in C++20
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+static std::shared_ptr<EmulatorConfiguration> loadConfiguration(const std::shared_ptr<EmulatorConfiguration>& configuration)
+{
+    return std::atomic_load(&configuration);
+}
+
+static void storeConfiguration(std::shared_ptr<EmulatorConfiguration>& configuration, const std::shared_ptr<EmulatorConfiguration>& newConfiguration)
+{
+    std::atomic_store(&configuration, newConfiguration);
+}
+#pragma GCC diagnostic pop
+
 // The player's touch in one word (MelonInstance::userTouch): a down flag, x and y
 struct PackedTouch
 {
@@ -64,10 +79,10 @@ struct PackedTouch
 
 MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfiguration> configuration, std::unique_ptr<melonDS::NDSArgs> args, std::shared_ptr<Net> net, std::unique_ptr<ScreenshotRenderer> screenshotRenderer, int consoleType) :
     instanceId(instanceId),
-    currentConfiguration(configuration),
-    net(net),
-    screenshotRenderer(std::move(screenshotRenderer)),
     consoleType(consoleType),
+    net(net),
+    currentConfiguration(configuration),
+    screenshotRenderer(std::move(screenshotRenderer)),
     rewindManager(configuration->rewindEnabled, configuration->rewindLengthSeconds, configuration->rewindCaptureSpacingSeconds, REWIND_BUFFER_SIZE, REWIND_SCREENSHOT_SIZE)
 {
     // Software renderer is always used during initialisation. Actual renderer will be set of first frame run
@@ -299,12 +314,12 @@ bool MelonInstance::bootFirmware()
 void MelonInstance::start()
 {
     auto cart = nds->NDSCartSlot.GetCart();
-    if (nds->ConsoleType == 1 && cart != nullptr && cart->GetHeader().IsDSiWare() && !std::atomic_load(&currentConfiguration)->showBootScreen)
+    if (nds->ConsoleType == 1 && cart != nullptr && cart->GetHeader().IsDSiWare() && !loadConfiguration(currentConfiguration)->showBootScreen)
     {
         auto dsi = (DSi*) nds;
         DSiSupport::SetupDSiDirectBoot(dsi);
     }
-    else if (!std::atomic_load(&currentConfiguration)->showBootScreen || nds->NeedsDirectBoot())
+    else if (!loadConfiguration(currentConfiguration)->showBootScreen || nds->NeedsDirectBoot())
     {
         // This seems to be unused, but it's required
         std::string romName;
@@ -328,7 +343,7 @@ void MelonInstance::reset()
     // If there is a cart inserted, check if direct boot is required
     if (nds->GetNDSCart())
     {
-        if (!std::atomic_load(&currentConfiguration)->showBootScreen || nds->NeedsDirectBoot())
+        if (!loadConfiguration(currentConfiguration)->showBootScreen || nds->NeedsDirectBoot())
         {
             // This seems to be unused, but it's required
             std::string romName;
@@ -774,7 +789,7 @@ void MelonInstance::updateConfiguration(std::shared_ptr<EmulatorConfiguration> n
     }
 
     luaDrawingsInScreenshots.store(newConfiguration->luaDrawingsInScreenshots, std::memory_order_relaxed);
-    std::atomic_store(&currentConfiguration, newConfiguration);
+    storeConfiguration(currentConfiguration, newConfiguration);
     isRenderConfigurationDirty = true;
 }
 
@@ -976,7 +991,7 @@ std::vector<RetroAchievements::RARuntimeAchievement> MelonInstance::getRuntimeAc
 void MelonInstance::updateRenderer()
 {
     // One configuration for all of this, as the renderer it asks for decides the type of its render settings
-    std::shared_ptr<EmulatorConfiguration> configuration = std::atomic_load(&currentConfiguration);
+    std::shared_ptr<EmulatorConfiguration> configuration = loadConfiguration(currentConfiguration);
     Renderer newRenderer = configuration->renderer;
 
     // A renderer that failed is only tried again once something else was asked for in between
@@ -1207,7 +1222,7 @@ void MelonInstance::syncDateTimeToDevice()
 {
     // The RTC stops while emulation is paused and falls behind the device's time, so only ever move it forward: some games (like Pokemon) treat the
     // clock going backward as tampering
-    if (!nds || !std::atomic_load(&currentConfiguration)->syncRtcToDevice)
+    if (!nds || !loadConfiguration(currentConfiguration)->syncRtcToDevice)
         return;
 
     int year, month, day, hour, minute, second;

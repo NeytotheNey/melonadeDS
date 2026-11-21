@@ -189,6 +189,8 @@ target_include_directories(melonade-desktop PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party" "${CMAKE_BINARY_DIR}/generated")
 # Windows 10 APIs (SetProcessInformation for power throttling)
 target_compile_definitions(melonade-desktop PRIVATE _WIN32_WINNT=0x0A00)
+# our own code builds with these warnings, and changes add none (docs/coding-standards.md, rule 7)
+target_compile_options(melonade-desktop PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
 # ole32/uuid: COM for the file dialog (shell32) and the slot screenshots (windowscodecs, WIC); winhttp for the metadata sync's requests,
 # bcrypt for the ROMs' MD5 and SHA1, crypt32 for the Web API key (DPAPI); all system DLLs
 # rhash-rom before melonade-shared, whose rcheevos it calls into

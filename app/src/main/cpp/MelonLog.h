@@ -1,6 +1,15 @@
 #ifndef MELONLOG_H
 #define MELONLOG_H
 
+// MinGW's GCC checks a plain printf format against MSVCRT's printf, but its C++ headers send vsnprintf to MinGW's own C99 one, which the
+// desktop's log uses, so the log functions check against that one
+#ifdef __MINGW32__
+#include <cstdio>
+#define MELONADE_PRINTF_FORMAT __MINGW_PRINTF_FORMAT
+#else
+#define MELONADE_PRINTF_FORMAT printf
+#endif
+
 #ifdef __ANDROID__
 #include <android/log.h>
 #else
@@ -12,7 +21,7 @@ enum
     ANDROID_LOG_WARN = 5,
     ANDROID_LOG_ERROR = 6,
 };
-void melonadeLogPrint(int priority, const char* tag, const char* format, ...) __attribute__((format(printf, 3, 4)));
+void melonadeLogPrint(int priority, const char* tag, const char* format, ...) __attribute__((format(MELONADE_PRINTF_FORMAT, 3, 4)));
 #endif
 
 // The logcat tags, one per area, with the core's messages under LOG_TAG, or LOG_TAG_CORE while the debug log also collapses repeated ones

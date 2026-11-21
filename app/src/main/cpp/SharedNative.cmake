@@ -58,3 +58,6 @@ add_library(
 
 target_include_directories(melonade-shared PUBLIC "${MELONADE_SHARED_DIR}" "${MELONADE_SHARED_DIR}/rcheevos/include")
 target_link_libraries(melonade-shared PUBLIC core net-utils rcheevos lua)
+
+# Our own code builds with these warnings, and changes add none (docs/coding-standards.md, rule 7)
+target_compile_options(melonade-shared PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
