@@ -34,7 +34,8 @@ which leaves `build-desktop/melonade-desktop.exe` with `SDL2.dll` and `gamecontr
 `build-desktop/release/melonadeDS-<version>/`: the exe, `SDL2.dll`, `gamecontrollerdb.txt` and `licenses/`. The exe is
 a GUI program (no console window); the fonts, the icon and the version info are inside it (`src/resources.rc`; the
 version is the app's `versionName` from `buildSrc/src/main/kotlin/AppConfig.kt`, the icon `src/app.ico`, made from the
-app's launcher icon by `tools/desktop-icon/make_icon.py`). It needs only system DLLs and `SDL2.dll`.
+app's launcher icon by `tools/desktop-icon/make_icon.py`), and so are the app's shaders ([Screen filters](#screen-filters)). It needs
+only system DLLs and `SDL2.dll`.
 
 `gl/pc_gl_loader.h/.cpp` are generated from `gl/khronos/GLES3/gl32.h` by `gl/gen_gl_loader.py`;
 run it again only if that header changes.
@@ -66,8 +67,13 @@ main ones:
 | `--wide W` | WideMelon top screen width (256 = off) |
 | `--wide-margin M` | with `--wide`, M more 3D rows above and below the top screen (camera stage 2, 0-128) |
 | `--dither`, `--hires-capture`, `--filter2d`, `--smooth30`, `--better-polygons`, `--precise-depth` | the app's renderer settings (the ones the settings screens have are overrides of their settings) |
+| `--filter NAME` | the [screen filter](#screen-filters) for the run (`video_filtering`): `none`, `linear`, `xbr2`, `hq2x`, `hq4x`, `quilez`, `lcd`, `scanlines`, `scale2x`, `fxaa`, `sharp`, `mmpx`, the app's `VideoFiltering` names in any case; `--linear` is `--filter linear` |
+| `--deband on\|off`, `--ds-colors on\|off`, `--screen-shadow on\|off` | smooth gradients (`video_deband`), the DS screen colors (`video_ds_screen_colors`) and the screen shadow (`video_screen_shadow`) for the run |
+| `--tilt-shift TOP,BOTTOM,CENTER,WIDTH,RADIUS[,SATURATION,CONTRAST[,COLOR]]` | the Lua tilt-shift's passes over the top screen, for tests until scripts drive them (phase 4): the blur's strength above and below the sharp band (0-1), the band's center and width (fractions of the screen's height), the radius in DS pixels (up to 64), and the color boost with what it follows (the app's `TiltShift`) |
+| `--output-cap` | the windows' screen size goes to the core after each present (GPU::OutputCap, as the app's surfaces send it), so the frame is drawn no bigger than the screens are shown; without it the frame stays at the internal resolution |
+| `--window-shot-linear` | the window shot drawn with the linear filter, whatever the run's filter |
 | `--set Name=Value` | a core debug switch on `GPU`, e.g. `--set LateBlit=0` (`--list-sets`) |
-| `--frames N` | quit after N frames and print frame time stats: the game's frames, plus the UI's while no game frame runs (the start screen, a menu over the paused game) |
+| `--frames N` | quit after N frames and print frame time stats: the game's frames, plus the UI's while no game frame runs (the start screen, a menu over the paused game), and how many presented frames had a screen at 1x (GPU::Comp1x) |
 | `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window, menus included, when `--frames` or `--ui-script` ends the run; detached, the windows as `F_top.bmp` and `F_bottom.bmp` |
 | `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `pause`, `pause/save`, `pause/load`, `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`), `input`, `keyboard`; with a game, once its first frame is shown |
 | `--rom-folder DIR` | a folder for the game library, repeated for more; for the run only, in place of the saved `rom_search_dirs`, never written |
@@ -101,7 +107,7 @@ Keys and buttons are the input mapping's ([Input](#input)); by default the keybo
 A = Y, Q = L, W = R, Enter = Start, Right Shift (or Backspace) = Select, Esc = the pause menu, Tab (hold) or \` (on/off) =
 fast forward, Ctrl+S / Ctrl+L = quick save / load (slot 0), F1 = swap screens, F9 = screens together/detached, F11 (or
 Alt+Enter) = fullscreen of the focused window, F12 = screenshot, and the mouse on the bottom screen touches. These stay fixed:
-P = pause, Ctrl+R = reset, F5/F6/F7 = software/OpenGL/Compute, F3/F4 = scale down/up, F2 = layout, F8 = linear filtering,
+P = pause, Ctrl+R = reset, F5/F6/F7 = software/OpenGL/Compute, F3/F4 = scale down/up, F2 = layout, F8 = the linear filter on and off,
 F10 = fit of the focused detached window. Keys and controllers work whichever window has the focus.
 
 ### Settings
@@ -112,8 +118,8 @@ folder when a `portable.txt` sits next to the exe, or `--profile DIR`. A scripte
 runs never read or change the real one, visible or not. Keys the app has use its preference names and value types (list settings are strings);
 desktop-only ones start with `desktop_`. Keys the desktop doesn't know are kept.
 
-Options that set a setting (`--renderer`, `--scale`, `--linear`, `--vsync`, `--no-audio`, `--layout`,
-`--detach`, `--rom-folder`, `--setting`) apply to that run only and are never written; a hotkey that changes one of
+Options that set a setting (`--renderer`, `--scale`, `--filter`, `--linear`, `--deband`, `--ds-colors`, `--screen-shadow`, `--vsync`,
+`--no-audio`, `--layout`, `--detach`, `--rom-folder`, `--setting`) apply to that run only and are never written; a hotkey that changes one of
 them during that run changes it for the run only too. Hotkeys change and save the others. `--layout`
 also means the screens together for that run, unless `--detach` is given too.
 
@@ -121,7 +127,10 @@ also means the screens together for that run, unless `--detach` is given too.
 |---|---|---|
 | `video_renderer` | `software`, `opengl`, `compute` | F5-F7 (desktop default `compute`) |
 | `video_internal_resolution` | `"1"`-`"16"` | F3/F4 (default `"4"`) |
-| `video_filtering` | `none`, `linear` | F8 |
+| `video_filtering` | `none`, `linear`, `xbr2`, `hq2x`, `hq4x`, `quilez`, `lcd`, `scanlines`, `scale2x`, `fxaa`, `sharp`, `mmpx` | the [screen filter](#screen-filters); F8 turns linear on and off |
+| `video_deband` | `true`, `false` | smooth gradients (default off, as in the app); on Compute it also turns on the color dithering, as in the app |
+| `video_ds_screen_colors` | `true`, `false` | the DS screen colors (default off; the app took its switch out and reads it as off whatever is stored) |
+| `video_screen_shadow` | `true`, `false` | a soft shadow around the screens (default off, as in the app) |
 | `video_hires_capture`, `video_filter_2d`, `video_sharper_rotated_2d`, `video_edge_marking`, `video_precise_depth`, `video_gl_seams` | `true`, `false` | the renderer settings, applied to a running game at once (desktop defaults: edge marking on, the rest off) |
 | `enable_jit` | `true`, `false` | from the next game on (desktop default off) |
 | `console_type` | `ds`, `dsi` | from the next game on; DSi needs the custom BIOS and both folders below |
@@ -189,9 +198,9 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
   them in its own files; they don't travel with the states. The screenshot is read from the frame the
   game is paused on, since the app's `ScreenshotRenderer` only takes one as the next frame runs. Saving over a used slot asks
   first, and X (Delete) on a used slot deletes it, once asked, to the recycle bin with its screenshot.
-- **Settings**: six tabs (L / R): Video (renderer, internal resolution, the renderer settings, JIT), Display (screens together or
-  detached, layout, swap, each detached screen's fit, the bottom window's title bar and on-top, fullscreen mode, vsync, filter,
-  theme), Emulation (console, custom BIOS and its folders through the Windows folder picker, boot screen, fast-forward
+- **Settings**: six tabs (L / R): Video (renderer, internal resolution, the renderer settings, the screen filter in the app's list and
+  order, smooth gradients, DS screen colors, screen shadow, JIT), Display (screens together or detached, layout, swap, each detached
+  screen's fit, the bottom window's title bar and on-top, fullscreen mode, vsync, theme), Emulation (console, custom BIOS and its folders through the Windows folder picker, boot screen, fast-forward
   speed), Audio (on/off, volume, latency, mute while fast forwarding), Controls (the input setup, rumble) and Library (the ROM folders:
   A changes one through the folder picker, X removes it, then Add a ROM folder and Rescan the library). A change is saved at
   once and applied to a running game where the core allows it; the rows that wait for the next game say so, and a toast says it
@@ -410,6 +419,35 @@ callback). Fast forward is the app's: silent while muted (the default), sped up 
 when it's unlimited. The emulator runs at the DS's 59.83 Hz, which the display's refresh rate doesn't change. `--audio-log` prints the
 fill, the filtered fill, the ratio, underruns and overflows once a second.
 
+### Screen filters
+
+The screens are drawn the way the app's `DSRenderer` draws them, through ports of its code in `src/render/`: `ScreenRenderer` (the
+screen quads, the screen shadow, deband in the screen shader where that's cheaper than the pre-pass, GPU::Comp1x's 1x shader and the
+output cap's need; one per window, as the app has one per surface), `VideoFilterPipeline` (the filter's pre-passes in order at their
+scale, deband as a pre-pass, the 1x expand pass, the Lua tilt-shift passes) and `Shader` (the app's `Shader` and `ShaderFactory`). The
+filters are the app's twelve (`VideoFiltering`; the settings list leaves out Scanlines as the app's does), with smooth gradients
+(deband), the DS screen colors (Pokefan531's color profile) and the screen shadow. `Presenter` still places the screens with the four
+layouts and the fits; the app's layouts, backgrounds and layout editor come next. `--window-shot` shows the filtered screens,
+`--screenshot` the raw frame as before.
+
+The shaders aren't copied by hand. `shaders/` holds what `ShaderProgramSource.kt` and `VideoFilterShaderProvider.kt` give: a `.vert`
+and a `.frag` for every shader (the tilt-shift ones built on each `get()` too), and `shaders.json` with each shader's texture filtering
+and the filter table (each filter's screen shader, its pre-passes with their scale and `nativeResolutionOnly`, and whether it can fold
+deband in). The build embeds the folder in the exe (`EmbedShaders.cmake` makes `generated/shader_files.inc`). The app's JVM unit test
+`DesktopShaderExportTest` writes them, from PowerShell at the repo root:
+
+    .\gradlew.bat :app:testGitHubProdDebugUnitTest "-Pandroid.injected.build.abi=x86_64" "-Pmelonade.exportShaders" --tests "me.magnum.melonds.common.opengl.DesktopShaderExportTest"
+
+and every unit test run without `-Pmelonade.exportShaders` fails when the files here differ from the Kotlin, or one is left over from a
+shader that's gone, so they can't drift. After changing a shader or the filter table in the app, export them and commit `shaders/`
+with the change. Their license notices (2xBR and HQx are GPL 2 or later, MMPX MIT) are in `licenses/shaders.txt`, which `build.sh`
+copies into the release's `licenses/`. The shaders compile on the desktop's GLES 3.2 context as they are (GLSL ES 1.00 and 3.00). The loader adds the app's
+defines (`COLOR_CORRECTION`, `DEBAND`) on the line after `#version`, as `ShaderFactory` does, and makes one change of its own
+(`ForDesktop` in `src/render/Shader.cpp`): the app's precision block (`#ifdef GL_FRAGMENT_PRECISION_HIGH` highp, else mediump) becomes
+plain `precision highp float;`, the branch phones take. NVIDIA's ES driver doesn't define that macro, so without it those shaders ran
+at 16-bit mediump there, and 2xBR, whose color compares need highp, drew as no filter at all. Deband folds into the screen shader
+whenever the app's would (its `debug.melonade.debandfold` default); the desktop has no switch for it.
+
 ### Windows and detached screens
 
 The process is per-monitor DPI aware: window sizes are real pixels on every monitor, and Windows
@@ -450,8 +488,8 @@ A scripted check, e.g. comparing renderers on the same frame:
   Platinum's intro, 2400 frames: interpreter 342 fps, JIT with fast memory 175, JIT without 66), so
   the PC build interprets unless `--jit` / `--fastmem` ask for it. The app runs the ARM64 JIT,
   which this doesn't test.
-- The window shows the frame texture as it comes out of `MelonInstance`: none of the app's screen
-  filters, deband, layouts or frame pacing to the display's vsync. Lua scripts, rewind and
+- The screens are drawn with the app's filters and deband ([Screen filters](#screen-filters)), but not yet with its layouts,
+  backgrounds or frame pacing to the display's vsync. Lua scripts, rewind and
   RetroAchievements are compiled in (shared code) but not set up yet. Pacing is the app's timer
   limiter at the DS's 59.83 Hz instead of the app's 60.
 - DS mode only (no DSi NAND), no multiplayer, Wi-Fi, mic or camera.

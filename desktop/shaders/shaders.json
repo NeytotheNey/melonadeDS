@@ -1,0 +1,40 @@
+{
+  "generatedBy": "app/src/test/java/me/magnum/melonds/common/opengl/DesktopShaderExportTest.kt",
+  "shaders": [
+    {"name": "BackgroundShader", "textureFiltering": "LINEAR"},
+    {"name": "DebandPrePassShader", "textureFiltering": "LINEAR"},
+    {"name": "ExpandHalvesAt1xPrePassShader", "textureFiltering": "NEAREST"},
+    {"name": "FxaaPrePassShader", "textureFiltering": "LINEAR"},
+    {"name": "Hq2xShader", "textureFiltering": "NEAREST"},
+    {"name": "Hq4xShader", "textureFiltering": "NEAREST"},
+    {"name": "LcdShader", "textureFiltering": "NEAREST"},
+    {"name": "LinearShader", "textureFiltering": "LINEAR"},
+    {"name": "MmpxPrePassShader", "textureFiltering": "NEAREST"},
+    {"name": "NoFilterHalvesAt1xShader", "textureFiltering": "NEAREST"},
+    {"name": "NoFilterShader", "textureFiltering": "NEAREST"},
+    {"name": "OverlayShader", "textureFiltering": "NEAREST"},
+    {"name": "QuilezShader", "textureFiltering": "LINEAR"},
+    {"name": "Scale2xShader", "textureFiltering": "NEAREST"},
+    {"name": "ScanlinesShader", "textureFiltering": "NEAREST"},
+    {"name": "ScreenShadowShader", "textureFiltering": "LINEAR"},
+    {"name": "SharpShader", "textureFiltering": "LINEAR"},
+    {"name": "TiltShiftColorPrePassShader", "textureFiltering": "LINEAR"},
+    {"name": "TiltShiftHorizontalPrePassShader", "textureFiltering": "LINEAR"},
+    {"name": "TiltShiftVerticalPrePassShader", "textureFiltering": "LINEAR"},
+    {"name": "XbrShader", "textureFiltering": "NEAREST"}
+  ],
+  "filters": [
+    {"name": "NONE", "screenShader": "NoFilterShader", "canFoldDeband": false, "prePasses": []},
+    {"name": "LINEAR", "screenShader": "LinearShader", "canFoldDeband": true, "prePasses": []},
+    {"name": "XBR2", "screenShader": "XbrShader", "canFoldDeband": false, "prePasses": []},
+    {"name": "HQ2X", "screenShader": "Hq2xShader", "canFoldDeband": false, "prePasses": []},
+    {"name": "HQ4X", "screenShader": "Hq4xShader", "canFoldDeband": false, "prePasses": []},
+    {"name": "QUILEZ", "screenShader": "QuilezShader", "canFoldDeband": false, "prePasses": []},
+    {"name": "LCD", "screenShader": "LcdShader", "canFoldDeband": false, "prePasses": []},
+    {"name": "SCANLINES", "screenShader": "ScanlinesShader", "canFoldDeband": false, "prePasses": []},
+    {"name": "SCALE2X", "screenShader": "Scale2xShader", "canFoldDeband": false, "prePasses": []},
+    {"name": "FXAA", "screenShader": "QuilezShader", "canFoldDeband": false, "prePasses": [{"shader": "FxaaPrePassShader", "scale": 1, "nativeResolutionOnly": false}]},
+    {"name": "SHARP", "screenShader": "SharpShader", "canFoldDeband": true, "prePasses": []},
+    {"name": "MMPX", "screenShader": "SharpShader", "canFoldDeband": false, "prePasses": [{"shader": "MmpxPrePassShader", "scale": 2, "nativeResolutionOnly": true}]}
+  ]
+}

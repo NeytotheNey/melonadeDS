@@ -661,12 +661,12 @@ void ScreenWindows::SetVSync(bool vsync)
     printf("vsync: %s\n", vsync ? "on" : "off");
 }
 
-void ScreenWindows::DrawAll(Presenter& presenter, const FrameView& frame, bool linear)
+void ScreenWindows::DrawAll(Presenter& presenter, const FrameView& frame)
 {
     Shape = frame;
     int w, h;
     SDL_GL_GetDrawableSize(MainWindow, &w, &h);
-    MainRects = presenter.Draw(frame, w, h, MainLayout(), linear, MainFit(), IsDetached() ? false : Swap);
+    MainRects = presenter.Draw(frame, w, h, MainLayout(), MainFit(), IsDetached() ? false : Swap, 0);
     if (BottomOverlay && MainRects.Bottom.W > 0)
         BottomOverlay(presenter, MainRects.Bottom, w, h);
     if (MainOverlay)
@@ -675,7 +675,7 @@ void ScreenWindows::DrawAll(Presenter& presenter, const FrameView& frame, bool l
     {
         SDL_GL_MakeCurrent(SecondWindow, Context);
         SDL_GL_GetDrawableSize(SecondWindow, &w, &h);
-        SecondRects = presenter.Draw(frame, w, h, MainShowsTop() ? Layout::BottomOnly : Layout::TopOnly, linear, SecondFit());
+        SecondRects = presenter.Draw(frame, w, h, MainShowsTop() ? Layout::BottomOnly : Layout::TopOnly, SecondFit(), false, 1);
         if (BottomOverlay && SecondRects.Bottom.W > 0)
             BottomOverlay(presenter, SecondRects.Bottom, w, h);
     }
@@ -694,14 +694,18 @@ void ScreenWindows::SwapAll()
     SDL_GL_SwapWindow(MainWindow);
 }
 
-void ScreenWindows::WindowShot(Presenter& presenter, const FrameView& frame, bool linear, const std::string& path)
+void ScreenWindows::WindowShot(Presenter& presenter, const FrameView& frame, const std::string& path)
 {
-    auto shot = [&](SDL_Window* window, Layout layout, Fit fit, bool swap, const std::string& file)
+    auto shot = [&](SDL_Window* window, Layout layout, Fit fit, bool swap, int surface, const std::string& file)
     {
         SDL_GL_MakeCurrent(window, Context);
         int dw, dh;
         SDL_GL_GetDrawableSize(window, &dw, &dh);
-        ScreenRects rects = presenter.Draw(frame, dw, dh, layout, linear, fit, swap);
+        // errors the core or an earlier draw left behind aren't this one's; the shot's own draw is checked below
+        while (glGetError() != GL_NO_ERROR) {}
+        ScreenRects rects = presenter.Draw(frame, dw, dh, layout, fit, swap, surface);
+        for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError())
+            fprintf(stderr, "window shot %s: GL error 0x%x drawing the screens\n", file.c_str(), error);
         if (BottomOverlay && rects.Bottom.W > 0)
             BottomOverlay(presenter, rects.Bottom, dw, dh);
         if (window == MainWindow && MainOverlay)
@@ -719,15 +723,15 @@ void ScreenWindows::WindowShot(Presenter& presenter, const FrameView& frame, boo
             fprintf(stderr, "window shot %s failed\n", file.c_str());
     };
     if (!SecondWindow)
-        shot(MainWindow, MainLayout(), MainFit(), Swap, path);
+        shot(MainWindow, MainLayout(), MainFit(), Swap, 0, path);
     else
     {
         std::string base = path;
         if (base.size() > 4 && _stricmp(base.c_str() + base.size() - 4, ".bmp") == 0)
             base.resize(base.size() - 4);
         bool top = MainShowsTop();
-        shot(MainWindow, MainLayout(), MainFit(), false, base + (top ? "_top.bmp" : "_bottom.bmp"));
-        shot(SecondWindow, top ? Layout::BottomOnly : Layout::TopOnly, SecondFit(), false, base + (top ? "_bottom.bmp" : "_top.bmp"));
+        shot(MainWindow, MainLayout(), MainFit(), false, 0, base + (top ? "_top.bmp" : "_bottom.bmp"));
+        shot(SecondWindow, top ? Layout::BottomOnly : Layout::TopOnly, SecondFit(), false, 1, base + (top ? "_bottom.bmp" : "_top.bmp"));
     }
     SDL_GL_MakeCurrent(MainWindow, Context);
 }

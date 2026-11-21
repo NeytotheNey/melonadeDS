@@ -68,6 +68,8 @@ public:
 
     SDL_Window* Main() const { return MainWindow; }
     bool IsDetached() const { return SecondWindow != nullptr; }
+    // how many windows draw now, the Presenter surfaces they draw through (the main window is 0, the second one 1)
+    int SurfaceCount() const { return SecondWindow ? 2 : 1; }
     bool IsSwapped() const { return Swap; }
 
     // together <-> detached, saved as desktop_screens
@@ -92,15 +94,15 @@ public:
 
     // draws [frame] into each window, calls [afterDraw] (the frame's present fence), then shows them: the second window without waiting,
     // then the main window with its vsync. Leaves the main window current
-    template <typename AfterDraw> void Present(Presenter& presenter, const FrameView& frame, bool linear, AfterDraw afterDraw)
+    template <typename AfterDraw> void Present(Presenter& presenter, const FrameView& frame, AfterDraw afterDraw)
     {
-        DrawAll(presenter, frame, linear);
+        DrawAll(presenter, frame);
         afterDraw();
         SwapAll();
     }
     // --window-shot: [path] for the main window when together, [path]_top.bmp and [path]_bottom.bmp when detached (named for the screen
     // each shows). Each window is drawn again and read from its back buffer before any swap
-    void WindowShot(Presenter& presenter, const FrameView& frame, bool linear, const std::string& path);
+    void WindowShot(Presenter& presenter, const FrameView& frame, const std::string& path);
 
     // the window that shows the bottom screen, and where the bottom screen is in that window's drawable pixels now (for the window's
     // current size, layout, fit and swap, and the shape of the last frame drawn)
@@ -120,7 +122,7 @@ public:
     std::function<void(Presenter& presenter, const Rect& bottom, int w, int h)> BottomOverlay;
 
 private:
-    void DrawAll(Presenter& presenter, const FrameView& frame, bool linear);
+    void DrawAll(Presenter& presenter, const FrameView& frame);
     void SwapAll();
     // what each window shows: the layout and fit to draw it with
     Layout MainLayout() const;

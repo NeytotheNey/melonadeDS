@@ -118,6 +118,16 @@ add_executable(melonade-desktop
     src/Frontend.h
     src/Presenter.cpp
     src/Presenter.h
+    src/render/PresentFrame.h
+    src/render/Shader.cpp
+    src/render/Shader.h
+    src/render/ShaderLibrary.cpp
+    src/render/ShaderLibrary.h
+    src/render/VideoFilterPipeline.cpp
+    src/render/VideoFilterPipeline.h
+    src/render/ScreenRenderer.cpp
+    src/render/ScreenRenderer.h
+    "${CMAKE_BINARY_DIR}/generated/shader_files.inc"
     src/Resources.h
     src/resources.rc
     src/RomFile.cpp
@@ -179,6 +189,16 @@ file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/generated/version.h" CONTENT
 #define MELONADE_VERSION_COMMAS ${MELONADE_VERSION_COMMAS},${MELONADE_VERSION_CODE}
 ")
 message(STATUS "melonadeDS ${MELONADE_VERSION_NAME} (${MELONADE_VERSION_CODE})")
+
+# the app's shaders as desktop/shaders has them (exported from ShaderProgramSource.kt by DesktopShaderExportTest, README.md), embedded so the
+# exe needs no files next to it: generated/shader_files.inc, made again when a file there changes
+file(GLOB SHADER_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.vert" "${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.frag"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shaders/shaders.json")
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/generated/shader_files.inc"
+    COMMAND ${CMAKE_COMMAND} "-DSHADER_DIR=${CMAKE_CURRENT_SOURCE_DIR}/shaders" "-DOUTPUT=${CMAKE_BINARY_DIR}/generated/shader_files.inc"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/EmbedShaders.cmake"
+    DEPENDS ${SHADER_SOURCES} "${CMAKE_CURRENT_SOURCE_DIR}/EmbedShaders.cmake"
+    COMMENT "Embedding desktop/shaders")
 
 # the resource script embeds these, so it's compiled again when one changes
 set_source_files_properties(src/resources.rc PROPERTIES OBJECT_DEPENDS

@@ -1,0 +1,59 @@
+// What the presentation reads of a frame (the app's PresentFrameWrapper.kt) and the Lua tilt-shift a script asks for (TiltShift.kt)
+#pragma once
+
+#include <algorithm>
+#include <optional>
+
+#include "PlatformOGL.h"
+#include "types.h"
+
+struct Frame;
+
+namespace Frontend
+{
+
+// a Frame (renderer/FrameQueue.h) as the presenter draws it; Texture 0 is no frame (the app's isValidFrame false)
+struct FrameView
+{
+    GLuint Texture = 0;
+    // the texture's size in texels
+    int Width = 0, Height = 0;
+    // the top screen's width in DS pixels (wider than 256 with WideMelon), and its margin rows above and below (WideMelon camera stage 2)
+    int TopWidth = 256, TopMargin = 0;
+    // GPU::Comp1x: the halves the compositor drew at 1x (bit 0 the top one), the frame's scale and the scale they were drawn at
+    int HalvesAt1x = 0, Scale = 1, HalfScale = 1;
+    // the frame queue's sequence, so a frame presented again isn't filtered again (0: none)
+    melonDS::u64 Sequence = 0;
+
+    bool IsValid() const { return Texture != 0; }
+    // the top screen's half of the frame in DS pixels (192 plus the margin on both sides), and the whole frame's
+    int TopScreenHeight() const { return 192 + 2 * TopMargin; }
+    int FrameHeight() const { return TopScreenHeight() + 2 + 192; }
+
+    static FrameView Of(const Frame& frame);
+};
+
+// TiltShift.kt: a blur over the DS top screen that's sharp in a band ([Center] and [Width], fractions of the screen's height), [Radius] DS
+// pixels at the screen's edges times [Top] and [Bottom] (each 0 to 1, a fade), and a saturation and contrast boost that follows [Color], or
+// without one the stronger band
+struct TiltShift
+{
+    float Top = 0, Bottom = 0, Center = 0.5f, Width = 0, Radius = 0;
+    float Saturation = 1, Contrast = 1;
+    std::optional<float> Color;
+
+    bool operator==(const TiltShift&) const = default;
+
+    // where the sharp band starts and ends, as fractions of the screen's height from its top
+    float BandTop() const { return std::max(Center - Width / 2.f, 0.f); }
+    float BandBottom() const { return std::min(Center + Width / 2.f, 1.f); }
+    // the blur's radius at the screen's top and bottom edges in DS pixels, 0 when the band leaves no room for it
+    float TopRadius() const { return BandTop() > 0.f ? Radius * Top : 0.f; }
+    float BottomRadius() const { return BandBottom() < 1.f ? Radius * Bottom : 0.f; }
+    bool HasBlur() const { return TopRadius() > 0.f || BottomRadius() > 0.f; }
+    float AppliedSaturation() const { return 1.f + (Saturation - 1.f) * Color.value_or(std::max(Top, Bottom)); }
+    float AppliedContrast() const { return 1.f + (Contrast - 1.f) * Color.value_or(std::max(Top, Bottom)); }
+    bool HasColorBoost() const { return AppliedSaturation() != 1.f || AppliedContrast() != 1.f; }
+};
+
+}

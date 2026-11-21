@@ -31,7 +31,10 @@ const Option kScreens[] = {{"together", "Together"}, {"detached", "Detached (two
 const Option kLayouts[] = {{"vertical", "Top over bottom"}, {"horizontal", "Side by side"}, {"top", "Top only"}, {"bottom", "Bottom only"}};
 const Option kFits[] = {{"aspect", "Keep aspect"}, {"integer", "Integer scale"}, {"stretch", "Stretch"}};
 const Option kFullscreen[] = {{"borderless", "Borderless"}, {"exclusive", "Exclusive"}};
-const Option kFiltering[] = {{"none", "Sharp"}, {"linear", "Smooth"}};
+// the app's video_filtering list (arrays.xml's video_filtering_values and strings.xml's video_filtering_options), which leaves out the
+// enum's SCANLINES; --filter scanlines shows it by name
+const Option kFiltering[] = {{"none", "None"}, {"linear", "Linear"}, {"xbr2", "2xBR"}, {"hq2x", "HQ2X"}, {"hq4x", "HQ4X"},
+    {"quilez", "Quilez"}, {"lcd", "LCD"}, {"scale2x", "Scale2x"}, {"fxaa", "FXAA"}, {"sharp", "Sharp (no shimmer)"}, {"mmpx", "MMPX"}};
 const Option kConsoles[] = {{"ds", "DS"}, {"dsi", "DSi"}};
 const Option kLatency[] = {{"low", "Low (Slower)"}, {"medium", "Medium"}, {"high", "High (Faster)"}};
 const Option kSpeeds[] = {{"-1", "Unlimited"}, {"1.5", "1.5x"}, {"2", "2x"}, {"3", "3x"}, {"4", "4x"}, {"8", "8x"}};
@@ -280,6 +283,23 @@ private:
         Toggle(app, "video_precise_depth", Icon::Layers, "Precise depth (Experimental)", "Fixes overlap flickering in some games", false);
         Toggle(app, "video_gl_seams", Icon::GridOn, "Fix floor seams",
             gl ? "Recommended for Pok\xc3\xa9mon Gen 4 games" : "OpenGL only", false);
+        SectionLabel(app, "Image");
+        {
+            std::string filtering = s.GetString("video_filtering", "none");
+            int index = IndexOf(kFiltering, filtering);
+            // a filter the list leaves out (--filter scanlines) shows by its name, and steps into the list at either end
+            const char* name = index >= 0 ? kFiltering[index].Name : filtering == "scanlines" ? "Scanlines" : kFiltering[0].Name;
+            if (int change = ChoiceRow(app, "##video_filtering", Icon::Contrast, "Filter", name, TakeFirst()))
+            {
+                int count = (int)(sizeof(kFiltering) / sizeof(kFiltering[0]));
+                index = index < 0 ? (change > 0 ? 0 : count - 1) : (index + change + count) % count;
+                Change(app, "video_filtering", picojson::value(std::string(kFiltering[index].Value)));
+            }
+            Track("video_filtering");
+        }
+        Toggle(app, "video_deband", Icon::Tune, "Smooth gradients", "Smooths banding in gradients and backgrounds", false);
+        Toggle(app, "video_ds_screen_colors", Icon::Palette, "DS screen colors", "The colors of the DS's own screen", false);
+        Toggle(app, "video_screen_shadow", Icon::Monitor, "Screen shadow", "Draws a soft outer shadow around the screens", false);
         SectionLabel(app, "Performance");
         Toggle(app, "enable_jit", Icon::Bolt, "Enable JIT", "Slower than the interpreter on PC. Applies when a game starts", false);
         Note(app, "Everything here but the JIT applies to a running game at once.");
@@ -301,7 +321,6 @@ private:
         SectionLabel(app, "Window");
         Choice(app, "desktop_fullscreen_mode", Icon::Fullscreen, "Fullscreen", kFullscreen, "borderless", "What F11 does to the main window");
         Toggle(app, "desktop_vsync", Icon::Sync, "VSync", "The main window waits for the monitor", false);
-        Choice(app, "video_filtering", Icon::Contrast, "Screen filter", kFiltering, "none");
         SectionLabel(app, "Look");
         int theme = std::max(IndexOf(kThemes, s.GetString("desktop_theme", "system")), 0);
         Choice(app, "desktop_theme", theme == 1 ? Icon::LightMode : theme == 2 ? Icon::DarkMode : Icon::BrightnessAuto, "Theme", kThemes, "system");

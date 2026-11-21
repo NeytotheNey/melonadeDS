@@ -21,6 +21,8 @@ cp "$BUILD/melonade-desktop.exe" "$BUILD/SDL2.dll" desktop/third_party/gamecontr
 L="$OUT/licenses"
 cp LICENSE "$L/melonadeDS.txt"
 cp melonDS-android-lib/LICENSE "$L/melonDS.txt"
+# the app's screen filter shaders the exe embeds (2xBR and HQx are GPL 2 or later, MMPX is MIT)
+cp desktop/licenses/shaders.txt "$L/shaders.txt"
 cp "$MINGW/share/licenses/SDL2/LICENSE.txt" "$L/SDL2.txt"
 cp desktop/third_party/gamecontrollerdb/LICENSE "$L/SDL_GameControllerDB.txt"
 cp desktop/third_party/imgui/LICENSE.txt "$L/Dear-ImGui.txt"

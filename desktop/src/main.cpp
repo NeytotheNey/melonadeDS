@@ -6,6 +6,7 @@
 #include <timeapi.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -156,7 +157,13 @@ struct Options
     bool AudioLog = false;     // --audio-log: the ring's fill and the ratio once a second
     std::string AudioTrace;    // --audio-trace: every callback and frame's ring fill, as a CSV
     std::string VirtualPad;    // --virtual-pad: an SDL virtual controller for tests
-    bool Linear = false;
+    // the screens' look (video_filtering, video_deband, video_ds_screen_colors, video_screen_shadow), from the settings (ApplySettings); the
+    // emulator thread's once a game runs (deband also dithers on Compute), the presenter keeps its own copy
+    Frontend::RendererConfig Render;
+    // --tilt-shift: the Lua tilt-shift's passes over the top screen, for tests until the scripts drive it (phase 4)
+    std::optional<Frontend::TiltShift> TiltShift;
+    // --output-cap: the windows' output scale need goes to the core (GPU::OutputCap) after each present, as the app's surfaces send theirs
+    bool OutputCap = false;
     bool Hidden = false;
     bool GpuSync = false;      // glFinish after each frame, so the work time includes the GPU's
     bool GameState = false;    // print the app's game state scene (app/src/main/cpp/gamestate) when it changes
@@ -176,7 +183,7 @@ struct Options
 
     std::string ProfileDir;    // --profile; see Frontend::ResolveProfileDir
     // the settings the command line gives (--renderer, --scale, --setting, ...), for this run only and never written. The fields above
-    // that have a setting (Renderer, Scale, Linear, Audio, VSync) are filled from the settings once they're read (ApplySettings)
+    // that have a setting (Renderer, Scale, Render, Audio, VSync) are filled from the settings once they're read (ApplySettings)
     std::vector<std::pair<std::string, picojson::value>> SettingOverrides;
     std::optional<Frontend::WindowPlace> Window, Window2; // --window, --window2
     bool SaveHiddenPlaces = false;
@@ -256,8 +263,9 @@ void Usage()
         "                              portable.txt there); a scripted run (--hidden or --frames) without it\n"
         "                              gets a fresh temporary one, so it never reads or writes your settings\n"
         "  --setting KEY=VALUE         a setting for this run only, e.g. desktop_fit_bottom=integer (README lists them)\n"
-        "  (the options that change a setting, --renderer, --scale, --linear, --vsync, --no-audio, --layout,\n"
-        "  --detach and --rom-folder, are for the run only too: none of them is written to settings.json)\n"
+        "  (the options that change a setting, --renderer, --scale, --filter, --linear, --deband, --ds-colors,\n"
+        "  --screen-shadow, --vsync, --no-audio, --layout, --detach and --rom-folder, are for the run only too: none\n"
+        "  of them is written to settings.json)\n"
         "\n"
         "  --layout vertical|horizontal|top|bottom   the screens together in one window (with --detach: the\n"
         "                              layout for when they're together again)\n"
@@ -266,7 +274,18 @@ void Usage()
         "  --window2 W,H[,X,Y]         the same for the second window when detached\n"
         "  --window-scale N            default window size in DS screens (default 2), times the monitor's\n"
         "                              scale (150%%: 3 screens) unless --hidden\n"
-        "  --linear                    linear filtering when drawing to the window\n"
+        "  --filter NAME               the screen filter for this run, the app's video_filtering: none, linear, xbr2,\n"
+        "                              hq2x, hq4x, quilez, lcd, scanlines, scale2x, fxaa, sharp, mmpx (any case)\n"
+        "  --linear                    the same as --filter linear\n"
+        "  --deband on|off             smooth gradients (video_deband; also Compute's color dithering, as in the app)\n"
+        "  --ds-colors on|off          the DS screen's colors (video_ds_screen_colors)\n"
+        "  --screen-shadow on|off      a soft shadow around the screens (video_screen_shadow)\n"
+        "  --tilt-shift TOP,BOTTOM,CENTER,WIDTH,RADIUS[,SATURATION,CONTRAST[,COLOR]]\n"
+        "                              the Lua tilt-shift's passes over the top screen, for tests: the blur's strength\n"
+        "                              above and below (0-1), the sharp band's center and width (0-1 of the screen), the\n"
+        "                              radius in DS pixels, the color boost and what it follows (0-1)\n"
+        "  --output-cap                send the windows' screen size to the core (GPU::OutputCap), as the app does: the\n"
+        "                              frame is drawn no bigger than the screens are shown\n"
         "  --vsync                     wait for vsync on swap (pacing stays at the DS's 59.83 Hz)\n"
         "  --unthrottled               run as fast as possible (benchmarks)\n"
         "  --no-audio\n"
@@ -278,7 +297,7 @@ void Usage()
         "  --screenshot FILE.bmp       save the last frame at the internal resolution when quitting\n"
         "  --window-shot FILE.bmp      save the window as drawn, menus included, when --frames or --ui-script ends\n"
         "                              the run; detached: the windows as FILE_top.bmp and FILE_bottom.bmp\n"
-        "  --window-shot-linear        draw the window shot with linear filtering (the run keeps --linear's)\n"
+        "  --window-shot-linear        draw the window shot with the linear filter (the run keeps its own)\n"
         "  --hidden                    no visible window (with --frames); never fullscreen, saves no window places\n"
         "  --save-window-places        save the window places with --hidden too (tests)\n"
         "  --log FILE                  core log file (default melonade.log next to the exe)\n"
@@ -339,7 +358,7 @@ void Usage()
         "      F1 = swap screens, F9 = screens together/detached, F11 = fullscreen of the focused window,\n"
         "      F12 = screenshot, mouse on the bottom screen = touch\n"
         "      fixed: P = pause, Ctrl+R = reset, F5/F6/F7 = software/OpenGL/Compute, F3/F4 = scale down/up,\n"
-        "      F2 = layout, F8 = linear filter, F10 = fit of the focused detached window\n"
+        "      F2 = layout, F8 = linear filter on/off, F10 = fit of the focused detached window\n"
         "      menus: arrows move, Enter chooses, Esc or Backspace goes back, Delete clears, Q/W switch tabs\n"
         "      controllers: Guide or Select+Start held = pause menu, the right stick moves a touch cursor and the\n"
         "      right trigger taps; face buttons by the pad's layout (Nintendo: east = A, others: south = A)\n");
@@ -481,6 +500,48 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         }
         else if (arg == "--window-scale") opts.WindowScale = std::clamp(atoi(next().c_str()), 1, 8);
         else if (arg == "--linear") setting("video_filtering", text("linear"));
+        else if (arg == "--filter")
+        {
+            std::string name = next();
+            Frontend::VideoFiltering filtering = Frontend::VideoFiltering::None;
+            if (!Frontend::ParseVideoFiltering(name, filtering)) { fprintf(stderr, "unknown filter %s (--help lists them)\n", name.c_str()); return false; }
+            // stored as the app stores it, the enum's name in lower case
+            std::string value = Frontend::VideoFilteringName(filtering);
+            std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return (char)tolower(c); });
+            setting("video_filtering", picojson::value(value));
+        }
+        else if (arg == "--deband" || arg == "--ds-colors" || arg == "--screen-shadow")
+        {
+            std::string value = next();
+            if (value != "on" && value != "off") { fprintf(stderr, "%s needs on or off\n", arg.c_str()); return false; }
+            setting(arg == "--deband" ? "video_deband" : arg == "--ds-colors" ? "video_ds_screen_colors" : "video_screen_shadow",
+                picojson::value(value == "on"));
+        }
+        else if (arg == "--tilt-shift")
+        {
+            std::string spec = next();
+            Frontend::TiltShift tilt;
+            float color = -1;
+            int count = sscanf(spec.c_str(), "%f,%f,%f,%f,%f,%f,%f,%f", &tilt.Top, &tilt.Bottom, &tilt.Center, &tilt.Width, &tilt.Radius,
+                &tilt.Saturation, &tilt.Contrast, &color);
+            if (count != 5 && count != 7 && count != 8)
+            {
+                fprintf(stderr, "bad --tilt-shift %s (TOP,BOTTOM,CENTER,WIDTH,RADIUS[,SATURATION,CONTRAST[,COLOR]])\n", spec.c_str());
+                return false;
+            }
+            // held to what a script could ask for: the fades, the band and the color in 0-1, the radius to a test-sized 64 DS pixels
+            tilt.Top = std::clamp(tilt.Top, 0.f, 1.f);
+            tilt.Bottom = std::clamp(tilt.Bottom, 0.f, 1.f);
+            tilt.Center = std::clamp(tilt.Center, 0.f, 1.f);
+            tilt.Width = std::clamp(tilt.Width, 0.f, 1.f);
+            tilt.Radius = std::clamp(tilt.Radius, 0.f, 64.f);
+            tilt.Saturation = std::clamp(tilt.Saturation, 0.f, 4.f);
+            tilt.Contrast = std::clamp(tilt.Contrast, 0.f, 4.f);
+            if (count == 8)
+                tilt.Color = std::clamp(color, 0.f, 1.f);
+            opts.TiltShift = tilt;
+        }
+        else if (arg == "--output-cap") opts.OutputCap = true;
         else if (arg == "--vsync") setting("desktop_vsync", picojson::value(true));
         else if (arg == "--unthrottled") opts.Unthrottled = true;
         else if (arg == "--no-audio") setting("sound_enabled", picojson::value(false));
@@ -559,6 +620,19 @@ Options::RenderToggles ReadToggles(const Options& opts, const Frontend::Settings
     return t;
 }
 
+// the screens' look from the settings, with the app's keys and defaults. The app took its DS screen colors switch out and reads it as off
+// whatever is stored; here it's a setting of its own still
+Frontend::RendererConfig ReadRendererConfig(const Frontend::Settings& settings)
+{
+    Frontend::RendererConfig config;
+    if (!Frontend::ParseVideoFiltering(settings.GetString("video_filtering", "none"), config.Filtering))
+        config.Filtering = Frontend::VideoFiltering::None;
+    config.Deband = settings.GetBool("video_deband", false);
+    config.DsScreenColors = settings.GetBool("video_ds_screen_colors", false);
+    config.ScreenShadow = settings.GetBool("video_screen_shadow", false);
+    return config;
+}
+
 // fast_forward_speed_multiplier: the app's list values as text ("-1" unlimited, "1.5", "2", ...), 0 for unlimited
 float FastForwardSpeed(const Frontend::Settings& settings)
 {
@@ -573,7 +647,7 @@ void ApplySettings(Options& opts, const Frontend::Settings& settings)
     std::string renderer = settings.GetString("video_renderer", "compute");
     opts.Renderer = renderer == "software" ? RendererType::Software : renderer == "opengl" ? RendererType::OpenGL : RendererType::Compute;
     opts.Scale = std::clamp(settings.GetInt("video_internal_resolution", 4), 1, 16);
-    opts.Linear = settings.GetString("video_filtering", "none") == "linear";
+    opts.Render = ReadRendererConfig(settings);
     opts.Audio = settings.GetBool("sound_enabled", true);
     opts.VSync = settings.GetBool("desktop_vsync", false);
     opts.Toggles = ReadToggles(opts, settings);
@@ -678,7 +752,8 @@ std::shared_ptr<MelonDSAndroid::EmulatorConfiguration> MakeConfiguration(const O
         auto settings = std::make_unique<ComputeRenderSettings>();
         settings->scale = scale;
         settings->highResCoordinates = opts.HighResCoordinates;
-        settings->colorDithering = opts.ColorDither;
+        // the app's "Smooth gradients" (deband) dithers Compute's colors too (RendererConfiguration.colorDithering)
+        settings->colorDithering = opts.ColorDither || opts.Render.Deband;
         config->renderSettings = std::move(settings);
         break;
     }
@@ -1204,9 +1279,11 @@ int main(int argc, char** argv)
     Frontend::Presenter presenter;
     if (!presenter.Init())
     {
-        fprintf(stderr, "can't set up the screen shader\n");
+        fprintf(stderr, "can't set up the screen shaders\n");
         return 1;
     }
+    presenter.SetRendererConfig(opts.Render);
+    presenter.SetTiltShift(opts.TiltShift);
 
     std::string cacheDir = opts.CacheDir.empty() ? exeDir + "cache" : opts.CacheDir;
     std::error_code ec;
@@ -1219,8 +1296,9 @@ int main(int argc, char** argv)
     MelonDSAndroid::frontendContext.eventMessenger = messenger;
     MelonDSAndroid::RetroAchievements::RetroAchievementsManager::EventMessenger = messenger;
     // GPU::OutputCapDeband, which MelonInstance sets before each frame from what the presenter says (once it held for 30 frames, as on the
-    // phone), so --set OutputCapDeband stands in for the app's deband through it
-    MelonDSAndroid::setOutputDeband(SetValue(opts.Sets, "OutputCapDeband", 0) != 0);
+    // phone): the deband setting, or --set OutputCapDeband (and --at) on top of it. Sent again after each present (sendPresentation)
+    std::atomic_bool forcedOutputDeband = SetValue(opts.Sets, "OutputCapDeband", 0) != 0;
+    MelonDSAndroid::setOutputDeband(forcedOutputDeband || presenter.DebandsOutput());
 
     // the game library (library.db in the profile), its scan on a worker thread once the library is first shown
     Frontend::Library library;
@@ -1311,13 +1389,14 @@ int main(int argc, char** argv)
     // fast forward on when it's held or toggled and the game runs with no menu over it, at fast_forward_speed_multiplier; set once the
     // menus are there
     std::function<void()> updateFastForward = [] {};
-    bool linear = opts.Linear;
     // where the bottom screen is in the drawable of the window that shows it, for --touch on the emulator thread: as planned for the
     // first frame (from the run's top screen size), then as each present drew it
     std::mutex touchLock;
     Frontend::Rect touchRect;
     bool scriptTouching = false; // emulator thread
     u32 presented = 0, presentedThisGame = 0;
+    // GPU::Comp1x: presented frames with a screen the compositor drew at 1x, and the first one's number, for the run's summary
+    u32 presentedAt1x = 0, firstPresentedAt1x = 0;
     FrameStats stats;
     TitleStats titleStats;
     std::string statsLabel = RendererName(opts.Renderer);
@@ -1491,7 +1570,10 @@ int main(int argc, char** argv)
             else if (!ApplySet(instance.getNds()->GPU, at.Action))
                 fprintf(stderr, "unknown --at %u:%s (see --list-sets)\n", at.Frame, at.Action.c_str());
             else if (at.Action.rfind("OutputCapDeband=", 0) == 0)
-                MelonDSAndroid::setOutputDeband(SetValue({at.Action}, "OutputCapDeband", 0) != 0);
+            {
+                forcedOutputDeband = SetValue({at.Action}, "OutputCapDeband", 0) != 0;
+                MelonDSAndroid::setOutputDeband(forcedOutputDeband);
+            }
             printf("at frame %u: %s\n", at.Frame, at.Action.c_str());
         }
         return true;
@@ -1614,7 +1696,7 @@ int main(int argc, char** argv)
         ApplySettings(opts, settings);
         renderer = opts.Renderer;
         scale = opts.Scale;
-        linear = opts.Linear;
+        presenter.SetRendererConfig(opts.Render);
         // what the library waited to write (its last focused game)
         settings.SaveIfChanged();
 
@@ -1704,9 +1786,9 @@ int main(int argc, char** argv)
             opts.BootScreen = false;
         }
 
-        // GPU::Comp1x: the presenter draws a screen at 1x unless it filters linearly, as the app's surfaces tell the emulator after presenting;
-        // set before the first frame here, so a run's frames don't depend on when the UI thread first presents
-        MelonDSAndroid::setHalvesAt1xSupported(!linear);
+        // GPU::Comp1x: the presenter draws a screen at 1x only with no filter, deband or tilt-shift, as the app's surfaces tell the emulator
+        // after presenting; set before the first frame here, so a run's frames don't depend on when the UI thread first presents
+        MelonDSAndroid::setHalvesAt1xSupported(presenter.CanDrawHalvesAt1x(windows.SurfaceCount()));
         auto instance = std::make_unique<MelonDSAndroid::MelonInstance>(0, MakeConfiguration(opts, renderer, scale), std::move(args),
             std::make_shared<Net>(), std::make_unique<MelonDSAndroid::ScreenshotRenderer>(screenshotBuffer.data()), opts.ConsoleType);
         instance->setDebugOverrides(ApplySwitches(opts, *instance->getNds()));
@@ -2056,6 +2138,35 @@ int main(int argc, char** argv)
         else
             opts.Toggles = toggles;
     };
+    // UI thread, after each present and when the screens' look changes: what the windows can show, for the emulator's next frame, as the
+    // app's FrameRenderCoordinator sends it after its surfaces drew. The output need only with --output-cap, so the frame keeps the
+    // internal scale in every other run (the scripted renderer comparisons)
+    auto sendPresentation = [&]
+    {
+        int surfaces = windows.SurfaceCount();
+        MelonDSAndroid::setHalvesAt1xSupported(presenter.CanDrawHalvesAt1x(surfaces));
+        if (opts.OutputCap)
+            MelonDSAndroid::setOutputScaleNeed(presenter.OutputScaleNeed(surfaces));
+        MelonDSAndroid::setOutputDeband(forcedOutputDeband || presenter.DebandsOutput());
+    };
+    // the screens' look again from the settings: the presenter's at once, and deband's Compute dithering on the emulator thread
+    auto applyRendererConfig = [&]
+    {
+        Frontend::RendererConfig config = ReadRendererConfig(settings);
+        presenter.SetRendererConfig(config);
+        sendPresentation();
+        if (emu)
+            emuThread.Post([&, config](MelonDSAndroid::MelonInstance& instance)
+            {
+                bool ditherChanged = config.Deband != opts.Render.Deband;
+                opts.Render = config;
+                if (ditherChanged)
+                    updateConfiguration(instance);
+            });
+        else
+            opts.Render = config;
+        redraw = true;
+    };
     host.ChangeSetting = [&](const std::string& key, const picojson::value& value) -> bool
     {
         printf("settings: %s = %s\n", key.c_str(), value.serialize().c_str());
@@ -2128,11 +2239,9 @@ int main(int argc, char** argv)
             applyToggles();
             return true;
         }
-        if (key == "video_filtering")
+        if (key == "video_filtering" || key == "video_deband" || key == "video_ds_screen_colors" || key == "video_screen_shadow")
         {
-            linear = settings.GetString("video_filtering", "none") == "linear";
-            MelonDSAndroid::setHalvesAt1xSupported(!linear);
-            redraw = true;
+            applyRendererConfig();
             return true;
         }
         if (key == "desktop_vsync")
@@ -2209,17 +2318,26 @@ int main(int argc, char** argv)
     std::function<void()> scriptRelease;
 
     // UI thread: the window as drawn now (the game's newest frame, then the menus' last frame), into [path] (_top/_bottom when detached)
-    auto windowShot = [&](const std::string& path, bool shotLinear)
+    auto windowShot = [&](const std::string& path)
     {
+        // --window-shot-linear: the shot with the linear filter, the run with its own
+        Frontend::RendererConfig config = presenter.GetRendererConfig();
+        if (opts.WindowShotLinear)
+        {
+            Frontend::RendererConfig shotConfig = config;
+            shotConfig.Filtering = Frontend::VideoFiltering::Linear;
+            presenter.SetRendererConfig(shotConfig);
+        }
         Frame* frame = emu ? AcquireFrame(*emu, std::nullopt) : nullptr;
         if (frame)
         {
             PrepareFrame(frame);
-            windows.WindowShot(presenter, Frontend::FrameView::Of(*frame), shotLinear, path);
+            windows.WindowShot(presenter, Frontend::FrameView::Of(*frame), path);
             ReleaseFrame(frame);
         }
         else
-            windows.WindowShot(presenter, Frontend::FrameView(), shotLinear, path);
+            windows.WindowShot(presenter, Frontend::FrameView(), path);
+        presenter.SetRendererConfig(config);
     };
 
     // draws [frame] (null: no game, black) into the windows, with the menus over the main one, and shows them
@@ -2228,11 +2346,14 @@ int main(int argc, char** argv)
         if (frame)
         {
             PrepareFrame(frame);
-            windows.Present(presenter, Frontend::FrameView::Of(*frame), linear, [&] { ReleaseFrame(frame); });
+            windows.Present(presenter, Frontend::FrameView::Of(*frame), [&] { ReleaseFrame(frame); });
             presentedThisGame++;
+            if (frame->halvesAt1x != 0 && presentedAt1x++ == 0)
+                firstPresentedAt1x = presented + 1;
         }
         else
-            windows.Present(presenter, Frontend::FrameView(), linear, [] {});
+            windows.Present(presenter, Frontend::FrameView(), [] {});
+        sendPresentation();
         presented++;
         refreshTouchRect();
     };
@@ -2291,11 +2412,13 @@ int main(int argc, char** argv)
         }
         case SDLK_F2: windows.NextLayout(); redraw = true; break;
         case SDLK_F8:
-            linear = !linear;
-            MelonDSAndroid::setHalvesAt1xSupported(!linear);
-            settings.Set("video_filtering", picojson::value(std::string(linear ? "linear" : "none")));
-            redraw = true;
+        {
+            // linear on and off (from another filter, linear)
+            bool linear = presenter.GetRendererConfig().Filtering == Frontend::VideoFiltering::Linear;
+            settings.Set("video_filtering", picojson::value(std::string(linear ? "none" : "linear")));
+            applyRendererConfig();
             break;
+        }
         case SDLK_F10: windows.CycleFit(windowId); redraw = true; break;
         default: break;
         }
@@ -2608,7 +2731,7 @@ int main(int argc, char** argv)
             }
             break;
         case Kind::Shot:
-            windowShot(step.Arg, linear || opts.WindowShotLinear);
+            windowShot(step.Arg);
             break;
         case Kind::Screenshot:
             screenshot(step.Arg);
@@ -2867,11 +2990,15 @@ int main(int argc, char** argv)
     // --frames or the UI script ended the run: the window as it was last drawn, menus included
     bool reachedFrames = opts.Frames && currentFrame + uiFrames >= opts.Frames;
     if ((reachedFrames || scriptEnded) && !opts.WindowShotPath.empty())
-        windowShot(opts.WindowShotPath, linear || opts.WindowShotLinear);
+        windowShot(opts.WindowShotPath);
 
     stats.Print(statsLabel.c_str(), wall);
     printf("presented: %u frames in %.2f s (%.1f per second), %s\n", presented, wall, presented / wall,
         windows.IsDetached() ? "detached (two windows)" : "together");
+    if (presentedAt1x)
+        printf("presented at 1x: %u frames had a screen at 1x (GPU::Comp1x), the first at present %u\n", presentedAt1x, firstPresentedAt1x);
+    else
+        printf("presented at 1x: none\n");
     if (!opts.ScreenshotPath.empty() && !startFailed && emu)
         screenshot(opts.ScreenshotPath);
 

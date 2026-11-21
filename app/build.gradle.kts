@@ -189,6 +189,19 @@ room {
     schemaDirectory("$projectDir/schemas")
 }
 
+// The desktop app's copies of the shaders (desktop/shaders): DesktopShaderExportTest checks them against ShaderProgramSource on every unit test
+// run, and writes them again with -Pmelonade.exportShaders (desktop/README.md)
+val desktopShadersDir = rootProject.file("desktop/shaders")
+val exportDesktopShaders = providers.gradleProperty("melonade.exportShaders").isPresent
+tasks.withType<Test>().configureEach {
+    systemProperty("melonade.desktopShadersDir", desktopShadersDir.absolutePath)
+    inputs.files(fileTree(desktopShadersDir)).withPropertyName("desktopShaders")
+    if (exportDesktopShaders) {
+        systemProperty("melonade.exportShaders", "true")
+        outputs.upToDateWhen { false }
+    }
+}
+
 // Generates res/raw/aboutlibraries.json offline from each variant's dependencies plus config/libraries and config/licenses
 aboutLibraries {
     offlineMode = true
