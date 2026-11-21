@@ -34,7 +34,7 @@ std::optional<std::string> ShowOpenDialog(SDL_Window* parent, const std::string&
     else
     {
         const COMDLG_FILTERSPEC filters[] = {
-            {L"DS games (*.nds, *.dsi)", L"*.nds;*.dsi"},
+            {L"DS games (*.nds, *.dsi, *.zip, *.7z)", L"*.nds;*.dsi;*.zip;*.7z"},
             {L"All files", L"*.*"},
         };
         dialog->SetFileTypes(2, filters);

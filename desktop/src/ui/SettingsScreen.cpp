@@ -1,4 +1,4 @@
-// Settings, on five tabs (L / R switch them): Video, Display, Emulation, Audio and Controls. Each change goes through Host::ChangeSetting,
+// Settings, on six tabs (L / R switch them): Video, Display, Emulation, Audio, Controls and Library (the ROM folders). Each change goes through Host::ChangeSetting,
 // which saves it and applies it at once where the running game allows it; the rest (JIT, the console, the BIOS) wait for the next game
 // that starts, and the rows say so. The keys are the app's preference names where it has the setting, desktop_ ones otherwise
 #include <algorithm>
@@ -7,6 +7,7 @@
 
 #include "Icons.h"
 #include "Input.h"
+#include "Library.h"
 #include "Screens.h"
 #include "Settings.h"
 #include "Ui.h"
@@ -31,9 +32,9 @@ const Option kConsoles[] = {{"ds", "DS"}, {"dsi", "DSi"}};
 const Option kLatency[] = {{"low", "Low (Slower)"}, {"medium", "Medium"}, {"high", "High (Faster)"}};
 const Option kSpeeds[] = {{"-1", "Unlimited"}, {"1.5", "1.5x"}, {"2", "2x"}, {"3", "3x"}, {"4", "4x"}, {"8", "8x"}};
 
-const char* const kTabNames[] = {"Video", "Display", "Emulation", "Audio", "Controls"};
-const char* const kTabIds[] = {"video", "display", "emulation", "audio", "controls"};
-constexpr int kTabCount = 5;
+const char* const kTabNames[] = {"Video", "Display", "Emulation", "Audio", "Controls", "Library"};
+const char* const kTabIds[] = {"video", "display", "emulation", "audio", "controls", "library"};
+constexpr int kTabCount = 6;
 
 const char* kNextGame = "Applies when a game starts";
 
@@ -68,9 +69,24 @@ public:
 
     void Clear(App& app) override
     {
-        // X on a folder row: back to none
+        // X on a folder row: back to none; on a ROM folder, out of the library
         if (FocusedKey == "bios_dir" || FocusedKey == "dsi_bios_dir")
             Change(app, FocusedKey, picojson::value(std::string()));
+        else if (FocusedKey.rfind("rom_folder:", 0) == 0)
+        {
+            std::vector<std::string> folders = Store(app).GetStringList("rom_search_dirs");
+            size_t index = (size_t)atoi(FocusedKey.c_str() + 11);
+            if (index < folders.size())
+            {
+                app.Toast("Removed " + folders[index] + " from the library");
+                folders.erase(folders.begin() + index);
+                SetRomFolders(app, folders);
+                // the focus to the row that's there now
+                WantFocus = true;
+                FocusId = 0;
+                FocusRow = folders.empty() ? std::string("addfolder") : "rom_folder:" + std::to_string(std::min(index, folders.size() - 1));
+            }
+        }
     }
 
     void Draw(App& app) override
@@ -109,14 +125,17 @@ public:
         case 1: DrawDisplay(app); break;
         case 2: DrawEmulation(app); break;
         case 3: DrawAudio(app); break;
-        default: DrawControls(app); break;
+        case 4: DrawControls(app); break;
+        default: DrawLibrary(app); break;
         }
         ImGui::Dummy(ImVec2(1, app.Px(24)));
         ImGui::EndChild();
         ImGui::PopStyleVar(2);
 
         bool folder = FocusedKey == "bios_dir" || FocusedKey == "dsi_bios_dir";
-        if (folder)
+        if (FocusedKey.rfind("rom_folder:", 0) == 0)
+            FooterHints(app, {{"A|Enter", "Change folder"}, {"X|Del", "Remove"}, {"L/R|Q/W", "Tabs"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
+        else if (folder)
             FooterHints(app, {{"A|Enter", "Choose folder"}, {"X|Del", "Clear"}, {"L/R|Q/W", "Tabs"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
         else
             FooterHints(app, {{"A|Enter", "Change"}, {"\xe2\x80\xb9 \xe2\x80\xba", "Previous / next"}, {"L/R|Q/W", "Tabs"}, {"B|Esc", "Back"}},
@@ -144,9 +163,16 @@ private:
             app.Toast("Applies the next time a game starts");
     }
 
-    // the first row of a tab has the focus when it opens
-    bool TakeFirst()
+    // the first row of a tab has the focus when it opens (or the row FocusRow names)
+    bool TakeFirst(const char* key = nullptr)
     {
+        if (!FocusRow.empty())
+        {
+            bool mine = key && FocusRow == key;
+            if (mine)
+                FocusRow.clear();
+            return mine;
+        }
         bool first = First;
         First = false;
         return first;
@@ -325,6 +351,91 @@ private:
         Note(app, "The right stick moves a touch cursor over the bottom screen; the right trigger taps it. The mouse touches too.");
     }
 
+    void SetRomFolders(App& app, const std::vector<std::string>& folders)
+    {
+        picojson::array list;
+        for (const std::string& f : folders)
+            list.emplace_back(f);
+        Change(app, "rom_search_dirs", picojson::value(list));
+    }
+
+    // the ROM folders (rom_search_dirs, the app's key), each one changed with A or removed with X, then adding one and a rescan
+    void DrawLibrary(App& app)
+    {
+        Host& host = app.GetHost();
+        Frontend::Settings& s = Store(app);
+        std::vector<std::string> folders = s.GetStringList("rom_search_dirs");
+        SectionLabel(app, "ROM folders");
+        for (size_t i = 0; i < folders.size(); i++)
+        {
+            std::string key = "rom_folder:" + std::to_string(i);
+            std::string name = Frontend::PathToUtf8(Frontend::PathFromUtf8(folders[i]).filename());
+            if (name.empty())
+                name = folders[i];
+            std::string id = "##" + key;
+            if (DetailRow(app, id.c_str(), Icon::Folder, name.c_str(), folders[i].c_str(), TakeFirst(key.c_str())))
+            {
+                if (host.Hidden || !host.PickFolder)
+                    app.Toast("The folder picker doesn't open in a hidden run");
+                else if (std::optional<std::string> picked = host.PickFolder(folders[i]))
+                {
+                    bool known = false;
+                    for (size_t j = 0; j < folders.size(); j++)
+                        known = known || (j != i && Frontend::Library::SameFolder(folders[j], *picked));
+                    if (known)
+                        app.Toast("That folder is in the library already");
+                    else
+                    {
+                        folders[i] = *picked;
+                        SetRomFolders(app, folders);
+                    }
+                }
+            }
+            if (ImGui::IsItemFocused())
+                FocusedKey = key;
+        }
+        if (MenuRow(app, "##addfolder", Icon::CreateNewFolder, "Add a ROM folder", nullptr, TakeFirst("addfolder")))
+        {
+            if (host.Hidden || !host.PickFolder)
+                app.Toast("The folder picker doesn't open in a hidden run");
+            else if (std::optional<std::string> picked = host.PickFolder(folders.empty() ? "" : folders.back()))
+            {
+                bool known = std::any_of(folders.begin(), folders.end(), [&](const std::string& f) { return Frontend::Library::SameFolder(f, *picked); });
+                if (known)
+                    app.Toast("That folder is in the library already");
+                else
+                {
+                    folders.push_back(*picked);
+                    SetRomFolders(app, folders);
+                }
+            }
+        }
+        Track("addfolder");
+        SectionLabel(app, "Library");
+        std::string status;
+        if (host.Library)
+        {
+            Frontend::Library::Progress progress = host.Library->GetProgress();
+            size_t games = host.Library->Entries()->size();
+            if (progress.Scanning)
+                status = progress.Found ? "Scanning " + std::to_string(progress.Done) + " of " + std::to_string(progress.Found) : std::string("Scanning");
+            else
+                status = std::to_string(games) + (games == 1 ? " game" : " games");
+        }
+        if (MenuRow(app, "##rescan", Icon::Refresh, "Rescan the library", status.c_str(), TakeFirst("rescan")) && host.Library)
+        {
+            host.Library->Rescan();
+            app.Toast("Scanning the ROM folders again");
+        }
+        Track("rescan");
+        Note(app, "The library looks in these folders and their subfolders for .nds and .dsi files, and for .zip and .7z archives with "
+                  "one in them. A rescan reads only new and changed files. Files that are online-only (OneDrive) are listed without "
+                  "being downloaded.");
+        if (s.IsOverridden("rom_search_dirs"))
+            Note(app, "--rom-folder set these folders for this run: changes here last until it ends.");
+    }
+
+    std::string FocusRow;
     int TabIndex = 0;
     bool ResetScroll = true;
     bool First = true;

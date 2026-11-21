@@ -56,9 +56,10 @@ public:
     void Pop();
     // every screen closed: back to the game
     void CloseAll();
-    // the start screen alone (no game)
-    void ShowStart();
-    // --open: "pause", "pause/save", "pause/load", "settings", "start", "keyboard"; false for a name it doesn't know
+    // the library alone (no game), the home screen; [openDetails] as MakeLibraryScreen's
+    void ShowStart(bool openDetails = false);
+    // --open: "library" (or "start"), "library/details", "pause", "pause/save", "pause/load", "settings", "settings/library", "keyboard";
+    // false for a name it doesn't know
     bool OpenPath(const std::string& path);
     void OpenPause();
 
@@ -91,6 +92,9 @@ public:
 
     // a slot thumbnail's texture (the file read and uploaded once per [stamp]); 0 when it can't be read
     GLuint Thumbnail(const std::filesystem::path& file, long long stamp, int& width, int& height);
+    // a game's 32 x 32 RGBA banner icon as a texture (nearest filtering, for the pixels), made the first time it's drawn and kept for
+    // [key] (the ROM's id) until its data changes (the cache holds the data, so a new icon can never look like the old one)
+    GLuint IconTexture(long long key, const std::shared_ptr<const std::vector<unsigned char>>& rgba);
 
 private:
     void ApplyScale(int w, int h);
@@ -144,8 +148,12 @@ private:
 
     struct Texture { GLuint Id = 0; long long Stamp = 0; int W = 0, H = 0; };
     std::map<std::filesystem::path, Texture> Textures;
+    struct IconTex { GLuint Id = 0; std::shared_ptr<const std::vector<unsigned char>> Data; };
+    std::map<long long, IconTex> IconTextures;
 
     std::vector<unsigned char> FontData[3];
+    // the system's CJK fonts merged into Regular and Medium (file mappings)
+    std::vector<std::pair<void*, const void*>> MappedFonts;
 };
 
 // "\xee\x80\xb7" for an icon's codepoint, to draw with App::Icons

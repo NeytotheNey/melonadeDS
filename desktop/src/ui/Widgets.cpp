@@ -85,8 +85,11 @@ std::string Ellipsize(App& app, ImFont* font, float size, const std::string& tex
     std::string cut = text;
     while (!cut.empty())
     {
-        // drop a whole UTF-8 character
-        do cut.pop_back(); while (!cut.empty() && ((unsigned char)cut.back() & 0xC0) == 0x80);
+        // drop a whole UTF-8 character: its continuation bytes, then its first one
+        while (!cut.empty() && ((unsigned char)cut.back() & 0xC0) == 0x80)
+            cut.pop_back();
+        if (!cut.empty())
+            cut.pop_back();
         if (TextSize(app, font, size, (cut + "\xe2\x80\xa6").c_str()).x <= width)
             break;
     }
@@ -99,6 +102,50 @@ void IconAt(App& app, ImWchar icon, float size, ImVec2 center, ImU32 color)
     ImVec2 extent = TextSize(app, app.Icons, size, text);
     ImGui::GetWindowDrawList()->AddText(app.Icons, app.Px(size), ImVec2(IM_ROUND(center.x - extent.x / 2), IM_ROUND(center.y - extent.y / 2)),
         color, text);
+}
+
+ImVec2 ItalicTextAt(App& app, ImFont* font, float size, ImVec2 pos, ImU32 color, const char* text)
+{
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    int first = draw->VtxBuffer.Size;
+    ImVec2 at(IM_ROUND(pos.x), IM_ROUND(pos.y));
+    draw->AddText(font, app.Px(size), at, color, text);
+    // about 12 degrees, around the baseline
+    float baseline = at.y + app.Px(size) * 0.8f;
+    for (int i = first; i < draw->VtxBuffer.Size; i++)
+        draw->VtxBuffer[i].pos.x += (baseline - draw->VtxBuffer[i].pos.y) * 0.21f;
+    return TextSize(app, font, size, text);
+}
+
+std::vector<std::string> WrapLines(App& app, ImFont* font, float size, const std::string& text, float width, int lines)
+{
+    std::vector<std::string> out;
+    const char* p = text.c_str();
+    const char* end = p + text.size();
+    while (p < end && (int)out.size() < lines)
+    {
+        while (p < end && *p == ' ')
+            p++;
+        if (p >= end)
+            break;
+        if ((int)out.size() == lines - 1)
+        {
+            out.push_back(Ellipsize(app, font, size, std::string(p, end), width));
+            break;
+        }
+        const char* cut = font->CalcWordWrapPosition(app.Px(size), p, end, width);
+        if (cut <= p)
+            cut = p + 1;
+        // (a UTF-8 character whole)
+        while (cut < end && ((unsigned char)*cut & 0xC0) == 0x80)
+            cut++;
+        std::string line(p, cut);
+        while (!line.empty() && line.back() == ' ')
+            line.pop_back();
+        out.push_back(line);
+        p = cut;
+    }
+    return out;
 }
 
 void FocusRing(App& app, ImDrawList* draw, ImVec2 min, ImVec2 max, float rounding)

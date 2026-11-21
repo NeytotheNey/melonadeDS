@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include <vector>
 
 #include "picojson/picojson.h"
 
@@ -38,6 +39,8 @@ public:
     std::string GetString(const std::string& key, const std::string& fallback) const;
     bool GetBool(const std::string& key, bool fallback) const;
     int GetInt(const std::string& key, int fallback) const;
+    // a list of strings (rom_search_dirs); empty when the key is missing or isn't an array
+    std::vector<std::string> GetStringList(const std::string& key) const;
 
     // a change made while running (a hotkey, later the menus): stored and saved, unless the command line overrides the key, in which case
     // only the override changes, so the setting the command line gave stays the run's and isn't written. [save] false leaves the write

@@ -1,5 +1,5 @@
 // melonadeDS for PC: runs a ROM with the same core and OpenGL/Compute renderers as the Android app, in an SDL2 window with a GLES 3.2
-// context, with the menus (ui/) drawn over it. Started without a ROM it opens the start screen. See desktop/README.md
+// context, with the menus (ui/) drawn over it. Started without a ROM it opens the game library. See desktop/README.md
 #include <SDL.h>
 #include <windows.h>
 #include <objbase.h>
@@ -53,7 +53,9 @@
 #include "FileDialog.h"
 #include "Frontend.h"
 #include "Input.h"
+#include "Library.h"
 #include "Presenter.h"
+#include "RomFile.h"
 #include "RunOptions.h"
 #include "SaveSlots.h"
 #include "ScreenWindows.h"
@@ -181,16 +183,17 @@ struct Options
     std::string OpenScreen;    // --open: a menu screen opened at the start
     std::string UiScriptPath;  // --ui-script
     std::string StateDir;      // --state-dir: the savestate slots' folder instead of the ROM's
+    std::vector<std::string> RomFolders; // --rom-folder: the library's folders for this run (rom_search_dirs)
 };
 
 void Usage()
 {
     printf(
         "melonadeDS for PC " MELONADE_VERSION_NAME "\n"
-        "usage: melonade-desktop [options] [game.nds]\n"
+        "usage: melonade-desktop [options] [game.nds|.dsi|.zip|.7z]\n"
         "\n"
-        "  Without a ROM the start screen opens (Open ROM, recent games). With one the game boots, and Esc or a\n"
-        "  controller's Start or Guide opens the pause menu. The options below are for testing and scripted runs.\n"
+        "  Without a ROM the game library opens. With one the game boots (a zip or 7z unpacked first), and Esc or\n"
+        "  a controller's Start or Guide opens the pause menu. The options below are for testing and scripted runs.\n"
         "\n"
         "  --renderer soft|gl|compute  3D renderer (default compute)\n"
         "  --scale N                   internal resolution for gl/compute, 1-16 (default 4)\n"
@@ -244,8 +247,8 @@ void Usage()
         "                              portable.txt there); a scripted run (--hidden or --frames) without it\n"
         "                              gets a fresh temporary one, so it never reads or writes your settings\n"
         "  --setting KEY=VALUE         a setting for this run only, e.g. desktop_fit_bottom=integer (README lists them)\n"
-        "  (the options that change a setting, --renderer, --scale, --linear, --vsync, --no-audio, --layout and\n"
-        "  --detach, are for the run only too: none of them is written to settings.json)\n"
+        "  (the options that change a setting, --renderer, --scale, --linear, --vsync, --no-audio, --layout,\n"
+        "  --detach and --rom-folder, are for the run only too: none of them is written to settings.json)\n"
         "\n"
         "  --layout vertical|horizontal|top|bottom   the screens together in one window (with --detach: the\n"
         "                              layout for when they're together again)\n"
@@ -273,15 +276,19 @@ void Usage()
         "  --cache-dir DIR             Compute program cache directory\n"
         "  --verbose                   debug log lines on the console too\n"
         "\n"
-        "  --open SCREEN               open a menu screen at the start: start, pause, pause/save, pause/load,\n"
-        "                              settings, settings/video (display, emulation, audio, controls), input,\n"
-        "                              keyboard (a text field and the on-screen keyboard); with a\n"
+        "  --open SCREEN               open a menu screen at the start: library (or start), library/details (the\n"
+        "                              first game's, once the scan is done), pause, pause/save, pause/load,\n"
+        "                              settings, settings/video (display, emulation, audio, controls, library),\n"
+        "                              input, keyboard (a text field and the on-screen keyboard); with a\n"
         "                              game, once its first frame is shown\n"
+        "  --rom-folder DIR            a folder for the game library (repeat it for more), for this run only:\n"
+        "                              in place of the saved ones (rom_search_dirs), never written\n"
         "  --ui-script FILE            drive the menus from FILE, one step a line: up, down, left, right, confirm,\n"
         "                              back, tab-next, tab-prev, menu, text STRING, key NAME, pad NAME, wait N,\n"
-        "                              frame N (the game held at its frame N), shot FILE.bmp, screenshot FILE.bmp,\n"
-        "                              quit. It starts on the start screen or once the game's first frame is\n"
-        "                              shown, and the run ends after its last line (README: UI scripts)\n"
+        "                              wait-scan (until the library's scan is done), frame N (the game held at its\n"
+        "                              frame N), shot FILE.bmp, screenshot FILE.bmp, quit. It starts on the library\n"
+        "                              or once the game's first frame is shown, and the run ends after its last line\n"
+        "                              (README: UI scripts)\n"
         "\n"
         "  --virtual-pad xbox|switch|ps|generic  an SDL virtual controller (generic: one with no mapping), for --ui-script's\n"
         "                              pad and axis steps\n"
@@ -462,6 +469,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--open") opts.OpenScreen = next();
         else if (arg == "--ui-script") opts.UiScriptPath = next();
         else if (arg == "--state-dir") opts.StateDir = next();
+        else if (arg == "--rom-folder") opts.RomFolders.push_back(next());
         else if (arg == "-h" || arg == "--help") { Usage(); exit(0); }
         else if (arg[0] == '-') { fprintf(stderr, "unknown option %s\n", arg.c_str()); return false; }
         else opts.RomPath = arg;
@@ -469,6 +477,14 @@ bool ParseArgs(int argc, char** argv, Options& opts)
     // a --layout is the screens together, unless --detach asks for them detached
     if (layoutGiven && !detachGiven)
         opts.SettingOverrides.emplace_back("desktop_screens", picojson::value(std::string("together")));
+    // the library's folders for the run, in place of the saved ones
+    if (!opts.RomFolders.empty())
+    {
+        picojson::array folders;
+        for (const std::string& folder : opts.RomFolders)
+            folders.emplace_back(Frontend::Library::NormalizePath(folder));
+        opts.SettingOverrides.emplace_back("rom_search_dirs", picojson::value(folders));
+    }
     return true;
 }
 
@@ -1149,6 +1165,12 @@ int main(int argc, char** argv)
     // phone), so --set OutputCapDeband stands in for the app's deband through it
     MelonDSAndroid::setOutputDeband(SetValue(opts.Sets, "OutputCapDeband", 0) != 0);
 
+    // the game library (library.db in the profile), its scan on a worker thread once the library is first shown
+    Frontend::Library library;
+    library.PostToUi = [&](std::function<void()> task) { messenger->Post(std::move(task)); };
+    library.SetFolders(settings.GetStringList("rom_search_dirs"), settings.IsOverridden("rom_search_dirs"));
+    library.Open(profileDir, Frontend::BannerLanguage());
+
     // the sound, through the SDL audio callback (Audio.h)
     Frontend::AudioOutput audio;
     auto audioConfig = [&]
@@ -1478,9 +1500,21 @@ int main(int argc, char** argv)
         GetProcessHandleCount(GetCurrentProcess(), &handles);
         printf("game stopped (%lu handles)\n", (unsigned long)handles);
     };
-    auto bootGame = [&](const std::string& path, bool commandLine) -> bool
+    // [romFile]: the file to load, when it isn't [path] itself (a zip or 7z's ROM, unpacked); [path] names the game (its save, slots,
+    // last-played time). A zip or 7z given without one is unpacked here
+    auto bootGame = [&](const std::string& path, bool commandLine, std::string romFile = "") -> bool
     {
         stopGame();
+        if (romFile.empty())
+        {
+            std::string error;
+            romFile = library.PrepareNow(path, error);
+            if (romFile.empty())
+            {
+                fprintf(stderr, "can't open %s: %s\n", path.c_str(), error.c_str());
+                return false;
+            }
+        }
         // the settings as they are now (the menus may have changed them), with the command line's on top
         ApplySettings(opts, settings);
         renderer = opts.Renderer;
@@ -1545,7 +1579,7 @@ int main(int argc, char** argv)
 
         // the save: --sav for the command line's game only; otherwise the one next to the ROM, or in a test run (a temporary profile) a
         // copy of it in the profile, so a test never writes a real save
-        std::string savePath = fs::path(path).replace_extension(".sav").string();
+        std::string savePath = Frontend::PathToUtf8(Frontend::PathFromUtf8(path).replace_extension(".sav"));
         if (commandLine && !opts.SavePath.empty())
             savePath = opts.SavePath;
         else if (temporaryProfile)
@@ -1560,10 +1594,10 @@ int main(int argc, char** argv)
         std::vector<u8> sav;
         if (ReadFile(savePath, sav) && !sav.empty())
             printf("save: %s\n", savePath.c_str());
-        if (!EnsureSaveFile(savePath) || !instance->loadRom(path, savePath))
+        if (!EnsureSaveFile(savePath) || !instance->loadRom(romFile, savePath))
         {
             fprintf(stderr, "can't load ROM %s with the save %s (not a DS ROM the core can parse, or a file it can't read or write)\n",
-                path.c_str(), savePath.c_str());
+                romFile.c_str(), savePath.c_str());
             return false;
         }
         // the Rumble Pak in the GBA slot (desktop_rumble_pak, or --gba rumble), for the games that rumble
@@ -1608,7 +1642,11 @@ int main(int argc, char** argv)
             refreshTouchRect();
         }
         AddRecentRom(settings, path);
-        printf("game: %s\n", path.c_str());
+        library.MarkPlayed(path);
+        if (romFile != path)
+            printf("game: %s (unpacked to %s)\n", path.c_str(), romFile.c_str());
+        else
+            printf("game: %s\n", path.c_str());
         MelonDSAndroid::MelonInstance* started = instance.get();
         emuThread.SetFastForwardSpeed(opts.FastForwardSpeed);
         emuThread.Start(emuWindow, emuContext, std::move(instance), callbacks);
@@ -1661,6 +1699,7 @@ int main(int argc, char** argv)
     messenger->OnRumble = [&](int durationMs) { input.Rumble(durationMs); };
     messenger->OnRumbleStop = [&] { input.StopRumble(); };
     host.Settings = &settings;
+    host.Library = &library;
     host.Hidden = opts.Hidden;
     host.GameRunning = [&] { return emu != nullptr; };
     host.GameTitle = [&] { return Frontend::PathToUtf8(Frontend::PathFromUtf8(romPath).stem()); };
@@ -1745,20 +1784,38 @@ int main(int argc, char** argv)
         });
     };
     host.Quit = [&] { running = false; };
-    host.BootRom = [&](const std::string& path)
+    // a game from the menus: [file] is the ROM to load (a zip or 7z's, unpacked), or empty with [error] when it couldn't be
+    // a game from the menus that's being unpacked: no other one starts meanwhile
+    bool menuBooting = false;
+    auto bootFromMenus = [&](const std::string& path, const std::string& file, const std::string& error)
     {
-        messenger->Post([&, path]
+        menuBooting = false;
+        if (!file.empty() && bootGame(path, false, file))
+            ui.CloseAll();
+        else
         {
-            if (bootGame(path, false))
-                ui.CloseAll();
-            else
-            {
-                // back to the start screen (the game that ran before is stopped)
-                if (!emu && ui.TopId() != "start")
-                    ui.ShowStart();
-                ui.Toast("Couldn't open " + Frontend::PathToUtf8(Frontend::PathFromUtf8(path).filename()));
-            }
-        });
+            if (!error.empty())
+                fprintf(stderr, "can't open %s: %s\n", path.c_str(), error.c_str());
+            // back to the library (the game that ran before is stopped)
+            if (!emu && ui.TopId() != "library")
+                ui.ShowStart();
+            ui.Toast("Couldn't open " + Frontend::PathToUtf8(Frontend::PathFromUtf8(path).filename()));
+        }
+    };
+    host.BootRom = [&](const std::string& path) -> bool
+    {
+        if (menuBooting)
+        {
+            ui.Toast("Another game is starting");
+            return false;
+        }
+        menuBooting = true;
+        // a zip or 7z unpacked on the library's worker first, so the menus keep drawing
+        if (Frontend::IsArchiveName(Frontend::PathFromUtf8(path)))
+            library.Prepare(path, [&, path](const std::string& file, const std::string& error) { bootFromMenus(path, file, error); });
+        else
+            messenger->Post([&, path] { bootFromMenus(path, path, ""); });
+        return true;
     };
     host.OpenRom = [&]
     {
@@ -1775,7 +1832,6 @@ int main(int argc, char** argv)
                 host.BootRom(*path);
         });
     };
-    host.RecentRoms = [&] { return RecentRoms(settings); };
     host.IsDetached = [&] { return windows.IsDetached(); };
     host.SetDetached = [&](bool detached)
     {
@@ -1844,6 +1900,12 @@ int main(int argc, char** argv)
             return true;
         }
         settings.Set(key, value);
+        if (key == "rom_search_dirs")
+        {
+            library.SetFolders(settings.GetStringList(key), settings.IsOverridden(key));
+            library.Rescan();
+            return true;
+        }
         if (key == "video_renderer")
         {
             std::string r = text();
@@ -1919,16 +1981,17 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    // the command line's ROM, unless --open start asks for the start screen
-    if (!opts.RomPath.empty() && opts.OpenScreen != "start")
+    // the command line's ROM, unless --open asks for the library
+    bool openLibrary = opts.OpenScreen == "start" || opts.OpenScreen == "library" || opts.OpenScreen == "library/details";
+    if (!opts.RomPath.empty() && !openLibrary)
     {
         if (!bootGame(opts.RomPath, true))
             return 1;
     }
     else
-        ui.ShowStart();
+        ui.ShowStart(opts.OpenScreen == "library/details");
     // --open: with a game once its first frame is shown, like the script
-    std::string pendingOpen = opts.OpenScreen == "start" ? "" : opts.OpenScreen;
+    std::string pendingOpen = openLibrary ? "" : opts.OpenScreen;
 
     // --ui-script's state
     size_t scriptPos = 0;
@@ -1937,6 +2000,7 @@ int main(int argc, char** argv)
     // a sleep step's end (real time)
     std::chrono::steady_clock::time_point scriptSleepUntil {};
     bool scriptWaitFrame = false;
+    bool scriptWaitScan = false;
     u32 scriptFrame = 0;
     std::function<void()> scriptRelease;
 
@@ -2113,7 +2177,7 @@ int main(int argc, char** argv)
     {
         if (script.empty() || scriptEnded)
             return;
-        // on the start screen right away, with a game once its first frame is shown
+        // on the library right away, with a game once its first frame is shown
         if (!scriptStarted)
         {
             if (emu && presentedThisGame == 0)
@@ -2135,6 +2199,15 @@ int main(int argc, char** argv)
             std::function<void()> release = std::move(scriptRelease);
             scriptRelease = nullptr;
             release();
+            scriptDelay = 1;
+            return;
+        }
+        if (scriptWaitScan)
+        {
+            if (library.Busy())
+                return;
+            scriptWaitScan = false;
+            printf("script: the library's scan is done (%zu games)\n", library.Entries()->size());
             scriptDelay = 1;
             return;
         }
@@ -2314,6 +2387,9 @@ int main(int argc, char** argv)
             break;
         case Kind::Screenshot:
             screenshot(step.Arg);
+            break;
+        case Kind::WaitScan:
+            scriptWaitScan = true;
             break;
         case Kind::Quit:
             scriptEnded = true;
@@ -2577,6 +2653,8 @@ int main(int argc, char** argv)
     emuThread.Stop();
     emu = nullptr;
     ui.Shutdown();
+    // its worker done (a scan stops between two files)
+    library.Close();
     MelonDSAndroid::frontendContext.eventMessenger = nullptr;
     presenter.Free();
     audio.Close();

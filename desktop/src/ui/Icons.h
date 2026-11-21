@@ -74,5 +74,22 @@ constexpr ImWchar Joystick = 0xf5ee;      // joystick
 constexpr ImWchar Computer = 0xe31e;      // computer
 constexpr ImWchar Timer = 0xe425;         // timer
 constexpr ImWchar Mouse = 0xe323;         // mouse
+constexpr ImWchar Search = 0xe8b6;        // search
+constexpr ImWchar Sort = 0xe164;          // sort
+constexpr ImWchar FilterList = 0xe152;    // filter_list
+constexpr ImWchar ViewList = 0xe8ef;      // view_list
+constexpr ImWchar GridView = 0xe9b0;      // grid_view
+constexpr ImWchar MoreVert = 0xe5d4;      // more_vert
+constexpr ImWchar CreateNewFolder = 0xe2cc; // create_new_folder
+constexpr ImWchar Refresh = 0xe5d5;       // refresh
+constexpr ImWchar Schedule = 0xe8b5;      // schedule
+constexpr ImWchar Public = 0xe80b;        // public
+constexpr ImWchar Tag = 0xe9ef;           // tag
+constexpr ImWchar Description = 0xe873;   // description
+constexpr ImWchar Cloud = 0xe2bd;         // cloud
+constexpr ImWchar FolderZip = 0xeb2c;     // folder_zip
+constexpr ImWchar HardDrive = 0xf80e;     // hard_drive
+constexpr ImWchar Trophy = 0xea23;        // trophy
+constexpr ImWchar Person = 0xe7fd;        // person
 
 }

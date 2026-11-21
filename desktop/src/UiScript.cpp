@@ -91,6 +91,7 @@ bool LoadUiScript(const std::string& path, std::vector<UiStep>& steps)
         }
         else if (word == "shot" && !rest.empty()) { step.Type = UiStep::Kind::Shot; step.Arg = rest; }
         else if (word == "screenshot" && !rest.empty()) { step.Type = UiStep::Kind::Screenshot; step.Arg = rest; }
+        else if (word == "wait-scan") step.Type = UiStep::Kind::WaitScan;
         else if (word == "quit") step.Type = UiStep::Kind::Quit;
         else
             known = false;

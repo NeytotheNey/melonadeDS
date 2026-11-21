@@ -47,6 +47,41 @@ ImFont* AddFont(std::vector<unsigned char>& data, const char* name)
     return ImGui::GetIO().Fonts->AddFontFromMemoryTTF(data.data(), (int)data.size(), 18.0f, &config);
 }
 
+// Windows' own fonts for what Roboto lacks: Japanese (Yu Gothic, or MS Gothic on an older Windows), Korean (Malgun Gothic) and Chinese
+// (Microsoft YaHei), for game titles from their banners. Merged into the font added last, and only drawn from when a glyph is needed
+// (ImGui loads glyphs as they're used); the files are mapped, not read, so only the pages used are loaded. Not shipped, so not in
+// third_party: a Windows without them shows those titles as boxes, as before
+void AddFallbacks(const std::vector<const wchar_t*>& files, std::vector<std::pair<HANDLE, const void*>>& mapped)
+{
+    wchar_t windows[MAX_PATH];
+    if (!GetWindowsDirectoryW(windows, MAX_PATH))
+        return;
+    for (const wchar_t* file : files)
+    {
+        std::wstring path = std::wstring(windows) + L"\\Fonts\\" + file;
+        HANDLE handle = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (handle == INVALID_HANDLE_VALUE)
+            continue;
+        LARGE_INTEGER size {};
+        GetFileSizeEx(handle, &size);
+        HANDLE mapping = CreateFileMappingW(handle, nullptr, PAGE_READONLY, 0, 0, nullptr);
+        CloseHandle(handle);
+        const void* view = mapping ? MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0) : nullptr;
+        if (!view)
+        {
+            if (mapping)
+                CloseHandle(mapping);
+            continue;
+        }
+        mapped.emplace_back(mapping, view);
+        ImFontConfig config;
+        config.FontDataOwnedByAtlas = false;
+        config.MergeMode = true;
+        snprintf(config.Name, sizeof(config.Name), "%ls", file);
+        ImGui::GetIO().Fonts->AddFontFromMemoryTTF(const_cast<void*>(view), (int)size.QuadPart, 18.0f, &config);
+    }
+}
+
 size_t Utf8Length(const std::string& text)
 {
     size_t count = 0;
@@ -103,7 +138,9 @@ bool App::Init(SDL_Window* window, SDL_GLContext context, Host& host, bool hidde
         return false;
     }
     Regular = AddFont(FontData[0], "Roboto Regular");
+    AddFallbacks({L"YuGothR.ttc", L"msgothic.ttc", L"malgun.ttf", L"msyh.ttc"}, MappedFonts);
     Medium = AddFont(FontData[1], "Roboto Medium");
+    AddFallbacks({L"YuGothM.ttc", L"msgothic.ttc", L"malgun.ttf", L"msyh.ttc"}, MappedFonts);
     Icons = AddFont(FontData[2], "Material Symbols Outlined");
     if (!Regular || !Medium || !Icons)
         return false;
@@ -120,11 +157,20 @@ void App::Shutdown()
     for (auto& [path, texture] : Textures)
         glDeleteTextures(1, &texture.Id);
     Textures.clear();
+    for (auto& [key, texture] : IconTextures)
+        glDeleteTextures(1, &texture.Id);
+    IconTextures.clear();
     Stack.clear();
     Closed.clear();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
+    for (auto& [mapping, view] : MappedFonts)
+    {
+        UnmapViewOfFile(view);
+        CloseHandle(mapping);
+    }
+    MappedFonts.clear();
     Initialized = false;
 }
 
@@ -258,8 +304,9 @@ void App::TrackFocus(bool isDefault)
             GImGui->NavCursorVisible = true;
         }
     }
-    // (not a disabled item: one under a question keeps the focus it had, and would take it back from the question)
-    if (!disabled && ImGui::IsItemFocused())
+    // (not a disabled item: one under a question keeps the focus it had, and would take it back from the question; nor while a focus is
+    // wanted, whose target an item drawn before it would take the place of)
+    if (!disabled && ImGui::IsItemFocused() && !s->WantFocus)
         s->FocusId = id;
 }
 
@@ -346,7 +393,7 @@ void App::ResetMouse()
     io.ClearInputMouse();
 }
 
-void App::ShowStart()
+void App::ShowStart(bool openDetails)
 {
     while (!Stack.empty())
     {
@@ -354,7 +401,7 @@ void App::ShowStart()
         Stack.pop_back();
     }
     KeyboardTarget = nullptr;
-    Push(MakeStartScreen());
+    Push(MakeLibraryScreen(openDetails));
 }
 
 void App::OpenPause()
@@ -365,8 +412,13 @@ void App::OpenPause()
 bool App::OpenPath(const std::string& path)
 {
     bool game = HostPtr->GameRunning && HostPtr->GameRunning();
-    if (path == "start")
-        ShowStart();
+    if (path == "start" || path == "library" || path == "library/details")
+    {
+        // the home screen, which a running game would have to stop for
+        if (game)
+            return false;
+        ShowStart(path == "library/details");
+    }
     else if (path == "pause" || path == "pause/save" || path == "pause/load")
     {
         if (!game)
@@ -379,7 +431,7 @@ bool App::OpenPath(const std::string& path)
     else if (path == "settings" || path.rfind("settings/", 0) == 0 || path == "input")
     {
         std::string tab = path.size() > 9 && path != "input" ? path.substr(9) : "";
-        if (tab != "" && tab != "video" && tab != "display" && tab != "emulation" && tab != "audio" && tab != "controls")
+        if (tab != "" && tab != "video" && tab != "display" && tab != "emulation" && tab != "audio" && tab != "controls" && tab != "library")
             return false;
         if (game && Stack.empty())
             OpenPause();
@@ -718,7 +770,11 @@ void App::KeyboardBackspace()
     if (!KeyboardTarget || KeyboardTarget->empty())
         return;
     std::string& text = *KeyboardTarget;
-    do text.pop_back(); while (!text.empty() && ((unsigned char)text.back() & 0xC0) == 0x80);
+    // a whole UTF-8 character: its continuation bytes, then its first one
+    while (!text.empty() && ((unsigned char)text.back() & 0xC0) == 0x80)
+        text.pop_back();
+    if (!text.empty())
+        text.pop_back();
 }
 
 void App::DrawKeyboard()
@@ -836,6 +892,31 @@ void App::DrawKeyboard()
     ImGui::End();
     if (done)
         KeyboardTarget = nullptr;
+}
+
+GLuint App::IconTexture(long long key, const std::shared_ptr<const std::vector<unsigned char>>& icon)
+{
+    if (!icon || icon->size() != 32 * 32 * 4)
+        return 0;
+    const std::vector<unsigned char>& rgba = *icon;
+    IconTex& texture = IconTextures[key];
+    if (texture.Id && texture.Data == icon)
+        return texture.Id;
+    if (!texture.Id)
+        glGenTextures(1, &texture.Id);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture.Id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 32, 32, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+    glBindTexture(GL_TEXTURE_2D, 0);
+    texture.Data = icon;
+    return texture.Id;
 }
 
 GLuint App::Thumbnail(const std::filesystem::path& file, long long stamp, int& width, int& height)

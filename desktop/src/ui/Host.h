@@ -10,7 +10,7 @@
 #include "picojson/picojson.h"
 #include "SaveSlots.h"
 
-namespace Frontend { class Settings; class Input; }
+namespace Frontend { class Settings; class Input; class Library; }
 
 namespace Ui
 {
@@ -20,6 +20,8 @@ struct Host
     Frontend::Settings* Settings = nullptr;
     // the input mapping: the menus' controller buttons by each pad's face layout, and the bindings the setup screen changes
     Frontend::Input* Input = nullptr;
+    // the game library: its list, its scan and its folders (rom_search_dirs, changed through ChangeSetting)
+    Frontend::Library* Library = nullptr;
     // a hidden (scripted) run: no file dialog
     bool Hidden = false;
 
@@ -37,12 +39,13 @@ struct Host
     // the slot's state and screenshot deleted (to the recycle bin)
     std::function<bool(int slot)> DeleteSlot;
 
-    // queued: the game stopped and the start screen shown / the app closed / the file dialog, then the ROM booted / a ROM booted
+    // queued: the game stopped and the library shown / the app closed / the file dialog, then the ROM booted / a ROM booted (a zip or 7z
+    // unpacked first, on the library's worker; the library's Progress says so meanwhile), and its last-played time set. BootRom is
+    // false, with a toast, while another game is still starting (being unpacked)
     std::function<void()> QuitToStart;
     std::function<void()> Quit;
     std::function<void()> OpenRom;
-    std::function<void(const std::string& path)> BootRom;
-    std::function<std::vector<std::string>()> RecentRoms;
+    std::function<bool(const std::string& path)> BootRom;
 
     std::function<bool()> IsDetached;
     std::function<void(bool)> SetDetached;
