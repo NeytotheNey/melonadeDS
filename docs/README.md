@@ -16,6 +16,7 @@ Notes for working on melonadeDS. The user-facing overview is the [README](../REA
 - [plan-expand-parity.md](plan-expand-parity.md): everything PokeDaisy's EXPAND does that WideMelon doesn't yet (game-aware auto zoom, field and battle 2D in the margins), in phases. Phase 1 (game-aware auto zoom) built and phone-checked on `feature/expand-parity-phase1`, not pushed. Next: the camera's render-width cost.
 - [plan-widemelon-polylist.md](plan-widemelon-polylist.md): the bigger polygon list (WidePolys, on since 11-14), as built.
 - [plan-precise-depth.md](plan-precise-depth.md): the White 2 Castelia pier depth fights, what was ruled out, and the Precise depth setting (11-18).
+- [plan-desktop-app.md](plan-desktop-app.md): melonadeDS as a Windows app, in phases. Phases 0 to 2 merged (shared native layer, app shell, game library with art sync); phase 3 (presentation parity) is next. How to build and run it: [desktop/README.md](../desktop/README.md).
 - [plan-pc-mod-runner.md](plan-pc-mod-runner.md): running per-game Lua mods on the PC.
 - [plan-launcher.md](plan-launcher.md): the game library and RetroAchievements views. Built; picking a match by hand is open.
 - [plan-shield.md](plan-shield.md): the NVIDIA Shield TV (Tegra X1+, ARMv8.0), the slowest CPU we've tested. First runs done; the armv8.2 rollback is still open.
@@ -23,9 +24,10 @@ Notes for working on melonadeDS. The user-facing overview is the [README](../REA
 - [hires-capture.md](hires-capture.md): upscaled display capture. Phase 1 done, Phase 2 (bitmap BGs) open.
 - [pokemon-battle-ram.md](pokemon-battle-ram.md): Pokemon battle RAM layout for the battle info mod.
 - [blackmagic3.md](blackmagic3.md): what we borrowed from upstream's blackmagic3 instead of porting it. Done.
-- [polish.md](polish.md): the finished cleanup pass over `material3`: rules still in force, leftovers and two device-free check recipes.
+- [polish.md](polish.md): the finished cleanup pass over `material3`: leftovers and two device-free check recipes (its rules moved to coding-standards.md).
 - [test-engine-b-nohold.md](test-engine-b-nohold.md): the engine B no-hold test. Done and passed; on in release since 11-16. Kept for its rerun recipe.
 - [debug-switches.md](debug-switches.md): what the `debug.melonade.*` switches do and how to set them without adb.
+- [coding-standards.md](coding-standards.md): the rules coding and review agents work to, and how reviewers weigh a rule break.
 - [code-notes.md](code-notes.md): non-obvious facts about the code, and known issues left alone.
 - [ideas.md](ideas.md): loose feature ideas, not planned.
 - [frame-interpolation.md](frame-interpolation.md): smoothing 30 FPS games. The halfway-camera approach is merged as the "Frame interpolation (Experimental)" setting (was "Smooth 30 FPS games") on OpenGL and Compute.
