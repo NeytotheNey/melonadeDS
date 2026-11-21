@@ -1,6 +1,6 @@
 # Floor seams in the GL renderer
 
-Branch `fix/gl-floor-seams` (app and core), started 11-18.
+Merged into `material3` / core `melonade` (core PR 7, app PR 14), as is the billboard lines fix below. Still open: the phone runs in Checks, step 5.
 
 ## The bug
 

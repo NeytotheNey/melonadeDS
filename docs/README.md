@@ -6,16 +6,17 @@ Notes for working on melonadeDS. The user-facing overview is the [README](../REA
 - [plan-optimization.md](plan-optimization.md): build flags, hot spots and the JIT. Build flags on, late Blit and held 2D lines done, dispatcher stub on, linking shelved; PGO built but off by default (11-17, opt-in with `-PnativePgo=use`). Left: scheduler and DMA.
 - [plan-vulkan.md](plan-vulkan.md): a Vulkan 3D renderer. Plan only, waiting on its gate.
 - [plan-gpu-2d.md](plan-gpu-2d.md): filtered, hi-res and wide 2D, with a GPU renderer as a display-only shadow of CPU 2D. Steps 1 (counters) and 2 (filtered 2D) done; step 3 in progress.
-- [plan-gpu-2d-shadow.md](plan-gpu-2d-shadow.md): step 3, the GPU shadow 2D renderer. Increments 1 and 5 done and phone-checked; next is the OnePlus display stall in mode `all`, then windows (increment 4).
+- [plan-gpu-2d-shadow.md](plan-gpu-2d-shadow.md): step 3, the GPU shadow 2D renderer. Increments 1, 4 and 5 done and phone-checked, and the OnePlus stall in mode `all` is fixed; next is affine BGs (increment 2).
 - [plan-compute-efficiency.md](plan-compute-efficiency.md): less GPU time, memory and battery from the Compute renderer. Phase 1 (timers, frame queue trim, render pacing, program cache) built and merged; its open list and Phase 2 (shader work) remain.
 - [plan-gpu-discovery.md](plan-gpu-discovery.md): where the GPU's cycles go on OpenGL and Compute, and the experiments behind debug switches (T1, K4, E1, E2/D1, R1, T2). Merged; a short "Left open" list remains.
 - [plan-t2-texcache.md](plan-t2-texcache.md): the OpenGL texture cache (T2), as built.
 - [plan-k4-output-cap.md](plan-k4-output-cap.md): the output-resolution cap (K4), as built.
 - [plan-deband-outcap.md](plan-deband-outcap.md): cheaper Deband and the cap's part B, as built. Open: the external-display check.
 - [plan-widemelon.md](plan-widemelon.md): improving WideMelon, mainly 2D in the wings. Steps 1 to 3 and camera stages 1 and 2 merged; wide 2D waits for the GPU 2D renderer.
-- [plan-expand-parity.md](plan-expand-parity.md): everything PokeDaisy's EXPAND does that WideMelon doesn't yet (game-aware auto zoom, field and battle 2D in the margins), in phases. Phase 1 (game-aware auto zoom) built and phone-checked on `feature/expand-parity-phase1`, not pushed. Next: the camera's render-width cost.
+- [plan-expand-parity.md](plan-expand-parity.md): everything PokeDaisy's EXPAND does that WideMelon doesn't yet (game-aware auto zoom, field and battle 2D in the margins), in phases. Phases 1 (game-aware auto zoom) and 3 (Gen 4 wide battles) merged; Phase 2 is next.
 - [plan-widemelon-polylist.md](plan-widemelon-polylist.md): the bigger polygon list (WidePolys, on since 11-14), as built.
-- [plan-precise-depth.md](plan-precise-depth.md): the White 2 Castelia pier depth fights, what was ruled out, and the Precise depth setting (11-18).
+- [plan-precise-depth.md](plan-precise-depth.md): the White 2 Castelia pier depth fights, what was ruled out, and the Precise depth setting. Merged; Compute with it on is broken on Adreno and ships as Experimental.
+- [plan-gl-floor-seams.md](plan-gl-floor-seams.md): the "Fix floor seams" setting for GL's T-junction cracks. Merged; the phone runs are open.
 - [plan-desktop-app.md](plan-desktop-app.md): melonadeDS as a Windows app, in phases. Phases 0 to 2 merged (shared native layer, app shell, game library with art sync); phase 3 (presentation parity) is next. How to build and run it: [desktop/README.md](../desktop/README.md).
 - [plan-pc-mod-runner.md](plan-pc-mod-runner.md): running per-game Lua mods on the PC.
 - [plan-launcher.md](plan-launcher.md): the game library and RetroAchievements views. Built; picking a match by hand is open.
@@ -36,4 +37,4 @@ Notes for working on melonadeDS. The user-facing overview is the [README](../REA
 - [shelved/widemelon-software.md](shelved/widemelon-software.md): WideMelon on the software renderer. Shelved.
 - [shelved/d3-edgefog.md](shelved/d3-edgefog.md) and [shelved/r2-fragdepth.md](shelved/r2-fragdepth.md): two GPU discovery experiments that didn't pay, with their patches.
 
-`PERF-NOTES.md` (phone measurements) and `HANDOFF.md` (working notes) are the maintainer's local files at the repo root. They are not in git, so where these docs cite `PERF-NOTES.md` the numbers only exist on that PC.
+`PERF-NOTES.md` (phone measurements), `HANDOFF.md` (what's next) and `BUILD-NOTES.md` (build, install and devices) are the maintainer's local files at the repo root. They are not in git, so where these docs cite `PERF-NOTES.md` the numbers only exist on that PC.

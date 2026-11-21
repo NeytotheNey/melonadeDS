@@ -87,7 +87,7 @@ Field weather needs the Shadow2D recorder running in the field, which today runs
 - Replaces plan-widemelon step 7.
 - Size: about 800–1,200 lines; the largest phase.
 - Phone check: HG and Platinum battle intros and switch-ins against PokeDaisy.
-- **Built 11-19** on `feature/expand-parity-gen4-battles` (app) and `feature/gen4-wide-battles` (core), not pushed; see Status. It came before Phase 2: it needed the Repeat mode, which it built, but not the fog tile-out.
+- **Built 11-19** on `feature/expand-parity-gen4-battles` (app) and `feature/gen4-wide-battles` (core), merged into `material3` / `melonade` (app PR 18); see Status. It came before Phase 2: it needed the Repeat mode, which it built, but not the fog tile-out.
 
 **Phase 4: polish and leftovers.**
 - 4:3 blurred backdrop for menus, the ZOOM touch button, camera off on fault.
@@ -168,7 +168,7 @@ One quirk from PokeDaisy's own logic stays under the parity rule: the X menu rea
 - A wild battle pulled in over 25 frames (0.42 s) and eased back out 0.5 s after the fade, over about 0.6 s.
 - No crash.
 
-**Phase 1 is built** (branch `feature/expand-parity-phase1`, 11-17). Unit tests pass (`WideCameraTest`, `WideCameraControllerTest`, `RomModsConfigDtoTest`), the debug APK builds, and the desktop build's `--game-state` read the right scenes on White 2 (from the player's states) and SoulSilver (from its save): field, the X menu, a text box, a door's fade. How it works is in MODS.md, Camera, "Pokemon game state".
+**Phase 1 is built** (branch `feature/expand-parity-phase1`, 11-17, merged into `material3` in app PR 17). Unit tests pass (`WideCameraTest`, `WideCameraControllerTest`, `RomModsConfigDtoTest`), the debug APK builds, and the desktop build's `--game-state` read the right scenes on White 2 (from the player's states) and SoulSilver (from its save): field, the X menu, a text box, a door's fade. How it works is in MODS.md, Camera, "Pokemon game state".
 
 Left out or changed from PokeDaisy, and why:
 - **No flying.** PokeDaisy's "not while flying" comes from its own FREE FLIGHT / scenic FLY feature (`pk_flight.c`, GBA games), not from the DS field read, so there's no flying flag to return to the camera or to `melon.game.state()`.
