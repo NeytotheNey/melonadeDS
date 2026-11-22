@@ -50,6 +50,13 @@ highp vec2 sunScreen(highp vec4 clip) {
 highp float sunSurfaceTolerance(highp float dist, float pixels) {
     return 0.0125 * dist * (pixels + 1.0);
 }
+#ifdef LIGHTS
+uniform vec2 bloomLights;
+bool isLitLight(highp vec4 depthTexel, vec3 color) {
+    float flags = floor(depthTexel.a * 255.0 + 0.5);
+    return mod(floor(flags / 32.0), 2.0) == 1.0 && max(color.r, max(color.g, color.b)) >= bloomLights.x;
+}
+#endif
 // Counts the shadow texel t (clamped onto its target of dsSize texels) by bilinear times how near its depth is to dist, and
 // keeps the nearest one's shadow in closest (x the shadow, y how far apart)
 void addTap(highp vec2 t, highp vec2 p, highp vec2 dsSize, float bilinear, highp float dist, inout float sum,
@@ -82,6 +89,13 @@ void main() {
         gl_FragColor = texel;
         return;
     }
+#ifdef LIGHTS
+    // The frame texture's texels are BGR, which doesn't change the brightest channel
+    if (isLitLight(depth, texel.rgb)) {
+        gl_FragColor = texel;
+        return;
+    }
+#endif
     float shadow = 1.0;
     if (!hasFlag(depth, 16.0)) {
         highp vec2 dsSize = floor(vec2(topScreenWidth, topScreenEnd * frameLayout.w) + 0.5);

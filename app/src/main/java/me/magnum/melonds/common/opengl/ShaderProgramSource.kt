@@ -1037,7 +1037,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // the DS's 24-bit depth in RGB, high byte in R, so 0 is 2D drawn over the 3D and 1 is where what's behind the 3D shows. A holds the
         // compositor's flags (1 for 2D, 2 for behind the 3D, 4 for a W-buffered 3D pixel, 8 for 3D drawn under another camera than
         // PresentFrameWrapper.depthCamera, 16 for a pixel in a character's shadow, which the renderer draws, 32 for one a light texture drew,
-        // melon.gpu.light_textures), which the sun shadows read. The
+        // melon.gpu.light_textures), which the sun shadows and bloom's lights read. The
         // two ends are exact and every other depth stays below 1, however the GPU divides, so a test like depth < 1.0 tells real 3D from what's
         // behind it
         private const val DEPTH_DECODE_FUNCTION = "highp float decodeDepth(highp vec4 texel) {\n" +
@@ -1083,7 +1083,9 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // average of the input texels it covers (four bilinear taps, exact at 2x and 4x), then only what's brighter than the threshold is kept,
         // easing in over a soft knee so the glow has no hard edge. Only the DS top screen; the rest is black. With ONLY_3D defined
         // (VideoFilterPipeline, for bloom's only_3d) each tap counts only where the frame's depth (depthTex, unit 1, nearest, read with
-        // DEPTH_DECODE_FUNCTION) is 3D, still averaged over all four so the glow fades at the 3D's edges
+        // DEPTH_DECODE_FUNCTION) is 3D, still averaged over all four so the glow fades at the 3D's edges. With LIGHTS defined (bloom's
+        // lights) a tap whose depth texel is 3D with flag 32 (a light texture, melon.gpu.light_textures) leaves the luma average and glows on
+        // its own instead: by its brightest channel over the same soft knee at bloomLights.x, times bloomLights.y, a quarter for each tap
         val BloomBrightPrePassShader get() = ShaderProgramSource(
             TextureFiltering.LINEAR,
             PRE_PASS_VERT_SHADER,
@@ -1097,7 +1099,34 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "// Half the soft knee's width, as a luma: the glow eases in from threshold - BLOOM_KNEE to threshold + BLOOM_KNEE\n" +
                     "const float BLOOM_KNEE = 0.1;\n" +
                     "" +
+                    "#ifdef LIGHTS\n" +
+                    "uniform highp sampler2D depthTex;\n" +
+                    "// The lights' threshold, as a brightest channel (x), and strength (y)\n" +
+                    "uniform vec2 bloomLights;\n" +
+                    DEPTH_DECODE_FUNCTION +
+                    "// sampleScreen(p, band) for the luma average (black where the depth isn't 3D with ONLY_3D), or black for a light, whose own\n" +
+                    "// glow by its brightest channel goes into lights instead\n" +
+                    "vec3 sampleTap(vec2 p, vec4 band, inout vec3 lights) {\n" +
+                    "    vec2 q = vec2(clamp(p.x, band.z, band.w), clamp(p.y, band.x, band.y));\n" +
+                    "    highp vec4 depthTexel = texture2D(depthTex, vec2(q.x, clamp(q.y / topScreenEnd, 0.0, 1.0)));\n" +
+                    "    highp float depth = decodeDepth(depthTexel);\n" +
+                    "    bool is3D = depth > 0.0 && depth < 1.0;\n" +
+                    "    float flags = floor(depthTexel.a * 255.0 + 0.5);\n" +
+                    "    if (is3D && mod(floor(flags / 32.0), 2.0) == 1.0) {\n" +
+                    "        vec3 light = texture2D(tex, q).bgr;\n" +
+                    "        float peak = max(light.r, max(light.g, light.b));\n" +
+                    "        float knee = clamp(peak - bloomLights.x + BLOOM_KNEE, 0.0, 2.0 * BLOOM_KNEE);\n" +
+                    "        knee = knee * knee / (4.0 * BLOOM_KNEE);\n" +
+                    "        lights += light * (max(knee, peak - bloomLights.x) / max(peak, 0.0001));\n" +
+                    "        return vec3(0.0);\n" +
+                    "    }\n" +
                     "#ifdef ONLY_3D\n" +
+                    "    return is3D ? texture2D(tex, q).bgr : vec3(0.0);\n" +
+                    "#else\n" +
+                    "    return sampleScreen(p, band);\n" +
+                    "#endif\n" +
+                    "}\n" +
+                    "#elif defined(ONLY_3D)\n" +
                     "uniform highp sampler2D depthTex;\n" +
                     DEPTH_DECODE_FUNCTION +
                     "// sampleScreen(p, band) where the frame's depth at that texel is 3D, black for 2D over the 3D and for what's behind it\n" +
@@ -1122,15 +1151,26 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "" +
                     "    // A quarter of this pass's texel, which is one DS pixel\n" +
                     "    vec2 tap = 0.25 / vec2(topScreenWidth, frameLayout.w);\n" +
+                    "#ifdef LIGHTS\n" +
+                    "    vec3 lights = vec3(0.0);\n" +
+                    "    vec3 color = 0.25 * (\n" +
+                    "        sampleTap(uv - tap, band, lights) + sampleTap(uv + tap, band, lights) +\n" +
+                    "        sampleTap(uv + vec2(tap.x, -tap.y), band, lights) + sampleTap(uv + vec2(-tap.x, tap.y), band, lights));\n" +
+                    "#else\n" +
                     "    vec3 color = 0.25 * (\n" +
                     "        sampleTap(uv - tap, band) + sampleTap(uv + tap, band) +\n" +
                     "        sampleTap(uv + vec2(tap.x, -tap.y), band) + sampleTap(uv + vec2(-tap.x, tap.y), band));\n" +
+                    "#endif\n" +
                     "    float luma = dot(color, BLOOM_LUMA);\n" +
                     "    float knee = clamp(luma - bloom.y + BLOOM_KNEE, 0.0, 2.0 * BLOOM_KNEE);\n" +
                     "    knee = knee * knee / (4.0 * BLOOM_KNEE);\n" +
                     "    float weight = max(knee, luma - bloom.y) / max(luma, 0.0001);\n" +
                     "    // Swap back to the frame texture's channel order, since sampleScreen() reads the BGR texels as RGB\n" +
+                    "#ifdef LIGHTS\n" +
+                    "    gl_FragColor = vec4((color * weight + 0.25 * bloomLights.y * lights).bgr, 1.0);\n" +
+                    "#else\n" +
                     "    gl_FragColor = vec4((color * weight).bgr, 1.0);\n" +
+                    "#endif\n" +
                     "}"
         )
 
@@ -1581,6 +1621,17 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         val ShadeBlurHorizontalPrePassShader get() = shadeBlurPrePassShader("vec2(1.0, 0.0)")
         val ShadeBlurVerticalPrePassShader get() = shadeBlurPrePassShader("vec2(0.0, 1.0)")
 
+        // With LIGHTS defined (bloom's lights, VideoFilterPipeline), whether a pixel is a light that's on, which the shading and the sun
+        // shadows leave as it is, as it gives off its own light: its depth texel has flag 32 (melon.gpu.light_textures) and its color's
+        // brightest channel is at least the bloom's light threshold (bloomLights.x, Shader.setBloom)
+        private const val LIGHT_EMISSIVE_FUNCTION = "#ifdef LIGHTS\n" +
+                "uniform vec2 bloomLights;\n" +
+                "bool isLitLight(highp vec4 depthTexel, vec3 color) {\n" +
+                "    float flags = floor(depthTexel.a * 255.0 + 0.5);\n" +
+                "    return mod(floor(flags / 32.0), 2.0) == 1.0 && max(color.r, max(color.g, color.b)) >= bloomLights.x;\n" +
+                "}\n" +
+                "#endif\n"
+
         // The shading's last pass, at the input's resolution: unsharp masking of the depth (Luft, Colditz and Deussen 2006). A 3D pixel's own
         // depth, from the frame's depth texture (shadeDepthTex, unit 1, nearest), is compared with the blurred depth around it (shadeBlurTex,
         // unit 2, nearest, the vertical blur's target at DS resolution), read bilinearly by hand: its four nearest texels by their bilinear
@@ -1588,7 +1639,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // no halo at any scale. A pixel farther than its neighborhood is mixed towards itself times shadeColor (RGB) by shade.x, fully once
         // it's shade.z farther in raw depth, faded out where the blur covered less than all of the neighborhood (next to 2D or the screen's
         // edge), down to nothing at half. 2D over the 3D, what's behind the 3D, a pixel with no 3D around it, the gap and the DS bottom
-        // screen stay as they are
+        // screen stay as they are, and so does a light that's on with LIGHTS defined (LIGHT_EMISSIVE_FUNCTION)
         val ShadeApplyPrePassShader get() = ShaderProgramSource(
             TextureFiltering.NEAREST,
             PRE_PASS_VERT_SHADER,
@@ -1603,6 +1654,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     FRAME_LAYOUT_UNIFORM +
                     "#define topScreenEnd frameLayout.x\n" +
                     DEPTH_VALUE_FUNCTIONS +
+                    LIGHT_EMISSIVE_FUNCTION +
                     "" +
                     "// Counts the blurred depth's texel p (clamped onto its target of dsSize texels) by bilinear times its A, as a difference from\n" +
                     "// the pixel's own depth\n" +
@@ -1624,11 +1676,19 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "        return;\n" +
                     "    }\n" +
                     "    vec2 depthUv = vec2(uv.x, clamp(uv.y / topScreenEnd, 0.0, 1.0));\n" +
-                    "    highp float depth = depthValue(texture2D(shadeDepthTex, depthUv));\n" +
+                    "    highp vec4 depthTexel = texture2D(shadeDepthTex, depthUv);\n" +
+                    "    highp float depth = depthValue(depthTexel);\n" +
                     "    if (!isValue3D(depth)) {\n" +
                     "        gl_FragColor = texel;\n" +
                     "        return;\n" +
                     "    }\n" +
+                    "#ifdef LIGHTS\n" +
+                    "    // The frame texture's texels are BGR, which doesn't change the brightest channel\n" +
+                    "    if (isLitLight(depthTexel, texel.rgb)) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "#endif\n" +
                     "" +
                     "    vec2 dsSize = floor(vec2(topScreenWidth, topScreenEnd * frameLayout.w) + 0.5);\n" +
                     "    vec2 p = depthUv * dsSize - 0.5;\n" +
@@ -1873,7 +1933,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // target) it takes: by their bilinear weights times how close their depth is to its own (within sunSurfaceTolerance), or the closest
         // one's if none is close. So the shadow's edges follow the full-resolution depth at any scale, with no halo where a DS pixel straddles
         // an edge. A pixel with flag 16 (in a character's shadow, which the renderer marks) is in shadow too. The shadow mixes the pixel towards
-        // itself times sunColor (RGB) by sun.x. 2D over the 3D, what's behind the 3D, the gap and the DS bottom screen stay as they are
+        // itself times sunColor (RGB) by sun.x. 2D over the 3D, what's behind the 3D, the gap and the DS bottom screen stay as they are, and so
+        // does a light that's on with LIGHTS defined (LIGHT_EMISSIVE_FUNCTION)
         val SunApplyPrePassShader get() = ShaderProgramSource(
             TextureFiltering.NEAREST,
             PRE_PASS_VERT_SHADER,
@@ -1889,6 +1950,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     SUN_UNIFORMS +
                     DEPTH_VALUE_FUNCTIONS +
                     SUN_CAMERA_FUNCTIONS +
+                    LIGHT_EMISSIVE_FUNCTION +
                     "" +
                     "// Counts the shadow texel t (clamped onto its target of dsSize texels) by bilinear times how near its depth is to dist, and\n" +
                     "// keeps the nearest one's shadow in closest (x the shadow, y how far apart)\n" +
@@ -1923,6 +1985,13 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "        gl_FragColor = texel;\n" +
                     "        return;\n" +
                     "    }\n" +
+                    "#ifdef LIGHTS\n" +
+                    "    // The frame texture's texels are BGR, which doesn't change the brightest channel\n" +
+                    "    if (isLitLight(depth, texel.rgb)) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "#endif\n" +
                     "" +
                     "    float shadow = 1.0;\n" +
                     "    if (!hasFlag(depth, 16.0)) {\n" +

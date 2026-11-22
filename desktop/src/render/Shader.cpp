@@ -120,6 +120,7 @@ Shader::Shader(GLuint program, GLenum textureFiltering)
     UniformHaze = glGetUniformLocation(Program, "haze");
     UniformHazeColor = glGetUniformLocation(Program, "hazeColor");
     UniformHazeDepthTex = glGetUniformLocation(Program, "hazeDepthTex");
+    UniformBloomLights = glGetUniformLocation(Program, "bloomLights");
     UniformDepthOfField = glGetUniformLocation(Program, "depthOfField");
     UniformDepthFocus = glGetUniformLocation(Program, "depthFocus");
     UniformDepthTex = glGetUniformLocation(Program, "depthTex");
@@ -217,6 +218,8 @@ void Shader::SetBloom(const Bloom& bloom) const
     }
     if (UniformHazeDepthTex >= 0)
         glUniform1i(UniformHazeDepthTex, 2);
+    if (UniformBloomLights >= 0)
+        glUniform2f(UniformBloomLights, bloom.LightThreshold, bloom.LightStrength);
 }
 
 void Shader::SetDepthOfField(const DepthOfField& depthOfField, float focusU, float focusV, float focusAgeStep) const

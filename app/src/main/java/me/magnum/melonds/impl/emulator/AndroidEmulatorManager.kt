@@ -201,6 +201,9 @@ class AndroidEmulatorManager(
                     hazeColor = data.getInt(),
                     hazeStart = data.getFloat(),
                     hazeFalloff = data.getFloat(),
+                    lights = data.getInt() != 0,
+                    lightThreshold = data.getFloat(),
+                    lightStrength = data.getFloat(),
                 )
                 _emulatorEvents.tryEmit(EmulatorEvent.LuaBloom(scriptId, bloom))
             }

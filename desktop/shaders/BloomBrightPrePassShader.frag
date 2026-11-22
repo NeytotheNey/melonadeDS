@@ -32,7 +32,42 @@ vec3 sampleScreen(vec2 p, vec4 band) {
 const vec3 BLOOM_LUMA = vec3(0.299, 0.587, 0.114);
 // Half the soft knee's width, as a luma: the glow eases in from threshold - BLOOM_KNEE to threshold + BLOOM_KNEE
 const float BLOOM_KNEE = 0.1;
+#ifdef LIGHTS
+uniform highp sampler2D depthTex;
+// The lights' threshold, as a brightest channel (x), and strength (y)
+uniform vec2 bloomLights;
+highp float decodeDepth(highp vec4 texel) {
+    highp vec3 bytes = floor(texel.rgb * 255.0 + 0.5);
+    highp float value = bytes.r * 65536.0 + bytes.g * 256.0 + bytes.b;
+    if (value >= 16777215.0) {
+        return 1.0;
+    }
+    // The largest float below 1
+    return min(value / 16777215.0, 0.99999994);
+}
+// sampleScreen(p, band) for the luma average (black where the depth isn't 3D with ONLY_3D), or black for a light, whose own
+// glow by its brightest channel goes into lights instead
+vec3 sampleTap(vec2 p, vec4 band, inout vec3 lights) {
+    vec2 q = vec2(clamp(p.x, band.z, band.w), clamp(p.y, band.x, band.y));
+    highp vec4 depthTexel = texture2D(depthTex, vec2(q.x, clamp(q.y / topScreenEnd, 0.0, 1.0)));
+    highp float depth = decodeDepth(depthTexel);
+    bool is3D = depth > 0.0 && depth < 1.0;
+    float flags = floor(depthTexel.a * 255.0 + 0.5);
+    if (is3D && mod(floor(flags / 32.0), 2.0) == 1.0) {
+        vec3 light = texture2D(tex, q).bgr;
+        float peak = max(light.r, max(light.g, light.b));
+        float knee = clamp(peak - bloomLights.x + BLOOM_KNEE, 0.0, 2.0 * BLOOM_KNEE);
+        knee = knee * knee / (4.0 * BLOOM_KNEE);
+        lights += light * (max(knee, peak - bloomLights.x) / max(peak, 0.0001));
+        return vec3(0.0);
+    }
 #ifdef ONLY_3D
+    return is3D ? texture2D(tex, q).bgr : vec3(0.0);
+#else
+    return sampleScreen(p, band);
+#endif
+}
+#elif defined(ONLY_3D)
 uniform highp sampler2D depthTex;
 highp float decodeDepth(highp vec4 texel) {
     highp vec3 bytes = floor(texel.rgb * 255.0 + 0.5);
@@ -63,13 +98,24 @@ void main() {
     }
     // A quarter of this pass's texel, which is one DS pixel
     vec2 tap = 0.25 / vec2(topScreenWidth, frameLayout.w);
+#ifdef LIGHTS
+    vec3 lights = vec3(0.0);
+    vec3 color = 0.25 * (
+        sampleTap(uv - tap, band, lights) + sampleTap(uv + tap, band, lights) +
+        sampleTap(uv + vec2(tap.x, -tap.y), band, lights) + sampleTap(uv + vec2(-tap.x, tap.y), band, lights));
+#else
     vec3 color = 0.25 * (
         sampleTap(uv - tap, band) + sampleTap(uv + tap, band) +
         sampleTap(uv + vec2(tap.x, -tap.y), band) + sampleTap(uv + vec2(-tap.x, tap.y), band));
+#endif
     float luma = dot(color, BLOOM_LUMA);
     float knee = clamp(luma - bloom.y + BLOOM_KNEE, 0.0, 2.0 * BLOOM_KNEE);
     knee = knee * knee / (4.0 * BLOOM_KNEE);
     float weight = max(knee, luma - bloom.y) / max(luma, 0.0001);
     // Swap back to the frame texture's channel order, since sampleScreen() reads the BGR texels as RGB
+#ifdef LIGHTS
+    gl_FragColor = vec4((color * weight + 0.25 * bloomLights.y * lights).bgr, 1.0);
+#else
     gl_FragColor = vec4((color * weight).bgr, 1.0);
+#endif
 }

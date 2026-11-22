@@ -57,9 +57,9 @@ public:
     // runs the pre-passes, then [shade], [sun], [depthOfField], [bloom] and [tiltShift] if there are any (in that order, so the depth of field
     // blurs the shading and the shadows, the glow is of the focused picture and the tilt-shift's blur softens the glow too), and returns the
     // texture the screen shader should draw with its size (texSize); call it before drawing to the window and for no frame too, then set the
-    // program, vertex array, array buffer and texture unit 0 again. The shading, the sun shadows, the depth of field, the haze and a 3D-only
-    // glow need the frame's depth, so a frame without one is drawn unshaded, without shadows, sharp, without haze, and with a glow on every
-    // pixel; the sun shadows also need the frame's depth camera. With [foldDeband] the deband pre-pass is left out, for a frame drawn with
+    // program, vertex array, array buffer and texture unit 0 again. The shading, the sun shadows, the depth of field, the haze, a 3D-only
+    // glow and the glow's lights need the frame's depth, so a frame without one is drawn unshaded, without shadows, sharp, without haze, and
+    // with a glow on every pixel by its luma; the sun shadows also need the frame's depth camera. With [foldDeband] the deband pre-pass is left out, for a frame drawn with
     // GetDebandScreenShader
     const FilterOutput& RenderPrePasses(const FrameView& frame, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift,
         const std::optional<Bloom>& bloom, const std::optional<DepthOfField>& depthOfField, const std::optional<Shade>& shade,
@@ -76,19 +76,21 @@ private:
 
     bool RenderDepthOfField(DepthOfFieldPasses& passes, const DepthOfField& depthOfField, const FrameView& frame, bool isBottomScreenWide);
     DepthOfFieldPasses* GetDepthOfFieldPasses();
-    void RenderShade(ShadePasses& passes, const Shade& shade, const FrameView& frame, bool isBottomScreenWide);
+    void RenderShade(ShadePasses& passes, const Shade& shade, const FrameView& frame, bool isBottomScreenWide, const Bloom* lights);
     ShadePasses* GetShadePasses();
-    void RenderSun(SunPasses& passes, const Sun& sun, const FrameView& frame, bool isBottomScreenWide);
+    PrePass* GetShadeLightsApplyPass();
+    void RenderSun(SunPasses& passes, const Sun& sun, const FrameView& frame, bool isBottomScreenWide, const Bloom* lights);
     SunPasses* GetSunPasses();
+    PrePass* GetSunLightsApplyPass();
 
     bool RenderPass(PrePass& pass, int topScreenWidth, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift);
     void BeginPasses();
-    void RenderBloom(BloomPasses* passes, PrePass* onlyThreeDBright, int variant, const Bloom& bloom, const FrameView& frame,
+    void RenderBloom(BloomPasses* passes, PrePass* depthBright, int variant, const Bloom& bloom, const FrameView& frame,
         bool isBottomScreenWide);
-    GLuint RenderGlow(BloomPasses& passes, PrePass* onlyThreeDBright, const Bloom& bloom, const FrameView& frame, bool isBottomScreenWide);
+    GLuint RenderGlow(BloomPasses& passes, PrePass* depthBright, const Bloom& bloom, const FrameView& frame, bool isBottomScreenWide);
     void LogBloomTarget();
     BloomPasses* GetBloomPasses();
-    PrePass* GetOnlyThreeDBrightPass();
+    PrePass* GetDepthBrightPass(int variant);
     int PickCombineVariant(bool hasGlow, bool hasHaze, bool hasVignette);
     PrePass* GetCombinePass(int variant);
     GLuint ExpandHalvesAt1x(const FrameView& frame);
@@ -128,13 +130,15 @@ private:
     bool IsTiltShiftBuilt = false;
     std::unique_ptr<PrePass> TiltShiftColorPass;
     bool IsTiltShiftColorBuilt = false;
-    // the same for a script's glow, its 3D-only bright pass, and each variant of the combine pass that adds the glow, the haze and the vignette
-    // (by COMBINE_GLOW and COMBINE_HAZE bits); a target that can't be made is only logged once
+    // the same for a script's glow, its bright passes that read the depth (by BRIGHT_ONLY_3D and BRIGHT_LIGHTS bits), and each variant of the
+    // combine pass that adds the glow, the haze and the vignette (by COMBINE_GLOW and COMBINE_HAZE bits); a target that can't be made is only
+    // logged once
     static constexpr int COMBINE_VARIANTS = 4;
+    static constexpr int BRIGHT_VARIANTS = 4;
     std::unique_ptr<BloomPasses> BloomPassesBuilt;
     bool IsBloomBuilt = false;
-    std::unique_ptr<PrePass> OnlyThreeDBrightPass;
-    bool IsOnlyThreeDBrightBuilt = false;
+    std::unique_ptr<PrePass> DepthBrightPasses[BRIGHT_VARIANTS];
+    bool IsDepthBrightBuilt[BRIGHT_VARIANTS] {};
     std::unique_ptr<PrePass> CombinePasses[COMBINE_VARIANTS];
     bool IsCombineBuilt[COMBINE_VARIANTS] {};
     bool HasLoggedBloomTarget = false;
@@ -145,11 +149,17 @@ private:
     std::unique_ptr<ShadePasses> ShadePassesBuilt;
     bool IsShadeBuilt = false;
     bool HasLoggedShadeTarget = false;
+    // its apply pass that leaves the lights that are on lit, for bloom's lights
+    std::unique_ptr<PrePass> ShadeLightsApplyPass;
+    bool IsShadeLightsApplyBuilt = false;
     // the same for a script's sun shadows, and the camera they're marched with, filled for each new frame
     std::unique_ptr<SunPasses> SunPassesBuilt;
     std::unique_ptr<SunCamera> SunCameraOfFrame;
     bool IsSunBuilt = false;
     bool HasLoggedSunTarget = false;
+    // its apply pass that leaves the lights that are on lit, for bloom's lights
+    std::unique_ptr<PrePass> SunLightsApplyPass;
+    bool IsSunLightsApplyBuilt = false;
 
     FilterOutput Output;
 

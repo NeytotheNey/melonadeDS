@@ -111,6 +111,12 @@ struct LuaBloom
     // Raw depth, 0..1
     float hazeStart = 0.9968f;
     float hazeFalloff = 0.0008f;
+    // Whether the glow takes the light textures (melon.gpu.light_textures) by their brightest channel from lightThreshold, at lightStrength
+    // times the rest, and the shading and sun shadows leave the ones that are on lit; needs the frame's depth (LuaEngine::wantsDepth). The
+    // threshold and strength are the defaults while it's off
+    bool lights = false;
+    float lightThreshold = 0.65f;
+    float lightStrength = 1.0f;
 
     bool operator==(const LuaBloom&) const = default;
 };

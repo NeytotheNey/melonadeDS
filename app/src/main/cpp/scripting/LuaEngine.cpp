@@ -24,6 +24,8 @@ static const lua_Number kMaxTiltShiftBoost = 2.0;
 // filtering can bridge
 static const lua_Number kMaxBloomStrength = 2.0;
 static const lua_Number kMaxBloomRadius = 8.0;
+// melon.screen.bloom(): how many times the rest of the glow the lights' can be
+static const lua_Number kMaxBloomLightStrength = 4.0;
 // melon.screen.depth_of_field(): the widest blur in DS pixels, and how far outside the 256 x 192 view its focus point can be, a screen's size
 // either way, which covers WideMelon's wings and margins
 static const lua_Number kMaxDepthOfFieldRadius = 12.0;
@@ -486,7 +488,7 @@ void LuaEngine::sendRequests(LuaScript& script)
             script.sentBloom = script.bloom;
             const LuaBloom& bloom = script.sentBloom;
             eventMessenger->onLuaBloom(script.id, bloom.strength, bloom.threshold, bloom.radius, bloom.vignette, bloom.vignetteSize, bloom.onlyThreeD,
-                bloom.haze, (int) bloom.hazeColor, bloom.hazeStart, bloom.hazeFalloff);
+                bloom.haze, (int) bloom.hazeColor, bloom.hazeStart, bloom.hazeFalloff, bloom.lights, bloom.lightThreshold, bloom.lightStrength);
         }
         if (script.depthOfField != script.sentDepthOfField)
         {
@@ -709,15 +711,15 @@ void LuaEngine::closeScript(LuaScript& script)
             eventMessenger->onLuaTiltShift(script.id, off.top, off.bottom, off.center, off.width, off.radius, off.saturation, off.contrast, off.color);
         script.sentTiltShift = off;
     }
-    // The same for the bloom, vignette and haze, which a reloaded script starts without, and the haze and a 3D-only glow also stop the frames
-    // keeping their depth
+    // The same for the bloom, vignette and haze, which a reloaded script starts without, and the haze, a 3D-only glow and the lights also stop
+    // the frames keeping their depth
     script.bloom = LuaBloom();
     if (script.sentBloom != LuaBloom())
     {
         LuaBloom off;
         if (eventMessenger)
             eventMessenger->onLuaBloom(script.id, off.strength, off.threshold, off.radius, off.vignette, off.vignetteSize, off.onlyThreeD, off.haze,
-                (int) off.hazeColor, off.hazeStart, off.hazeFalloff);
+                (int) off.hazeColor, off.hazeStart, off.hazeFalloff, off.lights, off.lightThreshold, off.lightStrength);
         script.sentBloom = off;
     }
     // The same for the depth of field, which also stops the frames keeping their depth
@@ -1023,12 +1025,24 @@ int LuaEngine::luaScreenBloom(lua_State* L)
     float threshold = defaults.threshold;
     float radius = defaults.radius;
     bool onlyThreeD = defaults.onlyThreeD;
+    bool lights = defaults.lights;
+    float lightThreshold = defaults.lightThreshold;
+    float lightStrength = defaults.lightStrength;
     if (!lua_isnoneornil(L, 2))
     {
         luaL_checktype(L, 2, LUA_TTABLE);
         threshold = getNumberOption(L, 2, "threshold", threshold, 1.0);
         radius = getNumberOption(L, 2, "radius", radius, kMaxBloomRadius);
         onlyThreeD = getBooleanOption(L, 2, "only_3d", onlyThreeD);
+        lights = getBooleanOption(L, 2, "lights", lights);
+        lightThreshold = getNumberOption(L, 2, "light_threshold", lightThreshold, 1.0);
+        lightStrength = getNumberOption(L, 2, "light_strength", lightStrength, kMaxBloomLightStrength);
+    }
+    // The lights' values only count while they're on, so going over them while they're off costs no events
+    if (!lights)
+    {
+        lightThreshold = defaults.lightThreshold;
+        lightStrength = defaults.lightStrength;
     }
 
     // A glow that draws nothing is the default part, so going over the options while it's off costs no events
@@ -1038,6 +1052,9 @@ int LuaEngine::luaScreenBloom(lua_State* L)
         threshold = defaults.threshold;
         radius = defaults.radius;
         onlyThreeD = defaults.onlyThreeD;
+        lights = defaults.lights;
+        lightThreshold = defaults.lightThreshold;
+        lightStrength = defaults.lightStrength;
     }
 
     if (!script.engine->isUnloading)
@@ -1046,6 +1063,9 @@ int LuaEngine::luaScreenBloom(lua_State* L)
         script.bloom.threshold = threshold;
         script.bloom.radius = radius;
         script.bloom.onlyThreeD = onlyThreeD;
+        script.bloom.lights = lights;
+        script.bloom.lightThreshold = lightThreshold;
+        script.bloom.lightStrength = lightStrength;
     }
     return 0;
 }
@@ -1311,10 +1331,11 @@ bool LuaEngine::wantsDepth() const
 {
     for (const auto& script : scripts)
     {
-        // A stopped script's were set back to off when it closed. only_3d is on by default, so it only counts while the glow is on
+        // A stopped script's were set back to off when it closed. only_3d is on by default, so it only counts while the glow is on, as the
+        // lights do (a glow that's off is the default part, lights off)
         const LuaBloom& bloom = script->sentBloom;
         if (script->sentDepthOfField.strength > 0.0f || script->sentShade.strength > 0.0f || script->sentSun.strength > 0.0f ||
-            bloom.haze > 0.0f || (bloom.strength > 0.0f && bloom.onlyThreeD))
+            bloom.haze > 0.0f || (bloom.strength > 0.0f && (bloom.onlyThreeD || bloom.lights)))
             return true;
     }
     return false;

@@ -26,6 +26,13 @@ highp vec3 encodeDepth(highp float value) {
     highp float low = value - high * 65536.0 - middle * 256.0;
     return vec3(high, middle, low) / 255.0;
 }
+#ifdef LIGHTS
+uniform vec2 bloomLights;
+bool isLitLight(highp vec4 depthTexel, vec3 color) {
+    float flags = floor(depthTexel.a * 255.0 + 0.5);
+    return mod(floor(flags / 32.0), 2.0) == 1.0 && max(color.r, max(color.g, color.b)) >= bloomLights.x;
+}
+#endif
 // Counts the blurred depth's texel p (clamped onto its target of dsSize texels) by bilinear times its A, as a difference from
 // the pixel's own depth
 void addTap(vec2 p, vec2 dsSize, float bilinear, highp float depth, inout highp float sum, inout float weights) {
@@ -45,11 +52,19 @@ void main() {
         return;
     }
     vec2 depthUv = vec2(uv.x, clamp(uv.y / topScreenEnd, 0.0, 1.0));
-    highp float depth = depthValue(texture2D(shadeDepthTex, depthUv));
+    highp vec4 depthTexel = texture2D(shadeDepthTex, depthUv);
+    highp float depth = depthValue(depthTexel);
     if (!isValue3D(depth)) {
         gl_FragColor = texel;
         return;
     }
+#ifdef LIGHTS
+    // The frame texture's texels are BGR, which doesn't change the brightest channel
+    if (isLitLight(depthTexel, texel.rgb)) {
+        gl_FragColor = texel;
+        return;
+    }
+#endif
     vec2 dsSize = floor(vec2(topScreenWidth, topScreenEnd * frameLayout.w) + 0.5);
     vec2 p = depthUv * dsSize - 0.5;
     vec2 base = floor(p);

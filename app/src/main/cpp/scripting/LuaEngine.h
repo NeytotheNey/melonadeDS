@@ -213,8 +213,9 @@ public:
      */
     const LuaOverlay& getOverlay() const { return overlay; }
     /**
-     * Whether a running script's depth of field, haze, 3D-only glow, shading or sun shadows are on, as the app was last told
-     * (melon.screen.depth_of_field, haze, bloom's only_3d, shade and sun), so the frames should keep their depth; emulator thread only
+     * Whether a running script's depth of field, haze, 3D-only glow, glowing lights, shading or sun shadows are on, as the app was last told
+     * (melon.screen.depth_of_field, haze, bloom's only_3d and lights, shade and sun), so the frames should keep their depth; emulator thread
+     * only
      */
     bool wantsDepth() const;
     /**

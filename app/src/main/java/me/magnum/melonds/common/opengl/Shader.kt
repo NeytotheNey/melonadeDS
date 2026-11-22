@@ -44,6 +44,9 @@ class Shader(
     private val uniformHaze: Int
     private val uniformHazeColor: Int
     private val uniformHazeDepthTex: Int
+    // Only declared by the bloom's bright pass and the shading's and sun shadows' apply passes with LIGHTS defined: the lights' threshold and
+    // strength
+    private val uniformBloomLights: Int
     // Only declared by the depth of field pre-passes (see ShaderProgramSource.depthOfFieldPrePassShader and DepthOfFieldFocusShader): its radius,
     // range and falloff, its focus point (the focus pass), the frame's depth texture on unit 1 and the picked focus on unit 2 (the blur passes).
     // The bloom's 3D-only bright pass declares the depth texture too, also on unit 1
@@ -92,6 +95,7 @@ class Shader(
         uniformHaze = GLES30.glGetUniformLocation(programId, "haze")
         uniformHazeColor = GLES30.glGetUniformLocation(programId, "hazeColor")
         uniformHazeDepthTex = GLES30.glGetUniformLocation(programId, "hazeDepthTex")
+        uniformBloomLights = GLES30.glGetUniformLocation(programId, "bloomLights")
         uniformDepthOfField = GLES30.glGetUniformLocation(programId, "depthOfField")
         uniformDepthFocus = GLES30.glGetUniformLocation(programId, "depthFocus")
         uniformDepthTex = GLES30.glGetUniformLocation(programId, "depthTex")
@@ -184,8 +188,9 @@ class Shader(
     }
 
     /**
-     * Sets the bloom's strength, threshold and radius, the vignette's strength and size, the haze's strength, start, falloff and color, that the
-     * glow is on unit 1, and that the depth texture is on unit 1 for the 3D-only bright pass and on unit 2 for the haze; call after [use].
+     * Sets the bloom's strength, threshold and radius, the vignette's strength and size, the haze's strength, start, falloff and color, the
+     * lights' threshold and strength, that the glow is on unit 1, and that the depth texture is on unit 1 for the 3D-only and lights bright
+     * passes and on unit 2 for the haze; call after [use].
      */
     fun setBloom(bloom: Bloom) {
         if (uniformBloom != INVALID_UNIFORM) {
@@ -211,6 +216,9 @@ class Shader(
         }
         if (uniformHazeDepthTex != INVALID_UNIFORM) {
             GLES30.glUniform1i(uniformHazeDepthTex, 2)
+        }
+        if (uniformBloomLights != INVALID_UNIFORM) {
+            GLES30.glUniform2f(uniformBloomLights, bloom.lightThreshold, bloom.lightStrength)
         }
     }
 

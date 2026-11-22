@@ -72,7 +72,8 @@ struct TiltShift
 // (0 to 2), only of 3D pixels with [OnlyThreeD] when the frame has its depth; a vignette that darkens it from [VignetteSize] of the
 // half-diagonal out to the corners, where it's [Vignette] (0 to 1); and a haze that mixes 3D pixels towards [HazeColor] (0xRRGGBB) at up to
 // [Haze] (0 to 1), easing in from [HazeStart] to [HazeStart] + [HazeFalloff] in the renderer's raw depth (0 to 1), only when the frame has
-// its depth
+// its depth. With [Lights] and the frame's depth, the light textures' pixels (flag 32) glow by their brightest channel from [LightThreshold]
+// (0 to 1) at [LightStrength] (0 to 4) times the rest, and those at least that bright aren't darkened by the shading or the sun shadows
 struct Bloom
 {
     float Strength = 0, Threshold = 0.7f, Radius = 3;
@@ -81,12 +82,15 @@ struct Bloom
     float Haze = 0;
     melonDS::u32 HazeColor = 0xDCE6F0;
     float HazeStart = 0.9968f, HazeFalloff = 0.0008f;
+    bool Lights = false;
+    float LightThreshold = 0.65f, LightStrength = 1;
 
     bool operator==(const Bloom&) const = default;
 
     bool HasBloom() const { return Strength > 0.f && Radius > 0.f; }
     bool HasVignette() const { return Vignette > 0.f; }
     bool HasHaze() const { return Haze > 0.f; }
+    bool HasLights() const { return Lights && HasBloom(); }
     bool IsOff() const { return !HasBloom() && !HasVignette() && !HasHaze(); }
 };
 

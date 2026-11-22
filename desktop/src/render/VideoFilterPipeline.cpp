@@ -14,8 +14,13 @@ const char* DEBAND_DEFINE = "DEBAND";
 // the bloom's last pass without the glow, and with the haze (BloomCombinePrePassShader)
 const char* NO_GLOW_DEFINE = "NO_GLOW";
 const char* HAZE_DEFINE = "HAZE";
-// the bloom's bright pass that only takes 3D pixels (BloomBrightPrePassShader)
+// the bloom's bright pass that only takes 3D pixels, and the one that takes the light textures by their brightest channel, which the shading's
+// and sun shadows' apply passes also leave lit (BloomBrightPrePassShader, ShadeApplyPrePassShader and SunApplyPrePassShader)
 const char* ONLY_3D_DEFINE = "ONLY_3D";
+const char* LIGHTS_DEFINE = "LIGHTS";
+// the bright pass's variants that read the frame's depth, as bits of an index into DepthBrightPasses
+const int BRIGHT_ONLY_3D = 1;
+const int BRIGHT_LIGHTS = 2;
 // the combine pass's variants, as bits of an index into CombinePasses; -1 is no combine pass
 const int COMBINE_GLOW = 1;
 const int COMBINE_HAZE = 2;
@@ -422,12 +427,16 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     TiltShiftPasses* tiltShiftPasses = tiltShift && tiltShift->HasBlur() ? GetTiltShiftPasses() : nullptr;
     PrePass* tiltShiftColorPass = tiltShift && !tiltShiftPasses && tiltShift->HasColorBoost() ? GetTiltShiftColorPass() : nullptr;
     // The same for the bloom: without a glow, or if its passes can't be built, only the haze and the vignette are left, in a combine pass that
-    // reads no glow. The haze needs the frame's depth, and so does a 3D-only glow, which takes every pixel without it
+    // reads no glow. The haze needs the frame's depth, and so do a 3D-only glow, which takes every pixel without it, and the lights, which are
+    // left out without it
     bool hasDepth = frame.DepthTexture != 0;
     BloomPasses* bloomPasses = bloom && bloom->HasBloom() ? GetBloomPasses() : nullptr;
     int combineVariant = bloom ? PickCombineVariant(bloomPasses != nullptr, bloom->HasHaze() && hasDepth, bloom->HasVignette()) : NO_COMBINE;
     BloomPasses* glowPasses = combineVariant != NO_COMBINE && (combineVariant & COMBINE_GLOW) ? bloomPasses : nullptr;
-    PrePass* onlyThreeDBrightPass = bloom && glowPasses && bloom->OnlyThreeD && hasDepth ? GetOnlyThreeDBrightPass() : nullptr;
+    int brightVariant = bloom && glowPasses && hasDepth ? (bloom->OnlyThreeD ? BRIGHT_ONLY_3D : 0) | (bloom->HasLights() ? BRIGHT_LIGHTS : 0) : 0;
+    PrePass* depthBrightPass = brightVariant ? GetDepthBrightPass(brightVariant) : nullptr;
+    // While the glow takes the lights, the shading and the sun shadows leave the ones that are on lit
+    const Bloom* lights = bloom && glowPasses && bloom->HasLights() && hasDepth ? &*bloom : nullptr;
     bool usesHaze = combineVariant != NO_COMBINE && (combineVariant & COMBINE_HAZE);
     DepthOfFieldPasses* depthOfFieldPasses = depthOfField && !depthOfField->IsOff() && hasDepth ? GetDepthOfFieldPasses() : nullptr;
     if (!depthOfFieldPasses && DepthOfFieldPassesBuilt)
@@ -450,7 +459,7 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     std::optional<DepthOfField> appliedDepthOfField = depthOfFieldPasses ? depthOfField : std::nullopt;
     std::optional<Shade> appliedShade = shadePasses ? shade : std::nullopt;
     std::optional<Sun> appliedSun = sunPasses ? sun : std::nullopt;
-    GLuint depthTexture = depthOfFieldPasses || onlyThreeDBrightPass || usesHaze || shadePasses || sunPasses ? frame.DepthTexture : 0;
+    GLuint depthTexture = depthOfFieldPasses || depthBrightPass || usesHaze || shadePasses || sunPasses ? frame.DepthTexture : 0;
     bool isSameFrame = frame.Sequence != 0 && frame.Sequence == LastFrameSequence && frame.Texture == LastFrameTextureId && width == LastFrameWidth
         && height == LastFrameHeight && isBottomScreenWide == LastFrameBottomScreenWide && appliedTiltShift == LastFrameTiltShift
         && appliedBloom == LastFrameBloom && appliedDepthOfField == LastFrameDepthOfField && appliedShade == LastFrameShade
@@ -485,13 +494,13 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     }
 
     if (isComplete && shadePasses && appliedShade)
-        RenderShade(*shadePasses, *appliedShade, frame, isBottomScreenWide);
+        RenderShade(*shadePasses, *appliedShade, frame, isBottomScreenWide, lights);
     if (isComplete && sunPasses && appliedSun)
-        RenderSun(*sunPasses, *appliedSun, frame, isBottomScreenWide);
+        RenderSun(*sunPasses, *appliedSun, frame, isBottomScreenWide, lights);
     if (isComplete && depthOfFieldPasses && appliedDepthOfField)
         isComplete = RenderDepthOfField(*depthOfFieldPasses, *appliedDepthOfField, frame, isBottomScreenWide);
     if (isComplete && appliedBloom)
-        RenderBloom(glowPasses, onlyThreeDBrightPass, combineVariant, *appliedBloom, frame, isBottomScreenWide);
+        RenderBloom(glowPasses, depthBrightPass, combineVariant, *appliedBloom, frame, isBottomScreenWide);
     if (isComplete && tiltShiftPasses)
     {
         isComplete = RenderPass(*tiltShiftPasses->Horizontal, frame.TopWidth, isBottomScreenWide, appliedTiltShift)
@@ -560,14 +569,14 @@ void VideoFilterPipeline::BeginPasses()
 }
 
 // [bloom] over the current input, whose size it keeps, through the combine pass [variant] (from PickCombineVariant): with COMBINE_GLOW the glow
-// through [passes] first, its bright pass [onlyThreeDBright] when that isn't null, and with COMBINE_HAZE the haze from the frame's depth on
+// through [passes] first, its bright pass [depthBright] when that isn't null, and with COMBINE_HAZE the haze from the frame's depth on
 // unit 2. A glow target that can't be made leaves the glow out (the haze and vignette stay), and a combine target that can't be made leaves the
 // bloom out, logged once, so the frame is still drawn
-void VideoFilterPipeline::RenderBloom(BloomPasses* passes, PrePass* onlyThreeDBright, int variant, const Bloom& bloom, const FrameView& frame,
+void VideoFilterPipeline::RenderBloom(BloomPasses* passes, PrePass* depthBright, int variant, const Bloom& bloom, const FrameView& frame,
     bool isBottomScreenWide)
 {
     BeginPasses();
-    GLuint glowTexture = passes && (variant & COMBINE_GLOW) ? RenderGlow(*passes, onlyThreeDBright, bloom, frame, isBottomScreenWide) : 0;
+    GLuint glowTexture = passes && (variant & COMBINE_GLOW) ? RenderGlow(*passes, depthBright, bloom, frame, isBottomScreenWide) : 0;
     int combineVariant = glowTexture ? variant : variant & ~COMBINE_GLOW;
     // Without the glow, it's only worth a pass with the haze or the vignette
     PrePass* combine = combineVariant != 0 || bloom.HasVignette() ? GetCombinePass(combineVariant) : nullptr;
@@ -599,13 +608,13 @@ void VideoFilterPipeline::RenderBloom(BloomPasses* passes, PrePass* onlyThreeDBr
 }
 
 // the current input's bright parts, blurred, at DS-native resolution (the frame's size in DS pixels): the texture of the glow's last pass, or 0
-// if one of its targets can't be made. With [onlyThreeDBright] that's the bright pass, reading the frame's depth on unit 1
-GLuint VideoFilterPipeline::RenderGlow(BloomPasses& passes, PrePass* onlyThreeDBright, const Bloom& bloom, const FrameView& frame,
+// if one of its targets can't be made. With [depthBright] that's the bright pass, reading the frame's depth on unit 1
+GLuint VideoFilterPipeline::RenderGlow(BloomPasses& passes, PrePass* depthBright, const Bloom& bloom, const FrameView& frame,
     bool isBottomScreenWide)
 {
     int width = frame.TopWidth;
     int height = frame.FrameHeight();
-    PrePass& bright = onlyThreeDBright ? *onlyThreeDBright : *passes.Bright;
+    PrePass& bright = depthBright ? *depthBright : *passes.Bright;
     bool isReady = width > 0 && bright.PrepareTarget(width, height) && passes.Horizontal->PrepareTarget(width, height)
         && passes.Vertical->PrepareTarget(width, height);
     if (!isReady)
@@ -615,10 +624,10 @@ GLuint VideoFilterPipeline::RenderGlow(BloomPasses& passes, PrePass* onlyThreeDB
     }
 
     glViewport(0, 0, width, height);
-    if (onlyThreeDBright)
+    if (depthBright)
         BindDepthTexture(GL_TEXTURE1, frame.DepthTexture);
     bright.Render(InputTexture, InputWidth, InputHeight, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
-    if (onlyThreeDBright)
+    if (depthBright)
         UnbindTexture(GL_TEXTURE1);
     passes.Horizontal->Render(bright.Texture, width, height, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
     passes.Vertical->Render(passes.Horizontal->Texture, width, height, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
@@ -713,10 +722,14 @@ VideoFilterPipeline::DepthOfFieldPasses* VideoFilterPipeline::GetDepthOfFieldPas
 
 // the current input shaded by [shade] through [passes], keeping its size: the frame's depth downsampled to DS resolution and blurred both ways
 // there, then the apply pass compares each pixel's own depth with it, with the depth texture on unit 1 and the blurred depth on unit 2 (both
-// nearest). A target that can't be made leaves the shading out, logged once, so the frame is still drawn
-void VideoFilterPipeline::RenderShade(ShadePasses& passes, const Shade& shade, const FrameView& frame, bool isBottomScreenWide)
+// nearest). With [lights] (a bloom whose glow takes the lights) the lights that are on stay lit. A target that can't be made leaves the
+// shading out, logged once, so the frame is still drawn
+void VideoFilterPipeline::RenderShade(ShadePasses& passes, const Shade& shade, const FrameView& frame, bool isBottomScreenWide, const Bloom* lights)
 {
     BeginPasses();
+    // Without its own apply pass, the lights are shaded like the rest
+    PrePass* lightsApply = lights ? GetShadeLightsApplyPass() : nullptr;
+    PrePass& apply = lightsApply ? *lightsApply : *passes.Apply;
     // The depth texture is the frame's width by the top screen's half's rows, at the internal scale (FrameQueue::validateDepthTexture), so
     // over that scale it's the top screen's half in DS pixels, wings and margin included, whatever the filter scaled the input to
     int scale = frame.FrameHeight() > 0 ? frame.Height / frame.FrameHeight() : 0;
@@ -725,7 +738,7 @@ void VideoFilterPipeline::RenderShade(ShadePasses& passes, const Shade& shade, c
     int depthWidth = frame.Width;
     int depthHeight = dsHeight * scale;
     bool isReady = scale > 0 && dsWidth > 0 && passes.Downsample->PrepareTarget(dsWidth, dsHeight) && passes.Horizontal->PrepareTarget(dsWidth, dsHeight)
-        && passes.Vertical->PrepareTarget(dsWidth, dsHeight) && passes.Apply->PrepareTarget(InputWidth, InputHeight);
+        && passes.Vertical->PrepareTarget(dsWidth, dsHeight) && apply.PrepareTarget(InputWidth, InputHeight);
     if (!isReady)
     {
         if (!HasLoggedShadeTarget)
@@ -748,11 +761,11 @@ void VideoFilterPipeline::RenderShade(ShadePasses& passes, const Shade& shade, c
     // Nearest too, as its bytes are a depth that can't be mixed
     BindDepthTexture(GL_TEXTURE2, passes.Vertical->Texture);
     glViewport(0, 0, InputWidth, InputHeight);
-    passes.Apply->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
-        nullptr, nullptr, 0.f, 0.f, 0.f, &shade);
+    apply.Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+        lightsApply ? lights : nullptr, nullptr, 0.f, 0.f, 0.f, &shade);
     UnbindTexture(GL_TEXTURE1);
     UnbindTexture(GL_TEXTURE2);
-    InputTexture = passes.Apply->Texture;
+    InputTexture = apply.Texture;
 }
 
 VideoFilterPipeline::ShadePasses* VideoFilterPipeline::GetShadePasses()
@@ -781,13 +794,30 @@ VideoFilterPipeline::ShadePasses* VideoFilterPipeline::GetShadePasses()
     return ShadePassesBuilt.get();
 }
 
+VideoFilterPipeline::PrePass* VideoFilterPipeline::GetShadeLightsApplyPass()
+{
+    if (!IsShadeLightsApplyBuilt)
+    {
+        IsShadeLightsApplyBuilt = true;
+        if (std::unique_ptr<Shader> shader = CreateShaderProgramOrNull(FindShader("ShadeApplyPrePassShader"), false, {LIGHTS_DEFINE}))
+            ShadeLightsApplyPass = std::make_unique<PrePass>(std::move(shader), 1, false);
+        else
+            // The lights are shaded like the rest rather than the shading being left out
+            fprintf(stderr, "shading shader for lights failed to build, so the lights are shaded too\n");
+    }
+    return ShadeLightsApplyPass.get();
+}
+
 // the current input shadowed by [sun] through [passes], keeping its size: the march at DS resolution from the frame's depth and its camera,
 // softened there if [sun] asks for it, then the apply pass picks each pixel's shadow by its own depth, with the depth texture on unit 1 and
 // the shadow on unit 2 (both nearest). A target that can't be made, or a camera that can't be inverted, leaves the shadows out, logged once,
-// so the frame is still drawn
-void VideoFilterPipeline::RenderSun(SunPasses& passes, const Sun& sun, const FrameView& frame, bool isBottomScreenWide)
+// so the frame is still drawn. With [lights] (a bloom whose glow takes the lights) the lights that are on stay lit
+void VideoFilterPipeline::RenderSun(SunPasses& passes, const Sun& sun, const FrameView& frame, bool isBottomScreenWide, const Bloom* lights)
 {
     BeginPasses();
+    // Without its own apply pass, the lights are shadowed like the rest
+    PrePass* lightsApply = lights ? GetSunLightsApplyPass() : nullptr;
+    PrePass& apply = lightsApply ? *lightsApply : *passes.Apply;
     // The depth texture's size at the internal scale, as for the shading
     int scale = frame.FrameHeight() > 0 ? frame.Height / frame.FrameHeight() : 0;
     int dsWidth = frame.TopWidth;
@@ -799,7 +829,7 @@ void VideoFilterPipeline::RenderSun(SunPasses& passes, const Sun& sun, const Fra
     SunCamera& camera = *SunCameraOfFrame;
     bool isReady = scale > 0 && dsWidth > 0 && camera.Set(frame) && passes.March->PrepareTarget(dsWidth, dsHeight)
         && (!hasSoftness || (passes.Horizontal->PrepareTarget(dsWidth, dsHeight) && passes.Vertical->PrepareTarget(dsWidth, dsHeight)))
-        && passes.Apply->PrepareTarget(InputWidth, InputHeight);
+        && apply.PrepareTarget(InputWidth, InputHeight);
     if (!isReady)
     {
         if (!HasLoggedSunTarget)
@@ -827,11 +857,11 @@ void VideoFilterPipeline::RenderSun(SunPasses& passes, const Sun& sun, const Fra
     // Nearest too, as its RGB is a depth that can't be mixed
     BindDepthTexture(GL_TEXTURE2, shadowTexture);
     glViewport(0, 0, InputWidth, InputHeight);
-    passes.Apply->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
-        nullptr, nullptr, 0.f, 0.f, 0.f, nullptr, &sun, &camera);
+    apply.Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+        lightsApply ? lights : nullptr, nullptr, 0.f, 0.f, 0.f, nullptr, &sun, &camera);
     UnbindTexture(GL_TEXTURE1);
     UnbindTexture(GL_TEXTURE2);
-    InputTexture = passes.Apply->Texture;
+    InputTexture = apply.Texture;
 }
 
 VideoFilterPipeline::SunPasses* VideoFilterPipeline::GetSunPasses()
@@ -859,6 +889,20 @@ VideoFilterPipeline::SunPasses* VideoFilterPipeline::GetSunPasses()
         }
     }
     return SunPassesBuilt.get();
+}
+
+VideoFilterPipeline::PrePass* VideoFilterPipeline::GetSunLightsApplyPass()
+{
+    if (!IsSunLightsApplyBuilt)
+    {
+        IsSunLightsApplyBuilt = true;
+        if (std::unique_ptr<Shader> shader = CreateShaderProgramOrNull(FindShader("SunApplyPrePassShader"), false, {LIGHTS_DEFINE}))
+            SunLightsApplyPass = std::make_unique<PrePass>(std::move(shader), 1, false);
+        else
+            // The lights are shadowed like the rest rather than the shadows being left out
+            fprintf(stderr, "sun shadow shader for lights failed to build, so the lights are shadowed too\n");
+    }
+    return SunLightsApplyPass.get();
 }
 
 void VideoFilterPipeline::LogBloomTarget()
@@ -894,18 +938,29 @@ VideoFilterPipeline::BloomPasses* VideoFilterPipeline::GetBloomPasses()
     return BloomPassesBuilt.get();
 }
 
-VideoFilterPipeline::PrePass* VideoFilterPipeline::GetOnlyThreeDBrightPass()
+// the bright pass [variant] (BRIGHT_ONLY_3D and BRIGHT_LIGHTS bits, not 0), built the first time it's asked for. One with the lights that
+// doesn't build falls back to the one without them, and a 3D-only one that doesn't build to null, so the glow takes every pixel by its luma
+// as on a frame without depth
+VideoFilterPipeline::PrePass* VideoFilterPipeline::GetDepthBrightPass(int variant)
 {
-    if (!IsOnlyThreeDBrightBuilt)
+    if (!IsDepthBrightBuilt[variant])
     {
-        IsOnlyThreeDBrightBuilt = true;
-        if (std::unique_ptr<Shader> shader = CreateShaderProgramOrNull(FindShader("BloomBrightPrePassShader"), false, {ONLY_3D_DEFINE}))
-            OnlyThreeDBrightPass = std::make_unique<PrePass>(std::move(shader), 1, false);
+        IsDepthBrightBuilt[variant] = true;
+        std::vector<std::string> defines;
+        if (variant & BRIGHT_ONLY_3D)
+            defines.push_back(ONLY_3D_DEFINE);
+        if (variant & BRIGHT_LIGHTS)
+            defines.push_back(LIGHTS_DEFINE);
+        if (std::unique_ptr<Shader> shader = CreateShaderProgramOrNull(FindShader("BloomBrightPrePassShader"), false, defines))
+            DepthBrightPasses[variant] = std::make_unique<PrePass>(std::move(shader), 1, false);
         else
-            // The glow takes every pixel, as it does on a frame without depth, rather than being left out
-            fprintf(stderr, "3D-only bloom shader failed to build, so the glow takes 2D too\n");
+            fprintf(stderr, "bloom bright shader (3D only %d, lights %d) failed to build, so what it adds is left out\n",
+                (variant & BRIGHT_ONLY_3D) != 0, (variant & BRIGHT_LIGHTS) != 0);
     }
-    return OnlyThreeDBrightPass.get();
+    PrePass* pass = DepthBrightPasses[variant].get();
+    if (!pass && variant == (BRIGHT_ONLY_3D | BRIGHT_LIGHTS))
+        return GetDepthBrightPass(BRIGHT_ONLY_3D);
+    return pass;
 }
 
 // the combine pass variant for a frame with a glow whose passes built ([hasGlow]), the haze with the frame's depth ([hasHaze]) and the

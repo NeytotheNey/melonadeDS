@@ -311,6 +311,10 @@ void Usage()
         "                              3), the vignette's strength (0-1) and where it starts (0-1 of the half-diagonal, 0.6);\n"
         "                              only the 3D glows when the frame has its depth (OpenGL), as Lua's only_3d\n"
         "  --bloom-all                 with --bloom, every bright pixel glows, 2D such as text boxes too (only_3d off)\n"
+        "  --bloom-lights [THRESHOLD[,STRENGTH]]\n"
+        "                              with --bloom, the light textures (--light-textures) glow by their brightest channel\n"
+        "                              from THRESHOLD (0-1, 0.65) at STRENGTH times the rest (0-4, 1), and those that\n"
+        "                              bright stay lit under --shade and --sun, as Lua's lights (OpenGL only)\n"
         "  --haze STRENGTH[,START,FALLOFF[,RRGGBB]]\n"
         "                              the Lua haze over the top screen's 3D, for tests (OpenGL only): how far the far 3D\n"
         "                              goes towards the color (0-1), the depth it starts at and how far past that it's full\n"
@@ -717,6 +721,26 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             bloom.VignetteSize = std::clamp(given.VignetteSize, 0.f, 1.f);
         }
         else if (arg == "--bloom-all") bloom.OnlyThreeD = false;
+        else if (arg == "--bloom-lights")
+        {
+            bloom.Lights = true;
+            // its value is optional, so the next argument is only taken when it's a whole THRESHOLD[,STRENGTH]
+            float threshold = bloom.LightThreshold, strength = bloom.LightStrength;
+            int length = 0;
+            if (i + 1 < argc)
+            {
+                const char* spec = argv[i + 1];
+                int count = sscanf(spec, "%f%n,%f%n", &threshold, &length, &strength, &length);
+                if (count >= 1 && spec[length] == 0)
+                {
+                    i++;
+                    // held to what a script could ask for (melon.screen.bloom's light_threshold and light_strength)
+                    bloom.LightThreshold = std::clamp(threshold, 0.f, 1.f);
+                    if (count == 2)
+                        bloom.LightStrength = std::clamp(strength, 0.f, 4.f);
+                }
+            }
+        }
         else if (arg == "--haze")
         {
             std::string spec = next();
@@ -1912,8 +1936,8 @@ int main(int argc, char** argv)
     callbacks.OnStart = [&](MelonDSAndroid::MelonInstance& instance)
     {
         SetDateTime(opts, *instance.getNds());
-        // as LuaEngine::wantsDepth: the depth of field, the shading, the sun shadows, the haze and a 3D-only glow read the depth
-        bool bloomWantsDepth = opts.Bloom && (opts.Bloom->HasHaze() || (opts.Bloom->HasBloom() && opts.Bloom->OnlyThreeD));
+        // as LuaEngine::wantsDepth: the depth of field, the shading, the sun shadows, the haze, a 3D-only glow and the lights read the depth
+        bool bloomWantsDepth = opts.Bloom && (opts.Bloom->HasHaze() || (opts.Bloom->HasBloom() && (opts.Bloom->OnlyThreeD || opts.Bloom->Lights)));
         instance.setDepthWanted(opts.DepthOfField.has_value() || opts.Shade.has_value() || opts.Sun.has_value() || bloomWantsDepth
                                 || !opts.DepthShotPath.empty() || !opts.DepthRawPath.empty());
         // and the characters' own shadows the core draws for it, as melon.screen.sun has it draw them

@@ -130,6 +130,24 @@ class LuaBloomRequestsTest {
         assertTrue(off.copy(onlyThreeD = false).isOff)
     }
 
+    @Test
+    fun lightsAreOffByDefault() {
+        assertFalse(bloomA.lights)
+        assertFalse(bloomA.hasLights)
+        assertEquals(0.65f, bloomA.lightThreshold)
+        assertEquals(1f, bloomA.lightStrength)
+    }
+
+    @Test
+    fun lightsOnlyCountWithAGlow() {
+        assertTrue(bloomA.copy(lights = true).hasLights)
+        assertFalse(bloomA.copy(lights = true, strength = 0f).hasLights)
+        assertFalse(bloomA.copy(lights = true, radius = 0f).hasLights)
+        // They don't turn anything on by themselves
+        assertTrue(off.copy(lights = true).isOff)
+        assertFalse(off.copy(lights = true, vignette = 0.5f).hasLights)
+    }
+
     // Both the same-frame cache and the flow to the renderers tell changes apart by equality
     @Test
     fun everyValueCountsAsAChange() {
@@ -143,6 +161,9 @@ class LuaBloomRequestsTest {
         assertNotEquals(bloomA, bloomA.copy(hazeColor = 0x102030))
         assertNotEquals(bloomA, bloomA.copy(hazeStart = 0.99f))
         assertNotEquals(bloomA, bloomA.copy(hazeFalloff = 0.01f))
+        assertNotEquals(bloomA, bloomA.copy(lights = true))
+        assertNotEquals(bloomA, bloomA.copy(lightThreshold = 0.5f))
+        assertNotEquals(bloomA, bloomA.copy(lightStrength = 2f))
         assertEquals(bloomA, bloomA.copy())
     }
 }
