@@ -1,6 +1,6 @@
 # Plan: an HD-2D look for DS games
 
-Started 11-21. Phase 1 (bloom and vignette) is done and checked on the Fold. Phase 2 (real depth of field) is built for OpenGL and checked on the desktop, not yet on a phone (below); the rest is plan only. Open decisions are marked **Decide**.
+Started 11-21. Phases 1 (bloom and vignette) and 2 (real depth of field, OpenGL only) are done and checked on the Fold (below); the rest is plan only. Open decisions are marked **Decide**.
 
 ## The goal
 
@@ -55,7 +55,17 @@ Done when the White plaza from the user's save shows a sharp player and nearby b
 
 **Checked on the desktop, 11-21** (OpenGL 4x, White booted from the user's save and pressed through the title into the city street): with `--dof 1,4` the player and the street around her stay sharp, and the roofs nearest the camera blur. With a tight range (`--dof 1,8,0,0.0005`) everything off the player's depth blurs, which shows the depth is right across the picture. White's field is Z-buffered, and everything on screen is within about 0.002 of the player's depth, so the defaults are range 0.0002 and falloff 0.0015. Walking onto Route 2, the "Route 2" banner (2D over the 3D) stays sharp. At `--wide 342` the wings blur with the rest. The raw frame (`--screenshot`) is byte-identical with the depth of field on and off, so the depth pass doesn't touch the picture. App unit tests: 742, all passing. `hd2d_white.lua` now uses the depth of field, with the tilt-shift kept as an option (off by default) for the other renderers.
 
-**Not checked yet:** the phone (no APK built; the native code compiled for x86_64 with the NDK, nothing linked), its cost at 4x and 8x, the late-Blit path (only frames that capture use it, and White's field doesn't), the output cap, a text box over the field, and the camera moving. The focus point follows the camera by construction, but nothing has looked at it in motion. Compute and Software give no depth, and Compute could write it from its final pass. Z- and W-buffered frames aren't told apart, so a W-buffered game needs its range tuned differently.
+**On the Fold, 11-21** (USB, plugged in; White in Striaton City from the user's save, WideMelon 342, sharp filter, `hd2d_white.lua` with depth of field, bloom and vignette; `perf_logs/2026-11-21-hd2d-dof/`). The player stays sharp. The Pokémon Center's roof and the buildings along the top and right edges blur softly, more toward the edges, and a trainer near the camera at the bottom blurs too, as depth says it should. The bottom screen is pixel-identical off and on. A message box stays crisp over the blurred roofs. Walking for 9 s showed no flicker between sharp and blurred frames, though that was judged from a half-resolution recording. There were no GL, depth or shader errors in logcat. Compute 4x runs the script with only the bloom and vignette, as expected. The output cap was on: no cap at 4x (GPU 2D shadow), 6x output for 8x 3D. Every run held 60 FPS with no missed frames, and the work time moved by 0.1 to 0.2 ms. GPU cost per frame, one pass each, so the numbers are rough:
+
+| | off | on | phase 1 (bloom and vignette only) |
+|---|---|---|---|
+| OpenGL 4x | 2.6 Mcycles | 3.7 | 3.2 |
+| OpenGL 8x (6x output) | 5.8 | 9.5 | 8.0 |
+| Compute 4x | | 5.7 | 6.2 |
+
+So the depth of field adds about 0.5 Mcycles a frame at 4x and 1.5 at 8x on top of the bloom, with room to spare on the Fold.
+
+**Not checked yet:** the slower phones' cost, the late-Blit path (only frames that capture use it, and White's field doesn't), and frame interpolation. Compute and Software give no depth, and Compute could write it from its final pass. Z- and W-buffered frames aren't told apart, so a W-buffered game needs its range tuned differently. The defaults are tuned for White's field only.
 
 **Decide:** whether the depth of field should reuse its result on the frames White doesn't render (the overworld runs at 30 fps). It's filtered once per new frame already, but frame interpolation is untested with it.
 
