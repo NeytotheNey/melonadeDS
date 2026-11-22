@@ -3,6 +3,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <optional>
 
 #include "PlatformOGL.h"
@@ -27,6 +28,14 @@ struct FrameView
     melonDS::u64 Sequence = 0;
     // the top screen half's depth (Frame::depthTexture, GL_RGBA8), 0 when the frame has none
     GLuint DepthTexture = 0;
+    // the camera that depth was drawn with (melonDS::DepthCamera in the core's GPU3D.h), only meaningful while DepthCameraValid:
+    // DepthProjection is the projection column-major as GLSL's mat4 takes it (mat4 * vec4(view, 1) is the clip position), DepthViewport
+    // its viewport's left, top, width and height in DS pixels from the native top screen's top-left corner, rows going down. A pixel at
+    // (x, y) there (its center at +0.5) with a Z-buffered 24-bit depth d is at NDC x = (x - left) * 2 / width - 1,
+    // y = 1 - (y - top) * 2 / height, z = (d - 0x7FFE00) / 2^23, and in view space at inverse(projection) * (ndc, 1), divided by its w
+    std::array<float, 16> DepthProjection {};
+    std::array<float, 4> DepthViewport {};
+    bool DepthCameraValid = false;
 
     bool IsValid() const { return Texture != 0; }
     // the top screen's half of the frame in DS pixels (192 plus the margin on both sides), and the whole frame's

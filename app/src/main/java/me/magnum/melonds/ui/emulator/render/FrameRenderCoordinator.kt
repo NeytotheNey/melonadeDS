@@ -152,6 +152,7 @@ class FrameRenderCoordinator {
                 halfScaleAt1x: Int,
                 topWingLines: Int,
                 depthTextureId: Int,
+                isDepthCameraValid: Boolean,
                 frameSequence: Long,
             ): Boolean {
                 val renderStart = System.nanoTime()
@@ -169,6 +170,8 @@ class FrameRenderCoordinator {
                     this.scaleAt1x = scaleAt1x
                     this.halfScaleAt1x = halfScaleAt1x
                     this.depthTextureId = depthTextureId
+                    // depthCamera itself was just filled by presentFrame()
+                    this.isDepthCameraValid = isDepthCameraValid
                     this.frameSequence = frameSequence
                     // Moved once per presented frame, here, so every surface shows the same window
                     this.wideWindow = if (isValidFrame) wideCameraController?.onFrame(renderStart, topScreenWidth, topScreenMargin, topWingLines) else null
@@ -305,7 +308,7 @@ class FrameRenderCoordinator {
                 } else {
                     0L
                 }
-                MelonEmulator.presentFrame(deadline, vsyncTimeNanos, frameRenderCallback)
+                MelonEmulator.presentFrame(deadline, vsyncTimeNanos, presentFrameWrapper.depthCamera, frameRenderCallback)
             }
         }
 

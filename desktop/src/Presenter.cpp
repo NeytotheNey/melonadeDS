@@ -121,6 +121,9 @@ FrameView FrameView::Of(const Frame& frame)
     view.HalfScale = frame.halfScaleAt1x;
     view.Sequence = frame.sequence;
     view.DepthTexture = frame.hasDepth ? frame.depthTexture : 0;
+    view.DepthProjection = frame.depthProjection;
+    view.DepthViewport = frame.depthViewport;
+    view.DepthCameraValid = frame.depthCameraValid;
     return view;
 }
 

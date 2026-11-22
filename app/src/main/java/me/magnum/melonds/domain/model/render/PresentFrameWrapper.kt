@@ -8,6 +8,17 @@ import me.magnum.melonds.domain.model.camera.WideWindow
 const val OVERLAY_SCREEN_TOP = 1
 const val OVERLAY_SCREEN_BOTTOM = 2
 
+// PresentFrameWrapper.depthCamera's layout; must match presentFrame() in MelonDSAndroidJNI.cpp. The camera the top screen's depth was drawn
+// with (the core's melonDS::DepthCamera in GPU3D.h), for effects that rebuild positions from the depth:
+// - [DEPTH_CAMERA_PROJECTION], 16 floats: the projection, column-major as GLSL's mat4 takes it, so mat4 * vec4(view, 1.0) is the clip position.
+// - [DEPTH_CAMERA_VIEWPORT], 4 floats: the viewport's left, top, width and height in DS pixels, measured from the native top screen's top-left
+//   corner with rows going down (the WideMelon wings and margin rows are outside 0..SCREEN_WIDTH and 0..SCREEN_HEIGHT).
+// A pixel at (x, y) in those DS pixels (its center at +0.5) with a Z-buffered 24-bit depth d is at NDC x = (x - left) * 2 / width - 1,
+// y = 1 - (y - top) * 2 / height, z = (d - 0x7FFE00) / 2^23, and in view space at inverse(projection) * vec4(ndc, 1.0), divided by its w
+const val DEPTH_CAMERA_PROJECTION = 0
+const val DEPTH_CAMERA_VIEWPORT = 16
+const val DEPTH_CAMERA_SIZE = 20
+
 data class PresentFrameWrapper(
     var isValidFrame: Boolean = false,
     var textureId: Int = 0,
@@ -31,6 +42,10 @@ data class PresentFrameWrapper(
     var halfScaleAt1x: Int = 1,
     // The top screen half's depth for a depth of field (GL_RGBA8, textureWidth by the top half's rows, see FrameRenderCallback), or 0 for none
     var depthTextureId: Int = 0,
+    // The camera that depth was drawn with (the DEPTH_CAMERA_* layout), written by presentFrame() before each frame is presented. Only to be
+    // read while isDepthCameraValid: off for a W-buffered or orthographic scene, one where the camera covers under half of it, or no depth
+    val depthCamera: FloatArray = FloatArray(DEPTH_CAMERA_SIZE),
+    var isDepthCameraValid: Boolean = false,
     // Emulator frame sequence number, 0 when the frame is invalid
     var frameSequence: Long = 0,
     // The WideMelon camera's window of the top-slot screen for this presentation, or null to draw it without one

@@ -114,6 +114,7 @@ struct Options
     std::string DepthShotPath;     // --depth-shot: the last frame's depth as a PNG, with its stats printed
     std::string DepthRawPath;      // --depth-raw: the last frame's depth texture as it is, for scripts
     std::string CameraDumpPath;    // --camera-dump: each 3D scene's projections and viewports, a JSON line per scene
+    std::string CameraShownPath;   // --camera-shown: the depth camera each presented frame came with, a JSON line per frame
     std::string LogPath;
     std::string CacheDir;      // the Compute program cache, next to the exe by default
     RendererType Renderer = RendererType::Compute;
@@ -332,7 +333,8 @@ void Usage()
         "                              ends the run, near dark to far light, and print how many depth values it has\n"
         "  --depth-raw FILE.png        the same frame's depth texture as it is (RGB the 24-bit depth, A the flags)\n"
         "  --camera-dump FILE          debug: a JSON line per 3D scene with the projection matrices (20.12) and\n"
-        "                              viewports its polygons were built under, and how many polygons each\n"
+        "                              viewports its polygons were built under, how many polygons each, and the pick\n"
+        "  --camera-shown FILE         debug: a JSON line per presented frame with the depth camera it came with\n"
         "  --hidden                    no visible window (with --frames); never fullscreen, saves no window places\n"
         "  --save-window-places        save the window places with --hidden too (tests)\n"
         "  --log FILE                  core log file (default melonade.log next to the exe)\n"
@@ -670,6 +672,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--depth-shot") opts.DepthShotPath = next();
         else if (arg == "--depth-raw") opts.DepthRawPath = next();
         else if (arg == "--camera-dump") opts.CameraDumpPath = next();
+        else if (arg == "--camera-shown") opts.CameraShownPath = next();
         else if (arg == "--hidden") opts.Hidden = true;
         else if (arg == "--gpu-sync") opts.GpuSync = true;
         else if (arg == "--log") opts.LogPath = next();
@@ -1168,6 +1171,17 @@ void ReleaseFrame(Frame* frame)
     glFlush();
 }
 
+// a frame's depth camera (Frame::depthProjection and the rest, as FrameView has them) as JSON members, for --camera-shown and
+// --depth-raw: whether the frame has depth, whether the camera is valid, the projection's 16 floats column-major and the viewport's
+// left, top, width and height. %.9g gives a float back exactly
+void PrintDepthCamera(FILE* file, bool hasDepth, bool valid, const std::array<float, 16>& proj, const std::array<float, 4>& viewport)
+{
+    fprintf(file, "\"depth\":%d,\"valid\":%d,\"proj\":[", hasDepth ? 1 : 0, valid ? 1 : 0);
+    for (int i = 0; i < 16; i++)
+        fprintf(file, "%s%.9g", i ? "," : "", proj[i]);
+    fprintf(file, "],\"vp\":[%.9g,%.9g,%.9g,%.9g]", viewport[0], viewport[1], viewport[2], viewport[3]);
+}
+
 // --depth-shot: [frame]'s top screen depth (GLCompositor::RenderDepth's 24-bit values and flags) into a grayscale PNG at [path], the 3D
 // from near (dark) to far (light) over the range it covers, 2D on top black and transparent 3D white, and its stats printed: how many
 // distinct depth values the 3D has, and how many of them the old 16-bit depth could tell apart. With [rawPath] (--depth-raw) the texture
@@ -1198,18 +1212,24 @@ void DepthShot(const Frame& frame, const std::string& path, const std::string& r
     {
         const bool rawWritten = Frontend::WritePng(Frontend::PathFromUtf8(rawPath), texels, width, height);
         printf("depth raw: %s%s, %dx%d\n", rawPath.c_str(), rawWritten ? "" : " (not written)", width, height);
+        // the camera this depth came with, for rebuilding positions from it
+        printf("depth camera: {");
+        PrintDepthCamera(stdout, frame.hasDepth, frame.depthCameraValid, frame.depthProjection, frame.depthViewport);
+        printf("}\n");
     }
     if (path.empty())
         return;
 
     std::vector<u32> depths;
-    u32 count2D = 0, countBehind = 0, countW = 0, nearest = 0xFFFFFF, farthest = 0;
+    u32 count2D = 0, countBehind = 0, countW = 0, countOther = 0, nearest = 0xFFFFFF, farthest = 0;
     for (size_t i = 0; i < texels.size(); i += 4)
     {
         const u8 flags = texels[i + 3];
         const u32 depth = (u32) texels[i] << 16 | (u32) texels[i + 1] << 8 | texels[i + 2];
         if (flags & 4)
             countW++;
+        if (flags & 8)
+            countOther++;
         if (flags & 1)
             count2D++;
         else if (flags & 2)
@@ -1255,23 +1275,24 @@ void DepthShot(const Frame& frame, const std::string& path, const std::string& r
             distinct16++;
     }
     printf("depth shot: %s%s, %dx%d; 3D %zu px, depth 0x%06X..0x%06X, %zu distinct values (%zu at 16 bits); 2D %u px, "
-           "transparent 3D %u px, W-buffered %u px\n",
+           "transparent 3D %u px, W-buffered %u px, other camera %u px\n",
            path.c_str(), written ? "" : " (not written)", width, height, pixels3D, pixels3D ? nearest : 0, farthest, depths.size(),
-           distinct16, count2D, countBehind, countW);
+           distinct16, count2D, countBehind, countW, countOther);
 }
 
-// --camera-dump: the 3D scene the core swapped in last (GPU3D::CameraLog), as a JSON line into [file], once per swap: the frame, every
-// projection matrix (raw 20.12) and viewport (x0, y0, x1, y1, width, height) its polygons were built under, with their polygon counts
-// and the screen box they cover (x0, y0, x1, y1 in DS pixels), and the polygons past the log's room
+// --camera-dump: the 3D scene the core latched last (GPU3D::CameraLog), as a JSON line into [file], once per swap: the frame, the
+// scene's polygons, every projection matrix (raw 20.12) and viewport (x0, y0, x1, y1, width, height) they were built under with their
+// polygon counts, the polygons past the table's room, and which of those the core picked for the depth (-1 none) and whether it's valid
 void DumpCameraScene(FILE* file, u32 frame, const GPU3D::CameraLog& log)
 {
-    fprintf(file, "{\"frame\":%u,\"swap\":%u,\"other\":%u,\"uses\":[", frame, log.Swaps, log.LastOther);
-    for (u32 i = 0; i < log.LastCount; i++)
+    const int pick = log.Pick.Index == GPU3D::NoSceneCamera ? -1 : (int) log.Pick.Index;
+    fprintf(file, "{\"frame\":%u,\"swap\":%u,\"polys\":%u,\"other\":%u,\"pick\":%d,\"valid\":%d,\"uses\":[", frame, log.Swaps,
+            log.Polygons, log.Other, pick, log.Pick.Valid ? 1 : 0);
+    for (u32 i = 0; i < log.NumCameras; i++)
     {
-        const GPU3D::CameraUse& use = log.Last[i];
-        fprintf(file, "%s{\"polys\":%u,\"box\":[%d,%d,%d,%d],\"vp\":[%u,%u,%u,%u,%u,%u],\"proj\":[", i ? "," : "", use.Polygons,
-                use.XMin, use.YMin, use.XMax, use.YMax, use.Viewport[0], use.Viewport[1], use.Viewport[2], use.Viewport[3],
-                use.Viewport[4], use.Viewport[5]);
+        const GPU3D::CameraCount& use = log.Cameras[i];
+        fprintf(file, "%s{\"polys\":%u,\"vp\":[%u,%u,%u,%u,%u,%u],\"proj\":[", i ? "," : "", use.Polygons, use.Viewport[0],
+                use.Viewport[1], use.Viewport[2], use.Viewport[3], use.Viewport[4], use.Viewport[5]);
         for (int j = 0; j < 16; j++)
             fprintf(file, "%s%d", j ? "," : "", use.Proj[j]);
         fprintf(file, "]}");
@@ -1691,6 +1712,15 @@ int main(int argc, char** argv)
         cameraDump.reset(fopen(opts.CameraDumpPath.c_str(), "w"));
         if (!cameraDump)
             fprintf(stderr, "--camera-dump: can't write %s\n", opts.CameraDumpPath.c_str());
+    }
+    // --camera-shown's file: written on the UI thread (present below), once per frame sequence
+    std::unique_ptr<FILE, int (*)(FILE*)> cameraShown(nullptr, fclose);
+    u64 cameraShownSequence = 0;
+    if (!opts.CameraShownPath.empty())
+    {
+        cameraShown.reset(fopen(opts.CameraShownPath.c_str(), "w"));
+        if (!cameraShown)
+            fprintf(stderr, "--camera-shown: can't write %s\n", opts.CameraShownPath.c_str());
     }
 
     Frontend::EmulatorThread emuThread;
@@ -2602,7 +2632,15 @@ int main(int argc, char** argv)
         if (frame)
         {
             PrepareFrame(frame);
-            windows.Present(presenter, Frontend::FrameView::Of(*frame), [&] { ReleaseFrame(frame); });
+            const Frontend::FrameView view = Frontend::FrameView::Of(*frame);
+            if (cameraShown && view.Sequence != cameraShownSequence)
+            {
+                fprintf(cameraShown.get(), "{\"seq\":%llu,", (unsigned long long) view.Sequence);
+                PrintDepthCamera(cameraShown.get(), view.DepthTexture != 0, view.DepthCameraValid, view.DepthProjection, view.DepthViewport);
+                fprintf(cameraShown.get(), "}\n");
+                cameraShownSequence = view.Sequence;
+            }
+            windows.Present(presenter, view, [&] { ReleaseFrame(frame); });
             presentedThisGame++;
             if (frame->halvesAt1x != 0 && presentedAt1x++ == 0)
                 firstPresentedAt1x = presented + 1;

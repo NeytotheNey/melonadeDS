@@ -533,6 +533,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             renderFrame->halvesAt1x = 0;
             renderFrame->topWingLines = 0;
             renderFrame->hasDepth = false;
+            renderFrame->depthCameraValid = false;
         }
     }
     else
@@ -547,6 +548,9 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             renderFrame->halfScaleAt1x = outputLayout.HalfScale;
             renderFrame->topWingLines = outputLayout.TopWingLines;
             renderFrame->hasDepth = outputLayout.HasDepth && renderFrame->depthTexture != 0;
+            renderFrame->depthProjection = outputLayout.Camera.Proj;
+            renderFrame->depthViewport = outputLayout.Camera.Viewport;
+            renderFrame->depthCameraValid = renderFrame->hasDepth && outputLayout.Camera.Valid;
         }
     }
 

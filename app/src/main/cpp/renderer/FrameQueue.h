@@ -64,6 +64,12 @@ struct Frame {
     u32 depthWidth{};
     u32 depthHeight{};
     bool hasDepth = false;
+    // The camera that depth was drawn with (melonDS::DepthCamera in GPU3D.h, which says how to rebuild positions with it), set with hasDepth:
+    // the projection's 16 floats column-major as GLSL's mat4 takes them, and the viewport's left, top, width and height in DS pixels from the
+    // native top screen's top-left corner. Only to be used while depthCameraValid
+    std::array<float, 16> depthProjection{};
+    std::array<float, 4> depthViewport{};
+    bool depthCameraValid = false;
     GpuFence renderFence{};
     GpuFence presentFence{};
     // Increases every time a frame is pushed for presentation, so the presenter can tell new frames from repeated ones and detect skipped frames
