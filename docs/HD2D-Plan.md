@@ -1,6 +1,6 @@
 # Plan: an HD-2D look for DS games
 
-Started 11-21. Phases 1 (bloom and vignette) and 2 (real depth of field, OpenGL only) are done and checked on the Fold (below). Phase 3 (shading and light) is planned in five steps; step A (24-bit depth and flags) is built and checked on the desktop and the Fold, step B (haze and 3D-only bloom) is built and checked on the desktop and the Fold, and step C (depth shading) is built and checked on the desktop. Open decisions are marked **Decide**.
+Started 11-21. Phases 1 (bloom and vignette) and 2 (real depth of field, OpenGL only) are done and checked on the Fold (below). Phase 3 (shading and light) is planned in five steps; step A (24-bit depth and flags) is built and checked on the desktop and the Fold, step B (haze and 3D-only bloom) is built and checked on the desktop and the Fold, and step C (depth shading) is built and checked on the desktop and the Fold. Open decisions are marked **Decide**.
 
 ## The goal
 
@@ -77,7 +77,7 @@ So the depth of field adds about 0.5 Mcycles a frame at 4x and 1.5 at 8x on top 
 
 ### Phase 3: light and shading
 
-Planned 11-21. Steps A and B are built and checked on the desktop and the Fold, step C on the desktop; D and E are plan only. The harder half of the look: soft shadows where things meet the ground, haze in the distance, and glows on lamps and windows instead of on anything bright. Some of it can come from depth alone, some only from knowing the scene. The steps go from cheap and depth-only to scene knowledge, and each one is worth having on its own.
+Planned 11-21. Steps A, B and C are built and checked on the desktop and the Fold; D and E are plan only. The harder half of the look: soft shadows where things meet the ground, haze in the distance, and glows on lamps and windows instead of on anything bright. Some of it can come from depth alone, some only from knowing the scene. The steps go from cheap and depth-only to scene knowledge, and each one is worth having on its own.
 
 **Why phase 2's depth wasn't enough.** It was the top 16 bits of the DS's 24-bit depth. White's city street fits in about 0.005 of the range, so the whole screen had only 314 depth values. That's enough to pick a blur radius, but shading from it would come out in bands. The full 24 bits give 68,124 values in the same frame (step A). The app also doesn't know the camera, only raw depth, so anything that needs real distances or a light direction needs the projection too (step D).
 
@@ -137,6 +137,13 @@ Done when Striaton City shows soft shading at the base of buildings and under th
 - A text box's 2D pixels are byte-identical, and the 3D right under the box shades the same as the 3D away from it (5.5). White's speech bubble tail is a 3D triangle at the nearest depth in the frame, though, so the ground behind it shades (53 at strength 1). Fixing that would need masking that polygon.
 - Everything on (shade, DOF, bloom, haze) holds together. Without `--shade` every shot is byte-identical to the build before, and Compute draws no shading with no errors. App unit tests: 753, all passing.
 
+**On the Fold, 11-21** (USB, plugged in; White in Striaton from the user's save, WideMelon 342, sharp filter, deband off as in step B; `hd2d_white.lua` with everything on, shade 0.7 against a copy with shade 0; `perf_logs/2026-11-21-hd2d-shade/fold/`):
+- At 4x and 8x the base of buildings and walls, the stairs and railings and the player's feet darken softly, with a faint shadow around her and no outlines. Around the player nothing gets lighter at either scale, so no halos. The bottom screen is pixel-identical.
+- Walking left for 10 s (screenshots about 0.6 s apart) the shading moves smoothly and holds still once she stops. A single-frame flicker isn't ruled out, as no recording was decoded. Left of the canal bridge's pillar the ground gets a broad, flat dark band with fairly firm edges, probably the bridge's depth step; worth a look if it bothers.
+- A sign's text box stays crisp and unshaded. The speech bubble tail wasn't tested on the phone.
+- Compute 4x runs the script with no shading. Logcat has no GL, shader, Lua or build errors.
+- Every run held 60 FPS with no missed frames, and the work time didn't move. GPU cost per frame, one 30 s pass each: OpenGL 4x 2.79 Mcycles on, 2.57 at shade 0; 8x 8.46 on, 7.58 at shade 0; Compute 4x 4.05 both. So the shading costs about 0.2 Mcycles at 4x and 0.9 at 8x, less than the DOF, as expected from its DS-resolution blur, and the shade-0 runs match step B's (2.59, 7.61). Step C is done.
+
 #### Step D, only if C isn't enough: the camera
 
 Real ambient occlusion, shadows from a light direction (marching towards the light in screen space) and light shafts need view-space positions, which need the projection. The core has `GPU3D::ProjMatrix`, but that's the geometry engine's current matrix, and a game can change it mid-frame (for example an orthographic menu drawn in 3D last). The core would keep the projection that most of the frame's polygons used and hand it over with the depth. Decide after C whether the look needs it.
@@ -151,7 +158,7 @@ Glow on chosen things instead of on anything bright. A Lua list of textures (by 
 - Compute's depth. It fits in once step A settles the format: Compute's final pass would write the same RGBA8 with one more `imageStore`.
 - Effects running only on new frames at 30 fps (phase 2's open **Decide**). It matters more with more passes, so measure it with frame interpolation on after C.
 
-**Cost.** Each step gets measured on the Fold like phases 1 and 2. Phase 2 left OpenGL 8x at about 9.5 Mcycles a frame with room to spare. B should add almost nothing, and C about as much as the DOF (+0.5 at 4x, +1.5 at 8x) or less, since its blur runs at DS resolution.
+**Cost.** Each step gets measured on the Fold like phases 1 and 2. Phase 2 left OpenGL 8x at about 9.5 Mcycles a frame with room to spare. B added nothing measurable, and C about 0.2 at 4x and 0.9 at 8x, under the DOF's +0.5 and +1.5.
 
 ### Phase 4 (separate plan): better assets
 
