@@ -110,6 +110,7 @@ Shader::Shader(GLuint program, GLenum textureFiltering)
     UniformTex = glGetUniformLocation(Program, "tex");
     UniformTexSize = glGetUniformLocation(Program, "texSize");
     UniformTopScreenWidth = glGetUniformLocation(Program, "topScreenWidth");
+    UniformTopScreenGuard = glGetUniformLocation(Program, "topScreenGuard");
     UniformFrameLayout = glGetUniformLocation(Program, "frameLayout");
     UniformBottomScreenWide = glGetUniformLocation(Program, "bottomScreenWide");
     UniformTiltShift = glGetUniformLocation(Program, "tiltShift");
@@ -183,6 +184,12 @@ void Shader::SetTopScreenHeight(int height) const
         float frameRows = (float)(height + SCREEN_GAP + SCREEN_HEIGHT);
         glUniform4f(UniformFrameLayout, height / frameRows, (height + SCREEN_GAP) / frameRows, (height + SCREEN_GAP / 2) / frameRows, frameRows);
     }
+}
+
+void Shader::SetTopScreenGuard(int guard) const
+{
+    if (UniformTopScreenGuard >= 0)
+        glUniform1f(UniformTopScreenGuard, (float)guard);
 }
 
 void Shader::SetBottomScreenWide(bool isBottomScreenWide) const

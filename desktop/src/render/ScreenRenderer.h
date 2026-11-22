@@ -109,6 +109,7 @@ private:
     // the frame shape the quads were built for (the last valid frame's), and the screens' places
     int FrameTopScreenWidth = 256;
     int FrameTopScreenMargin = 0;
+    int FrameTopScreenGuard = 0;
     Rect TopScreenRect, BottomScreenRect;
     float Width = 0, Height = 0;
     // whether the bottom screen is the one drawn wide; the desktop's swap keeps the top one wide, so never

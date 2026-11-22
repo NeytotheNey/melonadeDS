@@ -66,8 +66,12 @@ data class ScreensDrawing(val topScreen: ScreenDrawing?, val bottomScreen: Scree
  * @param bottomScreenRect The rect the DS bottom screen is drawn in
  * @param surfaceWidth The surface width, which a wide screen in a layout that isn't wide can grow up to
  * @param wideWindow The WideMelon camera's window of the screen in the layout's top rect, or null without a camera: that screen is then shaped
- * for the window's show width and shows only the window, letterboxed by as much as the window's height can't cover
+ * for the window's show width and shows only the window, letterboxed by as much as the window's height can't cover. It's a window of the
+ * shown frame (WideCameraController takes the guard band out), so its frameWidth is [frameWidth] less the guard on both sides
  * @param frameMargin The frame's rows above and below the DS top screen (the camera's margin, stage 2), which only the camera's window shows
+ * @param frameGuard The sun shadows' guard band (PresentFrameWrapper.topScreenGuard), included in [frameWidth] and [frameMargin]: its columns
+ * on each side of both halves and its rows above and below the DS top screen are never shown, so the screens are placed and drawn exactly as
+ * from a frame without it, the shown one, with their columns and rows moved in by the guard
  */
 fun getScreensDrawing(
     topScreenRect: Rect?,
@@ -78,6 +82,39 @@ fun getScreensDrawing(
     surfaceWidth: Float,
     wideWindow: WideWindow? = null,
     frameMargin: Int = 0,
+    frameGuard: Int = 0,
+): ScreensDrawing {
+    // MelonInstance keeps the guard within the frame already; kept there here too, so a bad one can't turn the shown frame inside out
+    val guard = frameGuard.coerceIn(0, maxOf(0, minOf((frameWidth - SCREEN_WIDTH) / 2, frameMargin)))
+    val shownWidth = frameWidth - 2 * guard
+    val shown = getShownScreensDrawing(
+        topScreenRect, bottomScreenRect, shownWidth, isWideLayout, areScreensSwapped, surfaceWidth, wideWindow, frameMargin - guard,
+    )
+    if (guard == 0) {
+        return shown
+    }
+
+    // The shown frame's columns sit guard columns into the frame's, in both halves, and its rows guard rows into the DS top screen's half
+    fun toFrameU(u: Float) = (guard + u * shownWidth) / frameWidth
+    fun inFrame(screen: ScreenDrawing?, rowOffset: Float) = screen?.copy(
+        leftU = toFrameU(screen.leftU),
+        rightU = toFrameU(screen.rightU),
+        topRow = screen.topRow + rowOffset,
+        bottomRow = screen.bottomRow + rowOffset,
+    )
+    return ScreensDrawing(inFrame(shown.topScreen, guard.toFloat()), inFrame(shown.bottomScreen, 0f))
+}
+
+// getScreensDrawing for a frame without a guard band: the shown one
+private fun getShownScreensDrawing(
+    topScreenRect: Rect?,
+    bottomScreenRect: Rect?,
+    frameWidth: Int,
+    isWideLayout: Boolean,
+    areScreensSwapped: Boolean,
+    surfaceWidth: Float,
+    wideWindow: WideWindow?,
+    frameMargin: Int,
 ): ScreensDrawing {
     val (wideScreenRect, narrowScreenRect) = if (areScreensSwapped) bottomScreenRect to topScreenRect else topScreenRect to bottomScreenRect
     // A window for another frame width (one presented before a width change) is left out

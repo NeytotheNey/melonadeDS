@@ -18,7 +18,7 @@ namespace
 
 // the frame textures hold the top screen in rows 0-191 and the bottom one in 194-385 (times the scale), with two rows of padding between
 // them, as the app's DSRenderer reads them. with a vertical margin M (Frame::topScreenMargin) the top half is 192 + 2M rows, all of it shown
-// here. the screens are drawn with the app's shaders (render/ScreenRenderer.cpp)
+// here but the sun's guard band (Frame::topScreenGuard). the screens are drawn with the app's shaders (render/ScreenRenderer.cpp)
 
 // the touch cursor: a ring with a dark edge (a filled dot while it touches), on a quad around it; uRect is the quad in NDC
 const char* kCursorVS = R"(#version 320 es
@@ -116,6 +116,8 @@ FrameView FrameView::Of(const Frame& frame)
     view.Height = (int)frame.height;
     view.TopWidth = (int)frame.topScreenWidth;
     view.TopMargin = (int)frame.topScreenMargin;
+    // MelonInstance keeps it within the frame's width and margin already
+    view.TopGuard = (int)frame.topScreenGuard;
     view.HalvesAt1x = frame.halvesAt1x;
     view.Scale = frame.scaleAt1x;
     view.HalfScale = frame.halfScaleAt1x;
@@ -133,9 +135,9 @@ ScreenRects Presenter::Place(const FrameView& frame, int windowW, int windowH, L
         layout = Layout::BottomOnly;
     else if (swap && layout == Layout::BottomOnly)
         layout = Layout::TopOnly;
-    int margin = frame.TopMargin;
-    // the frame in DS pixels: the top screen is topWidth wide (and 192 + 2 x margin tall), the bottom one 256
-    float topW = (float)frame.TopWidth, botW = 256.f, h = 192.f, topH = 192.f + 2.f * margin;
+    int margin = frame.ShownTopMargin();
+    // the frame in DS pixels as shown: the top screen is its shown width wide (and 192 + 2 x margin tall), the bottom one 256
+    float topW = (float)frame.ShownTopWidth(), botW = 256.f, h = 192.f, topH = 192.f + 2.f * margin;
     float boxW, boxH;
     switch (layout)
     {

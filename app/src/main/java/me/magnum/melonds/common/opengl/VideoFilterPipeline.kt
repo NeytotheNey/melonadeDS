@@ -578,7 +578,11 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             bindDepthTexture(GLES30.GL_TEXTURE2, frame.depthTextureId)
         }
         GLES30.glViewport(0, 0, inputWidth, inputHeight)
-        combine.render(inputTexture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
+        // The vignette darkens towards the corners of the top screen as it's shown, so a guard band doesn't move it
+        combine.render(
+            inputTexture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom,
+            topScreenGuard = frame.topScreenGuard,
+        )
         if (glowTexture != 0) {
             unbindTexture(GLES30.GL_TEXTURE1)
         }
@@ -1267,6 +1271,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             shade: Shade? = null,
             sun: Sun? = null,
             sunCamera: SunCamera? = null,
+            topScreenGuard: Int = 0,
         ) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
             // The quad covers every texel, so the old contents never have to be loaded
@@ -1282,6 +1287,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             shader.setTextureSize(inputWidth, inputHeight)
             shader.setTopScreenWidth(topScreenWidth)
             shader.setTopScreenHeight(topScreenHeight)
+            shader.setTopScreenGuard(topScreenGuard)
             shader.setBottomScreenWide(isBottomScreenWide)
             if (tiltShift != null) {
                 shader.setTiltShift(tiltShift)

@@ -177,6 +177,9 @@ struct LuaSun
     melonDS::u32 color = 0x33384F;
     // View-space units: nearer occluders cast nothing (0 for none)
     float nearLimit = 0.0f;
+    // DS pixels the OpenGL renderer draws past each side of the top screen, and rows above and below, for the march but not shown, so
+    // casters just off screen still cast (MelonInstance::updateSunGuard); 0 for none
+    int guard = 0;
 
     bool operator==(const LuaSun&) const = default;
 };

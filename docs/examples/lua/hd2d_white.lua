@@ -66,6 +66,8 @@ local sun_options = {
     bias = 1,
     softness = 1.5,
     color = 0x33384F,
+    -- Roofs up to 64 DS pixels past the top and right edges still cast, so shadows don't grow in while walking
+    guard = 64,
 }
 
 -- A speech bubble's tail is the game's UI drawn in 3D, right in front of the camera (about 65 units away,

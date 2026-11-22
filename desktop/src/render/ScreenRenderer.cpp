@@ -140,9 +140,13 @@ void ScreenRenderer::UpdateScreenCoordinates()
     // The output cap (GPU::OutputCap): each screen's middle 256 columns and 192 rows are shown at that part of its rect, which the frame has
     // to be at least as big as. The desktop shows the top screen's whole half (the camera's margin too), where the app shows its middle rows
     int frameWidth = std::max(FrameTopScreenWidth, SCREEN_WIDTH);
+    // The sun's guard band is rendered and filtered but cut off here (Frame::topScreenGuard, which MelonInstance keeps within the frame)
+    int guard = FrameTopScreenGuard;
+    int shownWidth = frameWidth - 2 * guard;
+    int shownRows = layout.TopScreenRows - 2 * guard;
     int outputScaleNeed = 0;
     if (topScreen)
-        outputScaleNeed = GetOutputScaleNeed(topScreen->W * SCREEN_WIDTH / frameWidth, topScreen->H * SCREEN_HEIGHT / layout.TopScreenRows);
+        outputScaleNeed = GetOutputScaleNeed(topScreen->W * SCREEN_WIDTH / shownWidth, topScreen->H * SCREEN_HEIGHT / shownRows);
     if (bottomScreen)
         outputScaleNeed = std::max(outputScaleNeed, GetOutputScaleNeed(bottomScreen->W, bottomScreen->H));
     auto visibleArea = [&](const Rect& rect) -> long long
@@ -169,7 +173,10 @@ void ScreenRenderer::UpdateScreenCoordinates()
         PutQuad(*bottomScreen, leftU, 1.f - leftU, layout.BottomScreenV(0), layout.BottomScreenV(SCREEN_HEIGHT), 1.f);
     }
     if (topScreen)
-        PutQuad(*topScreen, 0.f, 1.f, layout.TopScreenV(0), layout.TopScreenV((float)layout.TopScreenRows), 1.f);
+    {
+        float guardU = guard / (float)frameWidth;
+        PutQuad(*topScreen, guardU, 1.f - guardU, layout.TopScreenV((float)guard), layout.TopScreenV((float)(layout.TopScreenRows - guard)), 1.f);
+    }
     // (the screens' Lua drawings go after both, in the same order: phase 4)
 
     glBindVertexArray(ScreensVao);
@@ -306,6 +313,11 @@ void ScreenRenderer::DrawFrame(const FrameView& frame, const std::optional<TiltS
     if (frame.IsValid() && frame.TopMargin != FrameTopScreenMargin)
     {
         FrameTopScreenMargin = frame.TopMargin;
+        MustUpdateConfiguration = true;
+    }
+    if (frame.IsValid() && frame.TopGuard != FrameTopScreenGuard)
+    {
+        FrameTopScreenGuard = frame.TopGuard;
         MustUpdateConfiguration = true;
     }
     if (MustUpdateConfiguration)

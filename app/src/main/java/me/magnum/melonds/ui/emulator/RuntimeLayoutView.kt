@@ -47,7 +47,8 @@ class RuntimeLayoutView(context: Context, attrs: AttributeSet? = null) : LayoutV
     private var isSoftInputVisible = true
     private var areScreensSwapped = false
     private var connectedControllersState: ConnectedControllersState = ConnectedControllersState.NoControllers
-    // The width of the frames the screens are drawn from, in DS pixels (DSRenderer.frameTopScreenWidth), for where touches go
+    // The width of the frames the screens are drawn from as shown, in DS pixels, without the sun's guard band (DSRenderer.frameShownTopScreenWidth),
+    // for where touches go
     private var frameWidthProvider: () -> Int = { SCREEN_WIDTH }
     // The WideMelon camera's window the renderer draws with (DSRenderer.frameWideWindow), for where touches go when it's the touch screen
     private var wideWindowProvider: () -> WideWindow? = { null }

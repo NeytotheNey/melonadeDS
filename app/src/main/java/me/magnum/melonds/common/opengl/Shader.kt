@@ -31,6 +31,8 @@ class Shader(
     private val uniformFrameLayout: Int
     // Only declared by the filters that keep their samples off the parts beside a screen's middle (see ShaderProgramSource.screenColumns)
     private val uniformBottomScreenWide: Int
+    // Only declared by the bloom's combine pass (its vignette): the sun shadows' guard band in DS pixels (PresentFrameWrapper.topScreenGuard)
+    private val uniformTopScreenGuard: Int
     // Only declared by the tilt-shift pre-passes (see ShaderProgramSource.tiltShiftPrePassShader)
     private val uniformTiltShift: Int
     // Only declared by the tilt-shift pre-passes that apply the color boost: the blur's last one and the color-only one
@@ -87,6 +89,7 @@ class Shader(
         uniformTopScreenWidth = GLES30.glGetUniformLocation(programId, "topScreenWidth")
         uniformFrameLayout = GLES30.glGetUniformLocation(programId, "frameLayout")
         uniformBottomScreenWide = GLES30.glGetUniformLocation(programId, "bottomScreenWide")
+        uniformTopScreenGuard = GLES30.glGetUniformLocation(programId, "topScreenGuard")
         uniformTiltShift = GLES30.glGetUniformLocation(programId, "tiltShift")
         uniformTiltShiftBoost = GLES30.glGetUniformLocation(programId, "tiltShiftBoost")
         uniformBloom = GLES30.glGetUniformLocation(programId, "bloom")
@@ -163,6 +166,16 @@ class Shader(
                 (height + SCREEN_GAP / 2) / frameRows,
                 frameRows,
             )
+        }
+    }
+
+    /**
+     * Sets the sun shadows' guard band in DS pixels (PresentFrameWrapper.topScreenGuard), so the vignette goes over the top screen as it's
+     * shown, without it; call after [use].
+     */
+    fun setTopScreenGuard(guard: Int) {
+        if (uniformTopScreenGuard != INVALID_UNIFORM) {
+            GLES30.glUniform1f(uniformTopScreenGuard, guard.toFloat())
         }
     }
 

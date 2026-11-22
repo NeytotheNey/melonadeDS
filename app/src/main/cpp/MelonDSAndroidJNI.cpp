@@ -117,7 +117,7 @@ static jmethodID getRenderFrameMethodId(JNIEnv* env)
         jclass localCallbackClass = env->FindClass("me/magnum/melonds/ui/emulator/render/FrameRenderCallback");
         jclass callbackClass = (jclass) env->NewGlobalRef(localCallbackClass);
         env->DeleteLocalRef(localCallbackClass);
-        return env->GetMethodID(callbackClass, "renderFrame", "(ZIIIIIIIIIIIIZJ)Z");
+        return env->GetMethodID(callbackClass, "renderFrame", "(ZIIIIIIIIIIIIIZJ)Z");
     }();
     return renderFrameMethodId;
 }
@@ -380,14 +380,14 @@ Java_me_magnum_melonds_MelonEmulator_presentFrame(JNIEnv* env, jobject thiz, jlo
             env->SetFloatArrayRegion(depthCamera, DEPTH_CAMERA_VIEWPORT, 4, presentationFrame->depthViewport.data());
         }
         // GPU::Comp1x: the screens at 1x in the texture (Frame::halvesAt1x); the callback says whether every surface can draw such a frame
-        jboolean halvesAt1xSupported = env->CallBooleanMethod(renderFrameCallback, renderFrameMethodId, true, (jint) presentationFrame->frameTexture, (jint) presentationFrame->width, (jint) presentationFrame->height, (jint) presentationFrame->topScreenWidth, (jint) presentationFrame->topScreenMargin, (jint) presentationFrame->overlayTexture, overlayScreens, (jint) presentationFrame->halvesAt1x, (jint) presentationFrame->scaleAt1x, (jint) presentationFrame->halfScaleAt1x, (jint) presentationFrame->topWingLines, depthTexture, depthCameraValid, (jlong) presentationFrame->sequence);
+        jboolean halvesAt1xSupported = env->CallBooleanMethod(renderFrameCallback, renderFrameMethodId, true, (jint) presentationFrame->frameTexture, (jint) presentationFrame->width, (jint) presentationFrame->height, (jint) presentationFrame->topScreenWidth, (jint) presentationFrame->topScreenMargin, (jint) presentationFrame->topScreenGuard, (jint) presentationFrame->overlayTexture, overlayScreens, (jint) presentationFrame->halvesAt1x, (jint) presentationFrame->scaleAt1x, (jint) presentationFrame->halfScaleAt1x, (jint) presentationFrame->topWingLines, depthTexture, depthCameraValid, (jlong) presentationFrame->sequence);
         MelonDSAndroid::setHalvesAt1xSupported(halvesAt1xSupported);
         EGLSyncKHR presentFence = eglCreateSyncKHR(currentDisplay, EGL_SYNC_FENCE_KHR, nullptr);
         presentationFrame->presentFence = presentFence;
     }
     else
     {
-        jboolean halvesAt1xSupported = env->CallBooleanMethod(renderFrameCallback, renderFrameMethodId, false, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, JNI_FALSE, (jlong) 0);
+        jboolean halvesAt1xSupported = env->CallBooleanMethod(renderFrameCallback, renderFrameMethodId, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, JNI_FALSE, (jlong) 0);
         MelonDSAndroid::setHalvesAt1xSupported(halvesAt1xSupported);
     }
 }

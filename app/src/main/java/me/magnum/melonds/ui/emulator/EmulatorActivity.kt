@@ -487,7 +487,7 @@ class EmulatorActivity : AppCompatActivity() {
         binding.viewLayoutControls.apply {
             setFrontendInputHandler(frontendInputHandler)
             setSystemInputHandler(melonTouchHandler)
-            setFrameWidthProvider { mainScreenRenderer.frameTopScreenWidth }
+            setFrameWidthProvider { mainScreenRenderer.frameShownTopScreenWidth }
             setWideWindowProvider { mainScreenRenderer.frameWideWindow }
             // A recreated activity's views start unswapped, so put back the shown swap before any Lua event is handled
             if (viewModel.areScreensSwapped) {

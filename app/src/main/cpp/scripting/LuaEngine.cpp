@@ -44,6 +44,8 @@ static const lua_Number kMaxSunSteps = 128.0;
 static const lua_Number kMaxSunBias = 64.0;
 static const lua_Number kMaxSunSoftness = 8.0;
 static const lua_Number kMaxSunNear = 1024.0;
+// and its guard band in DS pixels, WideMelon's most margin rows
+static const lua_Number kMaxSunGuard = 128.0;
 
 /**
  * A new table on the stack with [functions] in it, like luaL_newlib() for a table whose size isn't known here
@@ -1229,6 +1231,7 @@ int LuaEngine::luaScreenSun(lua_State* L)
         sun.softness = getNumberOption(L, 2, "softness", sun.softness, kMaxSunSoftness);
         sun.color = getColorOption(L, 2, "color", sun.color);
         sun.nearLimit = getNumberOption(L, 2, "near", sun.nearLimit, kMaxSunNear);
+        sun.guard = (int) std::lround(getNumberOption(L, 2, "guard", (float) sun.guard, kMaxSunGuard));
     }
 
     // Off is off, whatever the options are, so going over them while it's off costs no events
@@ -1240,7 +1243,7 @@ int LuaEngine::luaScreenSun(lua_State* L)
     return 0;
 }
 
-melonDS::SunShadows LuaEngine::sunShadows() const
+const LuaScript* LuaEngine::findNewestSun() const
 {
     // The newest request wins, as in the app (LuaSunRequests). A stopped script's was set back to off when it closed
     const LuaScript* newest = nullptr;
@@ -1249,6 +1252,12 @@ melonDS::SunShadows LuaEngine::sunShadows() const
         if (script->sentSun.strength > 0.0f && (!newest || script->sentSunOrder > newest->sentSunOrder))
             newest = script.get();
     }
+    return newest;
+}
+
+melonDS::SunShadows LuaEngine::sunShadows() const
+{
+    const LuaScript* newest = findNewestSun();
     melonDS::SunShadows sun;
     if (newest)
     {
@@ -1257,6 +1266,12 @@ melonDS::SunShadows LuaEngine::sunShadows() const
         sun.Up = newest->sentSun.up;
     }
     return sun;
+}
+
+std::optional<int> LuaEngine::sunGuard() const
+{
+    const LuaScript* newest = findNewestSun();
+    return newest ? std::optional<int>(newest->sentSun.guard) : std::nullopt;
 }
 
 int LuaEngine::luaGpuHideTextures(lua_State* L)

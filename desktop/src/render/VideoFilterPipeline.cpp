@@ -113,6 +113,8 @@ public:
     const int Scale;
     const bool NativeResolutionOnly;
     GLuint Texture = 0;
+    // the frame's sun guard band (FrameView::TopGuard) for the next Render, which only the bloom's combine pass reads (its vignette)
+    int TopScreenGuard = 0;
 
     // the target texture at [width] x [height], made again on a new size; whether its framebuffer can be drawn to
     bool PrepareTarget(int width, int height)
@@ -165,6 +167,7 @@ public:
         Program->SetTextureSize(inputWidth, inputHeight);
         Program->SetTopScreenWidth(topScreenWidth);
         Program->SetTopScreenHeight(topScreenHeight);
+        Program->SetTopScreenGuard(TopScreenGuard);
         Program->SetBottomScreenWide(isBottomScreenWide);
         if (tiltShift)
             Program->SetTiltShift(*tiltShift);
@@ -599,6 +602,8 @@ void VideoFilterPipeline::RenderBloom(BloomPasses* passes, PrePass* depthBright,
     if (hasHaze)
         BindDepthTexture(GL_TEXTURE2, frame.DepthTexture);
     glViewport(0, 0, InputWidth, InputHeight);
+    // The vignette darkens towards the corners of the top screen as it's shown, so a guard band doesn't move it
+    combine->TopScreenGuard = frame.TopGuard;
     combine->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
     if (glowTexture)
         UnbindTexture(GL_TEXTURE1);

@@ -4,6 +4,7 @@ import me.magnum.melonds.domain.model.Input
 import me.magnum.melonds.domain.model.camera.GameScene
 import me.magnum.melonds.domain.model.camera.WideCamera
 import me.magnum.melonds.domain.model.camera.WideCameraRequest
+import me.magnum.melonds.domain.model.camera.WideWindow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -25,9 +26,9 @@ class WideCameraControllerTest {
     private var now = 1_000_000_000L
     private val settings = WideCameraSettings(showWidth = 342, returnsToCenter = true, maxWidth = 512)
 
-    private fun frames(count: Int, wingLines: Int = 192, frameWidth: Int = 512, frameMargin: Int = 0) = (1..count).map {
+    private fun frames(count: Int, wingLines: Int = 192, frameWidth: Int = 512, frameMargin: Int = 0, frameGuard: Int = 0) = (1..count).map {
         now += 16_666_667L
-        controller.onFrame(now, frameWidth, frameMargin, wingLines)
+        controller.onFrame(now, frameWidth, frameMargin, wingLines, frameGuard)
     }.last()
 
     @Test
@@ -442,6 +443,74 @@ class WideCameraControllerTest {
         assertTrue(zooms.size >= (WideCamera.PULL_IN_SECONDS * 60f).toInt())
         assertTrue(zooms[zooms.size / 4] > 1.1f)
         assertTrue(zooms.takeLast(WideCameraController.SHRINK_FRAMES).all { it <= 1.001f })
+    }
+
+    // The sun's guard band: a frame 64 DS pixels wider on each side and 64 rows taller above and below than the shown one
+    private val guard = 64
+
+    @Test
+    fun withAGuardTheCameraWorksOnTheShownFrame() {
+        // The same moves on a guarded frame and on its shown frame give the same windows
+        val plainController = WideCameraController(onCameraChanged = { _, _, _ -> })
+        listOf(controller, plainController).forEach { it.setState(WideCameraState(session = 1, settings = settings, startZoom = 1f)) }
+        var plainNow = now
+        fun both(count: Int): Pair<WideWindow?, WideWindow?> {
+            val plain = (1..count).map {
+                plainNow += 16_666_667L
+                plainController.onFrame(plainNow, 512, 48, 192)
+            }.last()
+            return frames(count, frameWidth = 640, frameMargin = 112, frameGuard = guard) to plain
+        }
+        both(30)
+        controller.onZoomPress()
+        plainController.onZoomPress()
+        controller.onSticks(0.6f, -0.4f, false)
+        plainController.onSticks(0.6f, -0.4f, false)
+        val (guarded, plain) = both(20)
+
+        assertEquals(plain, guarded)
+        assertEquals(512, guarded!!.frameWidth)
+        assertEquals(288, guarded.frameHeight)
+    }
+
+    @Test
+    fun withAGuardZoomedAllTheWayOutItShowsTheWholeShownFrame() {
+        // No widest view: the range is the shown frame's, not the guarded one's
+        controller.setState(WideCameraState(session = 1, settings = WideCameraSettings(showWidth = 342, returnsToCenter = true), startZoom = 1f))
+        frames(30, frameWidth = 640, frameMargin = 112, frameGuard = guard)
+        repeat(2) { controller.onZoomPress() }
+        val window = frames(60, frameWidth = 640, frameMargin = 112, frameGuard = guard)!!
+
+        assertEquals(512f / 342f, window.zoom, 0.0001f)
+        assertEquals(0f, window.x, 0.01f)
+        assertEquals(512f, window.width, 0.01f)
+        assertEquals(512, window.frameWidth)
+        assertEquals(288, window.frameHeight)
+        // The rows fit inside the shown 288 too
+        assertTrue(window.y >= 0f && window.y + window.height <= 288f)
+        assertEquals(512f / 342f, renderZooms.last().second, 0.0001f)
+    }
+
+    @Test
+    fun withAGuardThePanStopsAtTheShownFramesEdges() {
+        controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1f))
+        frames(30, frameWidth = 640, frameMargin = 112, frameGuard = guard)
+        controller.onSticks(1f, 1f, false)
+        val window = frames(120, frameWidth = 640, frameMargin = 112, frameGuard = guard)!!
+
+        // At 1x the 342 columns go to the shown 512's right edge and the 192 rows to the shown 288's bottom, never into the guard
+        assertEquals(170f, window.x, 0.01f)
+        assertEquals(96f, window.y, 0.01f)
+        assertEquals(85f, window.offset, 0.01f)
+        assertEquals(48f, window.offsetY, 0.01f)
+    }
+
+    @Test
+    fun withAGuardAt1xItsDrawnAsWithoutACamera() {
+        controller.setState(WideCameraState(session = 1, settings = settings, startZoom = 1f))
+        // The shown frame is the show width: 342 + 2 * 64 columns and 64 margin rows that are all guard
+        assertNull(frames(30, frameWidth = 470, frameMargin = guard, frameGuard = guard))
+        assertEquals(listOf(1 to 1f), renderZooms)
     }
 
     @Test

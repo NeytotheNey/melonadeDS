@@ -31,6 +31,10 @@ data class PresentFrameWrapper(
     // of the texture is then topScreenHeight rows, with its DS line y at row y + topScreenMargin, then the SCREEN_GAP rows and the bottom
     // screen's SCREEN_HEIGHT; 0 is the old FRAME_TEXTURE_HEIGHT layout
     var topScreenMargin: Int = 0,
+    // The sun shadows' guard band (melon.screen.sun's guard) in DS pixels, included in both of the above: that many columns on each side and
+    // rows above and below of the top screen's half are drawn and filtered, so the sun's march finds casters just off screen, but not shown.
+    // The shown top screen is shownTopScreenWidth wide with shownTopScreenMargin margin rows, centered in its half; 0 for none
+    var topScreenGuard: Int = 0,
     // Lua drawing overlay texture (2x, premultiplied) and the OVERLAY_SCREEN_* bits saying which screens use it
     var overlayTextureId: Int = 0,
     var overlayScreens: Int = 0,
@@ -54,4 +58,7 @@ data class PresentFrameWrapper(
     // The top screen's half of the frame in DS pixels (SCREEN_HEIGHT plus the margin on both sides), and the whole frame's
     val topScreenHeight get() = SCREEN_HEIGHT + 2 * topScreenMargin
     val frameHeight get() = topScreenHeight + SCREEN_GAP + SCREEN_HEIGHT
+    // The top screen's width and margin rows as shown: the guard band left out
+    val shownTopScreenWidth get() = topScreenWidth - 2 * topScreenGuard
+    val shownTopScreenMargin get() = topScreenMargin - topScreenGuard
 }

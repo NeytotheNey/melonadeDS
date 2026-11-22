@@ -124,9 +124,14 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     // The drawn rects the shadows were last built for, so a camera move that keeps them skips the shadows
     private var shadowTopRect: Rect? = null
     private var shadowBottomRect: Rect? = null
-    // Top-screen width of the frame the quads were built for; GL thread writes, touch input reads
+    // Top-screen width of the frame the quads were built for; GL thread only
+    private var frameTopScreenWidth = SCREEN_WIDTH
+    // The sun shadows' guard band of that frame (PresentFrameWrapper.topScreenGuard), which the quads leave out; GL thread only
+    private var frameTopScreenGuard = 0
+    // The top screen's width as that frame shows it, without the guard band, for where touches go (getScreensDrawing with no guard places the
+    // screens the same way); GL thread writes, touch input reads
     @Volatile
-    var frameTopScreenWidth = SCREEN_WIDTH
+    var frameShownTopScreenWidth = SCREEN_WIDTH
         private set
     // The rows of the frame the quads were built for, which the WideMelon camera's margin (PresentFrameWrapper.topScreenMargin) makes taller;
     // GL thread only
@@ -343,6 +348,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         // Lay out both screens for the current frame width, swap and wide-layout flags (see getScreensDrawing)
         val drawing = getScreensDrawing(
             topScreenRect, bottomScreenRect, frameTopScreenWidth, isWideLayout, areScreensSwapped, width, frameWideWindow, layout.topScreenMargin,
+            frameTopScreenGuard,
         )
         isBottomScreenWideInQuads = areScreensSwapped
         val topScreen = drawing.topScreen
@@ -355,7 +361,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             Log.i(LogTags.DEBUG, "OUTCAP: surface ${width.toInt()}x${height.toInt()} need $outputScaleNeed (was $screensOutputScaleNeed): " +
                 "top ${topScreen?.let { "${it.nativeRect.width}x${it.nativeRect.height} draw ${it.drawRect.width}x${it.drawRect.height}" } ?: "none"}, " +
                 "bottom ${bottomScreen?.let { "${it.nativeRect.width}x${it.nativeRect.height} draw ${it.drawRect.width}x${it.drawRect.height}" } ?: "none"}, " +
-                "drawn $screensDrawnPixels px, frame width $frameTopScreenWidth")
+                "drawn $screensDrawnPixels px, frame width $frameTopScreenWidth guard $frameTopScreenGuard")
             screensOutputScaleNeed = outputScaleNeed
         }
 
@@ -589,6 +595,14 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             if (presentFrameWrapper.isValidFrame && presentFrameWrapper.topScreenWidth != frameTopScreenWidth) {
                 frameTopScreenWidth = presentFrameWrapper.topScreenWidth
                 mustUpdateConfiguration = true
+            }
+            // And the guard band in it and its rows, which the quads cut off
+            if (presentFrameWrapper.isValidFrame && presentFrameWrapper.topScreenGuard != frameTopScreenGuard) {
+                frameTopScreenGuard = presentFrameWrapper.topScreenGuard
+                mustUpdateConfiguration = true
+            }
+            if (presentFrameWrapper.isValidFrame) {
+                frameShownTopScreenWidth = presentFrameWrapper.shownTopScreenWidth
             }
             // And the rows of its layout, which the camera's margin makes taller
             if (presentFrameWrapper.isValidFrame && presentFrameWrapper.topScreenMargin != frameLayout.topScreenMargin) {

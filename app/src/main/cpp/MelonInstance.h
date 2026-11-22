@@ -2,6 +2,7 @@
 #define MELONINSTANCE_H
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <mutex>
 #include <optional>
@@ -9,6 +10,7 @@
 #include "Args.h"
 #include "Configuration.h"
 #include "NDS.h"
+#include "WideMelon.h"
 #include "MelonTypes.h"
 #include "SaveManager.h"
 #include "RewindManager.h"
@@ -61,6 +63,8 @@ public:
     // The characters' sun shadows the OpenGL renderer draws while no script asks for its own (the desktop's --sun); emulator thread, between
     // frames
     void setFrontendSun(const melonDS::SunShadows& sun) { frontendSun = sun; }
+    // The guard band that goes with it (melon.screen.sun's guard, the desktop's --sun-guard), in DS pixels; emulator thread, between frames
+    void setFrontendSunGuard(int guard) { frontendSunGuard = std::clamp(guard, 0, WideMelon::MaxMargin); }
     // The texture hashes the OpenGL renderer leaves out while no script hides any (the desktop's --hide-textures); emulator thread, between
     // frames
     void setFrontendHiddenTextures(std::vector<u32> hashes) { frontendHiddenTextures = std::move(hashes); }
@@ -164,6 +168,16 @@ private:
     bool loadStateWithBackup(Savestate* state);
     // Whether LuaEngine::runFrame() ran, which LuaEngine::endFrame() must then follow
     bool runLuaFrame();
+    // Before each frame, before updateRenderer(): the sun's guard band from the newest sun request (sunGuard), then the render view from it
+    // and the shown view, told to the GL or Compute renderer on a change; emulator thread
+    void updateSunGuard();
+    void updateRenderView();
+    // After the OpenGL renderer was given a view or render settings: notes the view it resolved them to with the guard it was asked for, for
+    // getFrameGuard()
+    void noteRenderView(int guard);
+    // The guard band included in a frame the OpenGL renderer draws [width] wide with [margin] rows (its output, which lags the view), the one
+    // the newest noted view with that size was asked for, kept to what that size has room for
+    int getFrameGuard(int width, int margin) const;
 
 private:
     int instanceId;
@@ -193,16 +207,40 @@ private:
     std::atomic_bool isFrontendDepthWanted = false;
     // setFrontendSun(), emulator thread only
     melonDS::SunShadows frontendSun {};
+    // setFrontendSunGuard(), emulator thread only
+    int frontendSunGuard = 0;
+    // The sun's guard band in DS pixels the render view is widened by (updateSunGuard), emulator thread only: a higher request is taken at
+    // once, a lower one once it held for SUN_GUARD_HOLD_FRAMES frames (pendingSunGuard, pendingSunGuardFrames), so a sun fading out during
+    // a text box or a script reload doesn't resize the render. Always 0 off OpenGL
+    int sunGuard = 0;
+    int pendingSunGuard = 0;
+    int pendingSunGuardFrames = 0;
+    // The views the OpenGL renderer resolved, newest at renderViewNotes[(renderViewNoteNext - 1) % size], with the guard each was asked for
+    // (noteRenderView), so a frame drawn at an older one crops by its guard; emulator thread only, cleared with a new renderer
+    struct RenderViewNote
+    {
+        int width;
+        int margin;
+        int guard;
+    };
+    std::array<RenderViewNote, 16> renderViewNotes {};
+    int renderViewNoteCount = 0;
+    int renderViewNoteNext = 0;
     // setFrontendHiddenTextures(), emulator thread only
     std::vector<u32> frontendHiddenTextures;
     // setFrontendLightTextures(), emulator thread only
     std::vector<u32> frontendLightTextures;
     // setFrontendUiTextures(), emulator thread only
     std::vector<u32> frontendUiTextures;
-    // The width and margin of the top screen's 3D view, for the emulator thread: they start at EmulatorConfiguration::wideViewWidth and
-    // wideViewMargin and then follow setWideView() (configuration updates don't change them)
+    // The width and margin of the top screen's 3D view as shown, for the emulator thread: they start at EmulatorConfiguration::wideViewWidth
+    // and wideViewMargin and then follow setWideView() (configuration updates don't change them)
     int wideViewWidth;
     int wideViewMargin;
+    // The view the GL or Compute renderer is told to draw (updateRenderView): the shown one, widened by the sun's guard band on OpenGL
+    int renderViewWidth;
+    int renderViewMargin;
+    // The guard band in it, sunGuard as far as it fits
+    int renderViewGuard = 0;
     // The width and margin setWideView() asked for (packWideView), from any thread, picked up by the emulator thread before the next frame; one
     // value so a frame never gets the new width with the old margin
     std::atomic<u32> requestedWideView;

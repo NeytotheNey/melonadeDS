@@ -228,6 +228,111 @@ class ScreensDrawingTest {
         assertEquals(without, withWindow)
     }
 
+    // The sun's guard band: 64 DS pixels on each side and 64 rows above and below, which are never shown
+    private val guard = 64
+
+    @Test
+    fun aGuardOf0ChangesNothing() {
+        val plain = getScreensDrawing(wideTopSlot, bottomSlot, cameraFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = tallCentered, frameMargin = 48)
+        val guarded = getScreensDrawing(wideTopSlot, bottomSlot, cameraFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = tallCentered, frameMargin = 48, frameGuard = 0)
+
+        assertEquals(plain, guarded)
+    }
+
+    @Test
+    fun aGuardAt256ShownIsCutOffAndTheScreensLandAsWithout() {
+        val topSlot = Rect(0, 0, 640, 480)
+        val plain = getScreensDrawing(topSlot, bottomSlot, 256, isWideLayout = false, areScreensSwapped = false, surfaceWidth = 960f)
+        // WideMelon off: 256 + 2 * 64 columns and 64 margin rows, all of them guard
+        val guarded = getScreensDrawing(topSlot, bottomSlot, 384, isWideLayout = false, areScreensSwapped = false, surfaceWidth = 960f, frameMargin = guard, frameGuard = guard)
+
+        assertScreen(guarded.topScreen, topSlot, topSlot, 64f / 384f, 320f / 384f)
+        assertRows(guarded.topScreen, 64f, 256f)
+        assertScreen(guarded.bottomScreen, bottomSlot, bottomSlot, 64f / 384f, 320f / 384f)
+        assertRows(guarded.bottomScreen, 0f, 192f)
+        assertSamePlaces(plain, guarded)
+    }
+
+    @Test
+    fun aGuardAt342ShownIsCutOffAndTheScreensLandAsWithout() {
+        val plain = getScreensDrawing(wideTopSlot, bottomSlot, wideFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f)
+        val guarded = getScreensDrawing(wideTopSlot, bottomSlot, 470, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, frameMargin = guard, frameGuard = guard)
+
+        // The shown 342 columns are 64 to 406 of 470, and the bottom screen is still the middle 256
+        assertScreen(guarded.topScreen, wideTopSlot, wideTopSlotNative, 64f / 470f, 406f / 470f)
+        assertRows(guarded.topScreen, 64f, 256f)
+        assertScreen(guarded.bottomScreen, bottomSlot, bottomSlot, 107f / 470f, 363f / 470f)
+        assertSamePlaces(plain, guarded)
+        // The output cap sizes the frame for the shown screen, not the guard
+        assertEquals(plain.topScreen!!.nativeRectAt1x, guarded.topScreen!!.nativeRectAt1x)
+    }
+
+    @Test
+    fun swappedAGuardIsCutOffBothScreens() {
+        val plain = getScreensDrawing(bottomSlot, wideTopSlot, wideFrame, isWideLayout = true, areScreensSwapped = true, surfaceWidth = 960f)
+        val guarded = getScreensDrawing(bottomSlot, wideTopSlot, 470, isWideLayout = true, areScreensSwapped = true, surfaceWidth = 960f, frameMargin = guard, frameGuard = guard)
+
+        // The wide DS bottom screen shows the shown 342 columns and its own rows, the narrow DS top screen the middle 256 and its 192 rows
+        assertScreen(guarded.bottomScreen, wideTopSlot, wideTopSlotNative, 64f / 470f, 406f / 470f)
+        assertRows(guarded.bottomScreen, 0f, 192f)
+        assertScreen(guarded.topScreen, bottomSlot, bottomSlot, 107f / 470f, 363f / 470f)
+        assertRows(guarded.topScreen, 64f, 256f)
+        assertEquals(wideTopSlotNative, guarded.touchScreenRect)
+        assertSamePlaces(plain, guarded)
+    }
+
+    @Test
+    fun aZoomedOutWindowWithAGuardShowsTheWholeShownFrameAndNoneOfTheGuard() {
+        // The camera's shown frame is 512 wide with 48 margin rows; the guard makes it 640 wide with 112
+        val height = 192f * 512f / 342f
+        val window = WideWindow(342, cameraFrame, 0f, 512f, 288, (288f - height) / 2f, height)
+        val plain = getScreensDrawing(wideTopSlot, bottomSlot, cameraFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = window, frameMargin = 48)
+        val guarded = getScreensDrawing(wideTopSlot, bottomSlot, 640, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = window, frameMargin = 112, frameGuard = guard)
+
+        assertScreen(guarded.topScreen, wideTopSlot, Rect(160, 60, 320, 240), 64f / 640f, 576f / 640f)
+        assertRows(guarded.topScreen, 64f + (288f - height) / 2f, 64f + (288f + height) / 2f)
+        assertScreen(guarded.bottomScreen, bottomSlot, bottomSlot, 192f / 640f, 448f / 640f)
+        assertSamePlaces(plain, guarded)
+    }
+
+    @Test
+    fun aWindowPannedToTheLimitsWithAGuardStopsAtTheGuard() {
+        // Panned all the way left and up at 1x, and all the way right and down
+        val topLeft = WideWindow(342, cameraFrame, 0f, 342f, 288, 0f, 192f)
+        val bottomRight = WideWindow(342, cameraFrame, 170f, 342f, 288, 96f, 192f)
+        val atTopLeft = getScreensDrawing(wideTopSlot, bottomSlot, 640, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = topLeft, frameMargin = 112, frameGuard = guard)
+        val atBottomRight = getScreensDrawing(wideTopSlot, bottomSlot, 640, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = bottomRight, frameMargin = 112, frameGuard = guard)
+
+        assertEquals(64f / 640f, atTopLeft.topScreen!!.leftU, 0.0001f)
+        assertEquals(406f / 640f, atTopLeft.topScreen.rightU, 0.0001f)
+        assertRows(atTopLeft.topScreen, 64f, 256f)
+        assertEquals(234f / 640f, atBottomRight.topScreen!!.leftU, 0.0001f)
+        assertEquals(576f / 640f, atBottomRight.topScreen.rightU, 0.0001f)
+        assertRows(atBottomRight.topScreen, 160f, 352f)
+        val plain = getScreensDrawing(wideTopSlot, bottomSlot, cameraFrame, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, wideWindow = bottomRight, frameMargin = 48)
+        assertSamePlaces(plain, atBottomRight)
+    }
+
+    @Test
+    fun aGuardTooBigForTheFrameIsKeptToIt() {
+        // 300 columns leave room for 22 on each side, and the 10 margin rows for 10 of them
+        val drawing = getScreensDrawing(wideTopSlot, bottomSlot, 300, isWideLayout = true, areScreensSwapped = false, surfaceWidth = 960f, frameMargin = 10, frameGuard = guard)
+
+        assertEquals(10f / 300f, drawing.topScreen!!.leftU, 0.0001f)
+        assertEquals(290f / 300f, drawing.topScreen.rightU, 0.0001f)
+        assertRows(drawing.topScreen, 10f, 202f)
+    }
+
+    // The same places on the surface: rects and Lua drawings
+    private fun assertSamePlaces(expected: ScreensDrawing, actual: ScreensDrawing) {
+        listOf(expected.topScreen to actual.topScreen, expected.bottomScreen to actual.bottomScreen).forEach { (want, got) ->
+            assertEquals(want!!.drawRect, got!!.drawRect)
+            assertEquals(want.nativeRect, got.nativeRect)
+            assertEquals(want.nativeRectAt1x, got.nativeRectAt1x)
+            assertEquals(want.overlay, got.overlay)
+        }
+    }
+
     private fun assertRows(screen: ScreenDrawing?, topRow: Float, bottomRow: Float) {
         assertEquals(topRow, screen!!.topRow, 0.001f)
         assertEquals(bottomRow, screen.bottomRow, 0.001f)

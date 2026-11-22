@@ -224,6 +224,10 @@ public:
      */
     melonDS::SunShadows sunShadows() const;
     /**
+     * The guard band of the same request (melon.screen.sun's guard, in DS pixels), or none while no script's sun is on. Emulator thread only
+     */
+    std::optional<int> sunGuard() const;
+    /**
      * The texture hashes of the running script that changed its non-empty list last (melon.gpu.hide_textures), for the OpenGL renderer to leave
      * out; empty while none hides any. Emulator thread only
      */
@@ -265,6 +269,8 @@ private:
     };
 
     bool loadScript(LuaScript& script);
+    // The running script whose sun shadows are on and were asked for last, or null
+    const LuaScript* findNewestSun() const;
     void reloadScripts();
     void queueScriptSwitch(int id, ScriptSwitch::Action action, std::vector<LuaOptionValue> options = {});
     void applyPendingScriptSwitches();

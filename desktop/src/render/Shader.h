@@ -38,6 +38,8 @@ public:
     void SetTopScreenWidth(int width) const;
     // the top screen's half in DS pixels (192 plus the WideMelon camera's margin on both sides), as frameLayout's v coordinates and rows
     void SetTopScreenHeight(int height) const;
+    // the sun shadows' guard band in DS pixels (FrameView::TopGuard): the vignette goes over the top screen as shown, without it
+    void SetTopScreenGuard(int guard) const;
     void SetBottomScreenWide(bool isBottomScreenWide) const;
     void SetTiltShift(const TiltShift& tiltShift) const;
     // the bloom's strength, threshold and radius, the vignette's strength and size, the haze's strength, start, falloff and color, the lights'
@@ -61,6 +63,7 @@ public:
 private:
     GLuint Program;
     GLint UniformTexSize = -1, UniformTopScreenWidth = -1, UniformFrameLayout = -1, UniformBottomScreenWide = -1;
+    GLint UniformTopScreenGuard = -1;
     GLint UniformTiltShift = -1, UniformTiltShiftBoost = -1;
     GLint UniformBloom = -1, UniformVignette = -1, UniformGlowTex = -1;
     GLint UniformHaze = -1, UniformHazeColor = -1, UniformHazeDepthTex = -1, UniformBloomLights = -1;

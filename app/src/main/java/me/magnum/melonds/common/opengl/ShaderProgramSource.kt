@@ -1244,6 +1244,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "#endif\n" +
                     "// The vignette's strength (x) and where it starts (y)\n" +
                     "uniform vec2 vignette;\n" +
+                    "// The sun shadows' guard band in DS pixels: the columns on each side of the top screen that are filtered but not shown\n" +
+                    "uniform float topScreenGuard;\n" +
                     "uniform float bottomScreenWide;\n" +
                     FRAME_LAYOUT_UNIFORM +
                     "#define topScreenEnd frameLayout.x\n" +
@@ -1279,8 +1281,14 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    vec2 glowUv = clamp(uv, vec2(rect.x, 0.0) + glowHalfTexel, vec2(rect.y, topScreenEnd) - glowHalfTexel);\n" +
                     "    color += bloom.x * texture2D(glowTex, glowUv).bgr;\n" +
                     "#endif\n" +
-                    "    vec2 offset = (uv - 0.5 * (rect.xz + rect.yw)) * dsPixels;\n" +
-                    "    vec2 halfSize = 0.5 * (rect.yw - rect.xz) * dsPixels;\n" +
+                    "    // The vignette goes over the top screen as it's shown, without the guard band's columns (its rows are the 192 already)\n" +
+                    "    vec4 shown = rect;\n" +
+                    "    if (!(bottomScreenWide > 0.5 && topScreenWidth > ${SCREEN_WIDTH}.0)) {\n" +
+                    "        float guardU = topScreenGuard / topScreenWidth;\n" +
+                    "        shown.xy += vec2(guardU, -guardU);\n" +
+                    "    }\n" +
+                    "    vec2 offset = (uv - 0.5 * (shown.xz + shown.yw)) * dsPixels;\n" +
+                    "    vec2 halfSize = 0.5 * (shown.yw - shown.xz) * dsPixels;\n" +
                     "    float t = clamp((length(offset) / length(halfSize) - vignette.y) / max(1.0 - vignette.y, 0.001), 0.0, 1.0);\n" +
                     "    color *= 1.0 - vignette.x * t * t * (3.0 - 2.0 * t);\n" +
                     "    gl_FragColor = vec4(clamp(color, 0.0, 1.0).bgr, 1.0);\n" +

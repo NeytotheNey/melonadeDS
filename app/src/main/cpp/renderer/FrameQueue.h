@@ -41,6 +41,11 @@ struct Frame {
     // texture is then 192 + 2 * topScreenMargin rows tall, with its DS line y at row y + topScreenMargin, followed by the 2 row gap and the
     // bottom screen's 192 rows; 0 is the old 386 row layout. Software is always 0
     u32 topScreenMargin = 0;
+    // The sun shadows' guard band (melon.screen.sun's guard) in DS pixels, included in both of the above: that many columns on each side and
+    // rows above and below are drawn and filtered, so the march finds casters just off screen, but not shown. The shown top screen is
+    // topScreenWidth - 2 * topScreenGuard wide with topScreenMargin - topScreenGuard margin rows, centered in the top screen's half. It's this
+    // frame's, as the render size lags the request; 0 for none (always on Compute and Software)
+    u32 topScreenGuard = 0;
     // Lua drawings for this frame (scripting/LuaDraw.h) in the frame texture's layout at 2x and premultiplied, created once a frame has drawings and
     // kept when the frame is reused
     GLuint overlayTexture{};

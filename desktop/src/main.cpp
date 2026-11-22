@@ -183,6 +183,10 @@ struct Options
     std::optional<Frontend::Shade> Shade;
     // --sun: the Lua sun shadows' passes the same way, with the frames' depth asked of the core too
     std::optional<Frontend::Sun> Sun;
+    // --sun-guard: --sun's guard band, as melon.screen.sun's guard asks for it (MelonInstance::setFrontendSunGuard); 0 for none
+    int SunGuard = 0;
+    // --lua-script: a Lua script the game runs, as the app's scripts run (LuaEngine), for tests; empty for none
+    std::string LuaScriptPath;
     // --output-cap: the windows' output scale need goes to the core (GPU::OutputCap) after each present, as the app's surfaces send theirs
     bool OutputCap = false;
     bool Hidden = false;
@@ -337,6 +341,12 @@ void Usage()
         "                              in DS pixels (0-8, 1.5), the tint in hex (33384F), the direction towards the sun\n"
         "                              (0.50,0.83,0.26) and up (0.0006,0.607,0.794) in view space, and how near the camera\n"
         "                              3D can be and still cast, in units (0-1024, 0: all of it)\n"
+        "  --sun-guard G               --sun's guard band, as melon.screen.sun's guard: while the sun is on, OpenGL renders\n"
+        "                              G more DS pixels past each side of the top screen and G more rows above and below\n"
+        "                              (0-128, kept within WideMelon's 768 and 128), which the filters and the sun's march\n"
+        "                              take in but the window doesn't show, so casters just off screen still cast\n"
+        "  --lua-script FILE.lua       run a Lua script with the game, as the app runs its scripts, for tests (its sun,\n"
+        "                              guard, hidden, light and UI textures reach the core; its screen effects aren't drawn)\n"
         "  --output-cap                send the windows' screen size to the core (GPU::OutputCap), as the app does: the\n"
         "                              frame is drawn no bigger than the screens are shown\n"
         "  --vsync                     wait for vsync on swap (pacing stays at the DS's 59.83 Hz)\n"
@@ -815,6 +825,8 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             }
             opts.Sun = sun.IsOff() ? std::nullopt : std::optional<Frontend::Sun>(sun);
         }
+        else if (arg == "--sun-guard") opts.SunGuard = std::clamp(atoi(next().c_str()), 0, 128);
+        else if (arg == "--lua-script") opts.LuaScriptPath = next();
         else if (arg == "--output-cap") opts.OutputCap = true;
         else if (arg == "--vsync") setting("desktop_vsync", picojson::value(true));
         else if (arg == "--unthrottled") opts.Unthrottled = true;
@@ -1864,6 +1876,8 @@ int main(int argc, char** argv)
     // GPU::Comp1x: presented frames with a screen the compositor drew at 1x, and the first one's number, for the run's summary
     u32 presentedAt1x = 0, firstPresentedAt1x = 0;
     FrameStats stats;
+    // --gpu-sync: each game frame's present with its GPU work (the screen filters and the Lua passes), for the run's summary
+    FrameStats presentStats;
     TitleStats titleStats;
     std::string statsLabel = RendererName(opts.Renderer);
     auto runStart = std::chrono::steady_clock::now();
@@ -1957,6 +1971,8 @@ int main(int argc, char** argv)
         // and the characters' own shadows the core draws for it, as melon.screen.sun has it draw them
         if (opts.Sun)
             instance.setFrontendSun({true, opts.Sun->Direction, opts.Sun->Up});
+        // with the guard band that goes with it, which the core only renders while that sun is on
+        instance.setFrontendSunGuard(opts.SunGuard);
         instance.setFrontendHiddenTextures(opts.HiddenTextures);
         instance.setFrontendLightTextures(opts.LightTextures);
         instance.setFrontendUiTextures(opts.UiTextures);
@@ -2319,6 +2335,21 @@ int main(int argc, char** argv)
         auto instance = std::make_unique<MelonDSAndroid::MelonInstance>(0, MakeConfiguration(opts, renderer, scale), std::move(args),
             std::make_shared<Net>(), std::make_unique<MelonDSAndroid::ScreenshotRenderer>(screenshotBuffer.data()), opts.ConsoleType);
         instance->setDebugOverrides(ApplySwitches(opts, *instance->getNds()));
+        // --lua-script for the command line's game: given before the emulator thread starts, which loads it with the game
+        if (commandLine && !opts.LuaScriptPath.empty())
+        {
+            std::vector<u8> script;
+            if (!ReadPath(Frontend::PathFromUtf8(opts.LuaScriptPath), script))
+            {
+                fprintf(stderr, "can't read the Lua script %s\n", opts.LuaScriptPath.c_str());
+                return false;
+            }
+            MelonDSAndroid::LuaScriptSource source;
+            source.name = Frontend::PathToUtf8(Frontend::PathFromUtf8(opts.LuaScriptPath).filename());
+            source.source.assign(script.begin(), script.end());
+            instance->setLuaScripts({std::move(source)}, nullptr, true);
+            printf("Lua script: %s\n", opts.LuaScriptPath.c_str());
+        }
 
         // the save: --sav for the command line's game only; otherwise the one next to the ROM, or in a test run (a temporary profile) a
         // copy of it in the profile, so a test never writes a real save
@@ -2876,12 +2907,20 @@ int main(int argc, char** argv)
             const Frontend::FrameView view = Frontend::FrameView::Of(*frame);
             if (cameraShown && view.Sequence != cameraShownSequence)
             {
-                fprintf(cameraShown.get(), "{\"seq\":%llu,", (unsigned long long) view.Sequence);
+                // the top screen's render size and the guard band in it too, as the guard follows the sun's requests
+                fprintf(cameraShown.get(), "{\"seq\":%llu,\"top\":[%d,%d,%d],", (unsigned long long) view.Sequence, view.TopWidth, view.TopMargin,
+                    view.TopGuard);
                 PrintDepthCamera(cameraShown.get(), view.DepthTexture != 0, view.DepthCameraValid, view.DepthProjection, view.DepthViewport);
                 fprintf(cameraShown.get(), "}\n");
                 cameraShownSequence = view.Sequence;
             }
+            auto presentStart = std::chrono::steady_clock::now();
             windows.Present(presenter, view, [&] { ReleaseFrame(frame); });
+            if (opts.GpuSync)
+            {
+                glFinish();
+                presentStats.Add(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - presentStart).count());
+            }
             presentedThisGame++;
             if (frame->halvesAt1x != 0 && presentedAt1x++ == 0)
                 firstPresentedAt1x = presented + 1;
@@ -3540,6 +3579,7 @@ int main(int argc, char** argv)
     }
 
     stats.Print(statsLabel.c_str(), wall);
+    presentStats.Print("present (--gpu-sync)", wall);
     printf("presented: %u frames in %.2f s (%.1f per second), %s\n", presented, wall, presented / wall,
         windows.IsDetached() ? "detached (two windows)" : "together");
     if (presentedAt1x)
