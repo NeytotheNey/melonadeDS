@@ -1,6 +1,6 @@
 # Plan: an HD-2D look for DS games
 
-Started 11-21. Phases 1 (bloom and vignette) and 2 (real depth of field, OpenGL only) are done and checked on the Fold (below). Phase 3 (shading and light) is planned in five steps; step A (24-bit depth and flags) is built and checked on the desktop and the Fold, and step B (haze and 3D-only bloom) is built and checked on the desktop. Open decisions are marked **Decide**.
+Started 11-21. Phases 1 (bloom and vignette) and 2 (real depth of field, OpenGL only) are done and checked on the Fold (below). Phase 3 (shading and light) is planned in five steps; step A (24-bit depth and flags) is built and checked on the desktop and the Fold, and step B (haze and 3D-only bloom) is built and checked on the desktop and the Fold. Open decisions are marked **Decide**.
 
 ## The goal
 
@@ -111,7 +111,13 @@ Two small changes that ride on passes we already have.
 - Haze at 0.6: the far street changes by a mean of 17.7 RGB, the player by 0.33, the roofs and the bottom by 0. At `--wide 342` the wings get it as the depth says. A text box's 176,384 2D pixels don't change.
 - Bloom at 1.5 with a text box over the 3D: with `only_3d` the box changes by a mean of 0.21 (the 3D's glow over its edge), with `--bloom-all` by 10.74 (the text washes out). The 3D under the box is the same either way.
 - No regressions: `--bloom 0.6 --bloom-all` and a vignette alone are byte-identical to the build before, and so is the raw frame with everything off. On Compute the haze draws nothing and the glow is the old one.
-- App unit tests: 745, all passing. Not checked on the Fold yet, and `hd2d_white.lua` with the haze isn't run anywhere yet, since the desktop doesn't run scripts.
+- App unit tests: 745, all passing.
+
+**On the Fold, 11-21** (USB, plugged in; White in Striaton from the user's save, WideMelon 342, sharp filter, `hd2d_white.lua` with the haze; `perf_logs/2026-11-21-hd2d-haze/fold/`):
+- The haze shows at the far edge of the scene and leaves the player's area pixel-identical. At the default 0.6 it's mild: the top band's mean color goes from (81,82,88) to (87,88,93).
+- A white text box stays crisp with no glow at 4x and 8x, with a test copy of the script that keeps bloom at 1.5 during text. That also closes step A's unchecked message box at 8x.
+- Walking 9 s sideways showed no flicker or banding in the haze. Logcat has no GL, shader, Lua or build errors, and Compute 4x runs the script with no haze and no errors.
+- Every run held 60 FPS with no missed frames. GPU cost: OpenGL 4x 2.59 Mcycles a frame (3.70 for the focus build), 8x 7.61 (9.56), Compute 4x 4.07. The GPU clock sat lower in these runs, so the drop is probably the governor, not the haze being cheaper. What it does show is that step B fits.
 
 #### Step C: depth shading (soft contact shadows)
 
@@ -127,7 +133,7 @@ Real ambient occlusion, shadows from a light direction (marching towards the lig
 
 #### Step E: lamps and windows
 
-Glow on chosen things instead of on anything bright. A Lua list of textures (by content hash, since VRAM addresses move) that the OpenGL renderer marks as lights: their polygons write a flag into the attribute buffer, and the depth resolve copies it into the flags byte. Bloom then takes flagged pixels instead of bright ones. **Not known yet:** whether White's lamps and lit windows are textures of their own, and how White's field looks in the evening and at night (the user's save is daytime). A spike on a night save comes before any of this.
+Glow on chosen things instead of on anything bright. A Lua list of textures (by content hash, since VRAM addresses move) that the OpenGL renderer marks as lights: their polygons write a flag into the attribute buffer, and the depth resolve copies it into the flags byte. Bloom then takes flagged pixels instead of bright ones. **Not known yet:** whether White's lamps and lit windows are textures of their own, and how White's field looks at night. The save is daytime on the desktop, which runs with `--fixed-time`, but White follows the clock, and on the Fold on the evening of 11-21 Striaton's windows were lit (`perf_logs/2026-11-21-hd2d-haze/fold/shots/on_street_gl4.png`). So the phone's clock gives an evening scene for the spike that comes before any of this.
 
 #### Not in phase 3
 
