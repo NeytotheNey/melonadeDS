@@ -1033,6 +1033,20 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // The bloom's values (Shader.setBloom): strength (x), threshold (y) and radius in DS pixels (z)
         private const val BLOOM_UNIFORM = "uniform vec3 bloom;\n"
 
+        // A texel of the frame's depth texture (PresentFrameWrapper.depthTextureId, the compositor's kCompositorDepthFS) as a depth from 0 to
+        // 1: the DS's 24-bit depth in RGB, high byte in R, so 0 is 2D drawn over the 3D and 1 is where what's behind the 3D shows. A holds the
+        // compositor's flags (1 for 2D, 2 for behind the 3D, 4 for a W-buffered 3D pixel), which nothing reads yet. The two ends are exact and
+        // every other depth stays below 1, however the GPU divides, so a test like depth < 1.0 tells real 3D from what's behind it
+        private const val DEPTH_DECODE_FUNCTION = "highp float decodeDepth(highp vec4 texel) {\n" +
+                "    highp vec3 bytes = floor(texel.rgb * 255.0 + 0.5);\n" +
+                "    highp float value = bytes.r * 65536.0 + bytes.g * 256.0 + bytes.b;\n" +
+                "    if (value >= 16777215.0) {\n" +
+                "        return 1.0;\n" +
+                "    }\n" +
+                "    // The largest float below 1\n" +
+                "    return min(value / 16777215.0, 0.99999994);\n" +
+                "}\n"
+
         // Black, for the texels of a bloom target outside the DS top screen, which never glow
         private const val BLOOM_BLACK = "vec4(0.0, 0.0, 0.0, 1.0)"
 
@@ -1174,7 +1188,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
 
         // One direction of the depth of field's blur, over the DS top screen like the tilt-shift's: each texel's radius follows how far its depth is
         // from the focus, up to depthOfField.x DS pixels. depthTex (unit 1, nearest) is the frame's top screen half's depth from the compositor
-        // (PresentFrameWrapper.depthTextureId): 16-bit values, high byte in R, 0 for 2D drawn over the 3D, which stays sharp, 65535 where what's
+        // (PresentFrameWrapper.depthTextureId, read with DEPTH_DECODE_FUNCTION): 0 for 2D drawn over the 3D, which stays sharp, 1 where what's
         // behind the 3D shows, which blurs as the farthest depth. depthOfField.yz are the sharp range around the focus and the falloff past it,
         // in depth from 0 to 1. depthFocus.x is the focus depth, or negative to read it at depthFocus.yz (u and v of depthTex) or, if that's 2D
         // or what's behind the 3D, at the first 3D of four points 4 DS pixels around it; with none, nothing blurs. A tap only counts as much as its
@@ -1197,15 +1211,14 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                         "// How far around the focus point to look for 3D, in DS pixels\n" +
                         "const float FOCUS_SEARCH = 4.0;\n" +
                         "" +
+                        DEPTH_DECODE_FUNCTION +
                         "// The depth at p (u and v of the frame), from 0 to 1\n" +
                         "highp float frameDepth(vec2 p) {\n" +
-                        "    highp vec2 rg = texture2D(depthTex, vec2(p.x, clamp(p.y / topScreenEnd, 0.0, 1.0))).rg;\n" +
-                        "    return (floor(rg.r * 255.0 + 0.5) * 256.0 + floor(rg.g * 255.0 + 0.5)) / 65535.0;\n" +
+                        "    return decodeDepth(texture2D(depthTex, vec2(p.x, clamp(p.y / topScreenEnd, 0.0, 1.0))));\n" +
                         "}\n" +
                         "" +
                         "highp float depthAt(vec2 p) {\n" +
-                        "    highp vec2 rg = texture2D(depthTex, p).rg;\n" +
-                        "    return (floor(rg.r * 255.0 + 0.5) * 256.0 + floor(rg.g * 255.0 + 0.5)) / 65535.0;\n" +
+                        "    return decodeDepth(texture2D(depthTex, p));\n" +
                         "}\n" +
                         "" +
                         "bool is3D(highp float depth) {\n" +

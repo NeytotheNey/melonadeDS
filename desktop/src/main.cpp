@@ -53,6 +53,7 @@
 #include "EmulatorThread.h"
 #include "FileDialog.h"
 #include "Frontend.h"
+#include "ImageFile.h"
 #include "Input.h"
 #include "Library.h"
 #include "MetadataSync.h"
@@ -110,6 +111,7 @@ struct Options
     std::string ScreenshotPath;
     std::string WindowShotPath;
     bool WindowShotLinear = false; // the window shot drawn with linear filtering, whatever --linear says
+    std::string DepthShotPath;     // --depth-shot: the last frame's depth as a PNG, with its stats printed
     std::string LogPath;
     std::string CacheDir;      // the Compute program cache, next to the exe by default
     RendererType Renderer = RendererType::Compute;
@@ -311,6 +313,8 @@ void Usage()
         "  --window-shot FILE.bmp      save the window as drawn, menus included, when --frames or --ui-script ends\n"
         "                              the run; detached: the windows as FILE_top.bmp and FILE_bottom.bmp\n"
         "  --window-shot-linear        draw the window shot with the linear filter (the run keeps its own)\n"
+        "  --depth-shot FILE.png       save the last frame's top screen depth (OpenGL only) when --frames or --ui-script\n"
+        "                              ends the run, near dark to far light, and print how many depth values it has\n"
         "  --hidden                    no visible window (with --frames); never fullscreen, saves no window places\n"
         "  --save-window-places        save the window places with --hidden too (tests)\n"
         "  --log FILE                  core log file (default melonade.log next to the exe)\n"
@@ -609,6 +613,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--screenshot") opts.ScreenshotPath = next();
         else if (arg == "--window-shot") opts.WindowShotPath = next();
         else if (arg == "--window-shot-linear") opts.WindowShotLinear = true;
+        else if (arg == "--depth-shot") opts.DepthShotPath = next();
         else if (arg == "--hidden") opts.Hidden = true;
         else if (arg == "--gpu-sync") opts.GpuSync = true;
         else if (arg == "--log") opts.LogPath = next();
@@ -1104,6 +1109,89 @@ void ReleaseFrame(Frame* frame)
     glFlush();
 }
 
+// --depth-shot: [frame]'s top screen depth (GLCompositor::RenderDepth's 24-bit values and flags) into a grayscale PNG at [path], the 3D
+// from near (dark) to far (light) over the range it covers, 2D on top black and transparent 3D white, and its stats printed: how many
+// distinct depth values the 3D has, and how many of them the old 16-bit depth could tell apart
+void DepthShot(const Frame& frame, const std::string& path)
+{
+    if (!frame.hasDepth || !frame.depthTexture)
+    {
+        fprintf(stderr, "--depth-shot: the frame has no depth (OpenGL only, and not on its first frame)\n");
+        return;
+    }
+    const int width = (int) frame.depthWidth, height = (int) frame.depthHeight;
+    std::vector<u8> texels((size_t) width * height * 4);
+    GLuint framebuffer = 0;
+    GLint previous = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous);
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, frame.depthTexture, 0);
+    // into client memory, at the alignment the other readbacks set for themselves (RGBA rows are 4-aligned anyway)
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, texels.data());
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint) previous);
+    glDeleteFramebuffers(1, &framebuffer);
+
+    std::vector<u32> depths;
+    u32 count2D = 0, countBehind = 0, countW = 0, nearest = 0xFFFFFF, farthest = 0;
+    for (size_t i = 0; i < texels.size(); i += 4)
+    {
+        const u8 flags = texels[i + 3];
+        const u32 depth = (u32) texels[i] << 16 | (u32) texels[i + 1] << 8 | texels[i + 2];
+        if (flags & 4)
+            countW++;
+        if (flags & 1)
+            count2D++;
+        else if (flags & 2)
+            countBehind++;
+        else
+        {
+            depths.push_back(depth);
+            nearest = std::min(nearest, depth);
+            farthest = std::max(farthest, depth);
+        }
+    }
+
+    // the PNG, top row first, as the texture's rows are (the compositor draws its top line into row 0)
+    std::vector<u8> rgba((size_t) width * height * 4);
+    const double span = farthest > nearest ? (double) (farthest - nearest) : 1.0;
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            const u8* texel = &texels[((size_t) y * width + x) * 4];
+            u8* pixel = &rgba[((size_t) y * width + x) * 4];
+            const u32 depth = (u32) texel[0] << 16 | (u32) texel[1] << 8 | texel[2];
+            u8 gray = 0;
+            if (texel[3] & 1)
+                gray = 0;
+            else if (texel[3] & 2)
+                gray = 255;
+            else
+                gray = (u8) (16 + 223 * ((double) (depth - nearest) / span));
+            pixel[0] = pixel[1] = pixel[2] = gray;
+            pixel[3] = 255;
+        }
+    }
+    const bool written = Frontend::WritePng(Frontend::PathFromUtf8(path), rgba, width, height);
+
+    std::sort(depths.begin(), depths.end());
+    const size_t pixels3D = depths.size();
+    depths.erase(std::unique(depths.begin(), depths.end()), depths.end());
+    size_t distinct16 = 0;
+    for (size_t i = 0; i < depths.size(); i++)
+    {
+        if (i == 0 || depths[i] >> 8 != depths[i - 1] >> 8)
+            distinct16++;
+    }
+    printf("depth shot: %s%s, %dx%d; 3D %zu px, depth 0x%06X..0x%06X, %zu distinct values (%zu at 16 bits); 2D %u px, "
+           "transparent 3D %u px, W-buffered %u px\n",
+           path.c_str(), written ? "" : " (not written)", width, height, pixels3D, pixels3D ? nearest : 0, farthest, depths.size(),
+           distinct16, count2D, countBehind, countW);
+}
+
 // The exe is a GUI program, so it has no console of its own. Started from one (PowerShell, cmd, bash) it writes there: to the handles it
 // was given when they're redirected or piped (a file, mintty's pipe), else to the parent's console, attached. A double-clicked exe has
 // neither, and its output goes nowhere, as before. True when it attached; [outConsole] and [errConsole] say which streams it reopened
@@ -1512,7 +1600,7 @@ int main(int argc, char** argv)
     callbacks.OnStart = [&](MelonDSAndroid::MelonInstance& instance)
     {
         SetDateTime(opts, *instance.getNds());
-        instance.setDepthWanted(opts.DepthOfField.has_value());
+        instance.setDepthWanted(opts.DepthOfField.has_value() || !opts.DepthShotPath.empty());
         if (commandLineGame && !opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
         {
             startFailed = true;
@@ -3048,6 +3136,18 @@ int main(int argc, char** argv)
     bool reachedFrames = opts.Frames && currentFrame + uiFrames >= opts.Frames;
     if ((reachedFrames || scriptEnded) && !opts.WindowShotPath.empty())
         windowShot(opts.WindowShotPath);
+    if ((reachedFrames || scriptEnded) && !opts.DepthShotPath.empty())
+    {
+        Frame* frame = emu ? AcquireFrame(*emu, std::nullopt) : nullptr;
+        if (frame)
+        {
+            PrepareFrame(frame);
+            DepthShot(*frame, opts.DepthShotPath);
+            ReleaseFrame(frame);
+        }
+        else
+            fprintf(stderr, "--depth-shot: no frame\n");
+    }
 
     stats.Print(statsLabel.c_str(), wall);
     printf("presented: %u frames in %.2f s (%.1f per second), %s\n", presented, wall, presented / wall,

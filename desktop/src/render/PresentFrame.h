@@ -25,7 +25,7 @@ struct FrameView
     int HalvesAt1x = 0, Scale = 1, HalfScale = 1;
     // the frame queue's sequence, so a frame presented again isn't filtered again (0: none)
     melonDS::u64 Sequence = 0;
-    // the top screen half's depth (Frame::depthTexture, GL_RG8), 0 when the frame has none
+    // the top screen half's depth (Frame::depthTexture, GL_RGBA8), 0 when the frame has none
     GLuint DepthTexture = 0;
 
     bool IsValid() const { return Texture != 0; }

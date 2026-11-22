@@ -36,14 +36,21 @@ const vec2 BLUR_DIRECTION = vec2(1.0, 0.0);
 const float MIN_BLUR_RADIUS = 0.1;
 // How far around the focus point to look for 3D, in DS pixels
 const float FOCUS_SEARCH = 4.0;
+highp float decodeDepth(highp vec4 texel) {
+    highp vec3 bytes = floor(texel.rgb * 255.0 + 0.5);
+    highp float value = bytes.r * 65536.0 + bytes.g * 256.0 + bytes.b;
+    if (value >= 16777215.0) {
+        return 1.0;
+    }
+    // The largest float below 1
+    return min(value / 16777215.0, 0.99999994);
+}
 // The depth at p (u and v of the frame), from 0 to 1
 highp float frameDepth(vec2 p) {
-    highp vec2 rg = texture2D(depthTex, vec2(p.x, clamp(p.y / topScreenEnd, 0.0, 1.0))).rg;
-    return (floor(rg.r * 255.0 + 0.5) * 256.0 + floor(rg.g * 255.0 + 0.5)) / 65535.0;
+    return decodeDepth(texture2D(depthTex, vec2(p.x, clamp(p.y / topScreenEnd, 0.0, 1.0))));
 }
 highp float depthAt(vec2 p) {
-    highp vec2 rg = texture2D(depthTex, p).rg;
-    return (floor(rg.r * 255.0 + 0.5) * 256.0 + floor(rg.g * 255.0 + 0.5)) / 65535.0;
+    return decodeDepth(texture2D(depthTex, p));
 }
 bool is3D(highp float depth) {
     return depth > 0.0 && depth < 1.0;

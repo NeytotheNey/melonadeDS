@@ -1,6 +1,6 @@
 # Plan: an HD-2D look for DS games
 
-Started 11-21. Phases 1 (bloom and vignette) and 2 (real depth of field, OpenGL only) are done and checked on the Fold (below); the rest is plan only. Open decisions are marked **Decide**.
+Started 11-21. Phases 1 (bloom and vignette) and 2 (real depth of field, OpenGL only) are done and checked on the Fold (below). Phase 3 (shading and light) is planned in five steps; step A (24-bit depth and flags) is built and checked on the desktop and the Fold. Open decisions are marked **Decide**.
 
 ## The goal
 
@@ -32,7 +32,7 @@ First look on White's field (OpenGL 4x, the city street from the user's save): t
 
 This is cheap to build and shows quickly whether the look is worth the deeper work. Done when a White script with tilt-shift, bloom and vignette runs on the Fold and the desktop with the same picture, and the phone's frame time hasn't moved much (to measure: bloom's blur at 4x and 8x on the Fold).
 
-**Decide:** whether bloom should only touch the 3D layer. On the finished frame it also catches white text boxes, which will glow. Avoiding that needs the 3D layer on its own, which is phase 2's plumbing.
+**Decide:** whether bloom should only touch the 3D layer. On the finished frame it also catches white text boxes, which will glow. Avoiding that needs to know which pixels are 3D; phase 3 step B does it with the depth's flags.
 
 ### Phase 2: real depth of field
 
@@ -48,9 +48,9 @@ Done when the White plaza from the user's save shows a sharp player and nearby b
 
 **Built 11-21, OpenGL only** (core branch `feature/hd2d-depth`):
 
-- *Depth out of the renderer.* While a frontend gives a depth texture, `GLRenderer` resolves each render's depth into an RG8 texture right after the frame (`ResolveDepth`), before `GLClearFast` drops it. That texture swaps with the color buffer, kept and spare included, so a late Blit reads the depth of the frame it shows. A frame skipped as identical is drawn again when there's no depth for it yet. With no depth texture given, none of this runs and the renderer frees what it had.
-- *Through the compositor.* After the frame's draws, `GLCompositor::RenderDepth` draws the top half's depth into the frame's own depth texture, with the main draw's quad and the same scroll, wing and margin maths (`kCompositorDepthFS`). It takes the nearest 3D pixel, not an average, so a capped output is fine too. Its 16-bit values are 0 where 2D is on top (compmode 1, 5-7, other display modes, hi-res captured lines), which stays sharp, 65535 where the 3D is transparent, which blurs as the farthest, and the depth otherwise. `OutputLayout::HasDepth` says whether this draw wrote it.
-- *To the app.* `FrameQueue` makes a per-frame RG8 depth texture (the frame's width by its top half's rows) only while `MelonInstance` wants depth, that is, a script asks for it (`LuaEngine::wantsDepth`) or the desktop's `--dof` does. It reaches Kotlin as `PresentFrameWrapper.depthTextureId` (0 for a frame without depth) and the desktop as `FrameView::DepthTexture`.
+- *Depth out of the renderer.* While a frontend gives a depth texture, `GLRenderer` resolves each render's depth into a texture (RGBA8 since phase 3 step A) right after the frame (`ResolveDepth`), before `GLClearFast` drops it. That texture swaps with the color buffer, kept and spare included, so a late Blit reads the depth of the frame it shows. A frame skipped as identical is drawn again when there's no depth for it yet. With no depth texture given, none of this runs and the renderer frees what it had.
+- *Through the compositor.* After the frame's draws, `GLCompositor::RenderDepth` draws the top half's depth into the frame's own depth texture, with the main draw's quad and the same scroll, wing and margin maths (`kCompositorDepthFS`). It takes the nearest 3D pixel, not an average, so a capped output is fine too. Its values (24-bit since step A) are 0 where 2D is on top (compmode 1, 5-7, other display modes, hi-res captured lines), which stays sharp, the largest value where the 3D is transparent, which blurs as the farthest, and the depth otherwise. `OutputLayout::HasDepth` says whether this draw wrote it.
+- *To the app.* `FrameQueue` makes a per-frame depth texture (the frame's width by its top half's rows) only while `MelonInstance` wants depth, that is, a script asks for it (`LuaEngine::wantsDepth`) or the desktop's `--dof` does. It reaches Kotlin as `PresentFrameWrapper.depthTextureId` (0 for a frame without depth) and the desktop as `FrameView::DepthTexture`.
 - *The blur.* `melon.screen.depth_of_field(strength[, opts])` ([MODS.md](../MODS.md)). It runs two separable passes after the filter's own and before the bloom. Each texel's radius grows with its depth's distance from the focus, and a tap only counts as far as its own blur reaches, so sharp things don't smear over blurred ones. The focus is the depth at a screen point (the center by default; if that's 2D, the first 3D 4 DS pixels around it) or a fixed depth.
 
 **Checked on the desktop, 11-21** (OpenGL 4x, White booted from the user's save and pressed through the title into the city street): with `--dof 1,4` the player and the street around her stay sharp, and the roofs nearest the camera blur. With a tight range (`--dof 1,8,0,0.0005`) everything off the player's depth blurs, which shows the depth is right across the picture. White's field is Z-buffered, and everything on screen is within about 0.002 of the player's depth, so the defaults are range 0.0002 and falloff 0.0015. Walking onto Route 2, the "Route 2" banner (2D over the 3D) stays sharp. At `--wide 342` the wings blur with the rest. The raw frame (`--screenshot`) is byte-identical with the depth of field on and off, so the depth pass doesn't touch the picture. App unit tests: 742, all passing. `hd2d_white.lua` now uses the depth of field, with the tilt-shift kept as an option (off by default) for the other renderers.
@@ -65,13 +65,62 @@ Done when the White plaza from the user's save shows a sharp player and nearby b
 
 So the depth of field adds about 0.5 Mcycles a frame at 4x and 1.5 at 8x on top of the bloom, with room to spare on the Fold.
 
-**Not checked yet:** the slower phones' cost, the late-Blit path (only frames that capture use it, and White's field doesn't), and frame interpolation. Compute and Software give no depth, and Compute could write it from its final pass. Z- and W-buffered frames aren't told apart, so a W-buffered game needs its range tuned differently. The defaults are tuned for White's field only.
+**Not checked yet:** the slower phones' cost, the late-Blit path (only frames that capture use it, and White's field doesn't), and frame interpolation. Compute and Software give no depth, and Compute could write it from its final pass. The depth's flags say which frames are W-buffered since step A, but the DOF doesn't use them, so a W-buffered game needs its range tuned differently. The defaults are tuned for White's field only.
 
 **Decide:** whether the depth of field should reuse its result on the frames White doesn't render (the overworld runs at 30 fps). It's filtered once per new frame already, but frame interpolation is untested with it.
 
-### Phase 3: light
+### Phase 3: light and shading
 
-The harder half of the look: soft shadows, light shafts and glows on lamps and windows. Some of it can come from depth alone (screen-space ambient occlusion, light shafts from a bright spot), some only from knowing the scene (which polygons are lamps). Not planned yet; phase 2's depth decides what's possible.
+Planned 11-21. Step A is built and checked on the desktop and the Fold; the rest is plan only. The harder half of the look: soft shadows where things meet the ground, haze in the distance, and glows on lamps and windows instead of on anything bright. Some of it can come from depth alone, some only from knowing the scene. The steps go from cheap and depth-only to scene knowledge, and each one is worth having on its own.
+
+**Why phase 2's depth wasn't enough.** It was the top 16 bits of the DS's 24-bit depth. White's city street fits in about 0.005 of the range, so the whole screen had only 314 depth values. That's enough to pick a blur radius, but shading from it would come out in bands. The full 24 bits give 68,124 values in the same frame (step A). The app also doesn't know the camera, only raw depth, so anything that needs real distances or a light direction needs the projection too (step D).
+
+#### Step A: the full depth and a flags byte
+
+Change the depth texture from RG8 to RGBA8: RGB is the 24-bit depth, A is flags. Bit 0: 2D on top (stays sharp, as 0 is now). Bit 1: transparent 3D (as 65535 is now). Bit 2: the frame is W-buffered, which the core knows from `FlushAttributes` (phase 2 couldn't tell Z from W). The other bits are kept for step E. The DOF shader decodes to the same 0..1 values, so White's DOF defaults keep working. The core changes `kDepthResolveFS`, `kCompositorDepthFS` and the texture format in `ResolveDepth` and `FrameQueue`; the app and desktop share one decode function in `ShaderProgramSource`.
+
+Done when the DOF looks the same as before on the desktop and the Fold, and a test shows the 24 bits arriving (a smooth floor gives smooth values, not steps).
+
+**Built 11-21** (core branch `feature/hd2d-depth24`, from `feature/hd2d-depth`). As planned, with the flags as 1, 2 and 4 in A. The W-buffer flag comes from the frame's first polygon, as the renderer's own stats take it, and rides in the resolved texture's A, so the kept and spare buffers carry it with their frame. The 0 and largest-value sentinels stay, so a shader that only reads depth needs no flags. The resolve gets back the DS's own 24-bit z exactly (`int(depth * 2^24)`: the renderer writes z / 2^24, which the depth buffer stores one lower from 2^23 up), and the app's `decodeDepth` keeps every real depth below 1.0 however the GPU divides, so an opaque far plane at the largest depth still reads as behind the 3D, as before. The desktop has `--depth-shot FILE.png` (desktop/README.md): the last frame's depth as an image, with how many distinct values it holds.
+
+**Checked on the desktop, 11-21** (OpenGL 4x, White's city street from the user's save, as phase 2):
+- The street holds 68,124 distinct depth values (0xFE3C9D to 0xFF75E6); its top 16 bits hold 314. The depth image is smooth, with no bands.
+- Old and new DOF shots differ on 4.7% of pixels by at most 11/255, from the finer depth moving blur radii slightly; side by side they look the same. The tight `1,8,0,0.0005` shot is the same.
+- The raw frame is byte-identical between the old and new builds, and with the DOF on and off.
+- Flags: a text box frame marks 16 DS lines as 2D, Mario Kart DS's title marks every 3D pixel W-buffered, New Super Mario Bros' title marks the transparent 3D. WideMelon 342 gets depth in the wings. Compute gives none, as before. White 2's intro is display-captured, so it's 2D, as before.
+
+**On the Fold, 11-21** (USB, plugged in; the same scene and scripts as phase 2; `perf_logs/2026-11-21-hd2d-depth24/`): the look matches phase 2's shots (player sharp, roofs and edge buildings blurred the same, no bands), a message box stays crisp over the blur at 4x, and logcat has no GL, shader or Lua errors. Every run held 60 FPS. The cost is phase 2's within noise: OpenGL 4x on 3.8 Mcycles a frame (3.7), 8x on 9.7-9.9 (9.5), 8x off 5.7 (5.8), Compute 4x on 5.7 (5.7). One run with the final build had a single 47 ms frame in 1800, with nothing in the logs near it; the other runs had none. Not checked on the Fold: the message box at 8x.
+
+#### Step B: haze and 3D-only bloom
+
+Two small changes that ride on passes we already have.
+
+- **Haze.** HD-2D fades the far part of the scene towards a pale color. `melon.screen.haze(strength, { color, start, falloff })` mixes the 3D towards `color` as its depth goes past `start`, in the same raw depth units as the DOF. It's folded into bloom's combine pass, which already reads every texel once, so it costs almost nothing.
+- **Bloom on the 3D only.** The flags byte says which pixels are 2D, so bloom's bright pass can skip them. White text boxes stop glowing, which settles phase 1's **Decide**: a `only_3d` bloom option, on by default when depth is there, and the old behavior on Compute and Software.
+
+#### Step C: depth shading (soft contact shadows)
+
+Darken the places where something sits in front of what's behind it: the base of walls, under roofs, around the player's feet, between trees. This is "unsharp masking the depth buffer" (Luft, Colditz and Deussen, SIGGRAPH 2006): blur the depth, and where a pixel is farther away than its blurred neighborhood, it's in a corner or behind something, so it gets darker. It only needs raw depth, no camera, and the blur is separable like the DOF's, so it's two passes plus a multiply.
+
+To keep it cheap at 8x, the depth blur runs at DS resolution (256 x 192 plus the wings), as bloom's blur does, and the darkening is scaled back up with a depth check so edges don't get a halo. API: `melon.screen.shade(strength, { radius, range, color })`, tuned per game in raw depth like the DOF. It isn't true ambient occlusion, since it doesn't know distances in world units, but with a fixed camera like White's field it should look close.
+
+Done when Striaton City shows soft shading at the base of buildings and under the player, with no halos at 8x and no flicker while walking, and the Fold still holds 60 FPS at 8x with everything on.
+
+#### Step D, only if C isn't enough: the camera
+
+Real ambient occlusion, shadows from a light direction (marching towards the light in screen space) and light shafts need view-space positions, which need the projection. The core has `GPU3D::ProjMatrix`, but that's the geometry engine's current matrix, and a game can change it mid-frame (for example an orthographic menu drawn in 3D last). The core would keep the projection that most of the frame's polygons used and hand it over with the depth. Decide after C whether the look needs it.
+
+#### Step E: lamps and windows
+
+Glow on chosen things instead of on anything bright. A Lua list of textures (by content hash, since VRAM addresses move) that the OpenGL renderer marks as lights: their polygons write a flag into the attribute buffer, and the depth resolve copies it into the flags byte. Bloom then takes flagged pixels instead of bright ones. **Not known yet:** whether White's lamps and lit windows are textures of their own, and how White's field looks in the evening and at night (the user's save is daytime). A spike on a night save comes before any of this.
+
+#### Not in phase 3
+
+- Color grading beyond tilt-shift's saturation and contrast. Add it if the look needs it after B.
+- Compute's depth. It fits in once step A settles the format: Compute's final pass would write the same RGBA8 with one more `imageStore`.
+- Effects running only on new frames at 30 fps (phase 2's open **Decide**). It matters more with more passes, so measure it with frame interpolation on after C.
+
+**Cost.** Each step gets measured on the Fold like phases 1 and 2. Phase 2 left OpenGL 8x at about 9.5 Mcycles a frame with room to spare. B should add almost nothing, and C about as much as the DOF (+0.5 at 4x, +1.5 at 8x) or less, since its blur runs at DS resolution.
 
 ### Phase 4 (separate plan): better assets
 

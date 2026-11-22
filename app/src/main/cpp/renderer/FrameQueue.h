@@ -57,7 +57,7 @@ struct Frame {
     int halfScaleAt1x = 1;
     // The WideMelon camera's per-frame data (melonDS::OutputLayout), set with halvesAt1x: the top screen's lines with 3D wings, held ones included
     int topWingLines = 0;
-    // A frontend's depth of field (Renderer3D::SetOutputDepthTexture): the top screen's half of the frame's depth, GL_RG8, width x depthHeight
+    // A frontend's depth of field (Renderer3D::SetOutputDepthTexture): the top screen's half of the frame's depth, GL_RGBA8, width x depthHeight
     // texels (that half's rows), made only while something asks for it (FrameQueue::validateDepthTexture), and whether the compositor's last
     // draw into this frame wrote it (OutputLayout::HasDepth, set with halvesAt1x)
     GLuint depthTexture{};

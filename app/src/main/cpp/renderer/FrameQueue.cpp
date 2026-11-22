@@ -336,7 +336,7 @@ void FrameQueue::validateDepthTexture(Frame* frame, int rows)
         glBindTexture(GL_TEXTURE_2D, frame->depthTexture);
     }
     // Not cleared: hasDepth stays false until the compositor has drawn all of it
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RG8, (GLsizei) frame->width, rows, 0, GL_RG, GL_UNSIGNED_BYTE, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei) frame->width, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     glBindTexture(GL_TEXTURE_2D, 0);
     frame->depthWidth = frame->width;
     frame->depthHeight = (u32) rows;
