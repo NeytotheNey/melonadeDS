@@ -26,7 +26,8 @@ public:
     void onLuaStorageSaved() override;
     void onLuaSetLayout(int scriptId, const std::string& optionKey) override;
     void onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation, float contrast, float color) override;
-    void onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize) override;
+    void onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize, bool onlyThreeD, float haze,
+        int hazeColor, float hazeStart, float hazeFalloff) override;
     void onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth, float range, float falloff) override;
     void onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY) override;
     void onLuaStateLoaded() override;

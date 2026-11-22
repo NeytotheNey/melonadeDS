@@ -97,6 +97,39 @@ class LuaBloomRequestsTest {
         assertNull(requests.onScriptStopped(0))
     }
 
+    @Test
+    fun aHazeAloneKeepsItOn() {
+        val hazeOnly = off.copy(haze = 0.5f)
+
+        assertFalse(hazeOnly.hasBloom)
+        assertFalse(hazeOnly.hasVignette)
+        assertTrue(hazeOnly.hasHaze)
+        assertFalse(hazeOnly.isOff)
+        assertFalse(off.hasHaze)
+
+        val requests = LuaBloomRequests()
+        assertEquals(hazeOnly, requests.onScriptRequest(0, hazeOnly))
+        assertNull(requests.onScriptStopped(0))
+    }
+
+    // The glow, vignette and haze are one request, so the newest script's replaces all three, even one that only asks for the haze
+    @Test
+    fun theNewestRequestWinsForAllThreeTogether() {
+        val hazeOnly = off.copy(haze = 0.8f, hazeColor = 0x102030)
+        val requests = LuaBloomRequests()
+        requests.onScriptRequest(0, bloomB.copy(haze = 0.3f))
+
+        assertEquals(hazeOnly, requests.onScriptRequest(1, hazeOnly))
+        assertEquals(bloomB.copy(haze = 0.3f), requests.onScriptStopped(1))
+    }
+
+    @Test
+    fun onlyThreeDIsOnByDefault() {
+        assertTrue(bloomA.onlyThreeD)
+        // It doesn't turn anything on by itself
+        assertTrue(off.copy(onlyThreeD = false).isOff)
+    }
+
     // Both the same-frame cache and the flow to the renderers tell changes apart by equality
     @Test
     fun everyValueCountsAsAChange() {
@@ -105,6 +138,11 @@ class LuaBloomRequestsTest {
         assertNotEquals(bloomA, bloomA.copy(radius = 4f))
         assertNotEquals(bloomA, bloomA.copy(vignette = 0.2f))
         assertNotEquals(bloomA, bloomA.copy(vignetteSize = 0.5f))
+        assertNotEquals(bloomA, bloomA.copy(onlyThreeD = false))
+        assertNotEquals(bloomA, bloomA.copy(haze = 0.5f))
+        assertNotEquals(bloomA, bloomA.copy(hazeColor = 0x102030))
+        assertNotEquals(bloomA, bloomA.copy(hazeStart = 0.99f))
+        assertNotEquals(bloomA, bloomA.copy(hazeFalloff = 0.01f))
         assertEquals(bloomA, bloomA.copy())
     }
 }

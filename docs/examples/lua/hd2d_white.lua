@@ -1,6 +1,7 @@
--- description: HD-2D look for Pokémon White (and Black): depth of field, bloom and vignette in the overworld (the depth of field needs the OpenGL renderer; the tilt-shift is a fake one for the others). Text keeps the depth of field and vignette, battles and menus clear it all. Hold L, tap R: off/auto.
+-- description: HD-2D look for Pokémon White (and Black): depth of field, haze, bloom and vignette in the overworld (the depth of field and haze need the OpenGL renderer; the tilt-shift is a fake one for the others). Text keeps the depth of field, haze and vignette, battles and menus clear it all. Hold L, tap R: off/auto.
 -- option: dof type=number min=0 max=1 step=0.05 default=1 label="Depth of field strength"
 -- option: dof_radius type=number min=1 max=12 step=1 default=4 label="Depth of field radius in DS pixels"
+-- option: haze type=number min=0 max=1 step=0.05 default=0.6 label="Haze strength"
 -- option: blur type=number min=0 max=1 step=0.05 default=0 label="Tilt-shift strength"
 -- option: radius type=number min=1 max=12 step=1 default=6 label="Tilt-shift radius in DS pixels"
 -- option: bloom type=number min=0 max=2 step=0.05 default=0.6 label="Bloom strength"
@@ -29,6 +30,8 @@ local bloom_options = {
     radius = melon.options.bloom_radius,
 }
 local vignette_options = { size = 0.6 }
+-- The far end of a street, past about 0.0005 behind the player's depth; the player and the roofs nearer the camera stay clear
+local haze_options = { color = 0xDCE6F0, start = 0.9968, falloff = 0.0008 }
 -- Focused on the player, who's at the screen's center in the field. White's field is Z-buffered, and
 -- everything on screen is within about 0.002 of the player's depth, so the range and falloff are small
 local dof_options = {
@@ -40,8 +43,8 @@ local dof_options = {
 }
 
 -- Each effect fades from 0 to its full strength (the option), at the same speed whatever that is
-local current = { dof = 0, blur = 0, bloom = 0, vignette = 0 }
-local target = { dof = 0, blur = 0, bloom = 0, vignette = 0 }
+local current = { dof = 0, haze = 0, blur = 0, bloom = 0, vignette = 0 }
+local target = { dof = 0, haze = 0, blur = 0, bloom = 0, vignette = 0 }
 local should_snap = false
 
 local is_automatic = true
@@ -60,9 +63,10 @@ local function set_targets(state)
     local is_text = state == "text"
     target.blur = is_field and melon.options.blur or 0
     target.bloom = is_field and melon.options.bloom or 0
-    -- White text boxes would glow and take the tilt-shift's blur, so text keeps only the vignette and the
-    -- depth of field, which leaves 2D sharp
+    -- White text boxes would glow and take the tilt-shift's blur, so text keeps only the vignette, and the
+    -- depth of field and haze, which leave 2D as it is
     target.dof = (is_field or is_text) and melon.options.dof or 0
+    target.haze = (is_field or is_text) and melon.options.haze or 0
     target.vignette = (is_field or is_text) and melon.options.vignette or 0
 end
 
@@ -111,6 +115,7 @@ function on_frame()
 
     -- Called every frame: only frames where a value changes cost an event
     melon.screen.depth_of_field(current.dof, dof_options)
+    melon.screen.haze(current.haze, haze_options)
     melon.screen.tilt_shift(current.blur, current.blur, blur_options)
     melon.screen.bloom(current.bloom, bloom_options)
     melon.screen.vignette(current.vignette, vignette_options)

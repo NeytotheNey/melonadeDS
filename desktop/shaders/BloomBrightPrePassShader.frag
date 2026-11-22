@@ -32,6 +32,28 @@ vec3 sampleScreen(vec2 p, vec4 band) {
 const vec3 BLOOM_LUMA = vec3(0.299, 0.587, 0.114);
 // Half the soft knee's width, as a luma: the glow eases in from threshold - BLOOM_KNEE to threshold + BLOOM_KNEE
 const float BLOOM_KNEE = 0.1;
+#ifdef ONLY_3D
+uniform highp sampler2D depthTex;
+highp float decodeDepth(highp vec4 texel) {
+    highp vec3 bytes = floor(texel.rgb * 255.0 + 0.5);
+    highp float value = bytes.r * 65536.0 + bytes.g * 256.0 + bytes.b;
+    if (value >= 16777215.0) {
+        return 1.0;
+    }
+    // The largest float below 1
+    return min(value / 16777215.0, 0.99999994);
+}
+// sampleScreen(p, band) where the frame's depth at that texel is 3D, black for 2D over the 3D and for what's behind it
+vec3 sampleTap(vec2 p, vec4 band) {
+    vec2 q = vec2(clamp(p.x, band.z, band.w), clamp(p.y, band.x, band.y));
+    highp float depth = decodeDepth(texture2D(depthTex, vec2(q.x, clamp(q.y / topScreenEnd, 0.0, 1.0))));
+    return depth > 0.0 && depth < 1.0 ? texture2D(tex, q).bgr : vec3(0.0);
+}
+#else
+vec3 sampleTap(vec2 p, vec4 band) {
+    return sampleScreen(p, band);
+}
+#endif
 void main() {
     vec4 band = screenBand(uv);
     // The gap, the DS bottom screen, and the sides beside the top screen when only the bottom one is wide
@@ -42,8 +64,8 @@ void main() {
     // A quarter of this pass's texel, which is one DS pixel
     vec2 tap = 0.25 / vec2(topScreenWidth, frameLayout.w);
     vec3 color = 0.25 * (
-        sampleScreen(uv - tap, band) + sampleScreen(uv + tap, band) +
-        sampleScreen(uv + vec2(tap.x, -tap.y), band) + sampleScreen(uv + vec2(-tap.x, tap.y), band));
+        sampleTap(uv - tap, band) + sampleTap(uv + tap, band) +
+        sampleTap(uv + vec2(tap.x, -tap.y), band) + sampleTap(uv + vec2(-tap.x, tap.y), band));
     float luma = dot(color, BLOOM_LUMA);
     float knee = clamp(luma - bloom.y + BLOOM_KNEE, 0.0, 2.0 * BLOOM_KNEE);
     knee = knee * knee / (4.0 * BLOOM_KNEE);

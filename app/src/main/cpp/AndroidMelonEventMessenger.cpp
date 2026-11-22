@@ -187,7 +187,8 @@ void AndroidMelonEventMessenger::onLuaTiltShift(int scriptId, float top, float b
     MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_TILT_SHIFT, sizeof(data), &data);
 }
 
-void AndroidMelonEventMessenger::onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize)
+void AndroidMelonEventMessenger::onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize,
+    bool onlyThreeD, float haze, int hazeColor, float hazeStart, float hazeFalloff)
 {
     // Read in this order by AndroidEmulatorManager (EventLuaBloom)
     struct {
@@ -197,7 +198,15 @@ void AndroidMelonEventMessenger::onLuaBloom(int scriptId, float strength, float 
         float radius;
         float vignette;
         float vignetteSize;
-    } data = { (int32_t) scriptId, strength, threshold, radius, vignette, vignetteSize };
+        int32_t onlyThreeD;
+        float haze;
+        int32_t hazeColor;
+        float hazeStart;
+        float hazeFalloff;
+    } data = {
+        (int32_t) scriptId, strength, threshold, radius, vignette, vignetteSize, onlyThreeD ? 1 : 0, haze, (int32_t) hazeColor, hazeStart,
+        hazeFalloff,
+    };
 
     MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_BLOOM, sizeof(data), &data);
 }

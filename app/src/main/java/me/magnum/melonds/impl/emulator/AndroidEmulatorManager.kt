@@ -194,6 +194,11 @@ class AndroidEmulatorManager(
                     radius = data.getFloat(),
                     vignette = data.getFloat(),
                     vignetteSize = data.getFloat(),
+                    onlyThreeD = data.getInt() != 0,
+                    haze = data.getFloat(),
+                    hazeColor = data.getInt(),
+                    hazeStart = data.getFloat(),
+                    hazeFalloff = data.getFloat(),
                 )
                 _emulatorEvents.tryEmit(EmulatorEvent.LuaBloom(scriptId, bloom))
             }

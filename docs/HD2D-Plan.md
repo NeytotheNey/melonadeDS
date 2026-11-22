@@ -1,6 +1,6 @@
 # Plan: an HD-2D look for DS games
 
-Started 11-21. Phases 1 (bloom and vignette) and 2 (real depth of field, OpenGL only) are done and checked on the Fold (below). Phase 3 (shading and light) is planned in five steps; step A (24-bit depth and flags) is built and checked on the desktop and the Fold. Open decisions are marked **Decide**.
+Started 11-21. Phases 1 (bloom and vignette) and 2 (real depth of field, OpenGL only) are done and checked on the Fold (below). Phase 3 (shading and light) is planned in five steps; step A (24-bit depth and flags) is built and checked on the desktop and the Fold, and step B (haze and 3D-only bloom) is built and checked on the desktop. Open decisions are marked **Decide**.
 
 ## The goal
 
@@ -32,7 +32,7 @@ First look on White's field (OpenGL 4x, the city street from the user's save): t
 
 This is cheap to build and shows quickly whether the look is worth the deeper work. Done when a White script with tilt-shift, bloom and vignette runs on the Fold and the desktop with the same picture, and the phone's frame time hasn't moved much (to measure: bloom's blur at 4x and 8x on the Fold).
 
-**Decide:** whether bloom should only touch the 3D layer. On the finished frame it also catches white text boxes, which will glow. Avoiding that needs to know which pixels are 3D; phase 3 step B does it with the depth's flags.
+Decided 11-21 (phase 3 step B): bloom only touches the 3D where the frame has its depth, so white text boxes don't glow. `only_3d = false` gives the old glow on everything.
 
 ### Phase 2: real depth of field
 
@@ -103,6 +103,15 @@ Two small changes that ride on passes we already have.
 
 - **Haze.** HD-2D fades the far part of the scene towards a pale color. `melon.screen.haze(strength, { color, start, falloff })` mixes the 3D towards `color` as its depth goes past `start`, in the same raw depth units as the DOF. It's folded into bloom's combine pass, which already reads every texel once, so it costs almost nothing.
 - **Bloom on the 3D only.** The flags byte says which pixels are 2D, so bloom's bright pass can skip them. White text boxes stop glowing, which settles phase 1's **Decide**: a `only_3d` bloom option, on by default when depth is there, and the old behavior on Compute and Software.
+
+**Built 11-21.** `melon.screen.haze()` and bloom's `only_3d` ([MODS.md](../MODS.md)); the desktop's `--haze` and `--bloom-all` ([desktop/README.md](../desktop/README.md)). Both only touch 3D pixels, a depth strictly between the 2D-on-top 0 and the nothing-3D 1, so a text box isn't hazed and what's behind the 3D is left alone. The haze is one more define in bloom's combine pass, which now has up to four variants (glow or not, haze or not); the 3D-only bright pass is a define too. A script with only haze, or with a glow and `only_3d`, makes the core keep each frame's depth, as the depth of field does. Without depth (Compute, Software, a script's first frame) the haze draws nothing and the glow takes every pixel. Haze, bloom and vignette share one request, so the newest running script wins for all three. The haze defaults (start 0.9968, falloff 0.0008) suit White's field, and `hd2d_white.lua` has a haze option at 0.6, kept for text like the depth of field.
+
+**Checked on the desktop, 11-21** (OpenGL 4x, White from the user's save in Striaton's street; `perf_logs/2026-11-21-hd2d-haze/`):
+- The street's depth runs 0.99409 to 0.99789. The player is at 0.99634, the far end of the street at the top at about 0.9976, and the roofs nearer the camera at 0.9940 to 0.9953.
+- Haze at 0.6: the far street changes by a mean of 17.7 RGB, the player by 0.33, the roofs and the bottom by 0. At `--wide 342` the wings get it as the depth says. A text box's 176,384 2D pixels don't change.
+- Bloom at 1.5 with a text box over the 3D: with `only_3d` the box changes by a mean of 0.21 (the 3D's glow over its edge), with `--bloom-all` by 10.74 (the text washes out). The 3D under the box is the same either way.
+- No regressions: `--bloom 0.6 --bloom-all` and a vignette alone are byte-identical to the build before, and so is the raw frame with everything off. On Compute the haze draws nothing and the glow is the old one.
+- App unit tests: 745, all passing. Not checked on the Fold yet, and `hd2d_white.lua` with the haze isn't run anywhere yet, since the desktop doesn't run scripts.
 
 #### Step C: depth shading (soft contact shadows)
 

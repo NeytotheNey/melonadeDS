@@ -7,9 +7,24 @@ uniform sampler2D tex;
 uniform vec2 texSize;
 uniform float topScreenWidth;
 varying vec2 uv;
-#ifndef VIGNETTE_ONLY
+#ifndef NO_GLOW
 uniform sampler2D glowTex;
 uniform vec3 bloom;
+#endif
+#ifdef HAZE
+uniform highp sampler2D hazeDepthTex;
+// The haze's strength (x), and where it starts (y) and how far it eases in (z) in raw depth
+uniform highp vec3 haze;
+uniform vec3 hazeColor;
+highp float decodeDepth(highp vec4 texel) {
+    highp vec3 bytes = floor(texel.rgb * 255.0 + 0.5);
+    highp float value = bytes.r * 65536.0 + bytes.g * 256.0 + bytes.b;
+    if (value >= 16777215.0) {
+        return 1.0;
+    }
+    // The largest float below 1
+    return min(value / 16777215.0, 0.99999994);
+}
 #endif
 // The vignette's strength (x) and where it starts (y)
 uniform vec2 vignette;
@@ -33,7 +48,13 @@ void main() {
     vec4 rect = topScreenRect();
     // Both in DS pixels, so the darkening is round on the screen whatever its width
     vec2 dsPixels = vec2(topScreenWidth, frameLayout.w);
-#ifndef VIGNETTE_ONLY
+#ifdef HAZE
+    highp float depth = decodeDepth(texture2D(hazeDepthTex, vec2(uv.x, clamp(uv.y / topScreenEnd, 0.0, 1.0))));
+    if (depth > 0.0 && depth < 1.0) {
+        color = mix(color, hazeColor, haze.x * smoothstep(haze.y, haze.y + max(haze.z, 0.000001), depth));
+    }
+#endif
+#ifndef NO_GLOW
     // Kept on the glow's texel centers inside the top screen, so the black around it doesn't darken its edges
     vec2 glowHalfTexel = 0.5 / dsPixels;
     vec2 glowUv = clamp(uv, vec2(rect.x, 0.0) + glowHalfTexel, vec2(rect.y, topScreenEnd) - glowHalfTexel);

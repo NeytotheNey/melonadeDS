@@ -3,8 +3,8 @@ package me.magnum.melonds.ui.emulator
 import me.magnum.melonds.domain.model.render.Bloom
 
 /**
- * Same rules as [LuaTiltShiftRequests] for the bloom and vignette scripts ask for with `melon.screen.bloom()` and `melon.screen.vignette()`, where
- * a script asking for neither drops its request; main thread only.
+ * Same rules as [LuaTiltShiftRequests] for the bloom, vignette and haze scripts ask for with `melon.screen.bloom()`, `melon.screen.vignette()`
+ * and `melon.screen.haze()`, one request for all three, where a script asking for none of them drops its request; main thread only.
  */
 class LuaBloomRequests {
 

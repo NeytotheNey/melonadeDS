@@ -115,6 +115,9 @@ Shader::Shader(GLuint program, GLenum textureFiltering)
     UniformBloom = glGetUniformLocation(Program, "bloom");
     UniformVignette = glGetUniformLocation(Program, "vignette");
     UniformGlowTex = glGetUniformLocation(Program, "glowTex");
+    UniformHaze = glGetUniformLocation(Program, "haze");
+    UniformHazeColor = glGetUniformLocation(Program, "hazeColor");
+    UniformHazeDepthTex = glGetUniformLocation(Program, "hazeDepthTex");
     UniformDepthOfField = glGetUniformLocation(Program, "depthOfField");
     UniformDepthFocus = glGetUniformLocation(Program, "depthFocus");
     UniformDepthTex = glGetUniformLocation(Program, "depthTex");
@@ -187,6 +190,17 @@ void Shader::SetBloom(const Bloom& bloom) const
         glUniform2f(UniformVignette, bloom.Vignette, bloom.VignetteSize);
     if (UniformGlowTex >= 0)
         glUniform1i(UniformGlowTex, 1);
+    if (UniformDepthTex >= 0)
+        glUniform1i(UniformDepthTex, 1);
+    if (UniformHaze >= 0)
+        glUniform3f(UniformHaze, bloom.Haze, bloom.HazeStart, bloom.HazeFalloff);
+    if (UniformHazeColor >= 0)
+    {
+        melonDS::u32 color = bloom.HazeColor;
+        glUniform3f(UniformHazeColor, ((color >> 16) & 0xFF) / 255.f, ((color >> 8) & 0xFF) / 255.f, (color & 0xFF) / 255.f);
+    }
+    if (UniformHazeDepthTex >= 0)
+        glUniform1i(UniformHazeDepthTex, 2);
 }
 
 void Shader::SetDepthOfField(const DepthOfField& depthOfField, float focusU, float focusV, float focusAgeStep) const

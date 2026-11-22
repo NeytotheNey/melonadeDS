@@ -94,9 +94,10 @@ void DesktopEventMessenger::onLuaTiltShift(int scriptId, float top, float bottom
     POST_LOG("Lua script %d: tilt shift %.2f %.2f\n", scriptId, top, bottom);
 }
 
-void DesktopEventMessenger::onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize)
+void DesktopEventMessenger::onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize,
+    bool onlyThreeD, float haze, int hazeColor, float hazeStart, float hazeFalloff)
 {
-    POST_LOG("Lua script %d: bloom %.2f vignette %.2f\n", scriptId, strength, vignette);
+    POST_LOG("Lua script %d: bloom %.2f vignette %.2f haze %.2f\n", scriptId, strength, vignette, haze);
 }
 
 void DesktopEventMessenger::onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth, float range, float falloff)

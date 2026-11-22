@@ -38,7 +38,8 @@ public:
     void SetTopScreenHeight(int height) const;
     void SetBottomScreenWide(bool isBottomScreenWide) const;
     void SetTiltShift(const TiltShift& tiltShift) const;
-    // the bloom's strength, threshold and radius, the vignette's strength and size, and the glow on unit 1
+    // the bloom's strength, threshold and radius, the vignette's strength and size, the haze's strength, start, falloff and color, the glow on
+    // unit 1, and the depth texture on unit 1 for the 3D-only bright pass and on unit 2 for the haze
     void SetBloom(const Bloom& bloom) const;
     // the depth of field's radius at its strength, range and falloff, its focus point as [focusU] and [focusV] of the depth texture (read when
     // it has no focus depth), whether this frame ages a held focus ([focusAgeStep], 0 or 1), and the depth texture on unit 1 and the picked
@@ -52,6 +53,7 @@ private:
     GLint UniformTexSize = -1, UniformTopScreenWidth = -1, UniformFrameLayout = -1, UniformBottomScreenWide = -1;
     GLint UniformTiltShift = -1, UniformTiltShiftBoost = -1;
     GLint UniformBloom = -1, UniformVignette = -1, UniformGlowTex = -1;
+    GLint UniformHaze = -1, UniformHazeColor = -1, UniformHazeDepthTex = -1;
     GLint UniformDepthOfField = -1, UniformDepthFocus = -1, UniformDepthTex = -1, UniformFocusTex = -1;
     GLint UniformHalvesAt1x = -1, UniformCoordXTex = -1, UniformCoordYTex = -1;
 };

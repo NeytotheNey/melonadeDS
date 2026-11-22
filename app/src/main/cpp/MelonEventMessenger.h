@@ -32,8 +32,10 @@ public:
     virtual void onLuaSetLayout(int scriptId, const std::string& optionKey) = 0;
     // melon.screen.tilt_shift()'s values, clamped; both strengths are 0 and the color is negative (not passed) when the script no longer wants the effect
     virtual void onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation, float contrast, float color) = 0;
-    // melon.screen.bloom()'s and vignette()'s values, clamped; a strength of 0 is that effect off (its other values then the defaults)
-    virtual void onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize) = 0;
+    // melon.screen.bloom()'s, vignette()'s and haze()'s values, clamped; a strength of 0 is that effect off (its other values then the
+    // defaults). [hazeColor] is 0xRRGGBB, and [hazeStart] and [hazeFalloff] are raw depth
+    virtual void onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize, bool onlyThreeD,
+        float haze, int hazeColor, float hazeStart, float hazeFalloff) = 0;
     // melon.screen.depth_of_field()'s values, clamped; a strength of 0 is off (the rest then the defaults), and a negative focusDepth means the
     // depth at (focusX, focusY)
     virtual void onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth, float range, float falloff) = 0;

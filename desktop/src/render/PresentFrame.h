@@ -60,16 +60,25 @@ struct TiltShift
 };
 
 // Bloom.kt: a glow over the DS top screen of what's brighter than [Threshold] (a luma, 0 to 1), blurred [Radius] DS pixels wide, at [Strength]
-// (0 to 2), and a vignette that darkens it from [VignetteSize] of the half-diagonal out to the corners, where it's [Vignette] (0 to 1)
+// (0 to 2), only of 3D pixels with [OnlyThreeD] when the frame has its depth; a vignette that darkens it from [VignetteSize] of the
+// half-diagonal out to the corners, where it's [Vignette] (0 to 1); and a haze that mixes 3D pixels towards [HazeColor] (0xRRGGBB) at up to
+// [Haze] (0 to 1), easing in from [HazeStart] to [HazeStart] + [HazeFalloff] in the renderer's raw depth (0 to 1), only when the frame has
+// its depth
 struct Bloom
 {
-    float Strength = 0, Threshold = 0.7f, Radius = 3, Vignette = 0, VignetteSize = 0.6f;
+    float Strength = 0, Threshold = 0.7f, Radius = 3;
+    bool OnlyThreeD = true;
+    float Vignette = 0, VignetteSize = 0.6f;
+    float Haze = 0;
+    melonDS::u32 HazeColor = 0xDCE6F0;
+    float HazeStart = 0.9968f, HazeFalloff = 0.0008f;
 
     bool operator==(const Bloom&) const = default;
 
     bool HasBloom() const { return Strength > 0.f && Radius > 0.f; }
     bool HasVignette() const { return Vignette > 0.f; }
-    bool IsOff() const { return !HasBloom() && !HasVignette(); }
+    bool HasHaze() const { return Haze > 0.f; }
+    bool IsOff() const { return !HasBloom() && !HasVignette() && !HasHaze(); }
 };
 
 // DepthOfField.kt: a blur over the DS top screen's 3D that grows with each pixel's depth away from the focus, up to [Radius] DS pixels at

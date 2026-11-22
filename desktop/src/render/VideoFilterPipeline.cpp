@@ -10,14 +10,38 @@ namespace
 {
 
 const char* DEBAND_DEFINE = "DEBAND";
-// the bloom's last pass without the glow, for a vignette on its own (BloomCombinePrePassShader)
-const char* VIGNETTE_ONLY_DEFINE = "VIGNETTE_ONLY";
+// the bloom's last pass without the glow, and with the haze (BloomCombinePrePassShader)
+const char* NO_GLOW_DEFINE = "NO_GLOW";
+const char* HAZE_DEFINE = "HAZE";
+// the bloom's bright pass that only takes 3D pixels (BloomBrightPrePassShader)
+const char* ONLY_3D_DEFINE = "ONLY_3D";
+// the combine pass's variants, as bits of an index into CombinePasses; -1 is no combine pass
+const int COMBINE_GLOW = 1;
+const int COMBINE_HAZE = 2;
+const int NO_COMBINE = -1;
 const GLenum COLOR_ATTACHMENTS[] = {GL_COLOR_ATTACHMENT0};
 
 const ShaderProgramSource* FindShader(const char* name)
 {
     const ShaderLibrary* library = ShaderLibrary::Get();
     return library ? library->Find(name) : nullptr;
+}
+
+// the frame's depth texture [texture] on [unit], nearest since its values can't be mixed; leaves unit 0 active
+void BindDepthTexture(GLenum unit, GLuint texture)
+{
+    glActiveTexture(unit);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glActiveTexture(GL_TEXTURE0);
+}
+
+void UnbindTexture(GLenum unit)
+{
+    glActiveTexture(unit);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
 }
 
 }
@@ -143,10 +167,10 @@ struct VideoFilterPipeline::DepthOfFieldPasses
     bool NeedsFocusClear = true;
 };
 
-// the glow's passes at DS-native resolution, then the one that adds it (and the vignette) at the input's
+// the glow's passes at DS-native resolution; a combine pass (CombinePasses) adds it at the input's
 struct VideoFilterPipeline::BloomPasses
 {
-    std::unique_ptr<PrePass> Bright, Horizontal, Vertical, Combine;
+    std::unique_ptr<PrePass> Bright, Horizontal, Vertical;
 };
 
 VideoFilterPipeline::VideoFilterPipeline(const VideoFilter& filter, bool colorCorrection)
@@ -328,14 +352,19 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     // Without a blur, or if its passes can't be built, only the color boost is left to apply, in one pass. Each is only tried once
     TiltShiftPasses* tiltShiftPasses = tiltShift && tiltShift->HasBlur() ? GetTiltShiftPasses() : nullptr;
     PrePass* tiltShiftColorPass = tiltShift && !tiltShiftPasses && tiltShift->HasColorBoost() ? GetTiltShiftColorPass() : nullptr;
-    // The same for the bloom: without a glow, or if its passes can't be built, only the vignette is left, in a pass that reads no glow
+    // The same for the bloom: without a glow, or if its passes can't be built, only the haze and the vignette are left, in a combine pass that
+    // reads no glow. The haze needs the frame's depth, and so does a 3D-only glow, which takes every pixel without it
+    bool hasDepth = frame.DepthTexture != 0;
     BloomPasses* bloomPasses = bloom && bloom->HasBloom() ? GetBloomPasses() : nullptr;
-    PrePass* vignettePass = bloom && !bloomPasses && bloom->HasVignette() ? GetVignettePass() : nullptr;
-    DepthOfFieldPasses* depthOfFieldPasses = depthOfField && !depthOfField->IsOff() && frame.DepthTexture ? GetDepthOfFieldPasses() : nullptr;
+    int combineVariant = bloom ? PickCombineVariant(bloomPasses != nullptr, bloom->HasHaze() && hasDepth, bloom->HasVignette()) : NO_COMBINE;
+    BloomPasses* glowPasses = combineVariant != NO_COMBINE && (combineVariant & COMBINE_GLOW) ? bloomPasses : nullptr;
+    PrePass* onlyThreeDBrightPass = bloom && glowPasses && bloom->OnlyThreeD && hasDepth ? GetOnlyThreeDBrightPass() : nullptr;
+    bool usesHaze = combineVariant != NO_COMBINE && (combineVariant & COMBINE_HAZE);
+    DepthOfFieldPasses* depthOfFieldPasses = depthOfField && !depthOfField->IsOff() && hasDepth ? GetDepthOfFieldPasses() : nullptr;
     if (!depthOfFieldPasses && DepthOfFieldPassesBuilt)
         DepthOfFieldPassesBuilt->NeedsFocusClear = true;
     bool runsDeband = DebandPass && !foldDeband;
-    bool hasLuaPasses = tiltShiftPasses || tiltShiftColorPass || bloomPasses || vignettePass || depthOfFieldPasses;
+    bool hasLuaPasses = tiltShiftPasses || tiltShiftColorPass || combineVariant != NO_COMBINE || depthOfFieldPasses;
     if (!runsDeband && PrePasses.empty() && !hasLuaPasses)
         return Output;
 
@@ -345,9 +374,9 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
         return Output;
 
     std::optional<TiltShift> appliedTiltShift = tiltShiftPasses || tiltShiftColorPass ? tiltShift : std::nullopt;
-    std::optional<Bloom> appliedBloom = bloomPasses || vignettePass ? bloom : std::nullopt;
+    std::optional<Bloom> appliedBloom = combineVariant != NO_COMBINE ? bloom : std::nullopt;
     std::optional<DepthOfField> appliedDepthOfField = depthOfFieldPasses ? depthOfField : std::nullopt;
-    GLuint depthTexture = depthOfFieldPasses ? frame.DepthTexture : 0;
+    GLuint depthTexture = depthOfFieldPasses || onlyThreeDBrightPass || usesHaze ? frame.DepthTexture : 0;
     bool isSameFrame = frame.Sequence != 0 && frame.Sequence == LastFrameSequence && frame.Texture == LastFrameTextureId && width == LastFrameWidth
         && height == LastFrameHeight && isBottomScreenWide == LastFrameBottomScreenWide && appliedTiltShift == LastFrameTiltShift
         && appliedBloom == LastFrameBloom && appliedDepthOfField == LastFrameDepthOfField && depthTexture == LastFrameDepthTexture
@@ -384,7 +413,7 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     if (isComplete && depthOfFieldPasses && appliedDepthOfField)
         isComplete = RenderDepthOfField(*depthOfFieldPasses, *appliedDepthOfField, frame, isBottomScreenWide);
     if (isComplete && appliedBloom)
-        RenderBloom(bloomPasses, *appliedBloom, frame, isBottomScreenWide);
+        RenderBloom(glowPasses, onlyThreeDBrightPass, combineVariant, *appliedBloom, frame, isBottomScreenWide);
     if (isComplete && tiltShiftPasses)
     {
         isComplete = RenderPass(*tiltShiftPasses->Horizontal, frame.TopWidth, isBottomScreenWide, appliedTiltShift)
@@ -450,13 +479,18 @@ void VideoFilterPipeline::BeginPasses()
     glBindBuffer(GL_ARRAY_BUFFER, QuadVbo);
 }
 
-// [bloom] over the current input, whose size it keeps: the glow through [passes] and their combine pass, or the vignette alone without them. A
-// target that can't be made leaves the bloom out (the vignette stays when it's only the glow's), logged once, so the frame is still drawn
-void VideoFilterPipeline::RenderBloom(BloomPasses* passes, const Bloom& bloom, const FrameView& frame, bool isBottomScreenWide)
+// [bloom] over the current input, whose size it keeps, through the combine pass [variant] (from PickCombineVariant): with COMBINE_GLOW the glow
+// through [passes] first, its bright pass [onlyThreeDBright] when that isn't null, and with COMBINE_HAZE the haze from the frame's depth on
+// unit 2. A glow target that can't be made leaves the glow out (the haze and vignette stay), and a combine target that can't be made leaves the
+// bloom out, logged once, so the frame is still drawn
+void VideoFilterPipeline::RenderBloom(BloomPasses* passes, PrePass* onlyThreeDBright, int variant, const Bloom& bloom, const FrameView& frame,
+    bool isBottomScreenWide)
 {
     BeginPasses();
-    GLuint glowTexture = passes ? RenderGlow(*passes, bloom, frame, isBottomScreenWide) : 0;
-    PrePass* combine = passes && glowTexture ? passes->Combine.get() : bloom.HasVignette() ? GetVignettePass() : nullptr;
+    GLuint glowTexture = passes && (variant & COMBINE_GLOW) ? RenderGlow(*passes, onlyThreeDBright, bloom, frame, isBottomScreenWide) : 0;
+    int combineVariant = glowTexture ? variant : variant & ~COMBINE_GLOW;
+    // Without the glow, it's only worth a pass with the haze or the vignette
+    PrePass* combine = combineVariant != 0 || bloom.HasVignette() ? GetCombinePass(combineVariant) : nullptr;
     if (!combine)
         return;
     if (!combine->PrepareTarget(InputWidth, InputHeight))
@@ -472,24 +506,27 @@ void VideoFilterPipeline::RenderBloom(BloomPasses* passes, const Bloom& bloom, c
         glBindTexture(GL_TEXTURE_2D, glowTexture);
         glActiveTexture(GL_TEXTURE0);
     }
+    bool hasHaze = combineVariant & COMBINE_HAZE;
+    if (hasHaze)
+        BindDepthTexture(GL_TEXTURE2, frame.DepthTexture);
     glViewport(0, 0, InputWidth, InputHeight);
     combine->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
     if (glowTexture)
-    {
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, 0);
-        glActiveTexture(GL_TEXTURE0);
-    }
+        UnbindTexture(GL_TEXTURE1);
+    if (hasHaze)
+        UnbindTexture(GL_TEXTURE2);
     InputTexture = combine->Texture;
 }
 
 // the current input's bright parts, blurred, at DS-native resolution (the frame's size in DS pixels): the texture of the glow's last pass, or 0
-// if one of its targets can't be made
-GLuint VideoFilterPipeline::RenderGlow(BloomPasses& passes, const Bloom& bloom, const FrameView& frame, bool isBottomScreenWide)
+// if one of its targets can't be made. With [onlyThreeDBright] that's the bright pass, reading the frame's depth on unit 1
+GLuint VideoFilterPipeline::RenderGlow(BloomPasses& passes, PrePass* onlyThreeDBright, const Bloom& bloom, const FrameView& frame,
+    bool isBottomScreenWide)
 {
     int width = frame.TopWidth;
     int height = frame.FrameHeight();
-    bool isReady = width > 0 && passes.Bright->PrepareTarget(width, height) && passes.Horizontal->PrepareTarget(width, height)
+    PrePass& bright = onlyThreeDBright ? *onlyThreeDBright : *passes.Bright;
+    bool isReady = width > 0 && bright.PrepareTarget(width, height) && passes.Horizontal->PrepareTarget(width, height)
         && passes.Vertical->PrepareTarget(width, height);
     if (!isReady)
     {
@@ -498,8 +535,12 @@ GLuint VideoFilterPipeline::RenderGlow(BloomPasses& passes, const Bloom& bloom, 
     }
 
     glViewport(0, 0, width, height);
-    passes.Bright->Render(InputTexture, InputWidth, InputHeight, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
-    passes.Horizontal->Render(passes.Bright->Texture, width, height, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
+    if (onlyThreeDBright)
+        BindDepthTexture(GL_TEXTURE1, frame.DepthTexture);
+    bright.Render(InputTexture, InputWidth, InputHeight, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
+    if (onlyThreeDBright)
+        UnbindTexture(GL_TEXTURE1);
+    passes.Horizontal->Render(bright.Texture, width, height, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
     passes.Vertical->Render(passes.Horizontal->Texture, width, height, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
     return passes.Vertical->Texture;
 }
@@ -607,14 +648,12 @@ VideoFilterPipeline::BloomPasses* VideoFilterPipeline::GetBloomPasses()
         std::unique_ptr<Shader> bright = CreateShaderProgramOrNull(FindShader("BloomBrightPrePassShader"));
         std::unique_ptr<Shader> horizontal = CreateShaderProgramOrNull(FindShader("BloomBlurHorizontalPrePassShader"));
         std::unique_ptr<Shader> vertical = CreateShaderProgramOrNull(FindShader("BloomBlurVerticalPrePassShader"));
-        std::unique_ptr<Shader> combine = CreateShaderProgramOrNull(FindShader("BloomCombinePrePassShader"));
-        if (bright && horizontal && vertical && combine)
+        if (bright && horizontal && vertical)
         {
             BloomPassesBuilt = std::make_unique<BloomPasses>();
             BloomPassesBuilt->Bright = std::make_unique<PrePass>(std::move(bright), 1, false);
             BloomPassesBuilt->Horizontal = std::make_unique<PrePass>(std::move(horizontal), 1, false);
             BloomPassesBuilt->Vertical = std::make_unique<PrePass>(std::move(vertical), 1, false);
-            BloomPassesBuilt->Combine = std::make_unique<PrePass>(std::move(combine), 1, false);
         }
         else
         {
@@ -625,17 +664,54 @@ VideoFilterPipeline::BloomPasses* VideoFilterPipeline::GetBloomPasses()
     return BloomPassesBuilt.get();
 }
 
-VideoFilterPipeline::PrePass* VideoFilterPipeline::GetVignettePass()
+VideoFilterPipeline::PrePass* VideoFilterPipeline::GetOnlyThreeDBrightPass()
 {
-    if (!IsVignetteBuilt)
+    if (!IsOnlyThreeDBrightBuilt)
     {
-        IsVignetteBuilt = true;
-        if (std::unique_ptr<Shader> shader = CreateShaderProgramOrNull(FindShader("BloomCombinePrePassShader"), false, {VIGNETTE_ONLY_DEFINE}))
-            VignettePass = std::make_unique<PrePass>(std::move(shader), 1, false);
+        IsOnlyThreeDBrightBuilt = true;
+        if (std::unique_ptr<Shader> shader = CreateShaderProgramOrNull(FindShader("BloomBrightPrePassShader"), false, {ONLY_3D_DEFINE}))
+            OnlyThreeDBrightPass = std::make_unique<PrePass>(std::move(shader), 1, false);
         else
-            fprintf(stderr, "vignette shader failed to build, so the vignette is left out\n");
+            // The glow takes every pixel, as it does on a frame without depth, rather than being left out
+            fprintf(stderr, "3D-only bloom shader failed to build, so the glow takes 2D too\n");
     }
-    return VignettePass.get();
+    return OnlyThreeDBrightPass.get();
+}
+
+// the combine pass variant for a frame with a glow whose passes built ([hasGlow]), the haze with the frame's depth ([hasHaze]) and the
+// vignette, building it on first use, or NO_COMBINE for nothing to draw. A variant that doesn't build drops the glow first, then the haze, so
+// what's left is still drawn
+int VideoFilterPipeline::PickCombineVariant(bool hasGlow, bool hasHaze, bool hasVignette)
+{
+    int variant = (hasGlow ? COMBINE_GLOW : 0) | (hasHaze ? COMBINE_HAZE : 0);
+    if ((variant & COMBINE_GLOW) && !GetCombinePass(variant))
+        variant &= ~COMBINE_GLOW;
+    if ((variant & COMBINE_HAZE) && !GetCombinePass(variant))
+        variant &= ~COMBINE_HAZE;
+    if (variant == 0 && (!hasVignette || !GetCombinePass(0)))
+        return NO_COMBINE;
+    return variant;
+}
+
+// the combine pass [variant] (COMBINE_GLOW and COMBINE_HAZE bits), built the first time it's asked for; null if it couldn't be built
+VideoFilterPipeline::PrePass* VideoFilterPipeline::GetCombinePass(int variant)
+{
+    if (!IsCombineBuilt[variant])
+    {
+        IsCombineBuilt[variant] = true;
+        std::vector<std::string> defines;
+        if (!(variant & COMBINE_GLOW))
+            defines.push_back(NO_GLOW_DEFINE);
+        if (variant & COMBINE_HAZE)
+            defines.push_back(HAZE_DEFINE);
+        if (std::unique_ptr<Shader> shader = CreateShaderProgramOrNull(FindShader("BloomCombinePrePassShader"), false, defines))
+            CombinePasses[variant] = std::make_unique<PrePass>(std::move(shader), 1, false);
+        else
+            // The frame is drawn without what this variant adds rather than not at all
+            fprintf(stderr, "bloom combine shader (glow %d, haze %d) failed to build, so what it adds is left out\n", (variant & COMBINE_GLOW) != 0,
+                (variant & COMBINE_HAZE) != 0);
+    }
+    return CombinePasses[variant].get();
 }
 
 VideoFilterPipeline::TiltShiftPasses* VideoFilterPipeline::GetTiltShiftPasses()

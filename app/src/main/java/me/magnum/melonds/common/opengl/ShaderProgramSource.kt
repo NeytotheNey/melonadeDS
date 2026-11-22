@@ -1059,7 +1059,9 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
 
         // The first bloom pass, at DS-native resolution (VideoFilterPipeline makes its target topScreenWidth x frameLayout.w): each texel is the
         // average of the input texels it covers (four bilinear taps, exact at 2x and 4x), then only what's brighter than the threshold is kept,
-        // easing in over a soft knee so the glow has no hard edge. Only the DS top screen; the rest is black
+        // easing in over a soft knee so the glow has no hard edge. Only the DS top screen; the rest is black. With ONLY_3D defined
+        // (VideoFilterPipeline, for bloom's only_3d) each tap counts only where the frame's depth (depthTex, unit 1, nearest, read with
+        // DEPTH_DECODE_FUNCTION) is 3D, still averaged over all four so the glow fades at the 3D's edges
         val BloomBrightPrePassShader get() = ShaderProgramSource(
             TextureFiltering.LINEAR,
             PRE_PASS_VERT_SHADER,
@@ -1073,6 +1075,21 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "// Half the soft knee's width, as a luma: the glow eases in from threshold - BLOOM_KNEE to threshold + BLOOM_KNEE\n" +
                     "const float BLOOM_KNEE = 0.1;\n" +
                     "" +
+                    "#ifdef ONLY_3D\n" +
+                    "uniform highp sampler2D depthTex;\n" +
+                    DEPTH_DECODE_FUNCTION +
+                    "// sampleScreen(p, band) where the frame's depth at that texel is 3D, black for 2D over the 3D and for what's behind it\n" +
+                    "vec3 sampleTap(vec2 p, vec4 band) {\n" +
+                    "    vec2 q = vec2(clamp(p.x, band.z, band.w), clamp(p.y, band.x, band.y));\n" +
+                    "    highp float depth = decodeDepth(texture2D(depthTex, vec2(q.x, clamp(q.y / topScreenEnd, 0.0, 1.0))));\n" +
+                    "    return depth > 0.0 && depth < 1.0 ? texture2D(tex, q).bgr : vec3(0.0);\n" +
+                    "}\n" +
+                    "#else\n" +
+                    "vec3 sampleTap(vec2 p, vec4 band) {\n" +
+                    "    return sampleScreen(p, band);\n" +
+                    "}\n" +
+                    "#endif\n" +
+                    "" +
                     "void main() {\n" +
                     "    vec4 band = screenBand(uv);\n" +
                     "    // The gap, the DS bottom screen, and the sides beside the top screen when only the bottom one is wide\n" +
@@ -1084,8 +1101,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    // A quarter of this pass's texel, which is one DS pixel\n" +
                     "    vec2 tap = 0.25 / vec2(topScreenWidth, frameLayout.w);\n" +
                     "    vec3 color = 0.25 * (\n" +
-                    "        sampleScreen(uv - tap, band) + sampleScreen(uv + tap, band) +\n" +
-                    "        sampleScreen(uv + vec2(tap.x, -tap.y), band) + sampleScreen(uv + vec2(-tap.x, tap.y), band));\n" +
+                    "        sampleTap(uv - tap, band) + sampleTap(uv + tap, band) +\n" +
+                    "        sampleTap(uv + vec2(tap.x, -tap.y), band) + sampleTap(uv + vec2(-tap.x, tap.y), band));\n" +
                     "    float luma = dot(color, BLOOM_LUMA);\n" +
                     "    float knee = clamp(luma - bloom.y + BLOOM_KNEE, 0.0, 2.0 * BLOOM_KNEE);\n" +
                     "    knee = knee * knee / (4.0 * BLOOM_KNEE);\n" +
@@ -1142,17 +1159,26 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
 
         // The bloom's last pass, at the input's resolution: the blurred glow on unit 1 (glowTex, DS-native, sampled linear) added at the bloom's
         // strength, then the vignette, a smooth darkening from vignette.y of the half-diagonal out to the corners, where it's vignette.x. Both
-        // on the DS top screen only, its SCREEN_HEIGHT rows inside the WideMelon camera's margin for the vignette. With VIGNETTE_ONLY defined
-        // (VideoFilterPipeline) there's no glow to read, for the vignette on its own
+        // on the DS top screen only, its SCREEN_HEIGHT rows inside the WideMelon camera's margin for the vignette. With NO_GLOW defined
+        // (VideoFilterPipeline) there's no glow to read, for the haze or the vignette without it. With HAZE defined, 3D pixels first mix towards
+        // hazeColor (RGB) at up to haze.x, easing in from depth haze.y over haze.z, with the frame's depth on unit 2 (hazeDepthTex, nearest,
+        // read with DEPTH_DECODE_FUNCTION)
         val BloomCombinePrePassShader get() = ShaderProgramSource(
             TextureFiltering.LINEAR,
             PRE_PASS_VERT_SHADER,
             PRECISION_HEADER +
                     SCREEN_UNIFORMS +
                     "varying vec2 uv;\n" +
-                    "#ifndef VIGNETTE_ONLY\n" +
+                    "#ifndef NO_GLOW\n" +
                     "uniform sampler2D glowTex;\n" +
                     BLOOM_UNIFORM +
+                    "#endif\n" +
+                    "#ifdef HAZE\n" +
+                    "uniform highp sampler2D hazeDepthTex;\n" +
+                    "// The haze's strength (x), and where it starts (y) and how far it eases in (z) in raw depth\n" +
+                    "uniform highp vec3 haze;\n" +
+                    "uniform vec3 hazeColor;\n" +
+                    DEPTH_DECODE_FUNCTION +
                     "#endif\n" +
                     "// The vignette's strength (x) and where it starts (y)\n" +
                     "uniform vec2 vignette;\n" +
@@ -1179,7 +1205,13 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    vec4 rect = topScreenRect();\n" +
                     "    // Both in DS pixels, so the darkening is round on the screen whatever its width\n" +
                     "    vec2 dsPixels = vec2(topScreenWidth, frameLayout.w);\n" +
-                    "#ifndef VIGNETTE_ONLY\n" +
+                    "#ifdef HAZE\n" +
+                    "    highp float depth = decodeDepth(texture2D(hazeDepthTex, vec2(uv.x, clamp(uv.y / topScreenEnd, 0.0, 1.0))));\n" +
+                    "    if (depth > 0.0 && depth < 1.0) {\n" +
+                    "        color = mix(color, hazeColor, haze.x * smoothstep(haze.y, haze.y + max(haze.z, 0.000001), depth));\n" +
+                    "    }\n" +
+                    "#endif\n" +
+                    "#ifndef NO_GLOW\n" +
                     "    // Kept on the glow's texel centers inside the top screen, so the black around it doesn't darken its edges\n" +
                     "    vec2 glowHalfTexel = 0.5 / dsPixels;\n" +
                     "    vec2 glowUv = clamp(uv, vec2(rect.x, 0.0) + glowHalfTexel, vec2(rect.y, topScreenEnd) - glowHalfTexel);\n" +

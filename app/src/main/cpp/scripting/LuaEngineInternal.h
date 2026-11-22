@@ -92,16 +92,24 @@ struct LuaTiltShift
 };
 
 /**
- * What melon.screen.bloom() and melon.screen.vignette() ask for, clamped, each call setting its own half; a default one is off, and a half that
- * means off is made the default half so that they compare equal
+ * What melon.screen.bloom(), melon.screen.vignette() and melon.screen.haze() ask for, clamped, each call setting its own part; a default one is
+ * off, and a part that means off is made the default part so that they compare equal
  */
 struct LuaBloom
 {
     float strength = 0.0f;
     float threshold = 0.7f;
     float radius = 3.0f;
+    // Whether the glow only picks up 3D pixels, which needs the frame's depth (LuaEngine::wantsDepth)
+    bool onlyThreeD = true;
     float vignette = 0.0f;
     float vignetteSize = 0.6f;
+    float haze = 0.0f;
+    // 0xRRGGBB
+    melonDS::u32 hazeColor = 0xDCE6F0;
+    // Raw depth, 0..1
+    float hazeStart = 0.9968f;
+    float hazeFalloff = 0.0008f;
 
     bool operator==(const LuaBloom&) const = default;
 };
@@ -172,8 +180,8 @@ struct LuaScript
     std::optional<LuaTiltShift> tiltShift;
     // What the app was last told, so that a script can call tilt_shift() every frame and only changes cost an event
     LuaTiltShift sentTiltShift;
-    // melon.screen.bloom() and vignette(): kept until the script changes them or stops, since each call sets only its half, and what the app was
-    // last told of them
+    // melon.screen.bloom(), vignette() and haze(): kept until the script changes them or stops, since each call sets only its part, and what
+    // the app was last told of them, which also decides whether the frames keep their depth (LuaEngine::wantsDepth)
     LuaBloom bloom;
     LuaBloom sentBloom;
     // melon.screen.depth_of_field(): kept until the script changes it or stops, and what the app was last told of it, which also decides whether

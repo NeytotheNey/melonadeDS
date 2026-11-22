@@ -164,7 +164,7 @@ struct Options
     Frontend::RendererConfig Render;
     // --tilt-shift: the Lua tilt-shift's passes over the top screen, for tests until the scripts drive it (phase 4)
     std::optional<Frontend::TiltShift> TiltShift;
-    // --bloom: the Lua bloom's and vignette's passes over the top screen, the same way
+    // --bloom, --bloom-all and --haze: the Lua bloom's, vignette's and haze's passes over the top screen, the same way
     std::optional<Frontend::Bloom> Bloom;
     // --dof: the Lua depth of field's passes the same way, with the frames' depth asked of the core (MelonInstance::setDepthWanted)
     std::optional<Frontend::DepthOfField> DepthOfField;
@@ -293,7 +293,13 @@ void Usage()
         "  --bloom STRENGTH[,THRESHOLD,RADIUS[,VIGNETTE,SIZE]]\n"
         "                              the Lua bloom's and vignette's passes over the top screen, for tests: the glow's\n"
         "                              strength (0-2), the luma it starts at (0-1, 0.7) and its radius in DS pixels (0-8,\n"
-        "                              3), the vignette's strength (0-1) and where it starts (0-1 of the half-diagonal, 0.6)\n"
+        "                              3), the vignette's strength (0-1) and where it starts (0-1 of the half-diagonal, 0.6);\n"
+        "                              only the 3D glows when the frame has its depth (OpenGL), as Lua's only_3d\n"
+        "  --bloom-all                 with --bloom, every bright pixel glows, 2D such as text boxes too (only_3d off)\n"
+        "  --haze STRENGTH[,START,FALLOFF[,RRGGBB]]\n"
+        "                              the Lua haze over the top screen's 3D, for tests (OpenGL only): how far the far 3D\n"
+        "                              goes towards the color (0-1), the depth it starts at and how far past that it's full\n"
+        "                              (0-1, 0.9968 and 0.0008), and the color in hex (DCE6F0)\n"
         "  --dof STRENGTH,RADIUS[,RANGE,FALLOFF[,FOCUS_X,FOCUS_Y[,FOCUS_DEPTH]]]\n"
         "                              the Lua depth of field's passes over the top screen, for tests (OpenGL only): its\n"
         "                              strength (0-1) and radius in DS pixels (0-12), the sharp range around the focus and\n"
@@ -387,6 +393,8 @@ using Frontend::ReadFile;
 bool ParseArgs(int argc, char** argv, Options& opts)
 {
     bool layoutGiven = false, detachGiven = false;
+    // --bloom's glow and vignette, --bloom-all and --haze each set their part, in any order
+    Frontend::Bloom bloom;
     for (int i = 1; i < argc; i++)
     {
         std::string arg = argv[i];
@@ -561,22 +569,38 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--bloom")
         {
             std::string spec = next();
-            Frontend::Bloom bloom;
-            int count = sscanf(spec.c_str(), "%f,%f,%f,%f,%f", &bloom.Strength, &bloom.Threshold, &bloom.Radius, &bloom.Vignette,
-                &bloom.VignetteSize);
+            Frontend::Bloom given;
+            int count = sscanf(spec.c_str(), "%f,%f,%f,%f,%f", &given.Strength, &given.Threshold, &given.Radius, &given.Vignette,
+                &given.VignetteSize);
             if (count != 1 && count != 3 && count != 5)
             {
                 fprintf(stderr, "bad --bloom %s (STRENGTH[,THRESHOLD,RADIUS[,VIGNETTE,SIZE]])\n", spec.c_str());
                 return false;
             }
             // held to what a script could ask for (melon.screen.bloom and vignette)
-            bloom.Strength = std::clamp(bloom.Strength, 0.f, 2.f);
-            bloom.Threshold = std::clamp(bloom.Threshold, 0.f, 1.f);
-            bloom.Radius = std::clamp(bloom.Radius, 0.f, 8.f);
-            bloom.Vignette = std::clamp(bloom.Vignette, 0.f, 1.f);
-            bloom.VignetteSize = std::clamp(bloom.VignetteSize, 0.f, 1.f);
-            // as the app's LuaBloomRequests, which drops a request for neither
-            opts.Bloom = bloom.IsOff() ? std::nullopt : std::optional<Frontend::Bloom>(bloom);
+            bloom.Strength = std::clamp(given.Strength, 0.f, 2.f);
+            bloom.Threshold = std::clamp(given.Threshold, 0.f, 1.f);
+            bloom.Radius = std::clamp(given.Radius, 0.f, 8.f);
+            bloom.Vignette = std::clamp(given.Vignette, 0.f, 1.f);
+            bloom.VignetteSize = std::clamp(given.VignetteSize, 0.f, 1.f);
+        }
+        else if (arg == "--bloom-all") bloom.OnlyThreeD = false;
+        else if (arg == "--haze")
+        {
+            std::string spec = next();
+            Frontend::Bloom given;
+            unsigned int color = given.HazeColor;
+            int count = sscanf(spec.c_str(), "%f,%f,%f,%x", &given.Haze, &given.HazeStart, &given.HazeFalloff, &color);
+            if (count != 1 && count != 3 && count != 4)
+            {
+                fprintf(stderr, "bad --haze %s (STRENGTH[,START,FALLOFF[,RRGGBB]])\n", spec.c_str());
+                return false;
+            }
+            // held to what a script could ask for (melon.screen.haze)
+            bloom.Haze = std::clamp(given.Haze, 0.f, 1.f);
+            bloom.HazeStart = std::clamp(given.HazeStart, 0.f, 1.f);
+            bloom.HazeFalloff = std::clamp(given.HazeFalloff, 0.f, 1.f);
+            bloom.HazeColor = color & 0xFFFFFF;
         }
         else if (arg == "--dof")
         {
@@ -652,6 +676,8 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg[0] == '-') { fprintf(stderr, "unknown option %s\n", arg.c_str()); return false; }
         else opts.RomPath = arg;
     }
+    // as the app's LuaBloomRequests, which drops a request for none of them
+    opts.Bloom = bloom.IsOff() ? std::nullopt : std::optional<Frontend::Bloom>(bloom);
     // a --layout is the screens together, unless --detach asks for them detached
     if (layoutGiven && !detachGiven)
         opts.SettingOverrides.emplace_back("desktop_screens", picojson::value(std::string("together")));
@@ -1600,7 +1626,9 @@ int main(int argc, char** argv)
     callbacks.OnStart = [&](MelonDSAndroid::MelonInstance& instance)
     {
         SetDateTime(opts, *instance.getNds());
-        instance.setDepthWanted(opts.DepthOfField.has_value() || !opts.DepthShotPath.empty());
+        // as LuaEngine::wantsDepth: the depth of field, the haze and a 3D-only glow read the depth
+        bool bloomWantsDepth = opts.Bloom && (opts.Bloom->HasHaze() || (opts.Bloom->HasBloom() && opts.Bloom->OnlyThreeD));
+        instance.setDepthWanted(opts.DepthOfField.has_value() || bloomWantsDepth || !opts.DepthShotPath.empty());
         if (commandLineGame && !opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
         {
             startFailed = true;

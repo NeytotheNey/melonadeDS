@@ -1,6 +1,7 @@
 // Port of the app's VideoFilterPipeline.kt: the GL objects of a VideoFilter (screen shader, pre-pass shaders and their targets), and the
-// pre-passes run over a frame before its screens are drawn: deband (unless the screen shader takes it), the filter's own, then a Lua bloom
-// and vignette, then a Lua tilt-shift; and GPU::Comp1x's 1x shader and expand pass. UI thread only, with its GL context current
+// pre-passes run over a frame before its screens are drawn: deband (unless the screen shader takes it), the filter's own, then a Lua depth of
+// field, then a Lua bloom, haze and vignette, then a Lua tilt-shift; and GPU::Comp1x's 1x shader and expand pass. UI thread only, with its GL
+// context current
 #pragma once
 
 #include <memory>
@@ -55,8 +56,9 @@ public:
 
     // runs the pre-passes, then [depthOfField], [bloom] and [tiltShift] if there are any (in that order, so the glow is of the focused picture
     // and the tilt-shift's blur softens the glow too), and returns the texture the screen shader should draw with its size (texSize); call it
-    // before drawing to the window and for no frame too, then set the program, vertex array, array buffer and texture unit 0 again. A frame
-    // without depth is drawn sharp. With [foldDeband] the deband pre-pass is left out, for a frame drawn with GetDebandScreenShader
+    // before drawing to the window and for no frame too, then set the program, vertex array, array buffer and texture unit 0 again. The depth
+    // of field, the haze and a 3D-only glow need the frame's depth, so a frame without one is drawn sharp, without haze, and with a glow on
+    // every pixel. With [foldDeband] the deband pre-pass is left out, for a frame drawn with GetDebandScreenShader
     const FilterOutput& RenderPrePasses(const FrameView& frame, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift,
         const std::optional<Bloom>& bloom, const std::optional<DepthOfField>& depthOfField, bool foldDeband = false);
 
@@ -71,11 +73,14 @@ private:
 
     bool RenderPass(PrePass& pass, int topScreenWidth, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift);
     void BeginPasses();
-    void RenderBloom(BloomPasses* passes, const Bloom& bloom, const FrameView& frame, bool isBottomScreenWide);
-    GLuint RenderGlow(BloomPasses& passes, const Bloom& bloom, const FrameView& frame, bool isBottomScreenWide);
+    void RenderBloom(BloomPasses* passes, PrePass* onlyThreeDBright, int variant, const Bloom& bloom, const FrameView& frame,
+        bool isBottomScreenWide);
+    GLuint RenderGlow(BloomPasses& passes, PrePass* onlyThreeDBright, const Bloom& bloom, const FrameView& frame, bool isBottomScreenWide);
     void LogBloomTarget();
     BloomPasses* GetBloomPasses();
-    PrePass* GetVignettePass();
+    PrePass* GetOnlyThreeDBrightPass();
+    int PickCombineVariant(bool hasGlow, bool hasHaze, bool hasVignette);
+    PrePass* GetCombinePass(int variant);
     GLuint ExpandHalvesAt1x(const FrameView& frame);
     PrePass* GetExpandPass();
     TiltShiftPasses* GetTiltShiftPasses();
@@ -113,11 +118,15 @@ private:
     bool IsTiltShiftBuilt = false;
     std::unique_ptr<PrePass> TiltShiftColorPass;
     bool IsTiltShiftColorBuilt = false;
-    // the same for a script's bloom, and for its vignette on its own; a target that can't be made is only logged once
+    // the same for a script's glow, its 3D-only bright pass, and each variant of the combine pass that adds the glow, the haze and the vignette
+    // (by COMBINE_GLOW and COMBINE_HAZE bits); a target that can't be made is only logged once
+    static constexpr int COMBINE_VARIANTS = 4;
     std::unique_ptr<BloomPasses> BloomPassesBuilt;
     bool IsBloomBuilt = false;
-    std::unique_ptr<PrePass> VignettePass;
-    bool IsVignetteBuilt = false;
+    std::unique_ptr<PrePass> OnlyThreeDBrightPass;
+    bool IsOnlyThreeDBrightBuilt = false;
+    std::unique_ptr<PrePass> CombinePasses[COMBINE_VARIANTS];
+    bool IsCombineBuilt[COMBINE_VARIANTS] {};
     bool HasLoggedBloomTarget = false;
     // the same for a script's depth of field
     std::unique_ptr<DepthOfFieldPasses> DepthOfFieldPassesBuilt;

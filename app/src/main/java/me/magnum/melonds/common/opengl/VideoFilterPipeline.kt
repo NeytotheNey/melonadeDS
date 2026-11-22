@@ -37,8 +37,16 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     private companion object {
         const val TAG = "VideoFilterPipeline"
         const val DEBAND_DEFINE = "DEBAND"
-        // The bloom's last pass without the glow, for a vignette on its own (ShaderProgramSource.BloomCombinePrePassShader)
-        const val VIGNETTE_ONLY_DEFINE = "VIGNETTE_ONLY"
+        // The bloom's last pass without the glow, and with the haze (ShaderProgramSource.BloomCombinePrePassShader)
+        const val NO_GLOW_DEFINE = "NO_GLOW"
+        const val HAZE_DEFINE = "HAZE"
+        // The bloom's bright pass that only takes 3D pixels (ShaderProgramSource.BloomBrightPrePassShader)
+        const val ONLY_3D_DEFINE = "ONLY_3D"
+        // The combine pass's variants, as bits of an index into combinePasses; -1 is no combine pass
+        const val COMBINE_GLOW = 1
+        const val COMBINE_HAZE = 2
+        const val COMBINE_VARIANTS = 4
+        const val NO_COMBINE = -1
         val COLOR_ATTACHMENTS = intArrayOf(GLES30.GL_COLOR_ATTACHMENT0)
     }
 
@@ -243,11 +251,14 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     // The same for a script that only asks for the color boost right now, which needs none of the above
     private var tiltShiftColorPass: PrePass? = null
     private var isTiltShiftColorBuilt = false
-    // The same for a script's bloom, and for its vignette on its own; a target that can't be made is only logged once
+    // The same for a script's glow, its 3D-only bright pass, and each variant of the combine pass that adds the glow, the haze and the
+    // vignette (by COMBINE_GLOW and COMBINE_HAZE bits); a target that can't be made is only logged once
     private var bloomPasses: BloomPasses? = null
     private var isBloomBuilt = false
-    private var vignettePass: PrePass? = null
-    private var isVignetteBuilt = false
+    private var onlyThreeDBrightPass: PrePass? = null
+    private var isOnlyThreeDBrightBuilt = false
+    private val combinePasses = arrayOfNulls<PrePass>(COMBINE_VARIANTS)
+    private val isCombineBuilt = BooleanArray(COMBINE_VARIANTS)
     private var hasLoggedBloomTarget = false
     // The same for a script's depth of field
     private var depthOfFieldPasses: DepthOfFieldPasses? = null
@@ -298,8 +309,9 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
      * Runs the pre-passes, then the [depthOfField], the [bloom] and the [tiltShift] if there are any (in that order, so the glow is of the
      * focused picture and the tilt-shift's blur softens the glow too), and returns the texture the screen shader should draw, whose size the
      * caller sets as the shader's texSize (a scaled pass makes it bigger); call it before drawing to the surface and for invalid frames too, and
-     * set the program, VAO, array buffer and texture unit 0 again afterwards. The depth of field needs the frame's depth, so a frame without one
-     * is drawn sharp. With [foldDeband] the deband pre-pass is left out, for a frame drawn with [getDebandScreenShader].
+     * set the program, VAO, array buffer and texture unit 0 again afterwards. The depth of field, the haze and a 3D-only glow need the frame's
+     * depth, so a frame without one is drawn sharp, without haze, and with a glow on every pixel. With [foldDeband] the deband pre-pass is left
+     * out, for a frame drawn with [getDebandScreenShader].
      */
     fun renderPrePasses(
         frame: PresentFrameWrapper,
@@ -329,16 +341,21 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         // boost doesn't jump as the bands reach or leave 0 even then. Each is only tried once
         val tiltShiftPasses = if (tiltShift != null && tiltShift.hasBlur) getTiltShiftPasses() else null
         val tiltShiftColorPass = if (tiltShift != null && tiltShiftPasses == null && tiltShift.hasColorBoost) getTiltShiftColorPass() else null
-        // The same for the bloom: without a glow, or if its passes can't be built, only the vignette is left, in a pass that reads no glow
+        // The same for the bloom: without a glow, or if its passes can't be built, only the haze and the vignette are left, in a combine pass
+        // that reads no glow. The haze needs the frame's depth, and so does a 3D-only glow, which takes every pixel without it
+        val hasDepth = frame.depthTextureId != 0
         val bloomPasses = if (bloom != null && bloom.hasBloom) getBloomPasses() else null
-        val vignettePass = if (bloom != null && bloomPasses == null && bloom.hasVignette) getVignettePass() else null
-        val depthOfFieldPasses = if (depthOfField != null && !depthOfField.isOff && frame.depthTextureId != 0) getDepthOfFieldPasses() else null
+        val combineVariant = if (bloom != null) pickCombineVariant(bloomPasses != null, bloom.hasHaze && hasDepth, bloom.hasVignette) else NO_COMBINE
+        val glowPasses = if (combineVariant != NO_COMBINE && (combineVariant and COMBINE_GLOW) != 0) bloomPasses else null
+        val onlyThreeDBrightPass = if (bloom != null && glowPasses != null && bloom.onlyThreeD && hasDepth) getOnlyThreeDBrightPass() else null
+        val usesHaze = combineVariant != NO_COMBINE && (combineVariant and COMBINE_HAZE) != 0
+        val depthOfFieldPasses = if (depthOfField != null && !depthOfField.isOff && hasDepth) getDepthOfFieldPasses() else null
         if (depthOfFieldPasses == null) {
             // The focus it held is from before the depth of field stopped, so turning it back on starts fresh
             this.depthOfFieldPasses?.isFocusStale = true
         }
         val runsDeband = debandPass != null && !foldDeband
-        val hasLuaPasses = tiltShiftPasses != null || tiltShiftColorPass != null || bloomPasses != null || vignettePass != null || depthOfFieldPasses != null
+        val hasLuaPasses = tiltShiftPasses != null || tiltShiftColorPass != null || combineVariant != NO_COMBINE || depthOfFieldPasses != null
         if (!runsDeband && prePasses.isEmpty() && !hasLuaPasses) {
             return output
         }
@@ -350,9 +367,9 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         }
 
         val appliedTiltShift = if (tiltShiftPasses != null || tiltShiftColorPass != null) tiltShift else null
-        val appliedBloom = if (bloomPasses != null || vignettePass != null) bloom else null
+        val appliedBloom = if (combineVariant != NO_COMBINE) bloom else null
         val appliedDepthOfField = if (depthOfFieldPasses != null) depthOfField else null
-        val depthTextureId = if (depthOfFieldPasses != null) frame.depthTextureId else 0
+        val depthTextureId = if (depthOfFieldPasses != null || onlyThreeDBrightPass != null || usesHaze) frame.depthTextureId else 0
         val isSameFrame = frame.frameSequence != 0L && frame.frameSequence == lastFrameSequence && frame.textureId == lastFrameTextureId &&
                 width == lastFrameWidth && height == lastFrameHeight && isBottomScreenWide == lastFrameBottomScreenWide &&
                 appliedTiltShift == lastFrameTiltShift && appliedBloom == lastFrameBloom && appliedDepthOfField == lastFrameDepthOfField &&
@@ -393,7 +410,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             isComplete = renderDepthOfField(depthOfFieldPasses, appliedDepthOfField, frame, isBottomScreenWide)
         }
         if (isComplete && appliedBloom != null) {
-            renderBloom(bloomPasses, appliedBloom, frame, isBottomScreenWide)
+            renderBloom(glowPasses, onlyThreeDBrightPass, combineVariant, appliedBloom, frame, isBottomScreenWide)
         }
         if (isComplete && tiltShiftPasses != null) {
             isComplete = renderPass(tiltShiftPasses.horizontal, frame.topScreenWidth, isBottomScreenWide, appliedTiltShift) &&
@@ -466,14 +483,21 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     }
 
     /**
-     * Draws [bloom] over the current input, whose size it keeps: the glow through [passes] and their combine pass, or the vignette alone
-     * without them. A target that can't be made leaves the bloom out (the vignette stays when it's only the glow's), logged once, so the frame
-     * is still drawn.
+     * Draws [bloom] over the current input, whose size it keeps, through the combine pass [variant] (from [pickCombineVariant]): with
+     * COMBINE_GLOW the glow through [passes] first, its bright pass [onlyThreeDBright] when that isn't null, and with COMBINE_HAZE the haze
+     * from the frame's depth on unit 2. A glow target that can't be made leaves the glow out (the haze and vignette stay), and a combine target
+     * that can't be made leaves the bloom out, logged once, so the frame is still drawn.
      */
-    private fun renderBloom(passes: BloomPasses?, bloom: Bloom, frame: PresentFrameWrapper, isBottomScreenWide: Boolean) {
+    private fun renderBloom(passes: BloomPasses?, onlyThreeDBright: PrePass?, variant: Int, bloom: Bloom, frame: PresentFrameWrapper, isBottomScreenWide: Boolean) {
         beginPasses()
-        val glowTexture = if (passes != null) renderGlow(passes, bloom, frame, isBottomScreenWide) else 0
-        val combine = if (passes != null && glowTexture != 0) passes.combine else if (bloom.hasVignette) getVignettePass() else null
+        val glowTexture = if (passes != null && (variant and COMBINE_GLOW) != 0) {
+            renderGlow(passes, onlyThreeDBright, bloom, frame, isBottomScreenWide)
+        } else {
+            0
+        }
+        val combineVariant = if (glowTexture != 0) variant else variant and COMBINE_GLOW.inv()
+        // Without the glow, it's only worth a pass with the haze or the vignette
+        val combine = if (combineVariant != 0 || bloom.hasVignette) getCombinePass(combineVariant) else null
         if (combine == null) {
             return
         }
@@ -488,24 +512,30 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, glowTexture)
             GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         }
+        val hasHaze = (combineVariant and COMBINE_HAZE) != 0
+        if (hasHaze) {
+            bindDepthTexture(GLES30.GL_TEXTURE2, frame.depthTextureId)
+        }
         GLES30.glViewport(0, 0, inputWidth, inputHeight)
         combine.render(inputTexture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
         if (glowTexture != 0) {
-            GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
-            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
-            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+            unbindTexture(GLES30.GL_TEXTURE1)
+        }
+        if (hasHaze) {
+            unbindTexture(GLES30.GL_TEXTURE2)
         }
         inputTexture = combine.texture
     }
 
     /**
      * The current input's bright parts, blurred, at DS-native resolution (the frame's size in DS pixels): the texture of the glow's last pass,
-     * or 0 if one of its targets can't be made.
+     * or 0 if one of its targets can't be made. With [onlyThreeDBright] that's the bright pass, reading the frame's depth on unit 1.
      */
-    private fun renderGlow(passes: BloomPasses, bloom: Bloom, frame: PresentFrameWrapper, isBottomScreenWide: Boolean): Int {
+    private fun renderGlow(passes: BloomPasses, onlyThreeDBright: PrePass?, bloom: Bloom, frame: PresentFrameWrapper, isBottomScreenWide: Boolean): Int {
         val width = frame.topScreenWidth
         val height = frame.frameHeight
-        val isReady = width > 0 && passes.bright.prepareTarget(width, height) && passes.horizontal.prepareTarget(width, height) &&
+        val bright = onlyThreeDBright ?: passes.bright
+        val isReady = width > 0 && bright.prepareTarget(width, height) && passes.horizontal.prepareTarget(width, height) &&
                 passes.vertical.prepareTarget(width, height)
         if (!isReady) {
             logBloomTarget()
@@ -513,10 +543,52 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         }
 
         GLES30.glViewport(0, 0, width, height)
-        passes.bright.render(inputTexture, inputWidth, inputHeight, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
-        passes.horizontal.render(passes.bright.texture, width, height, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
+        if (onlyThreeDBright != null) {
+            bindDepthTexture(GLES30.GL_TEXTURE1, frame.depthTextureId)
+        }
+        bright.render(inputTexture, inputWidth, inputHeight, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
+        if (onlyThreeDBright != null) {
+            unbindTexture(GLES30.GL_TEXTURE1)
+        }
+        passes.horizontal.render(bright.texture, width, height, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
         passes.vertical.render(passes.horizontal.texture, width, height, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
         return passes.vertical.texture
+    }
+
+    /**
+     * Binds the frame's depth texture [textureId] on [unit], nearest since its values can't be mixed, and leaves unit 0 active.
+     */
+    private fun bindDepthTexture(unit: Int, textureId: Int) {
+        GLES30.glActiveTexture(unit)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+    }
+
+    private fun unbindTexture(unit: Int) {
+        GLES30.glActiveTexture(unit)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+    }
+
+    /**
+     * The combine pass variant for a frame with a glow whose passes built ([hasGlow]), the haze with the frame's depth ([hasHaze]) and the
+     * vignette, building it on first use, or NO_COMBINE for nothing to draw. A variant that doesn't build drops the glow first, then the haze, so
+     * what's left is still drawn.
+     */
+    private fun pickCombineVariant(hasGlow: Boolean, hasHaze: Boolean, hasVignette: Boolean): Int {
+        var variant = (if (hasGlow) COMBINE_GLOW else 0) or (if (hasHaze) COMBINE_HAZE else 0)
+        if ((variant and COMBINE_GLOW) != 0 && getCombinePass(variant) == null) {
+            variant = variant and COMBINE_GLOW.inv()
+        }
+        if ((variant and COMBINE_HAZE) != 0 && getCombinePass(variant) == null) {
+            variant = variant and COMBINE_HAZE.inv()
+        }
+        if (variant == 0 && (!hasVignette || getCombinePass(0) == null)) {
+            return NO_COMBINE
+        }
+        return variant
     }
 
     /**
@@ -633,33 +705,56 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             val bright = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.BloomBrightPrePassShader)
             val horizontal = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.BloomBlurHorizontalPrePassShader)
             val vertical = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.BloomBlurVerticalPrePassShader)
-            val combine = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.BloomCombinePrePassShader)
-            if (bright != null && horizontal != null && vertical != null && combine != null) {
-                bloomPasses = BloomPasses(PrePass(bright, 1, false), PrePass(horizontal, 1, false), PrePass(vertical, 1, false), PrePass(combine, 1, false))
+            if (bright != null && horizontal != null && vertical != null) {
+                bloomPasses = BloomPasses(PrePass(bright, 1, false), PrePass(horizontal, 1, false), PrePass(vertical, 1, false))
             } else {
                 // The frame is drawn without the glow rather than not at all
                 Log.e(TAG, "Bloom shaders failed to build, so the glow is left out")
                 bright?.delete()
                 horizontal?.delete()
                 vertical?.delete()
-                combine?.delete()
             }
         }
         return bloomPasses
     }
 
-    private fun getVignettePass(): PrePass? {
-        if (!isVignetteBuilt) {
-            isVignetteBuilt = true
-            val shader = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.BloomCombinePrePassShader, extraDefines = listOf(VIGNETTE_ONLY_DEFINE))
+    private fun getOnlyThreeDBrightPass(): PrePass? {
+        if (!isOnlyThreeDBrightBuilt) {
+            isOnlyThreeDBrightBuilt = true
+            val shader = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.BloomBrightPrePassShader, extraDefines = listOf(ONLY_3D_DEFINE))
             if (shader != null) {
-                vignettePass = PrePass(shader, 1, false)
+                onlyThreeDBrightPass = PrePass(shader, 1, false)
             } else {
-                // The frame is drawn without the vignette rather than not at all
-                Log.e(TAG, "Vignette shader failed to build, so the vignette is left out")
+                // The glow takes every pixel, as it does on a frame without depth, rather than being left out
+                Log.e(TAG, "3D-only bloom shader failed to build, so the glow takes 2D too")
             }
         }
-        return vignettePass
+        return onlyThreeDBrightPass
+    }
+
+    /**
+     * The combine pass [variant] (COMBINE_GLOW and COMBINE_HAZE bits), built the first time it's asked for; null if it couldn't be built.
+     */
+    private fun getCombinePass(variant: Int): PrePass? {
+        if (!isCombineBuilt[variant]) {
+            isCombineBuilt[variant] = true
+            val defines = buildList {
+                if ((variant and COMBINE_GLOW) == 0) {
+                    add(NO_GLOW_DEFINE)
+                }
+                if ((variant and COMBINE_HAZE) != 0) {
+                    add(HAZE_DEFINE)
+                }
+            }
+            val shader = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.BloomCombinePrePassShader, extraDefines = defines)
+            if (shader != null) {
+                combinePasses[variant] = PrePass(shader, 1, false)
+            } else {
+                // The frame is drawn without what this variant adds rather than not at all
+                Log.e(TAG, "Bloom combine shader with defines $defines failed to build, so what it adds is left out")
+            }
+        }
+        return combinePasses[variant]
     }
 
     private fun getTiltShiftPasses(): TiltShiftPasses? {
@@ -718,11 +813,14 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             it.bright.delete()
             it.horizontal.delete()
             it.vertical.delete()
-            it.combine.delete()
         }
         bloomPasses = null
-        vignettePass?.delete()
-        vignettePass = null
+        onlyThreeDBrightPass?.delete()
+        onlyThreeDBrightPass = null
+        for (i in combinePasses.indices) {
+            combinePasses[i]?.delete()
+            combinePasses[i] = null
+        }
         depthOfFieldPasses?.let {
             it.horizontal.delete()
             it.vertical.delete()
@@ -804,8 +902,8 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         }
     }
 
-    // The glow's passes at DS-native resolution, then the one that adds it (and the vignette) at the input's
-    private class BloomPasses(val bright: PrePass, val horizontal: PrePass, val vertical: PrePass, val combine: PrePass)
+    // The glow's passes at DS-native resolution; a combine pass (combinePasses) adds it at the input's
+    private class BloomPasses(val bright: PrePass, val horizontal: PrePass, val vertical: PrePass)
 
     private class PrePass(private val shader: Shader, val scale: Int, val nativeResolutionOnly: Boolean) {
         private var framebuffer = 0

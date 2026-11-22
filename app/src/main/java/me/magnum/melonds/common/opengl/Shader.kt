@@ -33,12 +33,17 @@ class Shader(
     // Only declared by the tilt-shift pre-passes that apply the color boost: the blur's last one and the color-only one
     private val uniformTiltShiftBoost: Int
     // Only declared by the bloom pre-passes (see ShaderProgramSource.BloomBrightPrePassShader and the ones after it): the bloom's strength,
-    // threshold and radius, the vignette's strength and size, and the blurred glow's texture, on unit 1
+    // threshold and radius, the vignette's strength and size, the blurred glow's texture, on unit 1, and the haze's strength, start, falloff
+    // and color, with the frame's depth texture on unit 2
     private val uniformBloom: Int
     private val uniformVignette: Int
     private val uniformGlowTex: Int
+    private val uniformHaze: Int
+    private val uniformHazeColor: Int
+    private val uniformHazeDepthTex: Int
     // Only declared by the depth of field pre-passes (see ShaderProgramSource.depthOfFieldPrePassShader and DepthOfFieldFocusShader): its radius,
-    // range and falloff, its focus point (the focus pass), the frame's depth texture on unit 1 and the picked focus on unit 2 (the blur passes)
+    // range and falloff, its focus point (the focus pass), the frame's depth texture on unit 1 and the picked focus on unit 2 (the blur passes).
+    // The bloom's 3D-only bright pass declares the depth texture too, also on unit 1
     private val uniformDepthOfField: Int
     private val uniformDepthFocus: Int
     private val uniformDepthTex: Int
@@ -63,6 +68,9 @@ class Shader(
         uniformBloom = GLES30.glGetUniformLocation(programId, "bloom")
         uniformVignette = GLES30.glGetUniformLocation(programId, "vignette")
         uniformGlowTex = GLES30.glGetUniformLocation(programId, "glowTex")
+        uniformHaze = GLES30.glGetUniformLocation(programId, "haze")
+        uniformHazeColor = GLES30.glGetUniformLocation(programId, "hazeColor")
+        uniformHazeDepthTex = GLES30.glGetUniformLocation(programId, "hazeDepthTex")
         uniformDepthOfField = GLES30.glGetUniformLocation(programId, "depthOfField")
         uniformDepthFocus = GLES30.glGetUniformLocation(programId, "depthFocus")
         uniformDepthTex = GLES30.glGetUniformLocation(programId, "depthTex")
@@ -141,7 +149,8 @@ class Shader(
     }
 
     /**
-     * Sets the bloom's strength, threshold and radius, the vignette's strength and size, and that the glow is on unit 1; call after [use].
+     * Sets the bloom's strength, threshold and radius, the vignette's strength and size, the haze's strength, start, falloff and color, that the
+     * glow is on unit 1, and that the depth texture is on unit 1 for the 3D-only bright pass and on unit 2 for the haze; call after [use].
      */
     fun setBloom(bloom: Bloom) {
         if (uniformBloom != INVALID_UNIFORM) {
@@ -152,6 +161,21 @@ class Shader(
         }
         if (uniformGlowTex != INVALID_UNIFORM) {
             GLES30.glUniform1i(uniformGlowTex, 1)
+        }
+        if (uniformDepthTex != INVALID_UNIFORM) {
+            GLES30.glUniform1i(uniformDepthTex, 1)
+        }
+        if (uniformHaze != INVALID_UNIFORM) {
+            GLES30.glUniform3f(uniformHaze, bloom.haze, bloom.hazeStart, bloom.hazeFalloff)
+        }
+        if (uniformHazeColor != INVALID_UNIFORM) {
+            val color = bloom.hazeColor
+            GLES30.glUniform3f(
+                uniformHazeColor, (color shr 16 and 0xFF) / 255f, (color shr 8 and 0xFF) / 255f, (color and 0xFF) / 255f,
+            )
+        }
+        if (uniformHazeDepthTex != INVALID_UNIFORM) {
+            GLES30.glUniform1i(uniformHazeDepthTex, 2)
         }
     }
 
