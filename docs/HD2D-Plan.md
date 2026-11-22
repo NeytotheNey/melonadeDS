@@ -117,7 +117,7 @@ Two small changes that ride on passes we already have.
 - The haze shows at the far edge of the scene and leaves the player's area pixel-identical. At the default 0.6 it's mild: the top band's mean color goes from (81,82,88) to (87,88,93).
 - A white text box stays crisp with no glow at 4x and 8x, with a test copy of the script that keeps bloom at 1.5 during text. That also closes step A's unchecked message box at 8x.
 - Walking 9 s sideways showed no flicker or banding in the haze. Logcat has no GL, shader, Lua or build errors, and Compute 4x runs the script with no haze and no errors.
-- Every run held 60 FPS with no missed frames. GPU cost: OpenGL 4x 2.59 Mcycles a frame (3.70 for the focus build), 8x 7.61 (9.56), Compute 4x 4.07. The GPU clock sat lower in these runs, so the drop is probably the governor, not the haze being cheaper. What it does show is that step B fits.
+- Every run held 60 FPS with no missed frames. GPU cost: OpenGL 4x 2.59 Mcycles a frame (3.70 for the focus build), 8x 7.61 (9.56), Compute 4x 4.07. The drop isn't the haze being cheaper: deband had been turned off since the focus run, and the GPU clock sat lower. What it does show is that step B fits.
 
 #### Step C: depth shading (soft contact shadows)
 
