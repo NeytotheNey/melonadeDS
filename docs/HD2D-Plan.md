@@ -1,6 +1,6 @@
 # Plan: an HD-2D look for DS games
 
-Started 11-21. Phase 1 (bloom and vignette) is built and runs on the Fold (below), not committed yet; the rest is plan only. Open decisions are marked **Decide**.
+Started 11-21. Phase 1 (bloom and vignette) is done and checked on the Fold (below); the rest is plan only. Open decisions are marked **Decide**.
 
 ## The goal
 
@@ -28,7 +28,7 @@ Built 11-21: `melon.screen.bloom()` and `melon.screen.vignette()` ([MODS.md](../
 
 First look on White's field (OpenGL 4x, the city street from the user's save): the glow, vignette and tilt-shift stack as intended. But a daytime White street has no lamps, and the pale pavement sits around luma 0.8, so a brightness threshold mostly lifts the floor: at 0.6 the street washes out, at 0.8 it's milder but still the floor that glows. The example's threshold default went from 0.7 to 0.8 for that. Picking real light sources (windows, lamps, night scenes) needs more than brightness, which ties into phase 3.
 
-**On the Fold, 11-21** (USB, plugged in; White from the user's save, standing still in Striaton City, WideMelon on at 342 wide; `perf_logs/2026-11-21-hd2d-bloom/`): `hd2d_white.lua` loads with no errors, the top screen gets the glow, vignette and tilt-shift, the bottom screen is pixel-identical on and off, the menu clears it and it fades back. No FPS drop and no missed frames anywhere; the script costs about 0.2 ms of work per frame and a little GPU: +0.6 Mcycles a frame on OpenGL 4x (2.6 → 3.2), +2.3 at 8x (5.7 → 8.0), +0.7 on Compute 4x (5.5 → 6.2), rough numbers since the governor moves clocks. No build or target errors in any run, and the xbr2 and FXAA filters draw it the same way. Not checked yet: the L+R toggle (adb can't hold two touches), a battle, and the vignette on its own during text.
+**On the Fold, 11-21** (USB, plugged in; White from the user's save, standing still in Striaton City, WideMelon on at 342 wide; `perf_logs/2026-11-21-hd2d-bloom/`): `hd2d_white.lua` loads with no errors, the top screen gets the glow, vignette and tilt-shift, the bottom screen is pixel-identical on and off, the menu clears it and it fades back. No FPS drop and no missed frames anywhere; the script costs about 0.2 ms of work per frame and a little GPU: +0.6 Mcycles a frame on OpenGL 4x (2.6 → 3.2), +2.3 at 8x (5.7 → 8.0), +0.7 on Compute 4x (5.5 → 6.2), rough numbers since the governor moves clocks. No build or target errors in any run, and the xbr2 and FXAA filters draw it the same way. From the user's own states the same day: a town and a route show the look, a battle shows none of it, the hold L, tap R toggle works by hand, and a text box keeps only the vignette. Phase 1 is done.
 
 This is cheap to build and shows quickly whether the look is worth the deeper work. Done when a White script with tilt-shift, bloom and vignette runs on the Fold and the desktop with the same picture, and the phone's frame time hasn't moved much (to measure: bloom's blur at 4x and 8x on the Fold).
 
