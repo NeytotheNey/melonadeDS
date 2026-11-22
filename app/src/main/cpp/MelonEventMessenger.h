@@ -39,6 +39,9 @@ public:
     // melon.screen.depth_of_field()'s values, clamped; a strength of 0 is off (the rest then the defaults), and a negative focusDepth means the
     // depth at (focusX, focusY)
     virtual void onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth, float range, float falloff) = 0;
+    // melon.screen.shade()'s values, clamped; a strength of 0 is off (the rest then the defaults). [range] is raw depth, and [color] is
+    // 0xRRGGBB
+    virtual void onLuaShade(int scriptId, float strength, float radius, float range, int color) = 0;
     // melon.wide's requests, clamped: the zoom (negative for the player's), the pan if [hasPan], whether native is held, and the vertical pan if
     // [hasPanY]; all off when the script no longer asks for anything
     virtual void onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY) = 0;

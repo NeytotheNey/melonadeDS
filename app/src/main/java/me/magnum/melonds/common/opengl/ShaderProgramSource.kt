@@ -1047,6 +1047,25 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    return min(value / 16777215.0, 0.99999994);\n" +
                 "}\n"
 
+        // The same texel's 24-bit depth as a whole number (depthValue), which highp floats hold exactly up to 2^24, so depths can be averaged
+        // as differences from one of them without losing steps; isValue3D() is decodeDepth()'s test for real 3D, depth > 0 and < 1. encodeDepth()
+        // is the inverse of depthValue(), the value rounded to a whole number from 0 to 16777215 as RGB, exact since it only divides by powers
+        // of 2. For the shading's passes, whose targets hold depths the same way
+        private const val DEPTH_VALUE_FUNCTIONS = "highp float depthValue(highp vec4 texel) {\n" +
+                "    highp vec3 bytes = floor(texel.rgb * 255.0 + 0.5);\n" +
+                "    return bytes.r * 65536.0 + bytes.g * 256.0 + bytes.b;\n" +
+                "}\n" +
+                "bool isValue3D(highp float value) {\n" +
+                "    return value > 0.0 && value < 16777215.0;\n" +
+                "}\n" +
+                "highp vec3 encodeDepth(highp float value) {\n" +
+                "    value = clamp(floor(value + 0.5), 0.0, 16777215.0);\n" +
+                "    highp float high = floor(value / 65536.0);\n" +
+                "    highp float middle = floor((value - high * 65536.0) / 256.0);\n" +
+                "    highp float low = value - high * 65536.0 - middle * 256.0;\n" +
+                "    return vec3(high, middle, low) / 255.0;\n" +
+                "}\n"
+
         // The depth of field's focus as DepthOfFieldFocusShader stores it (needs DEPTH_DECODE_FUNCTION first): its depth in RGB as the depth
         // texture has it, all 0 for none, which decodes to negative
         private const val FOCUS_DECODE_FUNCTION = "highp float decodeFocus(highp vec4 texel) {\n" +
@@ -1436,6 +1455,204 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // Built when a script first asks for a depth of field (see VideoFilterPipeline), which runs them in this order
         val DepthOfFieldHorizontalPrePassShader get() = depthOfFieldPrePassShader("vec2(1.0, 0.0)")
         val DepthOfFieldVerticalPrePassShader get() = depthOfFieldPrePassShader("vec2(0.0, 1.0)")
+
+        // The shading's values (Shader.setShade): its strength (x), the depth blur's radius in DS pixels (y) and its range in raw depth (z)
+        private const val SHADE_UNIFORM = "uniform highp vec3 shade;\n"
+
+        // The shading's first pass, at DS resolution (VideoFilterPipeline makes its target topScreenWidth x the top screen's half's rows, the
+        // depth texture's size over the internal scale). tex (unit 0) is the frame's depth texture (PresentFrameWrapper.depthTextureId); each
+        // target texel takes the four depth texels at the quarter points of its DS pixel's footprint and averages the ones that are 3D. Out: that
+        // mean as encodeDepth() has it in RGB, and the fraction of the four that were 3D in A, all 0 for none
+        val ShadeDownsamplePrePassShader get() = ShaderProgramSource(
+            TextureFiltering.NEAREST,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    "varying vec2 uv;\n" +
+                    "uniform highp sampler2D tex;\n" +
+                    "uniform vec2 texSize;\n" +
+                    "uniform float topScreenWidth;\n" +
+                    FRAME_LAYOUT_UNIFORM +
+                    DEPTH_VALUE_FUNCTIONS +
+                    "" +
+                    "// Counts the depth texel at p (in DS pixels) if it's 3D, with scale depth texels per DS pixel, as a difference from the first 3D\n" +
+                    "// one (ref) so the sum stays exact\n" +
+                    "void addTap(vec2 p, vec2 scale, inout highp float ref, inout highp float sum, inout float count) {\n" +
+                    "    highp vec2 texel = min(floor(p * scale), texSize - 1.0) + 0.5;\n" +
+                    "    highp float value = depthValue(texture2D(tex, texel / texSize));\n" +
+                    "    if (!isValue3D(value)) {\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    if (count == 0.0) {\n" +
+                    "        ref = value;\n" +
+                    "    }\n" +
+                    "    sum += value - ref;\n" +
+                    "    count += 1.0;\n" +
+                    "}\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    // The top screen's half in DS pixels and the depth texels per DS pixel, both whole numbers, so the taps land inside texels\n" +
+                    "    vec2 dsSize = floor(vec2(topScreenWidth, frameLayout.x * frameLayout.w) + 0.5);\n" +
+                    "    vec2 scale = max(floor(texSize / dsSize + 0.5), 1.0);\n" +
+                    "    vec2 dsPixel = floor(uv * dsSize);\n" +
+                    "    highp float ref = 0.0;\n" +
+                    "    highp float sum = 0.0;\n" +
+                    "    float count = 0.0;\n" +
+                    "    addTap(dsPixel + vec2(0.25, 0.25), scale, ref, sum, count);\n" +
+                    "    addTap(dsPixel + vec2(0.75, 0.25), scale, ref, sum, count);\n" +
+                    "    addTap(dsPixel + vec2(0.25, 0.75), scale, ref, sum, count);\n" +
+                    "    addTap(dsPixel + vec2(0.75, 0.75), scale, ref, sum, count);\n" +
+                    "    if (count == 0.0) {\n" +
+                    "        gl_FragColor = vec4(0.0);\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    gl_FragColor = vec4(encodeDepth(ref + sum / count), count / 4.0);\n" +
+                    "}"
+        )
+
+        // One direction of the shading's depth blur, at DS resolution like the first pass, whose output (or the horizontal pass's) is tex (unit
+        // 0, nearest): a Gaussian whose sigma is half the radius, with shade.y taps on each side (at most SHADE_MAX_RADIUS, the Lua API's
+        // largest), as a normalized convolution. Each tap counts by its kernel weight times its A, so only 3D counts, and a tap outside the
+        // target not at all. Out: the weighted mean depth as encodeDepth() has it in RGB, and in A the taps' weights over the kernel's, all 0
+        // with none
+        private fun shadeBlurPrePassShader(direction: String): ShaderProgramSource {
+            return ShaderProgramSource(
+                TextureFiltering.NEAREST,
+                PRE_PASS_VERT_SHADER,
+                PRECISION_HEADER +
+                        "varying vec2 uv;\n" +
+                        "uniform highp sampler2D tex;\n" +
+                        "uniform vec2 texSize;\n" +
+                        SHADE_UNIFORM +
+                        DEPTH_VALUE_FUNCTIONS +
+                        "" +
+                        "const vec2 BLUR_DIRECTION = $direction;\n" +
+                        "const int SHADE_MAX_RADIUS = 16;\n" +
+                        "" +
+                        "// Counts the texel at p by kernel times its A, as a difference from the first counted one (ref) so the sum keeps its precision\n" +
+                        "void addTap(vec2 p, float kernel, inout highp float ref, inout highp float sum, inout float weights) {\n" +
+                        "    // Clamping would read the edge texel again\n" +
+                        "    if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) {\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "    highp vec4 texel = texture2D(tex, p);\n" +
+                        "    float weight = kernel * texel.a;\n" +
+                        "    if (weight <= 0.0) {\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "    highp float value = depthValue(texel);\n" +
+                        "    if (weights == 0.0) {\n" +
+                        "        ref = value;\n" +
+                        "    }\n" +
+                        "    sum += weight * (value - ref);\n" +
+                        "    weights += weight;\n" +
+                        "}\n" +
+                        "" +
+                        "void main() {\n" +
+                        "    vec2 tapStep = BLUR_DIRECTION / texSize;\n" +
+                        "    float sigma = max(0.5 * shade.y, 0.5);\n" +
+                        "    highp float ref = 0.0;\n" +
+                        "    highp float sum = 0.0;\n" +
+                        "    float weights = 0.0;\n" +
+                        "    float kernels = 1.0;\n" +
+                        "    addTap(uv, 1.0, ref, sum, weights);\n" +
+                        "    for (int i = 1; i <= SHADE_MAX_RADIUS; i++) {\n" +
+                        "        float x = float(i);\n" +
+                        "        if (x > shade.y) {\n" +
+                        "            break;\n" +
+                        "        }\n" +
+                        "        float kernel = exp(-0.5 * (x / sigma) * (x / sigma));\n" +
+                        "        addTap(uv - tapStep * x, kernel, ref, sum, weights);\n" +
+                        "        addTap(uv + tapStep * x, kernel, ref, sum, weights);\n" +
+                        "        kernels += 2.0 * kernel;\n" +
+                        "    }\n" +
+                        "    if (weights <= 0.0) {\n" +
+                        "        gl_FragColor = vec4(0.0);\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "    gl_FragColor = vec4(encodeDepth(ref + sum / weights), weights / kernels);\n" +
+                        "}"
+            )
+        }
+
+        // Built when a script first asks for shading (see VideoFilterPipeline), which runs them after the downsample pass in this order
+        val ShadeBlurHorizontalPrePassShader get() = shadeBlurPrePassShader("vec2(1.0, 0.0)")
+        val ShadeBlurVerticalPrePassShader get() = shadeBlurPrePassShader("vec2(0.0, 1.0)")
+
+        // The shading's last pass, at the input's resolution: unsharp masking of the depth (Luft, Colditz and Deussen 2006). A 3D pixel's own
+        // depth, from the frame's depth texture (shadeDepthTex, unit 1, nearest), is compared with the blurred depth around it (shadeBlurTex,
+        // unit 2, nearest, the vertical blur's target at DS resolution), read bilinearly by hand: its four nearest texels by their bilinear
+        // weights times their A. Comparing with the pixel's own depth at full resolution keeps the shading's edges as sharp as the depth, with
+        // no halo at any scale. A pixel farther than its neighborhood is mixed towards itself times shadeColor (RGB) by shade.x, fully once
+        // it's shade.z farther in raw depth, faded out where the blur covered less than all of the neighborhood (next to 2D or the screen's
+        // edge), down to nothing at half. 2D over the 3D, what's behind the 3D, a pixel with no 3D around it, the gap and the DS bottom
+        // screen stay as they are
+        val ShadeApplyPrePassShader get() = ShaderProgramSource(
+            TextureFiltering.NEAREST,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    "varying vec2 uv;\n" +
+                    "uniform sampler2D tex;\n" +
+                    "uniform float topScreenWidth;\n" +
+                    "uniform highp sampler2D shadeDepthTex;\n" +
+                    "uniform highp sampler2D shadeBlurTex;\n" +
+                    SHADE_UNIFORM +
+                    "uniform vec3 shadeColor;\n" +
+                    FRAME_LAYOUT_UNIFORM +
+                    "#define topScreenEnd frameLayout.x\n" +
+                    DEPTH_VALUE_FUNCTIONS +
+                    "" +
+                    "// Counts the blurred depth's texel p (clamped onto its target of dsSize texels) by bilinear times its A, as a difference from\n" +
+                    "// the pixel's own depth\n" +
+                    "void addTap(vec2 p, vec2 dsSize, float bilinear, highp float depth, inout highp float sum, inout float weights) {\n" +
+                    "    highp vec4 texel = texture2D(shadeBlurTex, (clamp(p, vec2(0.0), dsSize - 1.0) + 0.5) / dsSize);\n" +
+                    "    float weight = bilinear * texel.a;\n" +
+                    "    if (weight <= 0.0) {\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    sum += weight * (depthValue(texel) - depth);\n" +
+                    "    weights += weight;\n" +
+                    "}\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    vec4 texel = texture2D(tex, uv);\n" +
+                    "    // The gap and the DS bottom screen stay as they are\n" +
+                    "    if (uv.y >= topScreenEnd) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    vec2 depthUv = vec2(uv.x, clamp(uv.y / topScreenEnd, 0.0, 1.0));\n" +
+                    "    highp float depth = depthValue(texture2D(shadeDepthTex, depthUv));\n" +
+                    "    if (!isValue3D(depth)) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "" +
+                    "    vec2 dsSize = floor(vec2(topScreenWidth, topScreenEnd * frameLayout.w) + 0.5);\n" +
+                    "    vec2 p = depthUv * dsSize - 0.5;\n" +
+                    "    vec2 base = floor(p);\n" +
+                    "    vec2 f = p - base;\n" +
+                    "    highp float sum = 0.0;\n" +
+                    "    float weights = 0.0;\n" +
+                    "    addTap(base, dsSize, (1.0 - f.x) * (1.0 - f.y), depth, sum, weights);\n" +
+                    "    addTap(base + vec2(1.0, 0.0), dsSize, f.x * (1.0 - f.y), depth, sum, weights);\n" +
+                    "    addTap(base + vec2(0.0, 1.0), dsSize, (1.0 - f.x) * f.y, depth, sum, weights);\n" +
+                    "    addTap(base + vec2(1.0, 1.0), dsSize, f.x * f.y, depth, sum, weights);\n" +
+                    "    if (weights <= 0.0) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "" +
+                    "    // How much farther this pixel is than the blurred depth around it, in the depth's 24-bit steps\n" +
+                    "    highp float farther = -sum / weights;\n" +
+                    "    // weights is the blur's coverage, as the bilinear weights add up to 1. Next to 2D or the screen's edge only the 3D on one\n" +
+                    "    // side counts, which reads as farther wherever the depth slopes, so the shading fades out from full coverage to half\n" +
+                    "    float coverage = clamp(2.0 * weights - 1.0, 0.0, 1.0);\n" +
+                    "    float darkening = shade.x * coverage * clamp(farther / max(shade.z * 16777215.0, 1.0), 0.0, 1.0);\n" +
+                    "    // The frame texture's texels are BGR\n" +
+                    "    vec3 color = texel.bgr;\n" +
+                    "    gl_FragColor = vec4(mix(color, color * shadeColor, darkening).bgr, texel.a);\n" +
+                    "}"
+        )
 
         // sharp-shimmerless
         // Author: zadpos (Woohyun Kang)

@@ -133,6 +133,23 @@ struct LuaDepthOfField
 };
 
 /**
+ * What melon.screen.shade() asks for, clamped; a default one is off, and every call that means off makes a default one so that they compare
+ * equal
+ */
+struct LuaShade
+{
+    float strength = 0.0f;
+    // DS pixels
+    float radius = 8.0f;
+    // Raw depth, 0..1
+    float range = 0.0008f;
+    // The shadow's tint, 0xRRGGBB
+    melonDS::u32 color = 0x33384F;
+
+    bool operator==(const LuaShade&) const = default;
+};
+
+/**
  * What a script's melon.wide calls ask of the WideMelon camera, clamped to what any game could take (the app clamps further); a default one
  * asks for nothing
  */
@@ -188,6 +205,9 @@ struct LuaScript
     // the frames keep their depth (LuaEngine::wantsDepth)
     LuaDepthOfField depthOfField;
     LuaDepthOfField sentDepthOfField;
+    // melon.screen.shade(): the same as the depth of field
+    LuaShade shade;
+    LuaShade sentShade;
     // melon.wide: kept until the script changes it or stops (not a per-call request), and what the app was last told of it
     LuaWideCamera wideCamera;
     LuaWideCamera sentWideCamera;

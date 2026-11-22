@@ -90,7 +90,7 @@ public:
     // the input through this pass's shader into the target; the caller binds the quad and sets the viewport and blending
     void Render(GLuint inputTexture, int inputWidth, int inputHeight, int topScreenWidth, int topScreenHeight, bool isBottomScreenWide,
         const std::optional<TiltShift>& tiltShift, int halvesAt1x = 0, int scaleAt1x = 1, int halfScaleAt1x = 1, const Bloom* bloom = nullptr,
-        const DepthOfField* depthOfField = nullptr, float focusU = 0.f, float focusV = 0.f, float focusAgeStep = 0.f)
+        const DepthOfField* depthOfField = nullptr, float focusU = 0.f, float focusV = 0.f, float focusAgeStep = 0.f, const Shade* shade = nullptr)
     {
         glBindFramebuffer(GL_FRAMEBUFFER, Framebuffer);
         // The quad covers every texel, so the old contents never have to be loaded
@@ -115,6 +115,8 @@ public:
             Program->SetBloom(*bloom);
         if (depthOfField)
             Program->SetDepthOfField(*depthOfField, focusU, focusV, focusAgeStep);
+        if (shade)
+            Program->SetShade(*shade);
         Program->SetHalvesAt1x(halvesAt1x, scaleAt1x, halfScaleAt1x);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
@@ -171,6 +173,12 @@ struct VideoFilterPipeline::DepthOfFieldPasses
 struct VideoFilterPipeline::BloomPasses
 {
     std::unique_ptr<PrePass> Bright, Horizontal, Vertical;
+};
+
+// the shading's downsample and two blur passes at DS resolution, then the apply pass at the input's
+struct VideoFilterPipeline::ShadePasses
+{
+    std::unique_ptr<PrePass> Downsample, Horizontal, Vertical, Apply;
 };
 
 VideoFilterPipeline::VideoFilterPipeline(const VideoFilter& filter, bool colorCorrection)
@@ -330,7 +338,7 @@ GLuint VideoFilterPipeline::ExpandHalvesAt1x(const FrameView& frame)
 }
 
 const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift,
-    const std::optional<Bloom>& bloom, const std::optional<DepthOfField>& depthOfField, bool foldDeband)
+    const std::optional<Bloom>& bloom, const std::optional<DepthOfField>& depthOfField, const std::optional<Shade>& shade, bool foldDeband)
 {
     Output.Set(frame.Texture, frame.Width, frame.Height);
 
@@ -363,8 +371,9 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     DepthOfFieldPasses* depthOfFieldPasses = depthOfField && !depthOfField->IsOff() && hasDepth ? GetDepthOfFieldPasses() : nullptr;
     if (!depthOfFieldPasses && DepthOfFieldPassesBuilt)
         DepthOfFieldPassesBuilt->NeedsFocusClear = true;
+    ShadePasses* shadePasses = shade && !shade->IsOff() && hasDepth ? GetShadePasses() : nullptr;
     bool runsDeband = DebandPass && !foldDeband;
-    bool hasLuaPasses = tiltShiftPasses || tiltShiftColorPass || combineVariant != NO_COMBINE || depthOfFieldPasses;
+    bool hasLuaPasses = tiltShiftPasses || tiltShiftColorPass || combineVariant != NO_COMBINE || depthOfFieldPasses || shadePasses;
     if (!runsDeband && PrePasses.empty() && !hasLuaPasses)
         return Output;
 
@@ -376,11 +385,12 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     std::optional<TiltShift> appliedTiltShift = tiltShiftPasses || tiltShiftColorPass ? tiltShift : std::nullopt;
     std::optional<Bloom> appliedBloom = combineVariant != NO_COMBINE ? bloom : std::nullopt;
     std::optional<DepthOfField> appliedDepthOfField = depthOfFieldPasses ? depthOfField : std::nullopt;
-    GLuint depthTexture = depthOfFieldPasses || onlyThreeDBrightPass || usesHaze ? frame.DepthTexture : 0;
+    std::optional<Shade> appliedShade = shadePasses ? shade : std::nullopt;
+    GLuint depthTexture = depthOfFieldPasses || onlyThreeDBrightPass || usesHaze || shadePasses ? frame.DepthTexture : 0;
     bool isSameFrame = frame.Sequence != 0 && frame.Sequence == LastFrameSequence && frame.Texture == LastFrameTextureId && width == LastFrameWidth
         && height == LastFrameHeight && isBottomScreenWide == LastFrameBottomScreenWide && appliedTiltShift == LastFrameTiltShift
-        && appliedBloom == LastFrameBloom && appliedDepthOfField == LastFrameDepthOfField && depthTexture == LastFrameDepthTexture
-        && runsDeband == LastFrameRanDeband;
+        && appliedBloom == LastFrameBloom && appliedDepthOfField == LastFrameDepthOfField && appliedShade == LastFrameShade
+        && depthTexture == LastFrameDepthTexture && runsDeband == LastFrameRanDeband;
     if (isSameFrame)
     {
         Output.Set(LastOutputTextureId, LastOutputWidth, LastOutputHeight);
@@ -410,6 +420,8 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
         }
     }
 
+    if (isComplete && shadePasses && appliedShade)
+        RenderShade(*shadePasses, *appliedShade, frame, isBottomScreenWide);
     if (isComplete && depthOfFieldPasses && appliedDepthOfField)
         isComplete = RenderDepthOfField(*depthOfFieldPasses, *appliedDepthOfField, frame, isBottomScreenWide);
     if (isComplete && appliedBloom)
@@ -440,6 +452,7 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     LastFrameTiltShift = appliedTiltShift;
     LastFrameBloom = appliedBloom;
     LastFrameDepthOfField = appliedDepthOfField;
+    LastFrameShade = appliedShade;
     LastFrameDepthTexture = depthTexture;
     LastFrameRanDeband = runsDeband;
     LastOutputTextureId = InputTexture;
@@ -629,6 +642,76 @@ VideoFilterPipeline::DepthOfFieldPasses* VideoFilterPipeline::GetDepthOfFieldPas
         }
     }
     return DepthOfFieldPassesBuilt.get();
+}
+
+// the current input shaded by [shade] through [passes], keeping its size: the frame's depth downsampled to DS resolution and blurred both ways
+// there, then the apply pass compares each pixel's own depth with it, with the depth texture on unit 1 and the blurred depth on unit 2 (both
+// nearest). A target that can't be made leaves the shading out, logged once, so the frame is still drawn
+void VideoFilterPipeline::RenderShade(ShadePasses& passes, const Shade& shade, const FrameView& frame, bool isBottomScreenWide)
+{
+    BeginPasses();
+    // The depth texture is the frame's width by the top screen's half's rows, at the internal scale (FrameQueue::validateDepthTexture), so
+    // over that scale it's the top screen's half in DS pixels, wings and margin included, whatever the filter scaled the input to
+    int scale = frame.FrameHeight() > 0 ? frame.Height / frame.FrameHeight() : 0;
+    int dsWidth = frame.TopWidth;
+    int dsHeight = frame.TopScreenHeight();
+    int depthWidth = frame.Width;
+    int depthHeight = dsHeight * scale;
+    bool isReady = scale > 0 && dsWidth > 0 && passes.Downsample->PrepareTarget(dsWidth, dsHeight) && passes.Horizontal->PrepareTarget(dsWidth, dsHeight)
+        && passes.Vertical->PrepareTarget(dsWidth, dsHeight) && passes.Apply->PrepareTarget(InputWidth, InputHeight);
+    if (!isReady)
+    {
+        if (!HasLoggedShadeTarget)
+        {
+            HasLoggedShadeTarget = true;
+            fprintf(stderr, "a shading target can't be made, so the shading is left out\n");
+        }
+        return;
+    }
+
+    glViewport(0, 0, dsWidth, dsHeight);
+    passes.Downsample->Render(frame.DepthTexture, depthWidth, depthHeight, dsWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+        nullptr, nullptr, 0.f, 0.f, 0.f, &shade);
+    passes.Horizontal->Render(passes.Downsample->Texture, dsWidth, dsHeight, dsWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1,
+        1, nullptr, nullptr, 0.f, 0.f, 0.f, &shade);
+    passes.Vertical->Render(passes.Horizontal->Texture, dsWidth, dsHeight, dsWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+        nullptr, nullptr, 0.f, 0.f, 0.f, &shade);
+
+    BindDepthTexture(GL_TEXTURE1, frame.DepthTexture);
+    // Nearest too, as its bytes are a depth that can't be mixed
+    BindDepthTexture(GL_TEXTURE2, passes.Vertical->Texture);
+    glViewport(0, 0, InputWidth, InputHeight);
+    passes.Apply->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+        nullptr, nullptr, 0.f, 0.f, 0.f, &shade);
+    UnbindTexture(GL_TEXTURE1);
+    UnbindTexture(GL_TEXTURE2);
+    InputTexture = passes.Apply->Texture;
+}
+
+VideoFilterPipeline::ShadePasses* VideoFilterPipeline::GetShadePasses()
+{
+    if (!IsShadeBuilt)
+    {
+        IsShadeBuilt = true;
+        std::unique_ptr<Shader> downsample = CreateShaderProgramOrNull(FindShader("ShadeDownsamplePrePassShader"));
+        std::unique_ptr<Shader> horizontal = CreateShaderProgramOrNull(FindShader("ShadeBlurHorizontalPrePassShader"));
+        std::unique_ptr<Shader> vertical = CreateShaderProgramOrNull(FindShader("ShadeBlurVerticalPrePassShader"));
+        std::unique_ptr<Shader> apply = CreateShaderProgramOrNull(FindShader("ShadeApplyPrePassShader"));
+        if (downsample && horizontal && vertical && apply)
+        {
+            ShadePassesBuilt = std::make_unique<ShadePasses>();
+            ShadePassesBuilt->Downsample = std::make_unique<PrePass>(std::move(downsample), 1, false);
+            ShadePassesBuilt->Horizontal = std::make_unique<PrePass>(std::move(horizontal), 1, false);
+            ShadePassesBuilt->Vertical = std::make_unique<PrePass>(std::move(vertical), 1, false);
+            ShadePassesBuilt->Apply = std::make_unique<PrePass>(std::move(apply), 1, false);
+        }
+        else
+        {
+            // The frame is drawn unshaded rather than not at all (what did build goes with the unique_ptrs)
+            fprintf(stderr, "shading shaders failed to build, so the shading is left out\n");
+        }
+    }
+    return ShadePassesBuilt.get();
 }
 
 void VideoFilterPipeline::LogBloomTarget()

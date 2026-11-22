@@ -168,6 +168,8 @@ struct Options
     std::optional<Frontend::Bloom> Bloom;
     // --dof: the Lua depth of field's passes the same way, with the frames' depth asked of the core (MelonInstance::setDepthWanted)
     std::optional<Frontend::DepthOfField> DepthOfField;
+    // --shade: the Lua shading's passes the same way, with the frames' depth asked of the core too
+    std::optional<Frontend::Shade> Shade;
     // --output-cap: the windows' output scale need goes to the core (GPU::OutputCap) after each present, as the app's surfaces send theirs
     bool OutputCap = false;
     bool Hidden = false;
@@ -305,6 +307,11 @@ void Usage()
         "                              strength (0-1) and radius in DS pixels (0-12), the sharp range around the focus and\n"
         "                              the falloff past it in depth (0-1, 0.0002 and 0.0015), the focus point in DS pixels\n"
         "                              (128,96) or a focus depth (0-1)\n"
+        "  --shade STRENGTH[,RADIUS,RANGE[,RRGGBB]]\n"
+        "                              the Lua shading over the top screen's 3D, for tests (OpenGL only): how far the most\n"
+        "                              shaded pixels go towards the tint (0-1), the depth blur's radius in DS pixels (1-16,\n"
+        "                              8), how much farther than the blurred depth a pixel is when fully shaded (0-1,\n"
+        "                              0.0008), and the tint in hex (33384F)\n"
         "  --output-cap                send the windows' screen size to the core (GPU::OutputCap), as the app does: the\n"
         "                              frame is drawn no bigger than the screens are shown\n"
         "  --vsync                     wait for vsync on swap (pacing stays at the DS's 59.83 Hz)\n"
@@ -622,6 +629,24 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             dof.FocusY = std::clamp(dof.FocusY, -192.f, 384.f);
             dof.FocusDepth = count == 7 ? std::clamp(dof.FocusDepth, 0.f, 1.f) : -1.f;
             opts.DepthOfField = dof.IsOff() ? std::nullopt : std::optional<Frontend::DepthOfField>(dof);
+        }
+        else if (arg == "--shade")
+        {
+            std::string spec = next();
+            Frontend::Shade shade;
+            unsigned int color = shade.Color;
+            int count = sscanf(spec.c_str(), "%f,%f,%f,%x", &shade.Strength, &shade.Radius, &shade.Range, &color);
+            if (count != 1 && count != 3 && count != 4)
+            {
+                fprintf(stderr, "bad --shade %s (STRENGTH[,RADIUS,RANGE[,RRGGBB]])\n", spec.c_str());
+                return false;
+            }
+            // held to what a script could ask for (melon.screen.shade)
+            shade.Strength = std::clamp(shade.Strength, 0.f, 1.f);
+            shade.Radius = std::clamp(shade.Radius, 1.f, 16.f);
+            shade.Range = std::clamp(shade.Range, 0.f, 1.f);
+            shade.Color = color & 0xFFFFFF;
+            opts.Shade = shade.IsOff() ? std::nullopt : std::optional<Frontend::Shade>(shade);
         }
         else if (arg == "--output-cap") opts.OutputCap = true;
         else if (arg == "--vsync") setting("desktop_vsync", picojson::value(true));
@@ -1454,6 +1479,7 @@ int main(int argc, char** argv)
     presenter.SetTiltShift(opts.TiltShift);
     presenter.SetBloom(opts.Bloom);
     presenter.SetDepthOfField(opts.DepthOfField);
+    presenter.SetShade(opts.Shade);
 
     std::string cacheDir = opts.CacheDir.empty() ? exeDir + "cache" : opts.CacheDir;
     std::error_code ec;
@@ -1626,9 +1652,9 @@ int main(int argc, char** argv)
     callbacks.OnStart = [&](MelonDSAndroid::MelonInstance& instance)
     {
         SetDateTime(opts, *instance.getNds());
-        // as LuaEngine::wantsDepth: the depth of field, the haze and a 3D-only glow read the depth
+        // as LuaEngine::wantsDepth: the depth of field, the shading, the haze and a 3D-only glow read the depth
         bool bloomWantsDepth = opts.Bloom && (opts.Bloom->HasHaze() || (opts.Bloom->HasBloom() && opts.Bloom->OnlyThreeD));
-        instance.setDepthWanted(opts.DepthOfField.has_value() || bloomWantsDepth || !opts.DepthShotPath.empty());
+        instance.setDepthWanted(opts.DepthOfField.has_value() || opts.Shade.has_value() || bloomWantsDepth || !opts.DepthShotPath.empty());
         if (commandLineGame && !opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
         {
             startFailed = true;

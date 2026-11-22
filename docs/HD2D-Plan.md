@@ -1,6 +1,6 @@
 # Plan: an HD-2D look for DS games
 
-Started 11-21. Phases 1 (bloom and vignette) and 2 (real depth of field, OpenGL only) are done and checked on the Fold (below). Phase 3 (shading and light) is planned in five steps; step A (24-bit depth and flags) is built and checked on the desktop and the Fold, and step B (haze and 3D-only bloom) is built and checked on the desktop and the Fold. Open decisions are marked **Decide**.
+Started 11-21. Phases 1 (bloom and vignette) and 2 (real depth of field, OpenGL only) are done and checked on the Fold (below). Phase 3 (shading and light) is planned in five steps; step A (24-bit depth and flags) is built and checked on the desktop and the Fold, step B (haze and 3D-only bloom) is built and checked on the desktop and the Fold, and step C (depth shading) is built and checked on the desktop. Open decisions are marked **Decide**.
 
 ## The goal
 
@@ -77,7 +77,7 @@ So the depth of field adds about 0.5 Mcycles a frame at 4x and 1.5 at 8x on top 
 
 ### Phase 3: light and shading
 
-Planned 11-21. Step A is built and checked on the desktop and the Fold; the rest is plan only. The harder half of the look: soft shadows where things meet the ground, haze in the distance, and glows on lamps and windows instead of on anything bright. Some of it can come from depth alone, some only from knowing the scene. The steps go from cheap and depth-only to scene knowledge, and each one is worth having on its own.
+Planned 11-21. Steps A and B are built and checked on the desktop and the Fold, step C on the desktop; D and E are plan only. The harder half of the look: soft shadows where things meet the ground, haze in the distance, and glows on lamps and windows instead of on anything bright. Some of it can come from depth alone, some only from knowing the scene. The steps go from cheap and depth-only to scene knowledge, and each one is worth having on its own.
 
 **Why phase 2's depth wasn't enough.** It was the top 16 bits of the DS's 24-bit depth. White's city street fits in about 0.005 of the range, so the whole screen had only 314 depth values. That's enough to pick a blur radius, but shading from it would come out in bands. The full 24 bits give 68,124 values in the same frame (step A). The app also doesn't know the camera, only raw depth, so anything that needs real distances or a light direction needs the projection too (step D).
 
@@ -126,6 +126,16 @@ Darken the places where something sits in front of what's behind it: the base of
 To keep it cheap at 8x, the depth blur runs at DS resolution (256 x 192 plus the wings), as bloom's blur does, and the darkening is scaled back up with a depth check so edges don't get a halo. API: `melon.screen.shade(strength, { radius, range, color })`, tuned per game in raw depth like the DOF. It isn't true ambient occlusion, since it doesn't know distances in world units, but with a fixed camera like White's field it should look close.
 
 Done when Striaton City shows soft shading at the base of buildings and under the player, with no halos at 8x and no flicker while walking, and the Fold still holds 60 FPS at 8x with everything on.
+
+**Built 11-21.** `melon.screen.shade(strength, { radius, range, color })` ([MODS.md](../MODS.md)) and the desktop's `--shade` ([desktop/README.md](../desktop/README.md)). It runs after the filter's own passes and before the depth of field, so the DOF blurs the shading with the rest. Four passes, all RGBA8 so no float targets are needed: the depth goes down to DS resolution (up to 4 samples per DS pixel, only real 3D counted), gets blurred both ways there as a normalized convolution (A carries how much of the kernel was 3D), and the apply pass at full resolution compares each pixel's own depth with a hand-made bilinear read of the blurred one. Differencing against the full-res depth is the depth check, so edges stay crisp at 8x with no low-res darkening texture to scale up. Sums are kept as 24-bit differences from a reference so they stay exact in highp. The darkening is `strength * clamp((depth - blurred) / range, 0, 1)` towards the frame times `color`, and it fades out where the blur's coverage drops below a half (next to 2D, at the screen's edges), so a text box doesn't cast a shadow onto the 3D under it. Defaults: radius 8 DS pixels, range 0.0008, color 0x33384F; `hd2d_white.lua` has it at 0.7, kept during text. A range of 0.0003 or less outlines every silhouette, and 0.001 and up barely shows.
+
+**Checked on the desktop, 11-21** (OpenGL, White's Striaton street from the user's save; `perf_logs/2026-11-21-hd2d-shade/`). Mean RGB darkening at strength 1:
+- 4x: player area 5.9, wall base 3.6, open street 0.08, behind the trees 12.5 (the darkest, a soft drop shadow), roof rims 1.3.
+- 8x: no pixel gets lighter; the near side of depth steps darkens by 0.14 and the far side by 17.0, so there's no halo, only shading behind the edge.
+- Walking left and up, every game frame: the shading moves smoothly (1.0 to 1.4 per step against 5 to 9 for the picture), and a still frame gives the same shading exactly.
+- `--wide 342`: the wings shade as the depth says, and the bottom screen doesn't change.
+- A text box's 2D pixels are byte-identical, and the 3D right under the box shades the same as the 3D away from it (5.5). White's speech bubble tail is a 3D triangle at the nearest depth in the frame, though, so the ground behind it shades (53 at strength 1). Fixing that would need masking that polygon.
+- Everything on (shade, DOF, bloom, haze) holds together. Without `--shade` every shot is byte-identical to the build before, and Compute draws no shading with no errors. App unit tests: 753, all passing.
 
 #### Step D, only if C isn't enough: the camera
 

@@ -122,6 +122,10 @@ Shader::Shader(GLuint program, GLenum textureFiltering)
     UniformDepthFocus = glGetUniformLocation(Program, "depthFocus");
     UniformDepthTex = glGetUniformLocation(Program, "depthTex");
     UniformFocusTex = glGetUniformLocation(Program, "focusTex");
+    UniformShade = glGetUniformLocation(Program, "shade");
+    UniformShadeColor = glGetUniformLocation(Program, "shadeColor");
+    UniformShadeDepthTex = glGetUniformLocation(Program, "shadeDepthTex");
+    UniformShadeBlurTex = glGetUniformLocation(Program, "shadeBlurTex");
     UniformHalvesAt1x = glGetUniformLocation(Program, "halvesAt1x");
     UniformCoordXTex = glGetUniformLocation(Program, "coordXTex");
     UniformCoordYTex = glGetUniformLocation(Program, "coordYTex");
@@ -213,6 +217,21 @@ void Shader::SetDepthOfField(const DepthOfField& depthOfField, float focusU, flo
         glUniform1i(UniformDepthTex, 1);
     if (UniformFocusTex >= 0)
         glUniform1i(UniformFocusTex, 2);
+}
+
+void Shader::SetShade(const Shade& shade) const
+{
+    if (UniformShade >= 0)
+        glUniform3f(UniformShade, shade.Strength, shade.Radius, shade.Range);
+    if (UniformShadeColor >= 0)
+    {
+        melonDS::u32 color = shade.Color;
+        glUniform3f(UniformShadeColor, ((color >> 16) & 0xFF) / 255.f, ((color >> 8) & 0xFF) / 255.f, (color & 0xFF) / 255.f);
+    }
+    if (UniformShadeDepthTex >= 0)
+        glUniform1i(UniformShadeDepthTex, 1);
+    if (UniformShadeBlurTex >= 0)
+        glUniform1i(UniformShadeBlurTex, 2);
 }
 
 void Shader::SetHalvesAt1x(int halvesAt1x, int scale, int halfScale) const

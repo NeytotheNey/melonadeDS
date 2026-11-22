@@ -62,6 +62,7 @@ import me.magnum.melonds.domain.model.layout.ScreenFold
 import me.magnum.melonds.domain.model.camera.WideCameraRequest
 import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.DepthOfField
+import me.magnum.melonds.domain.model.render.Shade
 import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.ui.emulator.camera.WideCameraSettings
 import me.magnum.melonds.ui.emulator.camera.WideCameraState
@@ -221,6 +222,11 @@ class EmulatorViewModel @Inject constructor(
     private val luaDepthOfFieldRequests = LuaDepthOfFieldRequests()
     private val _luaDepthOfField = MutableStateFlow<DepthOfField?>(null)
     val luaDepthOfField = _luaDepthOfField.asStateFlow()
+
+    // The shading scripts asked for with melon.screen.shade(), or null for none; main thread only
+    private val luaShadeRequests = LuaShadeRequests()
+    private val _luaShade = MutableStateFlow<Shade?>(null)
+    val luaShade = _luaShade.asStateFlow()
 
     // What scripts ask of the WideMelon camera with melon.wide; main thread only
     private val luaWideCameraRequests = LuaWideCameraRequests()
@@ -844,6 +850,7 @@ class EmulatorViewModel @Inject constructor(
                     is EmulatorEvent.LuaTiltShift -> _luaTiltShift.value = luaTiltShiftRequests.onScriptRequest(it.scriptId, it.tiltShift)
                     is EmulatorEvent.LuaBloom -> _luaBloom.value = luaBloomRequests.onScriptRequest(it.scriptId, it.bloom)
                     is EmulatorEvent.LuaDepthOfField -> _luaDepthOfField.value = luaDepthOfFieldRequests.onScriptRequest(it.scriptId, it.depthOfField)
+                    is EmulatorEvent.LuaShade -> _luaShade.value = luaShadeRequests.onScriptRequest(it.scriptId, it.shade)
                     is EmulatorEvent.LuaWideCamera -> _luaWideCamera.value = luaWideCameraRequests.onScriptRequest(it.scriptId, it.request)
                     // Like after the player's load, the achievements' primed and progress indicators start over
                     EmulatorEvent.LuaStateLoaded -> _achievementsEvent.tryEmit(RAEventUi.Reset)
@@ -1231,6 +1238,7 @@ class EmulatorViewModel @Inject constructor(
                 _luaTiltShift.value = luaTiltShiftRequests.onScriptStopped(event.scriptId)
                 _luaBloom.value = luaBloomRequests.onScriptStopped(event.scriptId)
                 _luaDepthOfField.value = luaDepthOfFieldRequests.onScriptStopped(event.scriptId)
+                _luaShade.value = luaShadeRequests.onScriptStopped(event.scriptId)
                 _luaWideCamera.value = luaWideCameraRequests.onScriptStopped(event.scriptId)
             }
             is LuaUiEvent.ScriptStarted -> {
@@ -1238,6 +1246,7 @@ class EmulatorViewModel @Inject constructor(
                 luaTiltShiftRequests.onScriptStarted(event.scriptId)
                 luaBloomRequests.onScriptStarted(event.scriptId)
                 luaDepthOfFieldRequests.onScriptStarted(event.scriptId)
+                luaShadeRequests.onScriptStarted(event.scriptId)
                 luaWideCameraRequests.onScriptStarted(event.scriptId)
             }
             LuaUiEvent.SessionEnded -> {
@@ -1245,6 +1254,7 @@ class EmulatorViewModel @Inject constructor(
                 _luaTiltShift.value = luaTiltShiftRequests.onSessionEnded()
                 _luaBloom.value = luaBloomRequests.onSessionEnded()
                 _luaDepthOfField.value = luaDepthOfFieldRequests.onSessionEnded()
+                _luaShade.value = luaShadeRequests.onSessionEnded()
                 _luaWideCamera.value = luaWideCameraRequests.onSessionEnded()
             }
             is LuaUiEvent.SessionStarted,

@@ -31,6 +31,9 @@ static const lua_Number kMinDepthOfFieldFocusX = -256.0;
 static const lua_Number kMaxDepthOfFieldFocusX = 512.0;
 static const lua_Number kMinDepthOfFieldFocusY = -192.0;
 static const lua_Number kMaxDepthOfFieldFocusY = 384.0;
+// melon.screen.shade(): the depth blur's radius in DS pixels, as many taps on each side of its passes
+static const lua_Number kMinShadeRadius = 1.0;
+static const lua_Number kMaxShadeRadius = 16.0;
 
 /**
  * A new table on the stack with [functions] in it, like luaL_newlib() for a table whose size isn't known here
@@ -483,6 +486,12 @@ void LuaEngine::sendRequests(LuaScript& script)
             const LuaDepthOfField& dof = script.sentDepthOfField;
             eventMessenger->onLuaDepthOfField(script.id, dof.strength, dof.radius, dof.focusX, dof.focusY, dof.focusDepth, dof.range, dof.falloff);
         }
+        if (script.shade != script.sentShade)
+        {
+            script.sentShade = script.shade;
+            const LuaShade& shade = script.sentShade;
+            eventMessenger->onLuaShade(script.id, shade.strength, shade.radius, shade.range, (int) shade.color);
+        }
         if (script.wideCamera != script.sentWideCamera)
         {
             script.sentWideCamera = script.wideCamera;
@@ -537,6 +546,7 @@ int LuaEngine::setupScript(lua_State* L)
         { "vignette", luaScreenVignette },
         { "haze", luaScreenHaze },
         { "depth_of_field", luaScreenDepthOfField },
+        { "shade", luaScreenShade },
         { nullptr, nullptr },
     };
     static const luaL_Reg emuFunctions[] = {
@@ -694,6 +704,15 @@ void LuaEngine::closeScript(LuaScript& script)
         if (eventMessenger)
             eventMessenger->onLuaDepthOfField(script.id, off.strength, off.radius, off.focusX, off.focusY, off.focusDepth, off.range, off.falloff);
         script.sentDepthOfField = off;
+    }
+    // The same for the shading, which also stops the frames keeping their depth
+    script.shade = LuaShade();
+    if (script.sentShade != LuaShade())
+    {
+        LuaShade off;
+        if (eventMessenger)
+            eventMessenger->onLuaShade(script.id, off.strength, off.radius, off.range, (int) off.color);
+        script.sentShade = off;
     }
     // The same for the camera: a reloaded script starts asking for nothing
     script.wideCamera = LuaWideCamera();
@@ -1082,13 +1101,36 @@ int LuaEngine::luaScreenDepthOfField(lua_State* L)
     return 0;
 }
 
+int LuaEngine::luaScreenShade(lua_State* L)
+{
+    LuaScript& script = getScript(L);
+    LuaShade shade;
+    shade.strength = checkStrength(L, 1, 1.0);
+    if (!lua_isnoneornil(L, 2))
+    {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        shade.radius = getNumberOptionInRange(L, 2, "radius", shade.radius, kMinShadeRadius, kMaxShadeRadius);
+        shade.range = getNumberOption(L, 2, "range", shade.range, 1.0);
+        shade.color = getColorOption(L, 2, "color", shade.color);
+    }
+
+    // Off is off, whatever the options are, so going over them while it's off costs no events
+    if (shade.strength <= 0.0f)
+        shade = LuaShade();
+
+    if (!script.engine->isUnloading)
+        script.shade = shade;
+    return 0;
+}
+
 bool LuaEngine::wantsDepth() const
 {
     for (const auto& script : scripts)
     {
         // A stopped script's were set back to off when it closed. only_3d is on by default, so it only counts while the glow is on
         const LuaBloom& bloom = script->sentBloom;
-        if (script->sentDepthOfField.strength > 0.0f || bloom.haze > 0.0f || (bloom.strength > 0.0f && bloom.onlyThreeD))
+        if (script->sentDepthOfField.strength > 0.0f || script->sentShade.strength > 0.0f || bloom.haze > 0.0f ||
+            (bloom.strength > 0.0f && bloom.onlyThreeD))
             return true;
     }
     return false;

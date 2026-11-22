@@ -18,6 +18,7 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import me.magnum.melonds.domain.model.RuntimeBackground
 import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.DepthOfField
+import me.magnum.melonds.domain.model.render.Shade
 import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.ui.emulator.DSRenderer
 import me.magnum.melonds.ui.emulator.EmulatorSurfaceView
@@ -131,6 +132,10 @@ class ExternalPresentation(
 
     fun updateDepthOfField(depthOfField: DepthOfField?) {
         emulatorRenderer.depthOfField = depthOfField
+    }
+
+    fun updateShade(shade: Shade?) {
+        emulatorRenderer.shade = shade
     }
 
     override fun onStop() {

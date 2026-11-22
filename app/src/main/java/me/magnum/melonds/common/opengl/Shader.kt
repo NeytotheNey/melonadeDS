@@ -5,6 +5,7 @@ import me.magnum.melonds.domain.model.SCREEN_GAP
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.DepthOfField
+import me.magnum.melonds.domain.model.render.Shade
 import me.magnum.melonds.domain.model.render.TiltShift
 
 private const val INVALID_ATTRIBUTE = -1
@@ -48,6 +49,12 @@ class Shader(
     private val uniformDepthFocus: Int
     private val uniformDepthTex: Int
     private val uniformFocusTex: Int
+    // Only declared by the shading's pre-passes (see ShaderProgramSource.ShadeDownsamplePrePassShader and the ones after it): its strength,
+    // radius and range, its tint, and for its last pass the frame's depth texture on unit 1 and the blurred depth on unit 2
+    private val uniformShade: Int
+    private val uniformShadeColor: Int
+    private val uniformShadeDepthTex: Int
+    private val uniformShadeBlurTex: Int
     // Only declared by ShaderProgramSource.NoFilterHalvesAt1xShader, with its coordinate textures (VideoFilterPipeline.bindHalvesAt1xCoordinates)
     private val uniformHalvesAt1x: Int
     private val uniformCoordXTex: Int
@@ -75,6 +82,10 @@ class Shader(
         uniformDepthFocus = GLES30.glGetUniformLocation(programId, "depthFocus")
         uniformDepthTex = GLES30.glGetUniformLocation(programId, "depthTex")
         uniformFocusTex = GLES30.glGetUniformLocation(programId, "focusTex")
+        uniformShade = GLES30.glGetUniformLocation(programId, "shade")
+        uniformShadeColor = GLES30.glGetUniformLocation(programId, "shadeColor")
+        uniformShadeDepthTex = GLES30.glGetUniformLocation(programId, "shadeDepthTex")
+        uniformShadeBlurTex = GLES30.glGetUniformLocation(programId, "shadeBlurTex")
         uniformHalvesAt1x = GLES30.glGetUniformLocation(programId, "halvesAt1x")
         uniformCoordXTex = GLES30.glGetUniformLocation(programId, "coordXTex")
         uniformCoordYTex = GLES30.glGetUniformLocation(programId, "coordYTex")
@@ -196,6 +207,28 @@ class Shader(
         }
         if (uniformFocusTex != INVALID_UNIFORM) {
             GLES30.glUniform1i(uniformFocusTex, 2)
+        }
+    }
+
+    /**
+     * Sets the shading's strength, radius, range and tint, and that the frame's depth texture is on unit 1 and the blurred depth on unit 2;
+     * call after [use].
+     */
+    fun setShade(shade: Shade) {
+        if (uniformShade != INVALID_UNIFORM) {
+            GLES30.glUniform3f(uniformShade, shade.strength, shade.radius, shade.range)
+        }
+        if (uniformShadeColor != INVALID_UNIFORM) {
+            val color = shade.color
+            GLES30.glUniform3f(
+                uniformShadeColor, (color shr 16 and 0xFF) / 255f, (color shr 8 and 0xFF) / 255f, (color and 0xFF) / 255f,
+            )
+        }
+        if (uniformShadeDepthTex != INVALID_UNIFORM) {
+            GLES30.glUniform1i(uniformShadeDepthTex, 1)
+        }
+        if (uniformShadeBlurTex != INVALID_UNIFORM) {
+            GLES30.glUniform1i(uniformShadeBlurTex, 2)
         }
     }
 

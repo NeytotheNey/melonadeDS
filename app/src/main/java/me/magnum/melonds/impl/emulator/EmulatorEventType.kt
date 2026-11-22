@@ -170,4 +170,14 @@ enum class EmulatorEventType(val event: Int) {
      * * falloff (`f32`), 0 to 1 of the renderer's depth, from the range's edge to the full blur
      */
     EventLuaDepthOfField(310),
+
+    /**
+     * A Lua script wants its shading changed. Data:
+     * * script ID (`i32`)
+     * * strength (`f32`), 0 to 1, 0 for none
+     * * radius (`f32`), 1 to 16 DS pixels
+     * * range (`f32`), 0 to 1 of the renderer's depth, how much farther than its neighborhood a pixel is when it's fully shaded
+     * * color (`i32`), 0xRRGGBB, the shadow's tint
+     */
+    EventLuaShade(311),
 }

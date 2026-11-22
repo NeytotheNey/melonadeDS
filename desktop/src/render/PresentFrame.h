@@ -1,5 +1,5 @@
-// What the presentation reads of a frame (the app's PresentFrameWrapper.kt) and the Lua tilt-shift and bloom a script asks for (TiltShift.kt,
-// Bloom.kt)
+// What the presentation reads of a frame (the app's PresentFrameWrapper.kt) and the Lua tilt-shift, bloom, depth of field and shading a script
+// asks for (TiltShift.kt, Bloom.kt, DepthOfField.kt, Shade.kt)
 #pragma once
 
 #include <algorithm>
@@ -92,6 +92,19 @@ struct DepthOfField
 
     bool IsOff() const { return Strength <= 0.f || Radius <= 0.f; }
     float AppliedRadius() const { return Strength * Radius; }
+};
+
+// Shade.kt: soft contact shadows on the DS top screen's 3D, from unsharp masking its depth. Where a pixel's depth is farther than its
+// neighborhood's, blurred [Radius] DS pixels wide, it's tinted towards [Color] (0xRRGGBB), fully once it's [Range] farther in the renderer's
+// raw depth (0 to 1), at up to [Strength] (0 to 1). Only 3D pixels are shaded, and only when the frame has its depth
+struct Shade
+{
+    float Strength = 0, Radius = 8, Range = 0.0008f;
+    melonDS::u32 Color = 0x33384F;
+
+    bool operator==(const Shade&) const = default;
+
+    bool IsOff() const { return Strength <= 0.f || Radius <= 0.f; }
 };
 
 }

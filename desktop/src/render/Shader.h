@@ -15,6 +15,7 @@ namespace Frontend
 struct TiltShift;
 struct Bloom;
 struct DepthOfField;
+struct Shade;
 
 class Shader
 {
@@ -45,6 +46,9 @@ public:
     // it has no focus depth), whether this frame ages a held focus ([focusAgeStep], 0 or 1), and the depth texture on unit 1 and the picked
     // focus on unit 2
     void SetDepthOfField(const DepthOfField& depthOfField, float focusU, float focusV, float focusAgeStep) const;
+    // the shading's strength, radius, range and tint, and for its last pass the frame's depth texture on unit 1 and the blurred depth on
+    // unit 2
+    void SetShade(const Shade& shade) const;
     // GPU::Comp1x: which screens are at 1x, the frame's scale and theirs, and the coordinate textures on units 1 and 2
     void SetHalvesAt1x(int halvesAt1x, int scale, int halfScale) const;
 
@@ -55,6 +59,7 @@ private:
     GLint UniformBloom = -1, UniformVignette = -1, UniformGlowTex = -1;
     GLint UniformHaze = -1, UniformHazeColor = -1, UniformHazeDepthTex = -1;
     GLint UniformDepthOfField = -1, UniformDepthFocus = -1, UniformDepthTex = -1, UniformFocusTex = -1;
+    GLint UniformShade = -1, UniformShadeColor = -1, UniformShadeDepthTex = -1, UniformShadeBlurTex = -1;
     GLint UniformHalvesAt1x = -1, UniformCoordXTex = -1, UniformCoordYTex = -1;
 };
 

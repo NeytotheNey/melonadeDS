@@ -660,6 +660,14 @@ class EmulatorActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.luaShade.collect {
+                    mainScreenRenderer.shade = it
+                    presentation?.updateShade(it)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.wideCameraState.collect {
                     wideCameraController.setState(it)
                     updateWideCameraTouch()
@@ -945,6 +953,7 @@ class EmulatorActivity : AppCompatActivity() {
                 updateTiltShift(viewModel.luaTiltShift.value)
                 updateBloom(viewModel.luaBloom.value)
                 updateDepthOfField(viewModel.luaDepthOfField.value)
+                updateShade(viewModel.luaShade.value)
                 updateBackground(viewModel.secondaryScreenBackground.value)
                 if (binding.viewLayoutControls.areScreensSwapped()) {
                     swapScreens()

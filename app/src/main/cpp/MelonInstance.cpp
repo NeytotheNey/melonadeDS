@@ -481,7 +481,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     frameQueue.validateRenderFrame(renderFrame, screenWidth, frameHeight);
     renderFrame->topScreenWidth = topScreenWidth;
     renderFrame->topScreenMargin = topScreenMargin;
-    // A depth of field, haze or 3D-only glow (LuaEngine::wantsDepth, or the desktop's --dof) needs the top half's depth, which only OpenGL
+    // A depth of field, haze, 3D-only glow or shading (LuaEngine::wantsDepth, or the desktop's --dof) needs the top half's depth, which only OpenGL
     // hands out. The scripts' last word on it is the previous frame's, so it starts a frame late
     bool isDepthWanted = currentRenderer == Renderer::OpenGl && (isFrontendDepthWanted.load(std::memory_order_relaxed) || luaEngine.wantsDepth());
     // The top half's rows of the frame's (192 + 2 * margin + 2 + 192) * scale

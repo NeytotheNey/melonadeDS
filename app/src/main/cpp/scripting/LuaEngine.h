@@ -213,8 +213,8 @@ public:
      */
     const LuaOverlay& getOverlay() const { return overlay; }
     /**
-     * Whether a running script's depth of field, haze or 3D-only glow is on, as the app was last told (melon.screen.depth_of_field, haze and
-     * bloom's only_3d), so the frames should keep their depth; emulator thread only
+     * Whether a running script's depth of field, haze, 3D-only glow or shading is on, as the app was last told (melon.screen.depth_of_field,
+     * haze, bloom's only_3d and shade), so the frames should keep their depth; emulator thread only
      */
     bool wantsDepth() const;
 
@@ -280,6 +280,7 @@ private:
     static int luaScreenVignette(lua_State* L);
     static int luaScreenHaze(lua_State* L);
     static int luaScreenDepthOfField(lua_State* L);
+    static int luaScreenShade(lua_State* L);
 
     std::vector<LuaScriptSource> pendingScripts;
     // Outlives every script's state, which may point into its images
