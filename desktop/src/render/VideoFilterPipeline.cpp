@@ -66,7 +66,7 @@ public:
     // the input through this pass's shader into the target; the caller binds the quad and sets the viewport and blending
     void Render(GLuint inputTexture, int inputWidth, int inputHeight, int topScreenWidth, int topScreenHeight, bool isBottomScreenWide,
         const std::optional<TiltShift>& tiltShift, int halvesAt1x = 0, int scaleAt1x = 1, int halfScaleAt1x = 1, const Bloom* bloom = nullptr,
-        const DepthOfField* depthOfField = nullptr, float focusU = 0.f, float focusV = 0.f)
+        const DepthOfField* depthOfField = nullptr, float focusU = 0.f, float focusV = 0.f, float focusAgeStep = 0.f)
     {
         glBindFramebuffer(GL_FRAMEBUFFER, Framebuffer);
         // The quad covers every texel, so the old contents never have to be loaded
@@ -90,9 +90,17 @@ public:
         if (bloom)
             Program->SetBloom(*bloom);
         if (depthOfField)
-            Program->SetDepthOfField(*depthOfField, focusU, focusV);
+            Program->SetDepthOfField(*depthOfField, focusU, focusV, focusAgeStep);
         Program->SetHalvesAt1x(halvesAt1x, scaleAt1x, halfScaleAt1x);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+
+    // the target, made with PrepareTarget, filled with one color; glClearBufferfv leaves the renderer's clear color as it was
+    void Clear(float red, float green, float blue, float alpha)
+    {
+        const GLfloat color[] = {red, green, blue, alpha};
+        glBindFramebuffer(GL_FRAMEBUFFER, Framebuffer);
+        glClearBufferfv(GL_COLOR, 0, color);
     }
 
 private:
@@ -122,9 +130,17 @@ struct VideoFilterPipeline::TiltShiftPasses
     std::unique_ptr<PrePass> Horizontal, Vertical;
 };
 
+// the focus pass's two 1 x 1 targets, each frame reading the last frame's focus from one and writing the other, then the blur's two directions
 struct VideoFilterPipeline::DepthOfFieldPasses
 {
+    std::unique_ptr<PrePass> Focus[2];
     std::unique_ptr<PrePass> Horizontal, Vertical;
+    // the focus target written next, and the focus passes run, as every other one ages a hold
+    int NextFocus = 0;
+    unsigned FocusFrameCount = 0;
+    // whether the focus targets start over as no focus and no hold: when they're new, and after frames without the depth of field, whose last
+    // focus is no longer the player's
+    bool NeedsFocusClear = true;
 };
 
 // the glow's passes at DS-native resolution, then the one that adds it (and the vignette) at the input's
@@ -299,6 +315,8 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
         // Cleared on no frame between games, since a new game restarts the frame sequence and can reuse texture names
         LastFrameSequence = 0;
         ExpandedFrameSequence = 0;
+        if (DepthOfFieldPassesBuilt)
+            DepthOfFieldPassesBuilt->NeedsFocusClear = true;
         return Output;
     }
 
@@ -314,6 +332,8 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     BloomPasses* bloomPasses = bloom && bloom->HasBloom() ? GetBloomPasses() : nullptr;
     PrePass* vignettePass = bloom && !bloomPasses && bloom->HasVignette() ? GetVignettePass() : nullptr;
     DepthOfFieldPasses* depthOfFieldPasses = depthOfField && !depthOfField->IsOff() && frame.DepthTexture ? GetDepthOfFieldPasses() : nullptr;
+    if (!depthOfFieldPasses && DepthOfFieldPassesBuilt)
+        DepthOfFieldPassesBuilt->NeedsFocusClear = true;
     bool runsDeband = DebandPass && !foldDeband;
     bool hasLuaPasses = tiltShiftPasses || tiltShiftColorPass || bloomPasses || vignettePass || depthOfFieldPasses;
     if (!runsDeband && PrePasses.empty() && !hasLuaPasses)
@@ -484,14 +504,24 @@ GLuint VideoFilterPipeline::RenderGlow(BloomPasses& passes, const Bloom& bloom, 
     return passes.Vertical->Texture;
 }
 
-// the current input blurred by [depthOfField] through [passes], with the frame's depth texture on unit 1 (nearest, as its values can't be mixed);
-// false if a target can't be drawn to
+// the current input blurred by [depthOfField] through [passes]: the focus pass picks this frame's focus from the last one's and the frame's depth
+// texture on unit 1 (nearest, as its values can't be mixed), then the blur reads it on unit 2. Only for a new frame, as a frame drawn again
+// mustn't age a hold; false if a target can't be drawn to
 bool VideoFilterPipeline::RenderDepthOfField(DepthOfFieldPasses& passes, const DepthOfField& depthOfField, const FrameView& frame,
     bool isBottomScreenWide)
 {
     BeginPasses();
-    if (!passes.Horizontal->PrepareTarget(InputWidth, InputHeight) || !passes.Vertical->PrepareTarget(InputWidth, InputHeight))
+    bool isReady = passes.Focus[0]->PrepareTarget(1, 1) && passes.Focus[1]->PrepareTarget(1, 1)
+        && passes.Horizontal->PrepareTarget(InputWidth, InputHeight) && passes.Vertical->PrepareTarget(InputWidth, InputHeight);
+    if (!isReady)
         return false;
+    if (passes.NeedsFocusClear)
+    {
+        // No focus (RGB 0) and a hold that's run out (A 1), so the first frame takes whatever is at the point
+        passes.Focus[0]->Clear(0.f, 0.f, 0.f, 1.f);
+        passes.Focus[1]->Clear(0.f, 0.f, 0.f, 1.f);
+        passes.NeedsFocusClear = false;
+    }
 
     // the focus point in the depth texture, which is the top screen's half of the frame: the wings come before the 256 view's x 0, and the
     // margin before its y 0
@@ -503,13 +533,31 @@ bool VideoFilterPipeline::RenderDepthOfField(DepthOfFieldPasses& passes, const D
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glActiveTexture(GL_TEXTURE0);
+
+    PrePass& focus = *passes.Focus[passes.NextFocus];
+    PrePass& lastFocus = *passes.Focus[1 - passes.NextFocus];
+    float focusAgeStep = passes.FocusFrameCount % 2 == 0 ? 1.f : 0.f;
+    passes.FocusFrameCount++;
+    glViewport(0, 0, 1, 1);
+    focus.Render(lastFocus.Texture, 1, 1, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, nullptr, &depthOfField,
+        focusU, focusV, focusAgeStep);
+    // Nearest, as the focus's bytes can't be mixed either (its target is made linear)
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, focus.Texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glActiveTexture(GL_TEXTURE0);
+
     glViewport(0, 0, InputWidth, InputHeight);
     passes.Horizontal->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1,
         1, nullptr, &depthOfField, focusU, focusV);
     passes.Vertical->Render(passes.Horizontal->Texture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide,
         std::nullopt, 0, 1, 1, nullptr, &depthOfField, focusU, focusV);
     InputTexture = passes.Vertical->Texture;
+    passes.NextFocus = 1 - passes.NextFocus;
     glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE0);
     return true;
@@ -520,11 +568,16 @@ VideoFilterPipeline::DepthOfFieldPasses* VideoFilterPipeline::GetDepthOfFieldPas
     if (!IsDepthOfFieldBuilt)
     {
         IsDepthOfFieldBuilt = true;
+        // a program for each focus target, as a PrePass owns its own
+        std::unique_ptr<Shader> focus = CreateShaderProgramOrNull(FindShader("DepthOfFieldFocusShader"));
+        std::unique_ptr<Shader> otherFocus = CreateShaderProgramOrNull(FindShader("DepthOfFieldFocusShader"));
         std::unique_ptr<Shader> horizontal = CreateShaderProgramOrNull(FindShader("DepthOfFieldHorizontalPrePassShader"));
         std::unique_ptr<Shader> vertical = CreateShaderProgramOrNull(FindShader("DepthOfFieldVerticalPrePassShader"));
-        if (horizontal && vertical)
+        if (focus && otherFocus && horizontal && vertical)
         {
             DepthOfFieldPassesBuilt = std::make_unique<DepthOfFieldPasses>();
+            DepthOfFieldPassesBuilt->Focus[0] = std::make_unique<PrePass>(std::move(focus), 1, false);
+            DepthOfFieldPassesBuilt->Focus[1] = std::make_unique<PrePass>(std::move(otherFocus), 1, false);
             DepthOfFieldPassesBuilt->Horizontal = std::make_unique<PrePass>(std::move(horizontal), 1, false);
             DepthOfFieldPassesBuilt->Vertical = std::make_unique<PrePass>(std::move(vertical), 1, false);
         }

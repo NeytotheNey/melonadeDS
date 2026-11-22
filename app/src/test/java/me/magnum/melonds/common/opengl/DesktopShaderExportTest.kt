@@ -66,7 +66,7 @@ class DesktopShaderExportTest {
         for (name in listOf("NoFilterShader", "DebandPrePassShader", "NoFilterHalvesAt1xShader", "ExpandHalvesAt1xPrePassShader", "ScreenShadowShader",
             "TiltShiftHorizontalPrePassShader", "TiltShiftVerticalPrePassShader", "TiltShiftColorPrePassShader", "BloomBrightPrePassShader",
             "BloomBlurHorizontalPrePassShader", "BloomBlurVerticalPrePassShader", "BloomCombinePrePassShader", "DepthOfFieldHorizontalPrePassShader",
-            "DepthOfFieldVerticalPrePassShader")) {
+            "DepthOfFieldVerticalPrePassShader", "DepthOfFieldFocusShader")) {
             assertTrue(name, name in shaders.keys)
         }
         assertEquals(shaders.size, names.size)

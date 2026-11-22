@@ -7,6 +7,7 @@
     {"name": "BloomBrightPrePassShader", "textureFiltering": "LINEAR"},
     {"name": "BloomCombinePrePassShader", "textureFiltering": "LINEAR"},
     {"name": "DebandPrePassShader", "textureFiltering": "LINEAR"},
+    {"name": "DepthOfFieldFocusShader", "textureFiltering": "NEAREST"},
     {"name": "DepthOfFieldHorizontalPrePassShader", "textureFiltering": "LINEAR"},
     {"name": "DepthOfFieldVerticalPrePassShader", "textureFiltering": "LINEAR"},
     {"name": "ExpandHalvesAt1xPrePassShader", "textureFiltering": "NEAREST"},

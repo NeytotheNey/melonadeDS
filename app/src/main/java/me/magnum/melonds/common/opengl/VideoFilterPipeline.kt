@@ -312,9 +312,11 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         output.set(frame.textureId, frame.textureWidth, frame.textureHeight)
 
         if (!frame.isValidFrame) {
-            // Cleared on the invalid frame between sessions, since a new session restarts the frame sequence and can reuse texture names
+            // Cleared on the invalid frame between sessions, since a new session restarts the frame sequence and can reuse texture names. The
+            // depth of field's focus too, so a new session doesn't start on a focus held from the last one
             lastFrameSequence = 0L
             expandedFrameSequence = 0L
+            depthOfFieldPasses?.isFocusStale = true
             return output
         }
 
@@ -331,6 +333,10 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         val bloomPasses = if (bloom != null && bloom.hasBloom) getBloomPasses() else null
         val vignettePass = if (bloom != null && bloomPasses == null && bloom.hasVignette) getVignettePass() else null
         val depthOfFieldPasses = if (depthOfField != null && !depthOfField.isOff && frame.depthTextureId != 0) getDepthOfFieldPasses() else null
+        if (depthOfFieldPasses == null) {
+            // The focus it held is from before the depth of field stopped, so turning it back on starts fresh
+            this.depthOfFieldPasses?.isFocusStale = true
+        }
         val runsDeband = debandPass != null && !foldDeband
         val hasLuaPasses = tiltShiftPasses != null || tiltShiftColorPass != null || bloomPasses != null || vignettePass != null || depthOfFieldPasses != null
         if (!runsDeband && prePasses.isEmpty() && !hasLuaPasses) {
@@ -515,14 +521,26 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
 
     /**
      * Blurs the current input by [depthOfField] through [passes], with the frame's depth texture on unit 1 (nearest, as its values can't be
-     * mixed), and returns false if a target can't be drawn to.
+     * mixed): first the focus pass picks this frame's focus into a 1 x 1 target from the depth and the last frame's focus (so it can hold
+     * while something covers the player), then the two blur passes read it on unit 2. Returns false if a target can't be drawn to. Only called
+     * for a new frame, so a frame presented again doesn't move the focus on.
      */
     private fun renderDepthOfField(passes: DepthOfFieldPasses, depthOfField: DepthOfField, frame: PresentFrameWrapper, isBottomScreenWide: Boolean): Boolean {
         beginPasses()
         val outputWidth = inputWidth
         val outputHeight = inputHeight
-        if (!passes.horizontal.prepareTarget(outputWidth, outputHeight) || !passes.vertical.prepareTarget(outputWidth, outputHeight)) {
+        val lastFocus = passes.lastFocus
+        val focus = passes.nextFocus
+        val isReady = passes.horizontal.prepareTarget(outputWidth, outputHeight) && passes.vertical.prepareTarget(outputWidth, outputHeight) &&
+                lastFocus.prepareTarget(1, 1) && focus.prepareTarget(1, 1)
+        if (!isReady) {
             return false
+        }
+        if (passes.isFocusStale) {
+            // No focus, and the hold expired (A = 1 is age 255), so the first frame picks its focus from the depth alone
+            lastFocus.clear()
+            focus.clear()
+            passes.isFocusStale = false
         }
 
         // The focus point in the depth texture, which is the top screen's half of the frame: the wings come before the 256 view's x 0, and the
@@ -535,6 +553,8 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        renderFocus(passes, depthOfField, frame.topScreenWidth, isBottomScreenWide, focusU, focusV)
+
         GLES30.glViewport(0, 0, outputWidth, outputHeight)
         passes.horizontal.render(
             inputTexture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null,
@@ -545,10 +565,35 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             depthOfField = depthOfField, focusU = focusU, focusV = focusV,
         )
         inputTexture = passes.vertical.texture
+        passes.swapFocus()
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         return true
+    }
+
+    /**
+     * Draws this frame's focus into [passes]'s next focus target from the last one, with the depth texture already on unit 1, and binds it on
+     * unit 2 for the blur passes; both targets are already prepared at 1 x 1.
+     */
+    private fun renderFocus(passes: DepthOfFieldPasses, depthOfField: DepthOfField, topScreenWidth: Int, isBottomScreenWide: Boolean, focusU: Float, focusV: Float) {
+        val focus = passes.nextFocus
+        // A hold ages every other frame, so its 255 steps last about 8.5 s at 60 fps
+        val focusAgeStep = if ((passes.focusFrames and 1) == 0) 1f else 0f
+        passes.focusFrames++
+        GLES30.glViewport(0, 0, 1, 1)
+        focus.render(
+            passes.lastFocus.texture, 1, 1, topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null,
+            depthOfField = depthOfField, focusU = focusU, focusV = focusV, focusAgeStep = focusAgeStep,
+        )
+        // Nearest, as the focus's bytes can't be mixed either
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, focus.texture)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
     }
 
     private fun getDepthOfFieldPasses(): DepthOfFieldPasses? {
@@ -556,13 +601,20 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             isDepthOfFieldBuilt = true
             val horizontal = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.DepthOfFieldHorizontalPrePassShader)
             val vertical = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.DepthOfFieldVerticalPrePassShader)
-            if (horizontal != null && vertical != null) {
-                depthOfFieldPasses = DepthOfFieldPasses(PrePass(horizontal, 1, false), PrePass(vertical, 1, false))
+            // Two of the focus pass, since each frame's reads the last one's
+            val focusA = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.DepthOfFieldFocusShader)
+            val focusB = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.DepthOfFieldFocusShader)
+            if (horizontal != null && vertical != null && focusA != null && focusB != null) {
+                depthOfFieldPasses = DepthOfFieldPasses(
+                    PrePass(horizontal, 1, false), PrePass(vertical, 1, false), PrePass(focusA, 1, false), PrePass(focusB, 1, false),
+                )
             } else {
                 // The frame is drawn sharp rather than not at all
                 Log.e(TAG, "Depth of field shaders failed to build, so the blur is left out")
                 horizontal?.delete()
                 vertical?.delete()
+                focusA?.delete()
+                focusB?.delete()
             }
         }
         return depthOfFieldPasses
@@ -674,6 +726,8 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         depthOfFieldPasses?.let {
             it.horizontal.delete()
             it.vertical.delete()
+            it.focusA.delete()
+            it.focusB.delete()
         }
         depthOfFieldPasses = null
         if (quadVao != 0) {
@@ -733,7 +787,22 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
 
     private class TiltShiftPasses(val horizontal: PrePass, val vertical: PrePass)
 
-    private class DepthOfFieldPasses(val horizontal: PrePass, val vertical: PrePass)
+    // The blur's two passes, and the focus pass twice: each frame's focus is drawn into one from the last frame's in the other, then they swap
+    private class DepthOfFieldPasses(val horizontal: PrePass, val vertical: PrePass, val focusA: PrePass, val focusB: PrePass) {
+        private var isNextFocusA = true
+        // Focus passes drawn, whose even ones age a hold
+        var focusFrames = 0
+        // Whether both focus targets have to be cleared before the next one is drawn: they hold nothing yet when built, and what they hold
+        // is from before the depth of field stopped (or a new session started)
+        var isFocusStale = true
+
+        val nextFocus get() = if (isNextFocusA) focusA else focusB
+        val lastFocus get() = if (isNextFocusA) focusB else focusA
+
+        fun swapFocus() {
+            isNextFocusA = !isNextFocusA
+        }
+    }
 
     // The glow's passes at DS-native resolution, then the one that adds it (and the vignette) at the input's
     private class BloomPasses(val bright: PrePass, val horizontal: PrePass, val vertical: PrePass, val combine: PrePass)
@@ -800,6 +869,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             depthOfField: DepthOfField? = null,
             focusU: Float = 0f,
             focusV: Float = 0f,
+            focusAgeStep: Float = 0f,
         ) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
             // The quad covers every texel, so the old contents never have to be loaded
@@ -823,10 +893,20 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
                 shader.setBloom(bloom)
             }
             if (depthOfField != null) {
-                shader.setDepthOfField(depthOfField, focusU, focusV)
+                shader.setDepthOfField(depthOfField, focusU, focusV, focusAgeStep)
             }
             shader.setHalvesAt1x(halvesAt1x, scaleAt1x, halfScaleAt1x)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
+        }
+
+        /**
+         * Fills the target with opaque black (0, 0, 0, 1), for a pass that reads its own last output; call after [prepareTarget]. That's the
+         * clear color DSRenderer sets once for the surface, so it's left set rather than saved and restored.
+         */
+        fun clear() {
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
+            GLES30.glClearColor(0f, 0f, 0f, 1f)
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         }
 
         fun delete() {

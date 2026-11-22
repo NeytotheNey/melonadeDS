@@ -8,8 +8,8 @@ uniform vec2 texSize;
 uniform float topScreenWidth;
 varying vec2 uv;
 uniform vec3 depthOfField;
-uniform vec3 depthFocus;
 uniform highp sampler2D depthTex;
+uniform highp sampler2D focusTex;
 #define topScreenEnd frameLayout.x
 #define bottomScreenStart frameLayout.y
 uniform float bottomScreenWide;
@@ -34,10 +34,6 @@ vec3 sampleScreen(vec2 p, vec4 band) {
 const vec2 BLUR_DIRECTION = vec2(1.0, 0.0);
 // Below this many texels the blur can't be seen, so the texel skips it
 const float MIN_BLUR_RADIUS = 0.1;
-// How far around the focus point the focus looks, in DS pixels: the near ring first, and the far one only if the near one
-// finds no 3D
-const float FOCUS_NEAR = 3.0;
-const float FOCUS_FAR = 6.0;
 highp float decodeDepth(highp vec4 texel) {
     highp vec3 bytes = floor(texel.rgb * 255.0 + 0.5);
     highp float value = bytes.r * 65536.0 + bytes.g * 256.0 + bytes.b;
@@ -47,41 +43,13 @@ highp float decodeDepth(highp vec4 texel) {
     // The largest float below 1
     return min(value / 16777215.0, 0.99999994);
 }
+highp float decodeFocus(highp vec4 texel) {
+    highp float depth = decodeDepth(texel);
+    return depth > 0.0 ? depth : -1.0;
+}
 // The depth at p (u and v of the frame), from 0 to 1
 highp float frameDepth(vec2 p) {
     return decodeDepth(texture2D(depthTex, vec2(p.x, clamp(p.y / topScreenEnd, 0.0, 1.0))));
-}
-highp float depthAt(vec2 p) {
-    return decodeDepth(texture2D(depthTex, p));
-}
-bool is3D(highp float depth) {
-    return depth > 0.0 && depth < 1.0;
-}
-// The nearer of nearest and the depth at p if that's 3D, so a negative nearest means none yet
-highp float nearer3D(highp float nearest, vec2 p) {
-    highp float depth = depthAt(p);
-    if (!is3D(depth)) {
-        return nearest;
-    }
-    return nearest < 0.0 ? depth : min(nearest, depth);
-}
-// The nearest of nearest and the 3D at the four points ringPixels DS pixels from the focus point, negative for none
-highp float nearestOnRing(highp float nearest, float ringPixels) {
-    vec2 ringStep = ringPixels / vec2(topScreenWidth, topScreenEnd * frameLayout.w);
-    nearest = nearer3D(nearest, depthFocus.yz + vec2(ringStep.x, 0.0));
-    nearest = nearer3D(nearest, depthFocus.yz - vec2(ringStep.x, 0.0));
-    nearest = nearer3D(nearest, depthFocus.yz + vec2(0.0, ringStep.y));
-    return nearer3D(nearest, depthFocus.yz - vec2(0.0, ringStep.y));
-}
-// The focus depth, negative for none. The nearest 3D around the point rather than the point's own depth, so a character standing
-// there holds the focus: Pokemon White's player walking sideways shows the floor between her legs at the screen's center every
-// other step, which is farther than the sharp range, and the whole picture's blur pulsed with it
-highp float focusDepth() {
-    if (depthFocus.x >= 0.0) {
-        return depthFocus.x;
-    }
-    highp float nearest = nearestOnRing(nearer3D(-1.0, depthFocus.yz), FOCUS_NEAR);
-    return nearest >= 0.0 ? nearest : nearestOnRing(-1.0, FOCUS_FAR);
 }
 // The blur's radius in DS pixels at a depth, 0 in focus and for 2D
 float blurRadius(highp float depth, highp float focus) {
@@ -99,7 +67,7 @@ void main() {
     }
     // Texels per DS pixel; the frame texture is frameLayout.w DS pixels high at any internal resolution
     float scale = texSize.y / frameLayout.w;
-    highp float focus = focusDepth();
+    highp float focus = decodeFocus(texture2D(focusTex, vec2(0.5)));
     float radius = blurRadius(frameDepth(uv), focus) * scale;
     if (radius < MIN_BLUR_RADIUS) {
         gl_FragColor = vec4(texture2D(tex, uv).rgb, 1.0);
