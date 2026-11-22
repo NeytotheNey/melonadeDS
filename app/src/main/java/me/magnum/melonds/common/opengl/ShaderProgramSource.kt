@@ -1190,8 +1190,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // from the focus, up to depthOfField.x DS pixels. depthTex (unit 1, nearest) is the frame's top screen half's depth from the compositor
         // (PresentFrameWrapper.depthTextureId, read with DEPTH_DECODE_FUNCTION): 0 for 2D drawn over the 3D, which stays sharp, 1 where what's
         // behind the 3D shows, which blurs as the farthest depth. depthOfField.yz are the sharp range around the focus and the falloff past it,
-        // in depth from 0 to 1. depthFocus.x is the focus depth, or negative to read it at depthFocus.yz (u and v of depthTex) or, if that's 2D
-        // or what's behind the 3D, at the first 3D of four points 4 DS pixels around it; with none, nothing blurs. A tap only counts as much as its
+        // in depth from 0 to 1. depthFocus.x is the focus depth, or negative to take the nearest 3D at depthFocus.yz (u and v of depthTex) and
+        // the four points 3 DS pixels around it, or if none of those is 3D, at the four 6 DS pixels around it; with none, nothing blurs. A tap only counts as much as its
         // own blur reaches it, so a sharp texel never spreads over a blurred one. 13 Gaussian taps like the tilt-shift's
         private fun depthOfFieldPrePassShader(direction: String): ShaderProgramSource {
             return ShaderProgramSource(
@@ -1208,8 +1208,10 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                         "const vec2 BLUR_DIRECTION = $direction;\n" +
                         "// Below this many texels the blur can't be seen, so the texel skips it\n" +
                         "const float MIN_BLUR_RADIUS = 0.1;\n" +
-                        "// How far around the focus point to look for 3D, in DS pixels\n" +
-                        "const float FOCUS_SEARCH = 4.0;\n" +
+                        "// How far around the focus point the focus looks, in DS pixels: the near ring first, and the far one only if the near one\n" +
+                        "// finds no 3D\n" +
+                        "const float FOCUS_NEAR = 3.0;\n" +
+                        "const float FOCUS_FAR = 6.0;\n" +
                         "" +
                         DEPTH_DECODE_FUNCTION +
                         "// The depth at p (u and v of the frame), from 0 to 1\n" +
@@ -1225,30 +1227,33 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                         "    return depth > 0.0 && depth < 1.0;\n" +
                         "}\n" +
                         "" +
-                        "// The focus depth, negative for none\n" +
+                        "// The nearer of nearest and the depth at p if that's 3D, so a negative nearest means none yet\n" +
+                        "highp float nearer3D(highp float nearest, vec2 p) {\n" +
+                        "    highp float depth = depthAt(p);\n" +
+                        "    if (!is3D(depth)) {\n" +
+                        "        return nearest;\n" +
+                        "    }\n" +
+                        "    return nearest < 0.0 ? depth : min(nearest, depth);\n" +
+                        "}\n" +
+                        "" +
+                        "// The nearest of nearest and the 3D at the four points ringPixels DS pixels from the focus point, negative for none\n" +
+                        "highp float nearestOnRing(highp float nearest, float ringPixels) {\n" +
+                        "    vec2 ringStep = ringPixels / vec2(topScreenWidth, topScreenEnd * frameLayout.w);\n" +
+                        "    nearest = nearer3D(nearest, depthFocus.yz + vec2(ringStep.x, 0.0));\n" +
+                        "    nearest = nearer3D(nearest, depthFocus.yz - vec2(ringStep.x, 0.0));\n" +
+                        "    nearest = nearer3D(nearest, depthFocus.yz + vec2(0.0, ringStep.y));\n" +
+                        "    return nearer3D(nearest, depthFocus.yz - vec2(0.0, ringStep.y));\n" +
+                        "}\n" +
+                        "" +
+                        "// The focus depth, negative for none. The nearest 3D around the point rather than the point's own depth, so a character standing\n" +
+                        "// there holds the focus: Pokemon White's player walking sideways shows the floor between her legs at the screen's center every\n" +
+                        "// other step, which is farther than the sharp range, and the whole picture's blur pulsed with it\n" +
                         "highp float focusDepth() {\n" +
                         "    if (depthFocus.x >= 0.0) {\n" +
                         "        return depthFocus.x;\n" +
                         "    }\n" +
-                        "    vec2 searchStep = FOCUS_SEARCH / vec2(topScreenWidth, topScreenEnd * frameLayout.w);\n" +
-                        "    highp float depth = depthAt(depthFocus.yz);\n" +
-                        "    if (is3D(depth)) {\n" +
-                        "        return depth;\n" +
-                        "    }\n" +
-                        "    depth = depthAt(depthFocus.yz + vec2(0.0, searchStep.y));\n" +
-                        "    if (is3D(depth)) {\n" +
-                        "        return depth;\n" +
-                        "    }\n" +
-                        "    depth = depthAt(depthFocus.yz - vec2(0.0, searchStep.y));\n" +
-                        "    if (is3D(depth)) {\n" +
-                        "        return depth;\n" +
-                        "    }\n" +
-                        "    depth = depthAt(depthFocus.yz + vec2(searchStep.x, 0.0));\n" +
-                        "    if (is3D(depth)) {\n" +
-                        "        return depth;\n" +
-                        "    }\n" +
-                        "    depth = depthAt(depthFocus.yz - vec2(searchStep.x, 0.0));\n" +
-                        "    return is3D(depth) ? depth : -1.0;\n" +
+                        "    highp float nearest = nearestOnRing(nearer3D(-1.0, depthFocus.yz), FOCUS_NEAR);\n" +
+                        "    return nearest >= 0.0 ? nearest : nearestOnRing(-1.0, FOCUS_FAR);\n" +
                         "}\n" +
                         "" +
                         "// The blur's radius in DS pixels at a depth, 0 in focus and for 2D\n" +
