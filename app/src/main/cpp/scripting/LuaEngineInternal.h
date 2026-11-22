@@ -251,6 +251,9 @@ struct LuaScript
     // melon.gpu.light_textures(): the same for the texture hashes the OpenGL renderer flags as lights in the depth (LuaEngine::lightTextures)
     std::vector<melonDS::u32> lightTextures;
     unsigned int lightTexturesOrder = 0;
+    // melon.gpu.ui_textures(): and for the texture hashes whose polygons the depth hands over as 2D on top (LuaEngine::uiTextures)
+    std::vector<melonDS::u32> uiTextures;
+    unsigned int uiTexturesOrder = 0;
     // melon.wide: kept until the script changes it or stops (not a per-call request), and what the app was last told of it
     LuaWideCamera wideCamera;
     LuaWideCamera sentWideCamera;

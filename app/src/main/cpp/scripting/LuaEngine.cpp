@@ -571,6 +571,7 @@ int LuaEngine::setupScript(lua_State* L)
     static const luaL_Reg gpuFunctions[] = {
         { "hide_textures", luaGpuHideTextures },
         { "light_textures", luaGpuLightTextures },
+        { "ui_textures", luaGpuUiTextures },
         { nullptr, nullptr },
     };
     static const luaL_Reg emuFunctions[] = {
@@ -750,9 +751,10 @@ void LuaEngine::closeScript(LuaScript& script)
                 off.nearLimit);
         script.sentSun = off;
     }
-    // A reloaded script starts hiding and lighting nothing
+    // A reloaded script starts hiding, lighting and marking nothing
     script.hiddenTextures.clear();
     script.lightTextures.clear();
+    script.uiTextures.clear();
     // The same for the camera: a reloaded script starts asking for nothing
     script.wideCamera = LuaWideCamera();
     if (script.sentWideCamera != LuaWideCamera())
@@ -1269,11 +1271,17 @@ int LuaEngine::luaGpuLightTextures(lua_State* L)
                           &LuaEngine::lightTextureRequests);
 }
 
+int LuaEngine::luaGpuUiTextures(lua_State* L)
+{
+    return setTextureList(L, "ui_textures", melonDS::MaxUiTextures, &LuaScript::uiTextures, &LuaScript::uiTexturesOrder,
+                          &LuaEngine::uiTextureRequests);
+}
+
 int LuaEngine::setTextureList(lua_State* L, const char* name, size_t maxHashes, std::vector<melonDS::u32> LuaScript::* list,
                               unsigned int LuaScript::* order, unsigned int LuaEngine::* requests)
 {
     LuaScript& script = getScript(L);
-    std::array<melonDS::u32, std::max(melonDS::MaxHiddenTextures, melonDS::MaxLightTextures)> hashes;
+    std::array<melonDS::u32, std::max({melonDS::MaxHiddenTextures, melonDS::MaxLightTextures, melonDS::MaxUiTextures})> hashes;
     maxHashes = std::min(maxHashes, hashes.size());
     size_t count = 0;
     // nil or {} lists nothing
@@ -1325,6 +1333,11 @@ const std::vector<melonDS::u32>& LuaEngine::hiddenTextures() const
 const std::vector<melonDS::u32>& LuaEngine::lightTextures() const
 {
     return newestTextureList(&LuaScript::lightTextures, &LuaScript::lightTexturesOrder);
+}
+
+const std::vector<melonDS::u32>& LuaEngine::uiTextures() const
+{
+    return newestTextureList(&LuaScript::uiTextures, &LuaScript::uiTexturesOrder);
 }
 
 bool LuaEngine::wantsDepth() const

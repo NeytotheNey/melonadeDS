@@ -66,11 +66,13 @@ local sun_options = {
     bias = 1,
     softness = 1.5,
     color = 0x33384F,
-    -- A speech bubble's tail is 3D drawn right in front of the camera, about 65 units away, and would
-    -- throw a long shadow across the street. The nearest of the town itself is about 91 (the bottom
-    -- of the screen) and nothing nearer than 97 casts, so 80 cuts the tail with room on both sides
-    near = 80,
 }
+
+-- A speech bubble's tail is the game's UI drawn in 3D, right in front of the camera (about 65 units away,
+-- where the town is 91 or more). As 3D it would cast a long sun shadow across the street, and the shading
+-- would darken the ground beside it. Its texture's content hash, from the desktop's --list-textures, is the
+-- same for every bubble, so the effects take its pixels as 2D, like the box's
+local UI_TEXTURES = { 0xBE2606E4 }
 
 -- While the sun shadows are on, the game's own shadows go, or there'd be two under everyone: the dark ovals
 -- under the player and the NPCs are all one 16 x 16 four-color texture, drawn translucent (alpha 19,
@@ -164,6 +166,7 @@ function on_frame()
     melon.screen.sun(current.sun, sun_options)
     melon.gpu.hide_textures(current.sun > 0 and BLOB_SHADOW_TEXTURES or NO_TEXTURES)
     melon.gpu.light_textures(LIGHT_TEXTURES)
+    melon.gpu.ui_textures(UI_TEXTURES)
     melon.screen.shade(current.shade, shade_options)
     melon.screen.depth_of_field(current.dof, dof_options)
     melon.screen.haze(current.haze, haze_options)

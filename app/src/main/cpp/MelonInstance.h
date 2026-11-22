@@ -66,6 +66,9 @@ public:
     void setFrontendHiddenTextures(std::vector<u32> hashes) { frontendHiddenTextures = std::move(hashes); }
     // The texture hashes it flags as lights while no script lights any (the desktop's --light-textures); emulator thread, between frames
     void setFrontendLightTextures(std::vector<u32> hashes) { frontendLightTextures = std::move(hashes); }
+    // The texture hashes whose polygons the depth hands over as 2D while no script marks any (the desktop's --ui-textures); emulator
+    // thread, between frames
+    void setFrontendUiTextures(std::vector<u32> hashes) { frontendUiTextures = std::move(hashes); }
     float getMotionData(MotionQueryType type);
     void touchScreen(u16 x, u16 y);
     void releaseScreen();
@@ -194,6 +197,8 @@ private:
     std::vector<u32> frontendHiddenTextures;
     // setFrontendLightTextures(), emulator thread only
     std::vector<u32> frontendLightTextures;
+    // setFrontendUiTextures(), emulator thread only
+    std::vector<u32> frontendUiTextures;
     // The width and margin of the top screen's 3D view, for the emulator thread: they start at EmulatorConfiguration::wideViewWidth and
     // wideViewMargin and then follow setWideView() (configuration updates don't change them)
     int wideViewWidth;

@@ -518,6 +518,9 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         // And the ones it flags as lights
         const std::vector<u32>& lights = luaEngine.lightTextures().empty() ? frontendLightTextures : luaEngine.lightTextures();
         nds->GPU.GetRenderer3D().SetLightTextures(lights.data(), (u32) lights.size());
+        // And the ones the depth hands over as 2D
+        const std::vector<u32>& ui = luaEngine.uiTextures().empty() ? frontendUiTextures : luaEngine.uiTextures();
+        nds->GPU.GetRenderer3D().SetUiTextures(ui.data(), (u32) ui.size());
     }
 
     bool hasLuaFrameRun = false;
