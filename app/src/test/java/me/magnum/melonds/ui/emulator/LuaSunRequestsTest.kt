@@ -13,7 +13,7 @@ class LuaSunRequestsTest {
     private val sunA = Sun(strength = 0.5f)
     private val sunB = Sun(
         strength = 0.8f, directionX = 0.6f, directionY = 0.8f, directionZ = 0f, upX = 0f, upY = 1f, upZ = 0f, length = 64f, steps = 32,
-        bias = 2f, softness = 3f, color = 0x102030,
+        bias = 2f, softness = 3f, color = 0x102030, near = 70f,
     )
     private val off = Sun(strength = 0f)
 
@@ -106,6 +106,7 @@ class LuaSunRequestsTest {
         assertNotEquals(sunB, sunB.copy(bias = 1f))
         assertNotEquals(sunB, sunB.copy(softness = 1f))
         assertNotEquals(sunB, sunB.copy(color = 0x102031))
+        assertNotEquals(sunB, sunB.copy(near = 0f))
         assertEquals(sunB, sunB.copy())
     }
 }

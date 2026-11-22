@@ -119,8 +119,9 @@ struct Shade
 // Sun.kt: sun shadows on the DS top screen's 3D, marched in screen space from its depth and the camera it was drawn with. Each 3D pixel's
 // view-space position steps [Length] units towards [Direction] in [Steps] steps, and it's in shadow where the depth at a step is nearer than
 // the step by more than [Bias] units; the shadow is softened [Softness] DS pixels wide and tinted towards [Color] (0xRRGGBB) by [Strength]
-// (0 to 1). [Direction] and [Up] are in the camera's view space, normalized where they're used. [Up] isn't used by the march; it's kept for
-// the characters' shadows, which the core will draw. Only 3D pixels are shadowed, and only when the frame has its depth and a usable camera
+// (0 to 1). 3D nearer the camera than [Near] units casts nothing (0 for no limit). [Direction] and [Up] are in the camera's view space,
+// normalized where they're used. [Up] isn't used by the march; it's kept for the characters' shadows, which the core will draw. Only 3D
+// pixels are shadowed, and only when the frame has its depth and a usable camera
 struct Sun
 {
     float Strength = 0;
@@ -130,6 +131,7 @@ struct Sun
     int Steps = 64;
     float Bias = 1, Softness = 1.5f;
     melonDS::u32 Color = 0x33384F;
+    float Near = 0;
 
     bool operator==(const Sun&) const = default;
 

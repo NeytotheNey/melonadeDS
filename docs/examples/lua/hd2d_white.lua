@@ -2,7 +2,7 @@
 -- option: dof type=number min=0 max=1 step=0.05 default=1 label="Depth of field strength"
 -- option: dof_radius type=number min=1 max=12 step=1 default=4 label="Depth of field radius in DS pixels"
 -- option: sun type=number min=0 max=1 step=0.05 default=0.6 label="Sun shadow strength"
--- option: shade type=number min=0 max=1 step=0.05 default=0.7 label="Shading strength"
+-- option: shade type=number min=0 max=1 step=0.05 default=0.35 label="Shading strength"
 -- option: haze type=number min=0 max=1 step=0.05 default=0.6 label="Haze strength"
 -- option: blur type=number min=0 max=1 step=0.05 default=0 label="Tilt-shift strength"
 -- option: radius type=number min=1 max=12 step=1 default=6 label="Tilt-shift radius in DS pixels"
@@ -55,6 +55,10 @@ local sun_options = {
     bias = 1,
     softness = 1.5,
     color = 0x33384F,
+    -- A speech bubble's tail is 3D drawn right in front of the camera, about 65 units away, and would
+    -- throw a long shadow across the street. The nearest of the town itself is about 91 (the bottom
+    -- of the screen) and nothing nearer than 97 casts, so 80 cuts the tail with room on both sides
+    near = 80,
 }
 
 -- While the sun shadows are on, the game's own shadows go, or there'd be two under everyone: the dark ovals

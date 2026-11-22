@@ -31,7 +31,7 @@ public:
     void onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth, float range, float falloff) override;
     void onLuaShade(int scriptId, float strength, float radius, float range, int color) override;
     void onLuaSun(int scriptId, float strength, const std::array<float, 3>& direction, const std::array<float, 3>& up, float length, int steps,
-        float bias, float softness, int color) override;
+        float bias, float softness, int color, float nearLimit) override;
     void onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY) override;
     void onLuaStateLoaded() override;
 

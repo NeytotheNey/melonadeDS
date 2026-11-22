@@ -44,9 +44,9 @@ public:
     // 0xRRGGBB
     virtual void onLuaShade(int scriptId, float strength, float radius, float range, int color) = 0;
     // melon.screen.sun()'s values, clamped, with [direction] and [up] normalized (view space); a strength of 0 is off (the rest then the
-    // defaults). [length] and [bias] are view-space units, [softness] DS pixels, and [color] is 0xRRGGBB
+    // defaults). [length], [bias] and [nearLimit] are view-space units, [softness] DS pixels, and [color] is 0xRRGGBB
     virtual void onLuaSun(int scriptId, float strength, const std::array<float, 3>& direction, const std::array<float, 3>& up, float length,
-        int steps, float bias, float softness, int color) = 0;
+        int steps, float bias, float softness, int color, float nearLimit) = 0;
     // melon.wide's requests, clamped: the zoom (negative for the player's), the pan if [hasPan], whether native is held, and the vertical pan if
     // [hasPanY]; all off when the script no longer asks for anything
     virtual void onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY) = 0;

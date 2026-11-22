@@ -242,6 +242,7 @@ class AndroidEmulatorManager(
                     bias = data.getFloat(),
                     softness = data.getFloat(),
                     color = data.getInt(),
+                    near = data.getFloat(),
                 )
                 _emulatorEvents.tryEmit(EmulatorEvent.LuaSun(scriptId, sun))
             }

@@ -192,6 +192,7 @@ enum class EmulatorEventType(val event: Int) {
      * * bias (`f32`), 0 to 64 view-space units
      * * softness (`f32`), 0 to 8 DS pixels
      * * color (`i32`), 0xRRGGBB, the shadow's tint
+     * * near (`f32`), 0 to 1024 view-space units, nearer than which nothing casts (0 for no limit)
      */
     EventLuaSun(312),
 }

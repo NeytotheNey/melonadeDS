@@ -9,6 +9,7 @@ uniform vec2 texSize;
 uniform float topScreenWidth;
 uniform highp vec3 sunDirection;
 uniform highp mat4 sunProjection;
+uniform highp float sunNear;
 uniform vec4 frameLayout;
 uniform highp vec4 sun;
 uniform highp mat4 sunInverse;
@@ -51,15 +52,17 @@ highp float sunSurfaceTolerance(highp float dist, float pixels) {
 }
 const int SUN_MAX_STEPS = 128;
 const float SUN_EDGE_FADE = 32.0;
-// Whether depth texel t shades a step dist units in front of the camera: it's 3D, not under another camera, and nearer than
-// dist - bias
+// Whether depth texel t shades a step dist units in front of the camera: it's 3D, not under another camera, nearer than
+// dist - bias, and not nearer the camera than sunNear when that's over 0, which keeps what a game draws right in front of
+// the camera (Pokemon White's speech bubble tails) from casting across the scene
 bool isOccluder(highp vec2 t, highp vec2 scale, highp float dist) {
     highp vec4 depth = texture2D(tex, (t + 0.5) / texSize);
     highp float value = depthValue(depth);
     if (!isValue3D(value) || hasFlag(depth, 8.0)) {
         return false;
     }
-    return sunViewDistance((t + 0.5) / scale, value) < dist - sun.w;
+    highp float occluderDistance = sunViewDistance((t + 0.5) / scale, value);
+    return occluderDistance < dist - sun.w && (sunNear <= 0.0 || occluderDistance >= sunNear);
 }
 // How far from p (DS pixels) along dir the march leaves the dsSize rect
 highp float exitDistance(highp vec2 p, highp vec2 dir, highp vec2 dsSize) {

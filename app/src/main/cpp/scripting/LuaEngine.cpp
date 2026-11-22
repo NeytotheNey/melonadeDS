@@ -35,12 +35,13 @@ static const lua_Number kMaxDepthOfFieldFocusY = 384.0;
 static const lua_Number kMinShadeRadius = 1.0;
 static const lua_Number kMaxShadeRadius = 16.0;
 // melon.screen.sun(): the march's longest reach in view-space units (White's far plane is 1025), its most steps (the shader's loop bound),
-// the largest bias in units, and the widest softening blur in DS pixels (the blur passes' tap bound)
+// the largest bias in units, the widest softening blur in DS pixels (the blur passes' tap bound), and the largest near distance in units
 static const lua_Number kMinSunLength = 1.0;
 static const lua_Number kMaxSunLength = 1024.0;
 static const lua_Number kMaxSunSteps = 128.0;
 static const lua_Number kMaxSunBias = 64.0;
 static const lua_Number kMaxSunSoftness = 8.0;
+static const lua_Number kMaxSunNear = 1024.0;
 
 /**
  * A new table on the stack with [functions] in it, like luaL_newlib() for a table whose size isn't known here
@@ -504,7 +505,8 @@ void LuaEngine::sendRequests(LuaScript& script)
             script.sentSun = script.sun;
             script.sentSunOrder = ++sentSunRequests;
             const LuaSun& sun = script.sentSun;
-            eventMessenger->onLuaSun(script.id, sun.strength, sun.direction, sun.up, sun.length, sun.steps, sun.bias, sun.softness, (int) sun.color);
+            eventMessenger->onLuaSun(script.id, sun.strength, sun.direction, sun.up, sun.length, sun.steps, sun.bias, sun.softness, (int) sun.color,
+                sun.nearLimit);
         }
         if (script.wideCamera != script.sentWideCamera)
         {
@@ -741,7 +743,8 @@ void LuaEngine::closeScript(LuaScript& script)
     {
         LuaSun off;
         if (eventMessenger)
-            eventMessenger->onLuaSun(script.id, off.strength, off.direction, off.up, off.length, off.steps, off.bias, off.softness, (int) off.color);
+            eventMessenger->onLuaSun(script.id, off.strength, off.direction, off.up, off.length, off.steps, off.bias, off.softness, (int) off.color,
+                off.nearLimit);
         script.sentSun = off;
     }
     // A reloaded script starts hiding nothing
@@ -1201,6 +1204,7 @@ int LuaEngine::luaScreenSun(lua_State* L)
         sun.bias = getNumberOption(L, 2, "bias", sun.bias, kMaxSunBias);
         sun.softness = getNumberOption(L, 2, "softness", sun.softness, kMaxSunSoftness);
         sun.color = getColorOption(L, 2, "color", sun.color);
+        sun.nearLimit = getNumberOption(L, 2, "near", sun.nearLimit, kMaxSunNear);
     }
 
     // Off is off, whatever the options are, so going over them while it's off costs no events

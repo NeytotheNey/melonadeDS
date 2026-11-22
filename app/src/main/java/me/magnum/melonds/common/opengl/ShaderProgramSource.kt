@@ -1696,8 +1696,9 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // sun.y units towards sunDirection; it's in shadow where the depth at a step is nearer than the step by more than sun.w units. A step
         // that lands on 2D, on 3D drawn under another camera (flag 8, White's characters, which would cast shadows tilted towards the camera),
         // on nothing, off the depth or behind the camera finds no shadow there. The shadow fades out over SUN_EDGE_FADE DS pixels before the
-        // edge the march leaves the depth through, where what would cast it is off screen. Out: the texel's depth as encodeDepth() has it in
-        // RGB and the shadow (0 to 1) in A, all 0 where it isn't 3D
+        // edge the march leaves the depth through, where what would cast it is off screen. 3D nearer the camera than sunNear units (when it's
+        // over 0) casts nothing either. Out: the texel's depth as encodeDepth() has it in RGB and the shadow (0 to 1) in A, all 0 where it
+        // isn't 3D
         val SunMarchPrePassShader get() = ShaderProgramSource(
             TextureFiltering.NEAREST,
             PRE_PASS_VERT_SHADER,
@@ -1708,6 +1709,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "uniform float topScreenWidth;\n" +
                     "uniform highp vec3 sunDirection;\n" +
                     "uniform highp mat4 sunProjection;\n" +
+                    "uniform highp float sunNear;\n" +
                     FRAME_LAYOUT_UNIFORM +
                     SUN_UNIFORMS +
                     DEPTH_VALUE_FUNCTIONS +
@@ -1716,15 +1718,17 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "const int SUN_MAX_STEPS = 128;\n" +
                     "const float SUN_EDGE_FADE = 32.0;\n" +
                     "" +
-                    "// Whether depth texel t shades a step dist units in front of the camera: it's 3D, not under another camera, and nearer than\n" +
-                    "// dist - bias\n" +
+                    "// Whether depth texel t shades a step dist units in front of the camera: it's 3D, not under another camera, nearer than\n" +
+                    "// dist - bias, and not nearer the camera than sunNear when that's over 0, which keeps what a game draws right in front of\n" +
+                    "// the camera (Pokemon White's speech bubble tails) from casting across the scene\n" +
                     "bool isOccluder(highp vec2 t, highp vec2 scale, highp float dist) {\n" +
                     "    highp vec4 depth = texture2D(tex, (t + 0.5) / texSize);\n" +
                     "    highp float value = depthValue(depth);\n" +
                     "    if (!isValue3D(value) || hasFlag(depth, 8.0)) {\n" +
                     "        return false;\n" +
                     "    }\n" +
-                    "    return sunViewDistance((t + 0.5) / scale, value) < dist - sun.w;\n" +
+                    "    highp float occluderDistance = sunViewDistance((t + 0.5) / scale, value);\n" +
+                    "    return occluderDistance < dist - sun.w && (sunNear <= 0.0 || occluderDistance >= sunNear);\n" +
                     "}\n" +
                     "" +
                     "// How far from p (DS pixels) along dir the march leaves the dsSize rect\n" +

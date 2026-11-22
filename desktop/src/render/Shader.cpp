@@ -133,6 +133,7 @@ Shader::Shader(GLuint program, GLenum textureFiltering)
     UniformSunSoftness = glGetUniformLocation(Program, "sunSoftness");
     UniformSunColor = glGetUniformLocation(Program, "sunColor");
     UniformSunProjection = glGetUniformLocation(Program, "sunProjection");
+    UniformSunNear = glGetUniformLocation(Program, "sunNear");
     UniformSunInverse = glGetUniformLocation(Program, "sunInverse");
     UniformSunViewport = glGetUniformLocation(Program, "sunViewport");
     UniformSunDepthTex = glGetUniformLocation(Program, "sunDepthTex");
@@ -265,6 +266,8 @@ void Shader::SetSun(const Sun& sun, const float* projection, const float* invers
     }
     if (UniformSunProjection >= 0)
         glUniformMatrix4fv(UniformSunProjection, 1, GL_FALSE, projection);
+    if (UniformSunNear >= 0)
+        glUniform1f(UniformSunNear, sun.Near);
     if (UniformSunInverse >= 0)
         glUniformMatrix4fv(UniformSunInverse, 1, GL_FALSE, inverse);
     if (UniformSunViewport >= 0)

@@ -66,7 +66,7 @@ private:
     GLint UniformDepthOfField = -1, UniformDepthFocus = -1, UniformDepthTex = -1, UniformFocusTex = -1;
     GLint UniformShade = -1, UniformShadeColor = -1, UniformShadeDepthTex = -1, UniformShadeBlurTex = -1;
     GLint UniformSun = -1, UniformSunDirection = -1, UniformSunSoftness = -1, UniformSunColor = -1, UniformSunProjection = -1;
-    GLint UniformSunInverse = -1, UniformSunViewport = -1, UniformSunDepthTex = -1, UniformSunMaskTex = -1;
+    GLint UniformSunInverse = -1, UniformSunViewport = -1, UniformSunDepthTex = -1, UniformSunMaskTex = -1, UniformSunNear = -1;
     GLint UniformHalvesAt1x = -1, UniformCoordXTex = -1, UniformCoordYTex = -1;
 };
 

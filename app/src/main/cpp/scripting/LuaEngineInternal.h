@@ -169,6 +169,8 @@ struct LuaSun
     float softness = 1.5f;
     // The shadow's tint, 0xRRGGBB
     melonDS::u32 color = 0x33384F;
+    // View-space units: nearer occluders cast nothing (0 for none)
+    float nearLimit = 0.0f;
 
     bool operator==(const LuaSun&) const = default;
 };

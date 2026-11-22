@@ -243,7 +243,7 @@ void AndroidMelonEventMessenger::onLuaShade(int scriptId, float strength, float 
 }
 
 void AndroidMelonEventMessenger::onLuaSun(int scriptId, float strength, const std::array<float, 3>& direction, const std::array<float, 3>& up,
-    float length, int steps, float bias, float softness, int color)
+    float length, int steps, float bias, float softness, int color, float nearLimit)
 {
     // Read in this order by AndroidEmulatorManager (EventLuaSun)
     struct {
@@ -256,9 +256,10 @@ void AndroidMelonEventMessenger::onLuaSun(int scriptId, float strength, const st
         float bias;
         float softness;
         int32_t color;
+        float nearLimit;
     } data = {
         (int32_t) scriptId, strength, { direction[0], direction[1], direction[2] }, { up[0], up[1], up[2] }, length, (int32_t) steps, bias,
-        softness, (int32_t) color,
+        softness, (int32_t) color, nearLimit,
     };
 
     MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_SUN, sizeof(data), &data);

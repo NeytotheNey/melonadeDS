@@ -321,12 +321,13 @@ void Usage()
         "                              shaded pixels go towards the tint (0-1), the depth blur's radius in DS pixels (1-16,\n"
         "                              8), how much farther than the blurred depth a pixel is when fully shaded (0-1,\n"
         "                              0.0008), and the tint in hex (33384F)\n"
-        "  --sun STRENGTH[,LENGTH,STEPS,BIAS[,SOFTNESS[,RRGGBB[,DX,DY,DZ[,UX,UY,UZ]]]]]\n"
+        "  --sun STRENGTH[,LENGTH,STEPS,BIAS[,SOFTNESS[,RRGGBB[,DX,DY,DZ[,UX,UY,UZ[,NEAR]]]]]]\n"
         "                              the Lua sun shadows over the top screen's 3D, for tests (OpenGL only): how far the\n"
         "                              shadows go towards the tint (0-1), how far the march reaches in view-space units\n"
         "                              (1-1024, 96) in how many steps (1-128, 64), the bias in units (0-64, 1), the softness\n"
         "                              in DS pixels (0-8, 1.5), the tint in hex (33384F), the direction towards the sun\n"
-        "                              (0.50,0.83,0.26) and up (0.0006,0.607,0.794) in view space\n"
+        "                              (0.50,0.83,0.26) and up (0.0006,0.607,0.794) in view space, and how near the camera\n"
+        "                              3D can be and still cast, in units (0-1024, 0: all of it)\n"
         "  --output-cap                send the windows' screen size to the core (GPU::OutputCap), as the app does: the\n"
         "                              frame is drawn no bigger than the screens are shown\n"
         "  --vsync                     wait for vsync on swap (pacing stays at the DS's 59.83 Hz)\n"
@@ -452,7 +453,7 @@ bool ParseHiddenTextures(const std::string& spec, std::vector<u32>& hashes)
 
 bool ParseSun(int count, unsigned int color, Frontend::Sun& sun)
 {
-    if (count != 1 && count != 4 && count != 5 && count != 6 && count != 9 && count != 12)
+    if (count != 1 && count != 4 && count != 5 && count != 6 && count != 9 && count != 12 && count != 13)
         return false;
     if (!NormalizeDirection(sun.Direction) || !NormalizeDirection(sun.Up))
         return false;
@@ -461,6 +462,7 @@ bool ParseSun(int count, unsigned int color, Frontend::Sun& sun)
     sun.Steps = std::clamp(sun.Steps, 1, 128);
     sun.Bias = std::clamp(sun.Bias, 0.f, 64.f);
     sun.Softness = std::clamp(sun.Softness, 0.f, 8.f);
+    sun.Near = std::clamp(sun.Near, 0.f, 1024.f);
     sun.Color = color & 0xFFFFFF;
     return true;
 }
@@ -723,11 +725,11 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             unsigned int color = sun.Color;
             std::array<float, 3>& d = sun.Direction;
             std::array<float, 3>& u = sun.Up;
-            int count = sscanf(spec.c_str(), "%f,%f,%d,%f,%f,%x,%f,%f,%f,%f,%f,%f", &sun.Strength, &sun.Length, &sun.Steps, &sun.Bias,
-                &sun.Softness, &color, &d[0], &d[1], &d[2], &u[0], &u[1], &u[2]);
+            int count = sscanf(spec.c_str(), "%f,%f,%d,%f,%f,%x,%f,%f,%f,%f,%f,%f,%f", &sun.Strength, &sun.Length, &sun.Steps, &sun.Bias,
+                &sun.Softness, &color, &d[0], &d[1], &d[2], &u[0], &u[1], &u[2], &sun.Near);
             if (!ParseSun(count, color, sun))
             {
-                fprintf(stderr, "bad --sun %s (STRENGTH[,LENGTH,STEPS,BIAS[,SOFTNESS[,RRGGBB[,DX,DY,DZ[,UX,UY,UZ]]]]])\n", spec.c_str());
+                fprintf(stderr, "bad --sun %s (STRENGTH[,LENGTH,STEPS,BIAS[,SOFTNESS[,RRGGBB[,DX,DY,DZ[,UX,UY,UZ[,NEAR]]]]]])\n", spec.c_str());
                 return false;
             }
             opts.Sun = sun.IsOff() ? std::nullopt : std::optional<Frontend::Sun>(sun);

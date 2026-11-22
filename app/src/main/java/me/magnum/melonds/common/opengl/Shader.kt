@@ -64,6 +64,7 @@ class Shader(
     private val uniformSunSoftness: Int
     private val uniformSunColor: Int
     private val uniformSunProjection: Int
+    private val uniformSunNear: Int
     private val uniformSunInverse: Int
     private val uniformSunViewport: Int
     private val uniformSunDepthTex: Int
@@ -104,6 +105,7 @@ class Shader(
         uniformSunSoftness = GLES30.glGetUniformLocation(programId, "sunSoftness")
         uniformSunColor = GLES30.glGetUniformLocation(programId, "sunColor")
         uniformSunProjection = GLES30.glGetUniformLocation(programId, "sunProjection")
+        uniformSunNear = GLES30.glGetUniformLocation(programId, "sunNear")
         uniformSunInverse = GLES30.glGetUniformLocation(programId, "sunInverse")
         uniformSunViewport = GLES30.glGetUniformLocation(programId, "sunViewport")
         uniformSunDepthTex = GLES30.glGetUniformLocation(programId, "sunDepthTex")
@@ -277,6 +279,9 @@ class Shader(
         }
         if (uniformSunProjection != INVALID_UNIFORM) {
             GLES30.glUniformMatrix4fv(uniformSunProjection, 1, false, projection, 0)
+        }
+        if (uniformSunNear != INVALID_UNIFORM) {
+            GLES30.glUniform1f(uniformSunNear, sun.near)
         }
         if (uniformSunInverse != INVALID_UNIFORM) {
             GLES30.glUniformMatrix4fv(uniformSunInverse, 1, false, inverse, 0)

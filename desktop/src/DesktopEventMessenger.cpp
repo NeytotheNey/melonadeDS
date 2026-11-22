@@ -111,7 +111,7 @@ void DesktopEventMessenger::onLuaShade(int scriptId, float strength, float radiu
 }
 
 void DesktopEventMessenger::onLuaSun(int scriptId, float strength, const std::array<float, 3>& direction, const std::array<float, 3>& up,
-    float length, int steps, float bias, float softness, int color)
+    float length, int steps, float bias, float softness, int color, float nearLimit)
 {
     POST_LOG("Lua script %d: sun %.2f length %.1f steps %d\n", scriptId, strength, length, steps);
 }
