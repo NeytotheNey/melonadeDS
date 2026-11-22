@@ -112,6 +112,8 @@ struct Options
     std::string WindowShotPath;
     bool WindowShotLinear = false; // the window shot drawn with linear filtering, whatever --linear says
     std::string DepthShotPath;     // --depth-shot: the last frame's depth as a PNG, with its stats printed
+    std::string DepthRawPath;      // --depth-raw: the last frame's depth texture as it is, for scripts
+    std::string CameraDumpPath;    // --camera-dump: each 3D scene's projections and viewports, a JSON line per scene
     std::string LogPath;
     std::string CacheDir;      // the Compute program cache, next to the exe by default
     RendererType Renderer = RendererType::Compute;
@@ -328,6 +330,9 @@ void Usage()
         "  --window-shot-linear        draw the window shot with the linear filter (the run keeps its own)\n"
         "  --depth-shot FILE.png       save the last frame's top screen depth (OpenGL only) when --frames or --ui-script\n"
         "                              ends the run, near dark to far light, and print how many depth values it has\n"
+        "  --depth-raw FILE.png        the same frame's depth texture as it is (RGB the 24-bit depth, A the flags)\n"
+        "  --camera-dump FILE          debug: a JSON line per 3D scene with the projection matrices (20.12) and\n"
+        "                              viewports its polygons were built under, and how many polygons each\n"
         "  --hidden                    no visible window (with --frames); never fullscreen, saves no window places\n"
         "  --save-window-places        save the window places with --hidden too (tests)\n"
         "  --log FILE                  core log file (default melonade.log next to the exe)\n"
@@ -663,6 +668,8 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--window-shot") opts.WindowShotPath = next();
         else if (arg == "--window-shot-linear") opts.WindowShotLinear = true;
         else if (arg == "--depth-shot") opts.DepthShotPath = next();
+        else if (arg == "--depth-raw") opts.DepthRawPath = next();
+        else if (arg == "--camera-dump") opts.CameraDumpPath = next();
         else if (arg == "--hidden") opts.Hidden = true;
         else if (arg == "--gpu-sync") opts.GpuSync = true;
         else if (arg == "--log") opts.LogPath = next();
@@ -916,6 +923,7 @@ DebugProperties::Overrides ApplySwitches(const Options& opts, NDS& nds)
             fprintf(stderr, "unknown --set %s (see --list-sets)\n", set.c_str());
     }
     nds.GPU.GPU3D.SetWideDropLogging(opts.WideDrops);
+    nds.GPU.GPU3D.SetCameraLogging(!opts.CameraDumpPath.empty());
     if (opts.LdmDirect >= 0)
         nds.JIT.SetDirectBlockTransfers(opts.LdmDirect == 1);
 
@@ -1162,8 +1170,9 @@ void ReleaseFrame(Frame* frame)
 
 // --depth-shot: [frame]'s top screen depth (GLCompositor::RenderDepth's 24-bit values and flags) into a grayscale PNG at [path], the 3D
 // from near (dark) to far (light) over the range it covers, 2D on top black and transparent 3D white, and its stats printed: how many
-// distinct depth values the 3D has, and how many of them the old 16-bit depth could tell apart
-void DepthShot(const Frame& frame, const std::string& path)
+// distinct depth values the 3D has, and how many of them the old 16-bit depth could tell apart. With [rawPath] (--depth-raw) the texture
+// as it is too, top row first, for scripts; an empty [path] writes only that
+void DepthShot(const Frame& frame, const std::string& path, const std::string& rawPath)
 {
     if (!frame.hasDepth || !frame.depthTexture)
     {
@@ -1184,6 +1193,14 @@ void DepthShot(const Frame& frame, const std::string& path)
     glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, texels.data());
     glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint) previous);
     glDeleteFramebuffers(1, &framebuffer);
+
+    if (!rawPath.empty())
+    {
+        const bool rawWritten = Frontend::WritePng(Frontend::PathFromUtf8(rawPath), texels, width, height);
+        printf("depth raw: %s%s, %dx%d\n", rawPath.c_str(), rawWritten ? "" : " (not written)", width, height);
+    }
+    if (path.empty())
+        return;
 
     std::vector<u32> depths;
     u32 count2D = 0, countBehind = 0, countW = 0, nearest = 0xFFFFFF, farthest = 0;
@@ -1241,6 +1258,25 @@ void DepthShot(const Frame& frame, const std::string& path)
            "transparent 3D %u px, W-buffered %u px\n",
            path.c_str(), written ? "" : " (not written)", width, height, pixels3D, pixels3D ? nearest : 0, farthest, depths.size(),
            distinct16, count2D, countBehind, countW);
+}
+
+// --camera-dump: the 3D scene the core swapped in last (GPU3D::CameraLog), as a JSON line into [file], once per swap: the frame, every
+// projection matrix (raw 20.12) and viewport (x0, y0, x1, y1, width, height) its polygons were built under, with their polygon counts
+// and the screen box they cover (x0, y0, x1, y1 in DS pixels), and the polygons past the log's room
+void DumpCameraScene(FILE* file, u32 frame, const GPU3D::CameraLog& log)
+{
+    fprintf(file, "{\"frame\":%u,\"swap\":%u,\"other\":%u,\"uses\":[", frame, log.Swaps, log.LastOther);
+    for (u32 i = 0; i < log.LastCount; i++)
+    {
+        const GPU3D::CameraUse& use = log.Last[i];
+        fprintf(file, "%s{\"polys\":%u,\"box\":[%d,%d,%d,%d],\"vp\":[%u,%u,%u,%u,%u,%u],\"proj\":[", i ? "," : "", use.Polygons,
+                use.XMin, use.YMin, use.XMax, use.YMax, use.Viewport[0], use.Viewport[1], use.Viewport[2], use.Viewport[3],
+                use.Viewport[4], use.Viewport[5]);
+        for (int j = 0; j < 16; j++)
+            fprintf(file, "%s%d", j ? "," : "", use.Proj[j]);
+        fprintf(file, "]}");
+    }
+    fprintf(file, "]}\n");
 }
 
 // The exe is a GUI program, so it has no console of its own. Started from one (PowerShell, cmd, bash) it writes there: to the handles it
@@ -1647,6 +1683,16 @@ int main(int argc, char** argv)
     // UI thread: a hotkey pressed with [mod] in the window [windowId] (0: the main one); set below, also run by --at key=
     std::function<void(SDL_Keycode key, Uint16 mod, Uint32 windowId)> hotkey;
 
+    // --camera-dump's file: written on the emulator thread (AfterFrame), closed after emuThread below has stopped
+    std::unique_ptr<FILE, int (*)(FILE*)> cameraDump(nullptr, fclose);
+    u32 cameraDumpSwaps = 0;
+    if (!opts.CameraDumpPath.empty())
+    {
+        cameraDump.reset(fopen(opts.CameraDumpPath.c_str(), "w"));
+        if (!cameraDump)
+            fprintf(stderr, "--camera-dump: can't write %s\n", opts.CameraDumpPath.c_str());
+    }
+
     Frontend::EmulatorThread emuThread;
     Frontend::EmulatorThread::Callbacks callbacks;
     callbacks.OnStart = [&](MelonDSAndroid::MelonInstance& instance)
@@ -1654,7 +1700,8 @@ int main(int argc, char** argv)
         SetDateTime(opts, *instance.getNds());
         // as LuaEngine::wantsDepth: the depth of field, the shading, the haze and a 3D-only glow read the depth
         bool bloomWantsDepth = opts.Bloom && (opts.Bloom->HasHaze() || (opts.Bloom->HasBloom() && opts.Bloom->OnlyThreeD));
-        instance.setDepthWanted(opts.DepthOfField.has_value() || opts.Shade.has_value() || bloomWantsDepth || !opts.DepthShotPath.empty());
+        instance.setDepthWanted(opts.DepthOfField.has_value() || opts.Shade.has_value() || bloomWantsDepth || !opts.DepthShotPath.empty()
+                                || !opts.DepthRawPath.empty());
         if (commandLineGame && !opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
         {
             startFailed = true;
@@ -1795,6 +1842,16 @@ int main(int argc, char** argv)
             titleStats.Scale = ActiveScale(instance);
         }
         currentFrame = frame + 1;
+
+        if (cameraDump)
+        {
+            const GPU3D::CameraLog* log = nds.GPU.GPU3D.GetCameraLog();
+            if (log && log->Swaps != cameraDumpSwaps)
+            {
+                DumpCameraScene(cameraDump.get(), frame, *log);
+                cameraDumpSwaps = log->Swaps;
+            }
+        }
 
         if (opts.GameState)
         {
@@ -3190,13 +3247,13 @@ int main(int argc, char** argv)
     bool reachedFrames = opts.Frames && currentFrame + uiFrames >= opts.Frames;
     if ((reachedFrames || scriptEnded) && !opts.WindowShotPath.empty())
         windowShot(opts.WindowShotPath);
-    if ((reachedFrames || scriptEnded) && !opts.DepthShotPath.empty())
+    if ((reachedFrames || scriptEnded) && (!opts.DepthShotPath.empty() || !opts.DepthRawPath.empty()))
     {
         Frame* frame = emu ? AcquireFrame(*emu, std::nullopt) : nullptr;
         if (frame)
         {
             PrepareFrame(frame);
-            DepthShot(*frame, opts.DepthShotPath);
+            DepthShot(*frame, opts.DepthShotPath, opts.DepthRawPath);
             ReleaseFrame(frame);
         }
         else
