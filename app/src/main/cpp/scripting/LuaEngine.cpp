@@ -24,6 +24,13 @@ static const lua_Number kMaxTiltShiftBoost = 2.0;
 // filtering can bridge
 static const lua_Number kMaxBloomStrength = 2.0;
 static const lua_Number kMaxBloomRadius = 8.0;
+// melon.screen.depth_of_field(): the widest blur in DS pixels, and how far outside the 256 x 192 view its focus point can be, a screen's size
+// either way, which covers WideMelon's wings and margins
+static const lua_Number kMaxDepthOfFieldRadius = 12.0;
+static const lua_Number kMinDepthOfFieldFocusX = -256.0;
+static const lua_Number kMaxDepthOfFieldFocusX = 512.0;
+static const lua_Number kMinDepthOfFieldFocusY = -192.0;
+static const lua_Number kMaxDepthOfFieldFocusY = 384.0;
 
 /**
  * A new table on the stack with [functions] in it, like luaL_newlib() for a table whose size isn't known here
@@ -469,6 +476,12 @@ void LuaEngine::sendRequests(LuaScript& script)
             const LuaBloom& bloom = script.sentBloom;
             eventMessenger->onLuaBloom(script.id, bloom.strength, bloom.threshold, bloom.radius, bloom.vignette, bloom.vignetteSize);
         }
+        if (script.depthOfField != script.sentDepthOfField)
+        {
+            script.sentDepthOfField = script.depthOfField;
+            const LuaDepthOfField& dof = script.sentDepthOfField;
+            eventMessenger->onLuaDepthOfField(script.id, dof.strength, dof.radius, dof.focusX, dof.focusY, dof.focusDepth, dof.range, dof.falloff);
+        }
         if (script.wideCamera != script.sentWideCamera)
         {
             script.sentWideCamera = script.wideCamera;
@@ -521,6 +534,7 @@ int LuaEngine::setupScript(lua_State* L)
         { "tilt_shift", luaScreenTiltShift },
         { "bloom", luaScreenBloom },
         { "vignette", luaScreenVignette },
+        { "depth_of_field", luaScreenDepthOfField },
         { nullptr, nullptr },
     };
     static const luaL_Reg emuFunctions[] = {
@@ -667,6 +681,15 @@ void LuaEngine::closeScript(LuaScript& script)
         if (eventMessenger)
             eventMessenger->onLuaBloom(script.id, off.strength, off.threshold, off.radius, off.vignette, off.vignetteSize);
         script.sentBloom = off;
+    }
+    // The same for the depth of field, which also stops the frames keeping their depth
+    script.depthOfField = LuaDepthOfField();
+    if (script.sentDepthOfField != LuaDepthOfField())
+    {
+        LuaDepthOfField off;
+        if (eventMessenger)
+            eventMessenger->onLuaDepthOfField(script.id, off.strength, off.radius, off.focusX, off.focusY, off.focusDepth, off.range, off.falloff);
+        script.sentDepthOfField = off;
     }
     // The same for the camera: a reloaded script starts asking for nothing
     script.wideCamera = LuaWideCamera();
@@ -842,9 +865,9 @@ static float checkStrength(lua_State* L, int argument, lua_Number max)
 }
 
 /**
- * The [name] field of the options table at index [table] clamped to 0..[max], or [defaultValue] if it's nil
+ * The [name] field of the options table at index [table] clamped to [min]..[max], or [defaultValue] if it's nil
  */
-static float getNumberOption(lua_State* L, int table, const char* name, float defaultValue, lua_Number max)
+static float getNumberOptionInRange(lua_State* L, int table, const char* name, float defaultValue, lua_Number min, lua_Number max)
 {
     float result = defaultValue;
     if (lua_getfield(L, table, name) != LUA_TNIL)
@@ -853,10 +876,18 @@ static float getNumberOption(lua_State* L, int table, const char* name, float de
         lua_Number value = lua_tonumberx(L, -1, &isNumber);
         if (!isNumber || std::isnan(value))
             luaL_error(L, "%s must be a number", name);
-        result = (float) std::clamp<lua_Number>(value, 0.0, max);
+        result = (float) std::clamp<lua_Number>(value, min, max);
     }
     lua_pop(L, 1);
     return result;
+}
+
+/**
+ * The [name] field of the options table at index [table] clamped to 0..[max], or [defaultValue] if it's nil
+ */
+static float getNumberOption(lua_State* L, int table, const char* name, float defaultValue, lua_Number max)
+{
+    return getNumberOptionInRange(L, table, name, defaultValue, 0.0, max);
 }
 
 int LuaEngine::luaScreenTiltShift(lua_State* L)
@@ -945,6 +976,43 @@ int LuaEngine::luaScreenVignette(lua_State* L)
         script.bloom.vignetteSize = size;
     }
     return 0;
+}
+
+int LuaEngine::luaScreenDepthOfField(lua_State* L)
+{
+    LuaScript& script = getScript(L);
+    LuaDepthOfField depthOfField;
+    depthOfField.strength = checkStrength(L, 1, 1.0);
+    if (!lua_isnoneornil(L, 2))
+    {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        depthOfField.radius = getNumberOption(L, 2, "radius", depthOfField.radius, kMaxDepthOfFieldRadius);
+        depthOfField.focusX = getNumberOptionInRange(L, 2, "focus_x", depthOfField.focusX, kMinDepthOfFieldFocusX, kMaxDepthOfFieldFocusX);
+        depthOfField.focusY = getNumberOptionInRange(L, 2, "focus_y", depthOfField.focusY, kMinDepthOfFieldFocusY, kMaxDepthOfFieldFocusY);
+        // Absent, the focus is the depth at the focus point
+        depthOfField.focusDepth = getNumberOption(L, 2, "focus_depth", depthOfField.focusDepth, 1.0);
+        depthOfField.range = getNumberOption(L, 2, "range", depthOfField.range, 1.0);
+        depthOfField.falloff = getNumberOption(L, 2, "falloff", depthOfField.falloff, 1.0);
+    }
+
+    // Off is off, whatever the options are, so going over them while it's off costs no events
+    if (depthOfField.strength <= 0.0f || depthOfField.radius <= 0.0f)
+        depthOfField = LuaDepthOfField();
+
+    if (!script.engine->isUnloading)
+        script.depthOfField = depthOfField;
+    return 0;
+}
+
+bool LuaEngine::wantsDepth() const
+{
+    for (const auto& script : scripts)
+    {
+        // A stopped script's was set back to off when it closed
+        if (script->sentDepthOfField.strength > 0.0f)
+            return true;
+    }
+    return false;
 }
 
 }

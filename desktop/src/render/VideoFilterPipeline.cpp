@@ -65,7 +65,8 @@ public:
 
     // the input through this pass's shader into the target; the caller binds the quad and sets the viewport and blending
     void Render(GLuint inputTexture, int inputWidth, int inputHeight, int topScreenWidth, int topScreenHeight, bool isBottomScreenWide,
-        const std::optional<TiltShift>& tiltShift, int halvesAt1x = 0, int scaleAt1x = 1, int halfScaleAt1x = 1, const Bloom* bloom = nullptr)
+        const std::optional<TiltShift>& tiltShift, int halvesAt1x = 0, int scaleAt1x = 1, int halfScaleAt1x = 1, const Bloom* bloom = nullptr,
+        const DepthOfField* depthOfField = nullptr, float focusU = 0.f, float focusV = 0.f)
     {
         glBindFramebuffer(GL_FRAMEBUFFER, Framebuffer);
         // The quad covers every texel, so the old contents never have to be loaded
@@ -88,6 +89,8 @@ public:
             Program->SetTiltShift(*tiltShift);
         if (bloom)
             Program->SetBloom(*bloom);
+        if (depthOfField)
+            Program->SetDepthOfField(*depthOfField, focusU, focusV);
         Program->SetHalvesAt1x(halvesAt1x, scaleAt1x, halfScaleAt1x);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
@@ -115,6 +118,11 @@ private:
 };
 
 struct VideoFilterPipeline::TiltShiftPasses
+{
+    std::unique_ptr<PrePass> Horizontal, Vertical;
+};
+
+struct VideoFilterPipeline::DepthOfFieldPasses
 {
     std::unique_ptr<PrePass> Horizontal, Vertical;
 };
@@ -282,7 +290,7 @@ GLuint VideoFilterPipeline::ExpandHalvesAt1x(const FrameView& frame)
 }
 
 const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift,
-    const std::optional<Bloom>& bloom, bool foldDeband)
+    const std::optional<Bloom>& bloom, const std::optional<DepthOfField>& depthOfField, bool foldDeband)
 {
     Output.Set(frame.Texture, frame.Width, frame.Height);
 
@@ -305,8 +313,10 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     // The same for the bloom: without a glow, or if its passes can't be built, only the vignette is left, in a pass that reads no glow
     BloomPasses* bloomPasses = bloom && bloom->HasBloom() ? GetBloomPasses() : nullptr;
     PrePass* vignettePass = bloom && !bloomPasses && bloom->HasVignette() ? GetVignettePass() : nullptr;
+    DepthOfFieldPasses* depthOfFieldPasses = depthOfField && !depthOfField->IsOff() && frame.DepthTexture ? GetDepthOfFieldPasses() : nullptr;
     bool runsDeband = DebandPass && !foldDeband;
-    if (!runsDeband && PrePasses.empty() && !tiltShiftPasses && !tiltShiftColorPass && !bloomPasses && !vignettePass)
+    bool hasLuaPasses = tiltShiftPasses || tiltShiftColorPass || bloomPasses || vignettePass || depthOfFieldPasses;
+    if (!runsDeband && PrePasses.empty() && !hasLuaPasses)
         return Output;
 
     int width = frame.Width;
@@ -316,9 +326,12 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
 
     std::optional<TiltShift> appliedTiltShift = tiltShiftPasses || tiltShiftColorPass ? tiltShift : std::nullopt;
     std::optional<Bloom> appliedBloom = bloomPasses || vignettePass ? bloom : std::nullopt;
+    std::optional<DepthOfField> appliedDepthOfField = depthOfFieldPasses ? depthOfField : std::nullopt;
+    GLuint depthTexture = depthOfFieldPasses ? frame.DepthTexture : 0;
     bool isSameFrame = frame.Sequence != 0 && frame.Sequence == LastFrameSequence && frame.Texture == LastFrameTextureId && width == LastFrameWidth
         && height == LastFrameHeight && isBottomScreenWide == LastFrameBottomScreenWide && appliedTiltShift == LastFrameTiltShift
-        && appliedBloom == LastFrameBloom && runsDeband == LastFrameRanDeband;
+        && appliedBloom == LastFrameBloom && appliedDepthOfField == LastFrameDepthOfField && depthTexture == LastFrameDepthTexture
+        && runsDeband == LastFrameRanDeband;
     if (isSameFrame)
     {
         Output.Set(LastOutputTextureId, LastOutputWidth, LastOutputHeight);
@@ -348,6 +361,8 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
         }
     }
 
+    if (isComplete && depthOfFieldPasses && appliedDepthOfField)
+        isComplete = RenderDepthOfField(*depthOfFieldPasses, *appliedDepthOfField, frame, isBottomScreenWide);
     if (isComplete && appliedBloom)
         RenderBloom(bloomPasses, *appliedBloom, frame, isBottomScreenWide);
     if (isComplete && tiltShiftPasses)
@@ -375,6 +390,8 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     LastFrameBottomScreenWide = isBottomScreenWide;
     LastFrameTiltShift = appliedTiltShift;
     LastFrameBloom = appliedBloom;
+    LastFrameDepthOfField = appliedDepthOfField;
+    LastFrameDepthTexture = depthTexture;
     LastFrameRanDeband = runsDeband;
     LastOutputTextureId = InputTexture;
     LastOutputWidth = InputWidth;
@@ -465,6 +482,59 @@ GLuint VideoFilterPipeline::RenderGlow(BloomPasses& passes, const Bloom& bloom, 
     passes.Horizontal->Render(passes.Bright->Texture, width, height, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
     passes.Vertical->Render(passes.Horizontal->Texture, width, height, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
     return passes.Vertical->Texture;
+}
+
+// the current input blurred by [depthOfField] through [passes], with the frame's depth texture on unit 1 (nearest, as its values can't be mixed);
+// false if a target can't be drawn to
+bool VideoFilterPipeline::RenderDepthOfField(DepthOfFieldPasses& passes, const DepthOfField& depthOfField, const FrameView& frame,
+    bool isBottomScreenWide)
+{
+    BeginPasses();
+    if (!passes.Horizontal->PrepareTarget(InputWidth, InputHeight) || !passes.Vertical->PrepareTarget(InputWidth, InputHeight))
+        return false;
+
+    // the focus point in the depth texture, which is the top screen's half of the frame: the wings come before the 256 view's x 0, and the
+    // margin before its y 0
+    int topWidth = std::max(frame.TopWidth, 1);
+    float focusU = (depthOfField.FocusX + (topWidth - 256) / 2.f) / topWidth;
+    float focusV = (depthOfField.FocusY + frame.TopMargin) / frame.TopScreenHeight();
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, frame.DepthTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glActiveTexture(GL_TEXTURE0);
+    glViewport(0, 0, InputWidth, InputHeight);
+    passes.Horizontal->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1,
+        1, nullptr, &depthOfField, focusU, focusV);
+    passes.Vertical->Render(passes.Horizontal->Texture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide,
+        std::nullopt, 0, 1, 1, nullptr, &depthOfField, focusU, focusV);
+    InputTexture = passes.Vertical->Texture;
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+    return true;
+}
+
+VideoFilterPipeline::DepthOfFieldPasses* VideoFilterPipeline::GetDepthOfFieldPasses()
+{
+    if (!IsDepthOfFieldBuilt)
+    {
+        IsDepthOfFieldBuilt = true;
+        std::unique_ptr<Shader> horizontal = CreateShaderProgramOrNull(FindShader("DepthOfFieldHorizontalPrePassShader"));
+        std::unique_ptr<Shader> vertical = CreateShaderProgramOrNull(FindShader("DepthOfFieldVerticalPrePassShader"));
+        if (horizontal && vertical)
+        {
+            DepthOfFieldPassesBuilt = std::make_unique<DepthOfFieldPasses>();
+            DepthOfFieldPassesBuilt->Horizontal = std::make_unique<PrePass>(std::move(horizontal), 1, false);
+            DepthOfFieldPassesBuilt->Vertical = std::make_unique<PrePass>(std::move(vertical), 1, false);
+        }
+        else
+        {
+            // The frame is drawn sharp rather than not at all (what did build goes with the unique_ptrs)
+            fprintf(stderr, "depth of field shaders failed to build, so the blur is left out\n");
+        }
+    }
+    return DepthOfFieldPassesBuilt.get();
 }
 
 void VideoFilterPipeline::LogBloomTarget()

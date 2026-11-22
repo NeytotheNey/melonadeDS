@@ -115,6 +115,9 @@ Shader::Shader(GLuint program, GLenum textureFiltering)
     UniformBloom = glGetUniformLocation(Program, "bloom");
     UniformVignette = glGetUniformLocation(Program, "vignette");
     UniformGlowTex = glGetUniformLocation(Program, "glowTex");
+    UniformDepthOfField = glGetUniformLocation(Program, "depthOfField");
+    UniformDepthFocus = glGetUniformLocation(Program, "depthFocus");
+    UniformDepthTex = glGetUniformLocation(Program, "depthTex");
     UniformHalvesAt1x = glGetUniformLocation(Program, "halvesAt1x");
     UniformCoordXTex = glGetUniformLocation(Program, "coordXTex");
     UniformCoordYTex = glGetUniformLocation(Program, "coordYTex");
@@ -183,6 +186,16 @@ void Shader::SetBloom(const Bloom& bloom) const
         glUniform2f(UniformVignette, bloom.Vignette, bloom.VignetteSize);
     if (UniformGlowTex >= 0)
         glUniform1i(UniformGlowTex, 1);
+}
+
+void Shader::SetDepthOfField(const DepthOfField& depthOfField, float focusU, float focusV) const
+{
+    if (UniformDepthOfField >= 0)
+        glUniform3f(UniformDepthOfField, depthOfField.AppliedRadius(), depthOfField.Range, depthOfField.Falloff);
+    if (UniformDepthFocus >= 0)
+        glUniform3f(UniformDepthFocus, depthOfField.FocusDepth, focusU, focusV);
+    if (UniformDepthTex >= 0)
+        glUniform1i(UniformDepthTex, 1);
 }
 
 void Shader::SetHalvesAt1x(int halvesAt1x, int scale, int halfScale) const

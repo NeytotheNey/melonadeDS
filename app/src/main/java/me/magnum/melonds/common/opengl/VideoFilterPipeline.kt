@@ -2,7 +2,9 @@ package me.magnum.melonds.common.opengl
 
 import android.opengl.GLES30
 import android.util.Log
+import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.render.Bloom
+import me.magnum.melonds.domain.model.render.DepthOfField
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import me.magnum.melonds.domain.model.render.TiltShift
 import java.nio.ByteBuffer
@@ -247,6 +249,9 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     private var vignettePass: PrePass? = null
     private var isVignetteBuilt = false
     private var hasLoggedBloomTarget = false
+    // The same for a script's depth of field
+    private var depthOfFieldPasses: DepthOfFieldPasses? = null
+    private var isDepthOfFieldBuilt = false
 
     // Returned by renderPrePasses(), reused so that no garbage is created on every frame
     private val output = FilterOutput()
@@ -265,6 +270,8 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     // A fade changes the blur without a new frame (and scripts can stop it while paused), so the same frame is filtered again
     private var lastFrameTiltShift: TiltShift? = null
     private var lastFrameBloom: Bloom? = null
+    private var lastFrameDepthOfField: DepthOfField? = null
+    private var lastFrameDepthTextureId = 0
     // Whether the deband pre-pass ran for that frame, since the screen shader can take it over (or hand it back) on the same frame
     private var lastFrameRanDeband = false
     // What renderPrePasses() returned for that frame
@@ -288,16 +295,18 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     private var isStateSaved = false
 
     /**
-     * Runs the pre-passes, then the [bloom] and the [tiltShift] if there are any (in that order, so the tilt-shift's blur softens the glow too),
-     * and returns the texture the screen shader should draw, whose size the caller sets as the shader's texSize (a scaled pass makes it bigger);
-     * call it before drawing to the surface and for invalid frames too, and set the program, VAO, array buffer and texture unit 0 again
-     * afterwards. With [foldDeband] the deband pre-pass is left out, for a frame drawn with [getDebandScreenShader].
+     * Runs the pre-passes, then the [depthOfField], the [bloom] and the [tiltShift] if there are any (in that order, so the glow is of the
+     * focused picture and the tilt-shift's blur softens the glow too), and returns the texture the screen shader should draw, whose size the
+     * caller sets as the shader's texSize (a scaled pass makes it bigger); call it before drawing to the surface and for invalid frames too, and
+     * set the program, VAO, array buffer and texture unit 0 again afterwards. The depth of field needs the frame's depth, so a frame without one
+     * is drawn sharp. With [foldDeband] the deband pre-pass is left out, for a frame drawn with [getDebandScreenShader].
      */
     fun renderPrePasses(
         frame: PresentFrameWrapper,
         isBottomScreenWide: Boolean,
         tiltShift: TiltShift?,
         bloom: Bloom?,
+        depthOfField: DepthOfField?,
         foldDeband: Boolean = false,
     ): FilterOutput {
         output.set(frame.textureId, frame.textureWidth, frame.textureHeight)
@@ -321,8 +330,10 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         // The same for the bloom: without a glow, or if its passes can't be built, only the vignette is left, in a pass that reads no glow
         val bloomPasses = if (bloom != null && bloom.hasBloom) getBloomPasses() else null
         val vignettePass = if (bloom != null && bloomPasses == null && bloom.hasVignette) getVignettePass() else null
+        val depthOfFieldPasses = if (depthOfField != null && !depthOfField.isOff && frame.depthTextureId != 0) getDepthOfFieldPasses() else null
         val runsDeband = debandPass != null && !foldDeband
-        if (!runsDeband && prePasses.isEmpty() && tiltShiftPasses == null && tiltShiftColorPass == null && bloomPasses == null && vignettePass == null) {
+        val hasLuaPasses = tiltShiftPasses != null || tiltShiftColorPass != null || bloomPasses != null || vignettePass != null || depthOfFieldPasses != null
+        if (!runsDeband && prePasses.isEmpty() && !hasLuaPasses) {
             return output
         }
 
@@ -334,9 +345,12 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
 
         val appliedTiltShift = if (tiltShiftPasses != null || tiltShiftColorPass != null) tiltShift else null
         val appliedBloom = if (bloomPasses != null || vignettePass != null) bloom else null
+        val appliedDepthOfField = if (depthOfFieldPasses != null) depthOfField else null
+        val depthTextureId = if (depthOfFieldPasses != null) frame.depthTextureId else 0
         val isSameFrame = frame.frameSequence != 0L && frame.frameSequence == lastFrameSequence && frame.textureId == lastFrameTextureId &&
                 width == lastFrameWidth && height == lastFrameHeight && isBottomScreenWide == lastFrameBottomScreenWide &&
-                appliedTiltShift == lastFrameTiltShift && appliedBloom == lastFrameBloom && runsDeband == lastFrameRanDeband
+                appliedTiltShift == lastFrameTiltShift && appliedBloom == lastFrameBloom && appliedDepthOfField == lastFrameDepthOfField &&
+                depthTextureId == lastFrameDepthTextureId && runsDeband == lastFrameRanDeband
         if (isSameFrame) {
             output.set(lastOutputTextureId, lastOutputWidth, lastOutputHeight)
             return output
@@ -369,6 +383,9 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             }
         }
 
+        if (isComplete && depthOfFieldPasses != null && appliedDepthOfField != null) {
+            isComplete = renderDepthOfField(depthOfFieldPasses, appliedDepthOfField, frame, isBottomScreenWide)
+        }
         if (isComplete && appliedBloom != null) {
             renderBloom(bloomPasses, appliedBloom, frame, isBottomScreenWide)
         }
@@ -396,6 +413,8 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         lastFrameBottomScreenWide = isBottomScreenWide
         lastFrameTiltShift = appliedTiltShift
         lastFrameBloom = appliedBloom
+        lastFrameDepthOfField = appliedDepthOfField
+        lastFrameDepthTextureId = depthTextureId
         lastFrameRanDeband = runsDeband
         lastOutputTextureId = inputTexture
         lastOutputWidth = inputWidth
@@ -492,6 +511,61 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         passes.horizontal.render(passes.bright.texture, width, height, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
         passes.vertical.render(passes.horizontal.texture, width, height, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
         return passes.vertical.texture
+    }
+
+    /**
+     * Blurs the current input by [depthOfField] through [passes], with the frame's depth texture on unit 1 (nearest, as its values can't be
+     * mixed), and returns false if a target can't be drawn to.
+     */
+    private fun renderDepthOfField(passes: DepthOfFieldPasses, depthOfField: DepthOfField, frame: PresentFrameWrapper, isBottomScreenWide: Boolean): Boolean {
+        beginPasses()
+        val outputWidth = inputWidth
+        val outputHeight = inputHeight
+        if (!passes.horizontal.prepareTarget(outputWidth, outputHeight) || !passes.vertical.prepareTarget(outputWidth, outputHeight)) {
+            return false
+        }
+
+        // The focus point in the depth texture, which is the top screen's half of the frame: the wings come before the 256 view's x 0, and the
+        // margin before its y 0
+        val topScreenWidth = frame.topScreenWidth.coerceAtLeast(1)
+        val focusU = (depthOfField.focusX + (topScreenWidth - SCREEN_WIDTH) / 2f) / topScreenWidth
+        val focusV = (depthOfField.focusY + frame.topScreenMargin) / frame.topScreenHeight
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, frame.depthTextureId)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glViewport(0, 0, outputWidth, outputHeight)
+        passes.horizontal.render(
+            inputTexture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null,
+            depthOfField = depthOfField, focusU = focusU, focusV = focusV,
+        )
+        passes.vertical.render(
+            passes.horizontal.texture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null,
+            depthOfField = depthOfField, focusU = focusU, focusV = focusV,
+        )
+        inputTexture = passes.vertical.texture
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        return true
+    }
+
+    private fun getDepthOfFieldPasses(): DepthOfFieldPasses? {
+        if (!isDepthOfFieldBuilt) {
+            isDepthOfFieldBuilt = true
+            val horizontal = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.DepthOfFieldHorizontalPrePassShader)
+            val vertical = ShaderFactory.createShaderProgramOrNull(ShaderProgramSource.DepthOfFieldVerticalPrePassShader)
+            if (horizontal != null && vertical != null) {
+                depthOfFieldPasses = DepthOfFieldPasses(PrePass(horizontal, 1, false), PrePass(vertical, 1, false))
+            } else {
+                // The frame is drawn sharp rather than not at all
+                Log.e(TAG, "Depth of field shaders failed to build, so the blur is left out")
+                horizontal?.delete()
+                vertical?.delete()
+            }
+        }
+        return depthOfFieldPasses
     }
 
     private fun logBloomTarget() {
@@ -597,6 +671,11 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         bloomPasses = null
         vignettePass?.delete()
         vignettePass = null
+        depthOfFieldPasses?.let {
+            it.horizontal.delete()
+            it.vertical.delete()
+        }
+        depthOfFieldPasses = null
         if (quadVao != 0) {
             GLES30.glDeleteVertexArrays(1, intArrayOf(quadVao), 0)
             GLES30.glDeleteBuffers(1, intArrayOf(quadVbo), 0)
@@ -653,6 +732,8 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     }
 
     private class TiltShiftPasses(val horizontal: PrePass, val vertical: PrePass)
+
+    private class DepthOfFieldPasses(val horizontal: PrePass, val vertical: PrePass)
 
     // The glow's passes at DS-native resolution, then the one that adds it (and the vignette) at the input's
     private class BloomPasses(val bright: PrePass, val horizontal: PrePass, val vertical: PrePass, val combine: PrePass)
@@ -716,6 +797,9 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             scaleAt1x: Int = 1,
             halfScaleAt1x: Int = 1,
             bloom: Bloom? = null,
+            depthOfField: DepthOfField? = null,
+            focusU: Float = 0f,
+            focusV: Float = 0f,
         ) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
             // The quad covers every texel, so the old contents never have to be loaded
@@ -737,6 +821,9 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             }
             if (bloom != null) {
                 shader.setBloom(bloom)
+            }
+            if (depthOfField != null) {
+                shader.setDepthOfField(depthOfField, focusU, focusV)
             }
             shader.setHalvesAt1x(halvesAt1x, scaleAt1x, halfScaleAt1x)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)

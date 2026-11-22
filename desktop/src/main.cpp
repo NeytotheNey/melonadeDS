@@ -164,6 +164,8 @@ struct Options
     std::optional<Frontend::TiltShift> TiltShift;
     // --bloom: the Lua bloom's and vignette's passes over the top screen, the same way
     std::optional<Frontend::Bloom> Bloom;
+    // --dof: the Lua depth of field's passes the same way, with the frames' depth asked of the core (MelonInstance::setDepthWanted)
+    std::optional<Frontend::DepthOfField> DepthOfField;
     // --output-cap: the windows' output scale need goes to the core (GPU::OutputCap) after each present, as the app's surfaces send theirs
     bool OutputCap = false;
     bool Hidden = false;
@@ -290,6 +292,11 @@ void Usage()
         "                              the Lua bloom's and vignette's passes over the top screen, for tests: the glow's\n"
         "                              strength (0-2), the luma it starts at (0-1, 0.7) and its radius in DS pixels (0-8,\n"
         "                              3), the vignette's strength (0-1) and where it starts (0-1 of the half-diagonal, 0.6)\n"
+        "  --dof STRENGTH,RADIUS[,RANGE,FALLOFF[,FOCUS_X,FOCUS_Y[,FOCUS_DEPTH]]]\n"
+        "                              the Lua depth of field's passes over the top screen, for tests (OpenGL only): its\n"
+        "                              strength (0-1) and radius in DS pixels (0-12), the sharp range around the focus and\n"
+        "                              the falloff past it in depth (0-1, 0.0002 and 0.0015), the focus point in DS pixels\n"
+        "                              (128,96) or a focus depth (0-1)\n"
         "  --output-cap                send the windows' screen size to the core (GPU::OutputCap), as the app does: the\n"
         "                              frame is drawn no bigger than the screens are shown\n"
         "  --vsync                     wait for vsync on swap (pacing stays at the DS's 59.83 Hz)\n"
@@ -566,6 +573,27 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             bloom.VignetteSize = std::clamp(bloom.VignetteSize, 0.f, 1.f);
             // as the app's LuaBloomRequests, which drops a request for neither
             opts.Bloom = bloom.IsOff() ? std::nullopt : std::optional<Frontend::Bloom>(bloom);
+        }
+        else if (arg == "--dof")
+        {
+            std::string spec = next();
+            Frontend::DepthOfField dof;
+            int count = sscanf(spec.c_str(), "%f,%f,%f,%f,%f,%f,%f", &dof.Strength, &dof.Radius, &dof.Range, &dof.Falloff, &dof.FocusX, &dof.FocusY,
+                &dof.FocusDepth);
+            if (count != 2 && count != 4 && count != 6 && count != 7)
+            {
+                fprintf(stderr, "bad --dof %s (STRENGTH,RADIUS[,RANGE,FALLOFF[,FOCUS_X,FOCUS_Y[,FOCUS_DEPTH]]])\n", spec.c_str());
+                return false;
+            }
+            // held to what a script could ask for (melon.screen.depth_of_field)
+            dof.Strength = std::clamp(dof.Strength, 0.f, 1.f);
+            dof.Radius = std::clamp(dof.Radius, 0.f, 12.f);
+            dof.Range = std::clamp(dof.Range, 0.f, 1.f);
+            dof.Falloff = std::clamp(dof.Falloff, 0.f, 1.f);
+            dof.FocusX = std::clamp(dof.FocusX, -256.f, 512.f);
+            dof.FocusY = std::clamp(dof.FocusY, -192.f, 384.f);
+            dof.FocusDepth = count == 7 ? std::clamp(dof.FocusDepth, 0.f, 1.f) : -1.f;
+            opts.DepthOfField = dof.IsOff() ? std::nullopt : std::optional<Frontend::DepthOfField>(dof);
         }
         else if (arg == "--output-cap") opts.OutputCap = true;
         else if (arg == "--vsync") setting("desktop_vsync", picojson::value(true));
@@ -1311,6 +1339,7 @@ int main(int argc, char** argv)
     presenter.SetRendererConfig(opts.Render);
     presenter.SetTiltShift(opts.TiltShift);
     presenter.SetBloom(opts.Bloom);
+    presenter.SetDepthOfField(opts.DepthOfField);
 
     std::string cacheDir = opts.CacheDir.empty() ? exeDir + "cache" : opts.CacheDir;
     std::error_code ec;
@@ -1483,6 +1512,7 @@ int main(int argc, char** argv)
     callbacks.OnStart = [&](MelonDSAndroid::MelonInstance& instance)
     {
         SetDateTime(opts, *instance.getNds());
+        instance.setDepthWanted(opts.DepthOfField.has_value());
         if (commandLineGame && !opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
         {
             startFailed = true;

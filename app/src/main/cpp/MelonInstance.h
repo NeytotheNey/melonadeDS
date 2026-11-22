@@ -56,6 +56,8 @@ public:
      * below the top screen, 0..128), applied together before the next frame on the OpenGL and compute renderers; safe to call from any thread
      */
     void setWideView(int width, int margin) { requestedWideView.store(packWideView(width, margin), std::memory_order_relaxed); }
+    // Whether the frontend wants each frame's depth (Frame::depthTexture) whatever the scripts ask for (the desktop's --dof); any thread
+    void setDepthWanted(bool wanted) { isFrontendDepthWanted.store(wanted, std::memory_order_relaxed); }
     float getMotionData(MotionQueryType type);
     void touchScreen(u16 x, u16 y);
     void releaseScreen();
@@ -176,6 +178,8 @@ private:
     LuaEngine luaEngine;
     // EmulatorConfiguration::luaDrawingsInScreenshots for the emulator thread, since the configuration can be replaced on another thread
     std::atomic_bool luaDrawingsInScreenshots = false;
+    // setDepthWanted(), read by the emulator thread before each frame
+    std::atomic_bool isFrontendDepthWanted = false;
     // The width and margin of the top screen's 3D view, for the emulator thread: they start at EmulatorConfiguration::wideViewWidth and
     // wideViewMargin and then follow setWideView() (configuration updates don't change them)
     int wideViewWidth;

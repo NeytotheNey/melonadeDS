@@ -50,6 +50,8 @@ public:
     void SetTiltShift(const std::optional<TiltShift>& tiltShift) { CurrentTiltShift = tiltShift; }
     // the Lua bloom and vignette over the top screen (none by default; --bloom for tests until the scripts drive them)
     void SetBloom(const std::optional<Bloom>& bloom) { CurrentBloom = bloom; }
+    // the Lua depth of field over the top screen (none by default; --dof for tests), drawn on frames that have depth
+    void SetDepthOfField(const std::optional<DepthOfField>& depthOfField) { CurrentDepthOfField = depthOfField; }
 
     // where [layout]'s screens of [frame] go in a drawable windowW x windowH with [fit], centered. [swap] trades the screens' places: the
     // bottom screen first (above or left), or the other screen for TopOnly and BottomOnly. Only the frame's top screen size is read
@@ -77,6 +79,7 @@ private:
     RendererConfig Config;
     std::optional<TiltShift> CurrentTiltShift;
     std::optional<Bloom> CurrentBloom;
+    std::optional<DepthOfField> CurrentDepthOfField;
     ScreenRenderer Surfaces[SURFACE_COUNT];
 
     GLuint CursorProgram = 0;

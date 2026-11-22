@@ -27,6 +27,7 @@ public:
     void onLuaSetLayout(int scriptId, const std::string& optionKey) override;
     void onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation, float contrast, float color) override;
     void onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize) override;
+    void onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth, float range, float falloff) override;
     void onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY) override;
     void onLuaStateLoaded() override;
 
@@ -55,6 +56,7 @@ private:
     static constexpr int EVENT_LUA_TILT_SHIFT = 307;
     static constexpr int EVENT_LUA_WIDE_CAMERA = 308;
     static constexpr int EVENT_LUA_BLOOM = 309;
+    static constexpr int EVENT_LUA_DEPTH_OF_FIELD = 310;
 };
 
 #endif // ANDROIDMELONEVENTMESSENGER_H

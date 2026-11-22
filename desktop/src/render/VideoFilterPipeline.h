@@ -53,17 +53,21 @@ public:
     // the 1x shader with this pipeline's color correction, built the first time; null if it can't be (RenderPrePasses expands the frame then)
     const Shader* GetHalvesAt1xShader();
 
-    // runs the pre-passes, then [bloom] and [tiltShift] if there are any (in that order, so the tilt-shift's blur softens the glow too), and
-    // returns the texture the screen shader should draw with its size (texSize); call it before drawing to the window and for no frame too,
-    // then set the program, vertex array, array buffer and texture unit 0 again. With [foldDeband] the deband pre-pass is left out, for a frame
-    // drawn with GetDebandScreenShader
+    // runs the pre-passes, then [depthOfField], [bloom] and [tiltShift] if there are any (in that order, so the glow is of the focused picture
+    // and the tilt-shift's blur softens the glow too), and returns the texture the screen shader should draw with its size (texSize); call it
+    // before drawing to the window and for no frame too, then set the program, vertex array, array buffer and texture unit 0 again. A frame
+    // without depth is drawn sharp. With [foldDeband] the deband pre-pass is left out, for a frame drawn with GetDebandScreenShader
     const FilterOutput& RenderPrePasses(const FrameView& frame, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift,
-        const std::optional<Bloom>& bloom, bool foldDeband = false);
+        const std::optional<Bloom>& bloom, const std::optional<DepthOfField>& depthOfField, bool foldDeband = false);
 
 private:
     class PrePass;
     struct TiltShiftPasses;
     struct BloomPasses;
+    struct DepthOfFieldPasses;
+
+    bool RenderDepthOfField(DepthOfFieldPasses& passes, const DepthOfField& depthOfField, const FrameView& frame, bool isBottomScreenWide);
+    DepthOfFieldPasses* GetDepthOfFieldPasses();
 
     bool RenderPass(PrePass& pass, int topScreenWidth, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift);
     void BeginPasses();
@@ -115,6 +119,9 @@ private:
     std::unique_ptr<PrePass> VignettePass;
     bool IsVignetteBuilt = false;
     bool HasLoggedBloomTarget = false;
+    // the same for a script's depth of field
+    std::unique_ptr<DepthOfFieldPasses> DepthOfFieldPassesBuilt;
+    bool IsDepthOfFieldBuilt = false;
 
     FilterOutput Output;
 
@@ -127,6 +134,8 @@ private:
     bool LastFrameBottomScreenWide = false;
     std::optional<TiltShift> LastFrameTiltShift;
     std::optional<Bloom> LastFrameBloom;
+    std::optional<DepthOfField> LastFrameDepthOfField;
+    GLuint LastFrameDepthTexture = 0;
     bool LastFrameRanDeband = false;
     GLuint LastOutputTextureId = 0;
     int LastOutputWidth = 0, LastOutputHeight = 0;

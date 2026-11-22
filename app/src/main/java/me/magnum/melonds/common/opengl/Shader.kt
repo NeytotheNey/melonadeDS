@@ -4,6 +4,7 @@ import android.opengl.GLES30
 import me.magnum.melonds.domain.model.SCREEN_GAP
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.render.Bloom
+import me.magnum.melonds.domain.model.render.DepthOfField
 import me.magnum.melonds.domain.model.render.TiltShift
 
 private const val INVALID_ATTRIBUTE = -1
@@ -36,6 +37,11 @@ class Shader(
     private val uniformBloom: Int
     private val uniformVignette: Int
     private val uniformGlowTex: Int
+    // Only declared by the depth of field pre-passes (see ShaderProgramSource.depthOfFieldPrePassShader): its radius, range and falloff, its
+    // focus, and the frame's depth texture, on unit 1
+    private val uniformDepthOfField: Int
+    private val uniformDepthFocus: Int
+    private val uniformDepthTex: Int
     // Only declared by ShaderProgramSource.NoFilterHalvesAt1xShader, with its coordinate textures (VideoFilterPipeline.bindHalvesAt1xCoordinates)
     private val uniformHalvesAt1x: Int
     private val uniformCoordXTex: Int
@@ -56,6 +62,9 @@ class Shader(
         uniformBloom = GLES30.glGetUniformLocation(programId, "bloom")
         uniformVignette = GLES30.glGetUniformLocation(programId, "vignette")
         uniformGlowTex = GLES30.glGetUniformLocation(programId, "glowTex")
+        uniformDepthOfField = GLES30.glGetUniformLocation(programId, "depthOfField")
+        uniformDepthFocus = GLES30.glGetUniformLocation(programId, "depthFocus")
+        uniformDepthTex = GLES30.glGetUniformLocation(programId, "depthTex")
         uniformHalvesAt1x = GLES30.glGetUniformLocation(programId, "halvesAt1x")
         uniformCoordXTex = GLES30.glGetUniformLocation(programId, "coordXTex")
         uniformCoordYTex = GLES30.glGetUniformLocation(programId, "coordYTex")
@@ -141,6 +150,22 @@ class Shader(
         }
         if (uniformGlowTex != INVALID_UNIFORM) {
             GLES30.glUniform1i(uniformGlowTex, 1)
+        }
+    }
+
+    /**
+     * Sets the depth of field's radius at its strength, range and falloff, its focus point as [focusU] and [focusV] of the depth texture (read
+     * when it has no focus depth), and that the depth texture is on unit 1; call after [use].
+     */
+    fun setDepthOfField(depthOfField: DepthOfField, focusU: Float, focusV: Float) {
+        if (uniformDepthOfField != INVALID_UNIFORM) {
+            GLES30.glUniform3f(uniformDepthOfField, depthOfField.appliedRadius, depthOfField.range, depthOfField.falloff)
+        }
+        if (uniformDepthFocus != INVALID_UNIFORM) {
+            GLES30.glUniform3f(uniformDepthFocus, depthOfField.focusDepth, focusU, focusV)
+        }
+        if (uniformDepthTex != INVALID_UNIFORM) {
+            GLES30.glUniform1i(uniformDepthTex, 1)
         }
     }
 

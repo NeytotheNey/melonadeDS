@@ -157,4 +157,17 @@ enum class EmulatorEventType(val event: Int) {
      * * vignette size (`f32`), where it starts as a fraction of the half-diagonal, 0 to 1
      */
     EventLuaBloom(309),
+
+    /**
+     * A Lua script wants its depth of field changed. Data:
+     * * script ID (`i32`)
+     * * strength (`f32`), 0 to 1, 0 for none
+     * * radius (`f32`), 0 to 12 DS pixels
+     * * focus x (`f32`), -256 to 512 DS pixels of the top screen's 256 x 192 view
+     * * focus y (`f32`), -192 to 384 DS pixels
+     * * focus depth (`f32`), 0 to 1, or -1 for the depth at the focus point
+     * * range (`f32`), 0 to 1 of the renderer's depth, kept sharp around the focus
+     * * falloff (`f32`), 0 to 1 of the renderer's depth, from the range's edge to the full blur
+     */
+    EventLuaDepthOfField(310),
 }

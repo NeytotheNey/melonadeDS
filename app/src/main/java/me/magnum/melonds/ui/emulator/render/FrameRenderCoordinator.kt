@@ -151,6 +151,7 @@ class FrameRenderCoordinator {
                 scaleAt1x: Int,
                 halfScaleAt1x: Int,
                 topWingLines: Int,
+                depthTextureId: Int,
                 frameSequence: Long,
             ): Boolean {
                 val renderStart = System.nanoTime()
@@ -167,6 +168,7 @@ class FrameRenderCoordinator {
                     this.halvesAt1x = halvesAt1x
                     this.scaleAt1x = scaleAt1x
                     this.halfScaleAt1x = halfScaleAt1x
+                    this.depthTextureId = depthTextureId
                     this.frameSequence = frameSequence
                     // Moved once per presented frame, here, so every surface shows the same window
                     this.wideWindow = if (isValidFrame) wideCameraController?.onFrame(renderStart, topScreenWidth, topScreenMargin, topWingLines) else null

@@ -107,6 +107,24 @@ struct LuaBloom
 };
 
 /**
+ * What melon.screen.depth_of_field() asks for, clamped; a default one is off, and every call that means off makes a default one so that they
+ * compare equal
+ */
+struct LuaDepthOfField
+{
+    float strength = 0.0f;
+    float radius = 4.0f;
+    // DS pixels of the top screen's 256 x 192 view, whose depth is the focus unless focusDepth isn't negative
+    float focusX = 128.0f;
+    float focusY = 96.0f;
+    float focusDepth = -1.0f;
+    float range = 0.0002f;
+    float falloff = 0.0015f;
+
+    bool operator==(const LuaDepthOfField&) const = default;
+};
+
+/**
  * What a script's melon.wide calls ask of the WideMelon camera, clamped to what any game could take (the app clamps further); a default one
  * asks for nothing
  */
@@ -158,6 +176,10 @@ struct LuaScript
     // last told of them
     LuaBloom bloom;
     LuaBloom sentBloom;
+    // melon.screen.depth_of_field(): kept until the script changes it or stops, and what the app was last told of it, which also decides whether
+    // the frames keep their depth (LuaEngine::wantsDepth)
+    LuaDepthOfField depthOfField;
+    LuaDepthOfField sentDepthOfField;
     // melon.wide: kept until the script changes it or stops (not a per-call request), and what the app was last told of it
     LuaWideCamera wideCamera;
     LuaWideCamera sentWideCamera;

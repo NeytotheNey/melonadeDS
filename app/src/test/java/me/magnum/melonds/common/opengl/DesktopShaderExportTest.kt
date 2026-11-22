@@ -65,7 +65,8 @@ class DesktopShaderExportTest {
         // The shaders VideoFilterPipeline and DSRenderer name themselves, which the desktop's port names the same way
         for (name in listOf("NoFilterShader", "DebandPrePassShader", "NoFilterHalvesAt1xShader", "ExpandHalvesAt1xPrePassShader", "ScreenShadowShader",
             "TiltShiftHorizontalPrePassShader", "TiltShiftVerticalPrePassShader", "TiltShiftColorPrePassShader", "BloomBrightPrePassShader",
-            "BloomBlurHorizontalPrePassShader", "BloomBlurVerticalPrePassShader", "BloomCombinePrePassShader")) {
+            "BloomBlurHorizontalPrePassShader", "BloomBlurVerticalPrePassShader", "BloomCombinePrePassShader", "DepthOfFieldHorizontalPrePassShader",
+            "DepthOfFieldVerticalPrePassShader")) {
             assertTrue(name, name in shaders.keys)
         }
         assertEquals(shaders.size, names.size)

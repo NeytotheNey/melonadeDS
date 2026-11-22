@@ -212,6 +212,11 @@ public:
      * What the scripts drew for the frame [endFrame] was last called for, empty while no script runs
      */
     const LuaOverlay& getOverlay() const { return overlay; }
+    /**
+     * Whether a running script's depth of field is on, as the app was last told (melon.screen.depth_of_field), so the frames should keep their
+     * depth; emulator thread only
+     */
+    bool wantsDepth() const;
 
 private:
     // The API files (LuaEngineInternal.h) read the engine's state through the running script's LuaScript::engine
@@ -273,6 +278,7 @@ private:
     static int luaScreenTiltShift(lua_State* L);
     static int luaScreenBloom(lua_State* L);
     static int luaScreenVignette(lua_State* L);
+    static int luaScreenDepthOfField(lua_State* L);
 
     std::vector<LuaScriptSource> pendingScripts;
     // Outlives every script's state, which may point into its images

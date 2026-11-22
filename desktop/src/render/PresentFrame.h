@@ -25,6 +25,8 @@ struct FrameView
     int HalvesAt1x = 0, Scale = 1, HalfScale = 1;
     // the frame queue's sequence, so a frame presented again isn't filtered again (0: none)
     melonDS::u64 Sequence = 0;
+    // the top screen half's depth (Frame::depthTexture, GL_RG8), 0 when the frame has none
+    GLuint DepthTexture = 0;
 
     bool IsValid() const { return Texture != 0; }
     // the top screen's half of the frame in DS pixels (192 plus the margin on both sides), and the whole frame's
@@ -68,6 +70,19 @@ struct Bloom
     bool HasBloom() const { return Strength > 0.f && Radius > 0.f; }
     bool HasVignette() const { return Vignette > 0.f; }
     bool IsOff() const { return !HasBloom() && !HasVignette(); }
+};
+
+// DepthOfField.kt: a blur over the DS top screen's 3D that grows with each pixel's depth away from the focus, up to [Radius] DS pixels at
+// [Strength] (0 to 1). The focus is the depth at ([FocusX], [FocusY]) of the top screen's 256 x 192 view, or [FocusDepth] (0 to 1) when it's not
+// negative; depths within [Range] of it stay sharp and the blur is full [Falloff] past that, both in the renderer's depth (0 to 1)
+struct DepthOfField
+{
+    float Strength = 0, Radius = 4, FocusX = 128, FocusY = 96, FocusDepth = -1, Range = 0.0002f, Falloff = 0.0015f;
+
+    bool operator==(const DepthOfField&) const = default;
+
+    bool IsOff() const { return Strength <= 0.f || Radius <= 0.f; }
+    float AppliedRadius() const { return Strength * Radius; }
 };
 
 }

@@ -202,6 +202,23 @@ void AndroidMelonEventMessenger::onLuaBloom(int scriptId, float strength, float 
     MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_BLOOM, sizeof(data), &data);
 }
 
+void AndroidMelonEventMessenger::onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth, float range, float falloff)
+{
+    // Read in this order by AndroidEmulatorManager (EventLuaDepthOfField)
+    struct {
+        int32_t scriptId;
+        float strength;
+        float radius;
+        float focusX;
+        float focusY;
+        float focusDepth;
+        float range;
+        float falloff;
+    } data = { (int32_t) scriptId, strength, radius, focusX, focusY, focusDepth, range, falloff };
+
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_DEPTH_OF_FIELD, sizeof(data), &data);
+}
+
 void AndroidMelonEventMessenger::onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY)
 {
     // Read in this order by AndroidEmulatorManager (EventLuaWideCamera)

@@ -22,7 +22,7 @@ Notes for working on melonadeDS. The user-facing overview is the [README](../REA
 - [plan-launcher.md](plan-launcher.md): the game library and RetroAchievements views. Built; picking a match by hand is open.
 - [plan-shield.md](plan-shield.md): the NVIDIA Shield TV (Tegra X1+, ARMv8.0), the slowest CPU we've tested. First runs done; the armv8.2 rollback is still open.
 - [plan-swi-test-rom.md](plan-swi-test-rom.md): the clean-room SWI test ROM for FreeBIOS. Built and run; the DSi follow-ups are open.
-- [HD2D-Plan.md](HD2D-Plan.md): an HD-2D look (bloom, real depth of field, light) driven by Lua mods, first target Pokémon White's field. Phase 1 (Lua bloom and vignette) done and checked on the Fold; phase 2 (real depth of field) is next.
+- [HD2D-Plan.md](HD2D-Plan.md): an HD-2D look (bloom, real depth of field, light) driven by Lua mods, first target Pokémon White's field. Phase 1 (Lua bloom and vignette) done and checked on the Fold; phase 2 (real depth of field, OpenGL) built and checked on the desktop, the phone is next.
 - [hires-capture.md](hires-capture.md): upscaled display capture. Phase 1 done, Phase 2 (bitmap BGs) open.
 - [pokemon-battle-ram.md](pokemon-battle-ram.md): Pokemon battle RAM layout for the battle info mod.
 - [blackmagic3.md](blackmagic3.md): what we borrowed from upstream's blackmagic3 instead of porting it. Done.

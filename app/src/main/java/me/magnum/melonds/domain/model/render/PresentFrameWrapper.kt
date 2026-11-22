@@ -29,6 +29,8 @@ data class PresentFrameWrapper(
     var halvesAt1x: Int = 0,
     var scaleAt1x: Int = 1,
     var halfScaleAt1x: Int = 1,
+    // The top screen half's depth for a depth of field (GL_RG8, textureWidth by the top half's rows, see FrameRenderCallback), or 0 for none
+    var depthTextureId: Int = 0,
     // Emulator frame sequence number, 0 when the frame is invalid
     var frameSequence: Long = 0,
     // The WideMelon camera's window of the top-slot screen for this presentation, or null to draw it without one

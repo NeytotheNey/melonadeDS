@@ -57,6 +57,13 @@ struct Frame {
     int halfScaleAt1x = 1;
     // The WideMelon camera's per-frame data (melonDS::OutputLayout), set with halvesAt1x: the top screen's lines with 3D wings, held ones included
     int topWingLines = 0;
+    // A frontend's depth of field (Renderer3D::SetOutputDepthTexture): the top screen's half of the frame's depth, GL_RG8, width x depthHeight
+    // texels (that half's rows), made only while something asks for it (FrameQueue::validateDepthTexture), and whether the compositor's last
+    // draw into this frame wrote it (OutputLayout::HasDepth, set with halvesAt1x)
+    GLuint depthTexture{};
+    u32 depthWidth{};
+    u32 depthHeight{};
+    bool hasDepth = false;
     GpuFence renderFence{};
     GpuFence presentFence{};
     // Increases every time a frame is pushed for presentation, so the presenter can tell new frames from repeated ones and detect skipped frames
@@ -85,6 +92,11 @@ public:
      */
     Frame* getPresentFrame(std::optional<std::chrono::time_point<std::chrono::steady_clock>> deadline, int64_t vsyncTimeNs, int64_t dueToleranceNs, int64_t upcomingFrameDueNs);
     void validateRenderFrame(Frame* frame, int requiredWidth, int requiredHeight);
+    /**
+     * Gives [frame] a depth texture of the frame's width by [rows], made or resized as needed, or deletes it with [rows] 0; emulator thread, after
+     * validateRenderFrame
+     */
+    void validateDepthTexture(Frame* frame, int rows);
     /**
      * Uploads this frame's Lua drawings into its overlay texture, only the rows that have or had drawings ([pixels] is the whole [width] x [height]
      * overlay, null if nothing was ever drawn); emulator thread, before the frame's render fence

@@ -1,6 +1,6 @@
 # Plan: an HD-2D look for DS games
 
-Started 11-21. Phase 1 (bloom and vignette) is done and checked on the Fold (below); the rest is plan only. Open decisions are marked **Decide**.
+Started 11-21. Phase 1 (bloom and vignette) is done and checked on the Fold. Phase 2 (real depth of field) is built for OpenGL and checked on the desktop, not yet on a phone (below); the rest is plan only. Open decisions are marked **Decide**.
 
 ## The goal
 
@@ -46,6 +46,19 @@ Swap tilt-shift's fixed band for real depth: the blur follows how far each pixel
 
 Done when the White plaza from the user's save shows a sharp player and nearby buildings with the far edge of the map blurred, and the blur follows the camera as it moves, on OpenGL at least.
 
+**Built 11-21, OpenGL only** (core branch `feature/hd2d-depth`):
+
+- *Depth out of the renderer.* While a frontend gives a depth texture, `GLRenderer` resolves each render's depth into an RG8 texture right after the frame (`ResolveDepth`), before `GLClearFast` drops it. That texture swaps with the color buffer, kept and spare included, so a late Blit reads the depth of the frame it shows. A frame skipped as identical is drawn again when there's no depth for it yet. With no depth texture given, none of this runs and the renderer frees what it had.
+- *Through the compositor.* After the frame's draws, `GLCompositor::RenderDepth` draws the top half's depth into the frame's own depth texture, with the main draw's quad and the same scroll, wing and margin maths (`kCompositorDepthFS`). It takes the nearest 3D pixel, not an average, so a capped output is fine too. Its 16-bit values are 0 where 2D is on top (compmode 1, 5-7, other display modes, hi-res captured lines), which stays sharp, 65535 where the 3D is transparent, which blurs as the farthest, and the depth otherwise. `OutputLayout::HasDepth` says whether this draw wrote it.
+- *To the app.* `FrameQueue` makes a per-frame RG8 depth texture (the frame's width by its top half's rows) only while `MelonInstance` wants depth, that is, a script asks for it (`LuaEngine::wantsDepth`) or the desktop's `--dof` does. It reaches Kotlin as `PresentFrameWrapper.depthTextureId` (0 for a frame without depth) and the desktop as `FrameView::DepthTexture`.
+- *The blur.* `melon.screen.depth_of_field(strength[, opts])` ([MODS.md](../MODS.md)). It runs two separable passes after the filter's own and before the bloom. Each texel's radius grows with its depth's distance from the focus, and a tap only counts as far as its own blur reaches, so sharp things don't smear over blurred ones. The focus is the depth at a screen point (the center by default; if that's 2D, the first 3D 4 DS pixels around it) or a fixed depth.
+
+**Checked on the desktop, 11-21** (OpenGL 4x, White booted from the user's save and pressed through the title into the city street): with `--dof 1,4` the player and the street around her stay sharp, and the roofs nearest the camera blur. With a tight range (`--dof 1,8,0,0.0005`) everything off the player's depth blurs, which shows the depth is right across the picture. White's field is Z-buffered, and everything on screen is within about 0.002 of the player's depth, so the defaults are range 0.0002 and falloff 0.0015. Walking onto Route 2, the "Route 2" banner (2D over the 3D) stays sharp. At `--wide 342` the wings blur with the rest. The raw frame (`--screenshot`) is byte-identical with the depth of field on and off, so the depth pass doesn't touch the picture. App unit tests: 742, all passing. `hd2d_white.lua` now uses the depth of field, with the tilt-shift kept as an option (off by default) for the other renderers.
+
+**Not checked yet:** the phone (no APK built; the native code compiled for x86_64 with the NDK, nothing linked), its cost at 4x and 8x, the late-Blit path (only frames that capture use it, and White's field doesn't), the output cap, a text box over the field, and the camera moving. The focus point follows the camera by construction, but nothing has looked at it in motion. Compute and Software give no depth, and Compute could write it from its final pass. Z- and W-buffered frames aren't told apart, so a W-buffered game needs its range tuned differently.
+
+**Decide:** whether the depth of field should reuse its result on the frames White doesn't render (the overworld runs at 30 fps). It's filtered once per new frame already, but frame interpolation is untested with it.
+
 ### Phase 3: light
 
 The harder half of the look: soft shadows, light shafts and glows on lamps and windows. Some of it can come from depth alone (screen-space ambient occlusion, light shafts from a bright spot), some only from knowing the scene (which polygons are lamps). Not planned yet; phase 2's depth decides what's possible.
@@ -59,4 +72,4 @@ Swapping the game's map models and textures for higher-detail ones through the d
 - Does the look hold up at 30 fps? The White overworld renders every other frame, so the post effects should run on the new frame only and be reused, or the blur will shimmer with frame interpolation on.
 - Where WideMelon is on, the wings are part of the 3D, so depth of field there should just work. Not checked.
 - Cost on the slower phones (OnePlus 7 Pro, Shield). Bloom and a depth blur at 8x are full-screen passes; they may need to run at a lower scale.
-- Software 3D has no depth texture to hand over, so phase 2 is OpenGL and Compute only.
+- Software 3D has no depth texture to hand over. Phase 2 is OpenGL only for now; Compute could hand its depth over from its final pass.

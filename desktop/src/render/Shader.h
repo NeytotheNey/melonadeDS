@@ -14,6 +14,7 @@ namespace Frontend
 
 struct TiltShift;
 struct Bloom;
+struct DepthOfField;
 
 class Shader
 {
@@ -39,6 +40,9 @@ public:
     void SetTiltShift(const TiltShift& tiltShift) const;
     // the bloom's strength, threshold and radius, the vignette's strength and size, and the glow on unit 1
     void SetBloom(const Bloom& bloom) const;
+    // the depth of field's radius at its strength, range and falloff, its focus point as [focusU] and [focusV] of the depth texture, and the
+    // depth texture on unit 1
+    void SetDepthOfField(const DepthOfField& depthOfField, float focusU, float focusV) const;
     // GPU::Comp1x: which screens are at 1x, the frame's scale and theirs, and the coordinate textures on units 1 and 2
     void SetHalvesAt1x(int halvesAt1x, int scale, int halfScale) const;
 
@@ -47,6 +51,7 @@ private:
     GLint UniformTexSize = -1, UniformTopScreenWidth = -1, UniformFrameLayout = -1, UniformBottomScreenWide = -1;
     GLint UniformTiltShift = -1, UniformTiltShiftBoost = -1;
     GLint UniformBloom = -1, UniformVignette = -1, UniformGlowTex = -1;
+    GLint UniformDepthOfField = -1, UniformDepthFocus = -1, UniformDepthTex = -1;
     GLint UniformHalvesAt1x = -1, UniformCoordXTex = -1, UniformCoordYTex = -1;
 };
 

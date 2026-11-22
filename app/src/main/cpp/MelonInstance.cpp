@@ -481,6 +481,12 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     frameQueue.validateRenderFrame(renderFrame, screenWidth, frameHeight);
     renderFrame->topScreenWidth = topScreenWidth;
     renderFrame->topScreenMargin = topScreenMargin;
+    // A depth of field (melon.screen.depth_of_field, or the desktop's --dof) needs the top half's depth, which only OpenGL hands out. The
+    // scripts' last word on it is the previous frame's, so it starts a frame late
+    bool isDepthWanted = currentRenderer == Renderer::OpenGl && (isFrontendDepthWanted.load(std::memory_order_relaxed) || luaEngine.wantsDepth());
+    // The top half's rows of the frame's (192 + 2 * margin + 2 + 192) * scale
+    int depthRows = isDepthWanted ? frameHeight / (386 + 2 * topScreenMargin) * (192 + 2 * topScreenMargin) : 0;
+    frameQueue.validateDepthTexture(renderFrame, depthRows);
 
     [[unlikely]] if (nds->GPU.GetRenderer3D().NeedsShaderCompile())
     {
@@ -500,6 +506,8 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     if (isRendererAccelerated)
     {
         nds->GPU.GetRenderer3D().SetOutputTexture(outputBuffer, renderFrame->frameTexture);
+        // 0 when none is wanted, which tells the renderer to keep no depth
+        nds->GPU.GetRenderer3D().SetOutputDepthTexture(outputBuffer, renderFrame->depthTexture);
     }
 
     bool hasLuaFrameRun = false;
@@ -524,6 +532,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             glBindTexture(GL_TEXTURE_2D, 0);
             renderFrame->halvesAt1x = 0;
             renderFrame->topWingLines = 0;
+            renderFrame->hasDepth = false;
         }
     }
     else
@@ -537,6 +546,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             renderFrame->scaleAt1x = outputLayout.Scale;
             renderFrame->halfScaleAt1x = outputLayout.HalfScale;
             renderFrame->topWingLines = outputLayout.TopWingLines;
+            renderFrame->hasDepth = outputLayout.HasDepth && renderFrame->depthTexture != 0;
         }
     }
 

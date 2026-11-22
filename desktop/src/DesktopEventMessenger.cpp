@@ -99,6 +99,11 @@ void DesktopEventMessenger::onLuaBloom(int scriptId, float strength, float thres
     POST_LOG("Lua script %d: bloom %.2f vignette %.2f\n", scriptId, strength, vignette);
 }
 
+void DesktopEventMessenger::onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth, float range, float falloff)
+{
+    POST_LOG("Lua script %d: depth of field %.2f radius %.2f\n", scriptId, strength, radius);
+}
+
 void DesktopEventMessenger::onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY)
 {
     POST_LOG("Lua script %d: wide camera zoom %.2f\n", scriptId, zoom);

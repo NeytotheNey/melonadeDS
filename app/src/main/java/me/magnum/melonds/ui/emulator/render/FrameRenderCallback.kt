@@ -20,6 +20,8 @@ fun interface FrameRenderCallback {
      * @param halfScaleAt1x The scale the screens in [halvesAt1x] were drawn at: 1, or with filtered 2D the filter map's, so their image is that many
      * times bigger and is upscaled by [scaleAt1x] / [halfScaleAt1x].
      * @param topWingLines The DS top screen's lines with 3D wings (held ones included), for the WideMelon camera.
+     * @param depthTextureId The top screen half's depth, for a depth of field: GL_RG8, the frame's width by its top half's rows, 16-bit values
+     * with the high byte in R; 0 when the frame has none.
      * @param frameSequence Sequence number of the presented emulator frame, increasing by 1 for every frame the emulator produces.
      * @return Whether every surface can draw a frame with screens at 1x, which the emulator only produces while this is true.
      */
@@ -36,6 +38,7 @@ fun interface FrameRenderCallback {
         scaleAt1x: Int,
         halfScaleAt1x: Int,
         topWingLines: Int,
+        depthTextureId: Int,
         frameSequence: Long,
     ): Boolean
 }

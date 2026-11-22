@@ -54,7 +54,8 @@ public:
     void UpdateScreenAreas(const Rect& top, const Rect& bottom, int surfaceW, int surfaceH);
     // runs the filter's pre-passes, clears the bound framebuffer (the window, at its viewport) and draws the screens; the caller sets up the
     // state the core left behind first
-    void DrawFrame(const FrameView& frame, const std::optional<TiltShift>& tiltShift, const std::optional<Bloom>& bloom);
+    void DrawFrame(const FrameView& frame, const std::optional<TiltShift>& tiltShift, const std::optional<Bloom>& bloom,
+        const std::optional<DepthOfField>& depthOfField);
 
     // GPU::Comp1x: whether a frame with a screen at 1x can be drawn as it is (the no-filter shader without deband or a Lua tilt-shift, bloom
     // or vignette)

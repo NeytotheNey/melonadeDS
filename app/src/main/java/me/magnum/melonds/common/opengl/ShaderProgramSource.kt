@@ -1172,6 +1172,123 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "}"
         )
 
+        // One direction of the depth of field's blur, over the DS top screen like the tilt-shift's: each texel's radius follows how far its depth is
+        // from the focus, up to depthOfField.x DS pixels. depthTex (unit 1, nearest) is the frame's top screen half's depth from the compositor
+        // (PresentFrameWrapper.depthTextureId): 16-bit values, high byte in R, 0 for 2D drawn over the 3D, which stays sharp, 65535 where what's
+        // behind the 3D shows, which blurs as the farthest depth. depthOfField.yz are the sharp range around the focus and the falloff past it,
+        // in depth from 0 to 1. depthFocus.x is the focus depth, or negative to read it at depthFocus.yz (u and v of depthTex) or, if that's 2D
+        // or what's behind the 3D, at the first 3D of four points 4 DS pixels around it; with none, nothing blurs. A tap only counts as much as its
+        // own blur reaches it, so a sharp texel never spreads over a blurred one. 13 Gaussian taps like the tilt-shift's
+        private fun depthOfFieldPrePassShader(direction: String): ShaderProgramSource {
+            return ShaderProgramSource(
+                TextureFiltering.LINEAR,
+                PRE_PASS_VERT_SHADER,
+                PRECISION_HEADER +
+                        SCREEN_UNIFORMS +
+                        "varying vec2 uv;\n" +
+                        "uniform vec3 depthOfField;\n" +
+                        "uniform vec3 depthFocus;\n" +
+                        "uniform highp sampler2D depthTex;\n" +
+                        screenBandFunctions("texture2D") +
+                        "" +
+                        "const vec2 BLUR_DIRECTION = $direction;\n" +
+                        "// Below this many texels the blur can't be seen, so the texel skips it\n" +
+                        "const float MIN_BLUR_RADIUS = 0.1;\n" +
+                        "// How far around the focus point to look for 3D, in DS pixels\n" +
+                        "const float FOCUS_SEARCH = 4.0;\n" +
+                        "" +
+                        "// The depth at p (u and v of the frame), from 0 to 1\n" +
+                        "highp float frameDepth(vec2 p) {\n" +
+                        "    highp vec2 rg = texture2D(depthTex, vec2(p.x, clamp(p.y / topScreenEnd, 0.0, 1.0))).rg;\n" +
+                        "    return (floor(rg.r * 255.0 + 0.5) * 256.0 + floor(rg.g * 255.0 + 0.5)) / 65535.0;\n" +
+                        "}\n" +
+                        "" +
+                        "highp float depthAt(vec2 p) {\n" +
+                        "    highp vec2 rg = texture2D(depthTex, p).rg;\n" +
+                        "    return (floor(rg.r * 255.0 + 0.5) * 256.0 + floor(rg.g * 255.0 + 0.5)) / 65535.0;\n" +
+                        "}\n" +
+                        "" +
+                        "bool is3D(highp float depth) {\n" +
+                        "    return depth > 0.0 && depth < 1.0;\n" +
+                        "}\n" +
+                        "" +
+                        "// The focus depth, negative for none\n" +
+                        "highp float focusDepth() {\n" +
+                        "    if (depthFocus.x >= 0.0) {\n" +
+                        "        return depthFocus.x;\n" +
+                        "    }\n" +
+                        "    vec2 searchStep = FOCUS_SEARCH / vec2(topScreenWidth, topScreenEnd * frameLayout.w);\n" +
+                        "    highp float depth = depthAt(depthFocus.yz);\n" +
+                        "    if (is3D(depth)) {\n" +
+                        "        return depth;\n" +
+                        "    }\n" +
+                        "    depth = depthAt(depthFocus.yz + vec2(0.0, searchStep.y));\n" +
+                        "    if (is3D(depth)) {\n" +
+                        "        return depth;\n" +
+                        "    }\n" +
+                        "    depth = depthAt(depthFocus.yz - vec2(0.0, searchStep.y));\n" +
+                        "    if (is3D(depth)) {\n" +
+                        "        return depth;\n" +
+                        "    }\n" +
+                        "    depth = depthAt(depthFocus.yz + vec2(searchStep.x, 0.0));\n" +
+                        "    if (is3D(depth)) {\n" +
+                        "        return depth;\n" +
+                        "    }\n" +
+                        "    depth = depthAt(depthFocus.yz - vec2(searchStep.x, 0.0));\n" +
+                        "    return is3D(depth) ? depth : -1.0;\n" +
+                        "}\n" +
+                        "" +
+                        "// The blur's radius in DS pixels at a depth, 0 in focus and for 2D\n" +
+                        "float blurRadius(highp float depth, highp float focus) {\n" +
+                        "    if (depth <= 0.0 || focus < 0.0) {\n" +
+                        "        return 0.0;\n" +
+                        "    }\n" +
+                        "    highp float offset = abs(depth - focus);\n" +
+                        "    return depthOfField.x * smoothstep(depthOfField.y, depthOfField.y + max(depthOfField.z, 0.0001), offset);\n" +
+                        "}\n" +
+                        "" +
+                        "void main() {\n" +
+                        "    // The gap and the DS bottom screen stay as they are\n" +
+                        "    if (uv.y >= topScreenEnd) {\n" +
+                        "        gl_FragColor = vec4(texture2D(tex, uv).rgb, 1.0);\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "" +
+                        "    // Texels per DS pixel; the frame texture is frameLayout.w DS pixels high at any internal resolution\n" +
+                        "    float scale = texSize.y / frameLayout.w;\n" +
+                        "    highp float focus = focusDepth();\n" +
+                        "    float radius = blurRadius(frameDepth(uv), focus) * scale;\n" +
+                        "    if (radius < MIN_BLUR_RADIUS) {\n" +
+                        "        gl_FragColor = vec4(texture2D(tex, uv).rgb, 1.0);\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "" +
+                        "    vec4 band = screenBand(uv);\n" +
+                        "    vec2 spacing = BLUR_DIRECTION * radius / 6.0 / texSize;\n" +
+                        "    vec3 color = sampleScreen(uv, band);\n" +
+                        "    float total = 1.0;\n" +
+                        "    for (int i = 1; i <= 6; i++) {\n" +
+                        "        // A Gaussian whose sigma is the radius / 2.5, as the tilt-shift's\n" +
+                        "        float x = float(i) * 2.5 / 6.0;\n" +
+                        "        float weight = exp(-0.5 * x * x);\n" +
+                        "        float tapDistance = float(i) * radius / 6.0;\n" +
+                        "        vec2 before = uv - spacing * float(i);\n" +
+                        "        vec2 after = uv + spacing * float(i);\n" +
+                        "        float beforeWeight = weight * clamp(blurRadius(frameDepth(before), focus) * scale / tapDistance, 0.0, 1.0);\n" +
+                        "        float afterWeight = weight * clamp(blurRadius(frameDepth(after), focus) * scale / tapDistance, 0.0, 1.0);\n" +
+                        "        color += beforeWeight * sampleScreen(before, band) + afterWeight * sampleScreen(after, band);\n" +
+                        "        total += beforeWeight + afterWeight;\n" +
+                        "    }\n" +
+                        "    // Swap back to the frame texture's channel order, since sampleScreen() reads the BGR texels as RGB\n" +
+                        "    gl_FragColor = vec4((color / total).bgr, 1.0);\n" +
+                        "}"
+            )
+        }
+
+        // Built when a script first asks for a depth of field (see VideoFilterPipeline), which runs them in this order
+        val DepthOfFieldHorizontalPrePassShader get() = depthOfFieldPrePassShader("vec2(1.0, 0.0)")
+        val DepthOfFieldVerticalPrePassShader get() = depthOfFieldPrePassShader("vec2(0.0, 1.0)")
+
         // sharp-shimmerless
         // Author: zadpos (Woohyun Kang)
         // License: Public domain
