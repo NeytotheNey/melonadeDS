@@ -77,7 +77,7 @@ So the depth of field adds about 0.5 Mcycles a frame at 4x and 1.5 at 8x on top 
 
 ### Phase 3: light and shading
 
-Planned 11-21. Steps A, B and C are built and checked on the desktop and the Fold; D (sun shadows, replanned after C) is built and checked on the desktop and a Pixel 8 (11-22); E is plan only. The harder half of the look: soft shadows where things meet the ground, haze in the distance, and glows on lamps and windows instead of on anything bright. Some of it can come from depth alone, some only from knowing the scene. The steps go from cheap and depth-only to scene knowledge, and each one is worth having on its own.
+Planned 11-21. Steps A, B and C are built and checked on the desktop and the Fold; D (sun shadows, replanned after C) is built and checked on the desktop, a Pixel 8 and the Fold (11-22); E is being built. The harder half of the look: soft shadows where things meet the ground, haze in the distance, and glows on lamps and windows instead of on anything bright. Some of it can come from depth alone, some only from knowing the scene. The steps go from cheap and depth-only to scene knowledge, and each one is worth having on its own.
 
 **Why phase 2's depth wasn't enough.** It was the top 16 bits of the DS's 24-bit depth. White's city street fits in about 0.005 of the range, so the whole screen had only 314 depth values. That's enough to pick a blur radius, but shading from it would come out in bands. The full 24 bits give 68,124 values in the same frame (step A). The app also doesn't know the camera, only raw depth, so anything that needs real distances or a light direction, such as sun shadows, needs the projection too (step D).
 
@@ -186,10 +186,11 @@ Decided 11-21, after C: C isn't the shadow the look wants. The reference is the 
 
 **Known issues.**
 - While a text box is up, the 3D under the box has no depth (it reads as 2D on top), so it stops casting and some shadows get lighter until the box closes.
-- White's speech bubble tail is 3D at the nearest depth and cast a long streak. `near = 80` in `hd2d_white.lua` keeps it from casting: the tail is 65 units from the camera and the nearest real occluder found walking around Striaton 97, so another town with something taller or nearer the camera could need a lower value.
-- Not checked on the Fold.
+- White's speech bubble tail is 3D at the nearest depth and cast a long streak. `near = 80` in `hd2d_white.lua` was meant to stop it: on the desktop the tail was 65 units from the camera and the nearest real occluder found walking around Striaton 97. **On the Fold it doesn't hold:** a bubble from an NPC near the gym (`perf_logs/2026-11-22-hd2d-sun-fold/shots/bubble_crop.png`) still throws a long dark wedge beside the tail, down-left. Not yet known whether the tail is farther than 80 there or `near` isn't reaching it.
 
-**Where things stand, 11-22.** Step D is on `feature/hd2d-light` (app) and `feature/hd2d-camera` (core), with PRs open. The spike's scripts (`recon.py`, `shadow.py`) are in `perf_logs/2026-11-21-hd2d-camera/` in the main checkout. White's save for desktop runs is copied from `D:\Games\Dumps\DS\Pokemon_ White Version\` (read only) the way `perf_logs/2026-11-21-hd2d-haze/run.sh` does it. Next: step E, and the Fold check of D.
+**On the Fold, 11-22** (wireless, on AC; the cover screen, White in Striaton from the phone's own save, WideMelon 342, sharp filter, deband off; `hd2d_white.lua` against a copy with the sun at 0; `perf_logs/2026-11-22-hd2d-sun-fold/`): the shadows look as on the desktop at 4x and 8x, the blob shadows are gone, the bottom screen is pixel-identical, a sign's text box stays crisp, and 16 stills across a walk show no flicker (no video, so swimming isn't ruled out). Compute 4x runs the script with none of it. Logcat has no GL, shader, Lua or JNI errors across 7 sessions. Every run held 60 FPS with no missed frames, 8x with everything on included, unlike the Pixel 8. GPU cost per frame: OpenGL 4x 2.55 Mcycles with the sun, 1.99 without; 8x 7.90 and 6.24; Compute 4x 2.79. So the sun costs about 0.6 Mcycles at 4x and 1.7 at 8x. The speech bubble tail still casts (known issues above).
+
+**Where things stand, 11-22.** Step D is on `feature/hd2d-light` (app) and `feature/hd2d-camera` (core), with PRs open, and checked on the Fold apart from the bubble tail. The spike's scripts (`recon.py`, `shadow.py`) are in `perf_logs/2026-11-21-hd2d-camera/` in the main checkout. White's save for desktop runs is copied from `D:\Games\Dumps\DS\Pokemon_ White Version\` (read only) the way `perf_logs/2026-11-21-hd2d-haze/run.sh` does it, and `--fixed-time 2026-11-21T21:00` gives night.
 
 #### Step E: lamps and windows
 
@@ -201,7 +202,7 @@ Glow on chosen things instead of on anything bright. A Lua list of textures (by 
 - Compute's depth. It fits in once step A settles the format: Compute's final pass would write the same RGBA8 with one more `imageStore`.
 - Effects running only on new frames at 30 fps (phase 2's open **Decide**). It matters more with more passes, so measure it with frame interpolation on after C.
 
-**Cost.** Each step gets measured on the Fold like phases 1 and 2. Phase 2 left OpenGL 8x at about 9.5 Mcycles a frame with room to spare. B added nothing measurable, and C about 0.2 at 4x and 0.9 at 8x, under the DOF's +0.5 and +1.5. D was measured on a Pixel 8, not the Fold: about 0.6 ms of work a frame at 4x, and 8x with everything on stops holding 60 FPS there.
+**Cost.** Each step gets measured on the Fold like phases 1 and 2. Phase 2 left OpenGL 8x at about 9.5 Mcycles a frame with room to spare. B added nothing measurable, and C about 0.2 at 4x and 0.9 at 8x, under the DOF's +0.5 and +1.5. D adds about 0.6 Mcycles at 4x and 1.7 at 8x on the Fold, which holds 60 FPS at 8x with everything on (7.90); the Pixel 8 doesn't at 8x.
 
 ### Phase 4 (separate plan): better assets
 

@@ -119,6 +119,7 @@ struct Options
     std::string CameraShownPath;   // --camera-shown: the depth camera each presented frame came with, a JSON line per frame
     std::string ListTexturesPath;  // --list-textures: each drawn frame's textures with their content hashes, a line per texture
     std::vector<u32> HiddenTextures; // --hide-textures: the content hashes the OpenGL renderer leaves out
+    std::vector<u32> LightTextures;  // --light-textures: the content hashes it flags as lights in the depth (flag 32)
     std::string LogPath;
     std::string CacheDir;      // the Compute program cache, next to the exe by default
     RendererType Renderer = RendererType::Compute;
@@ -353,7 +354,8 @@ void Usage()
         "  --camera-shown FILE         debug: a JSON line per presented frame with the depth camera it came with\n"
         "  --list-textures FILE        debug: a line per texture of each frame OpenGL draws, with its content hash\n"
         "  --hide-textures HASH,...    OpenGL leaves out the polygons of these textures (hex content hashes)\n"
-        "  --hidden                    no visible window (with --frames); never fullscreen, saves no window places\n"
+        "  --light-textures HASH,...   OpenGL flags these textures' pixels as lights in the depth (flag 32)\n"
+        "  --hidden                   no visible window (with --frames); never fullscreen, saves no window places\n"
         "  --save-window-places        save the window places with --hidden too (tests)\n"
         "  --log FILE                  core log file (default melonade.log next to the exe)\n"
         "  --cache-dir DIR             Compute program cache directory\n"
@@ -435,8 +437,8 @@ bool NormalizeDirection(std::array<float, 3>& vector)
 
 // --sun's [count] fields read into [sun] (and [color]), held to what a script could ask for (melon.screen.sun); false if it isn't a whole
 // group of them or a vector has no direction
-// --hide-textures: comma-separated hex hashes (0x optional), each 1 to FFFFFFFF, at most MaxHiddenTextures
-bool ParseHiddenTextures(const std::string& spec, std::vector<u32>& hashes)
+// --hide-textures and --light-textures: comma-separated hex hashes (0x optional), each 1 to FFFFFFFF, at most [maxHashes]
+bool ParseTextureHashes(const std::string& spec, u32 maxHashes, std::vector<u32>& hashes)
 {
     hashes.clear();
     size_t start = 0;
@@ -446,7 +448,7 @@ bool ParseHiddenTextures(const std::string& spec, std::vector<u32>& hashes)
         std::string part = spec.substr(start, end - start);
         char* rest = nullptr;
         unsigned long long hash = strtoull(part.c_str(), &rest, 16);
-        if (part.empty() || *rest != 0 || hash == 0 || hash > 0xFFFFFFFFull || hashes.size() == MaxHiddenTextures)
+        if (part.empty() || *rest != 0 || hash == 0 || hash > 0xFFFFFFFFull || hashes.size() == maxHashes)
             return false;
         hashes.push_back((u32) hash);
         start = end + 1;
@@ -809,9 +811,18 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--hide-textures")
         {
             std::string spec = next();
-            if (!ParseHiddenTextures(spec, opts.HiddenTextures))
+            if (!ParseTextureHashes(spec, MaxHiddenTextures, opts.HiddenTextures))
             {
                 fprintf(stderr, "bad --hide-textures %s (HASH,... in hex, at most %u, none 0)\n", spec.c_str(), MaxHiddenTextures);
+                return false;
+            }
+        }
+        else if (arg == "--light-textures")
+        {
+            std::string spec = next();
+            if (!ParseTextureHashes(spec, MaxLightTextures, opts.LightTextures))
+            {
+                fprintf(stderr, "bad --light-textures %s (HASH,... in hex, at most %u, none 0)\n", spec.c_str(), MaxLightTextures);
                 return false;
             }
         }
@@ -1366,7 +1377,7 @@ void DepthShot(const Frame& frame, const std::string& path, const std::string& r
         return;
 
     std::vector<u32> depths;
-    u32 count2D = 0, countBehind = 0, countW = 0, countOther = 0, countSun = 0, nearest = 0xFFFFFF, farthest = 0;
+    u32 count2D = 0, countBehind = 0, countW = 0, countOther = 0, countSun = 0, countLight = 0, nearest = 0xFFFFFF, farthest = 0;
     for (size_t i = 0; i < texels.size(); i += 4)
     {
         const u8 flags = texels[i + 3];
@@ -1377,6 +1388,8 @@ void DepthShot(const Frame& frame, const std::string& path, const std::string& r
             countOther++;
         if (flags & 16)
             countSun++;
+        if (flags & 32)
+            countLight++;
         if (flags & 1)
             count2D++;
         else if (flags & 2)
@@ -1422,9 +1435,9 @@ void DepthShot(const Frame& frame, const std::string& path, const std::string& r
             distinct16++;
     }
     printf("depth shot: %s%s, %dx%d; 3D %zu px, depth 0x%06X..0x%06X, %zu distinct values (%zu at 16 bits); 2D %u px, "
-           "transparent 3D %u px, W-buffered %u px, other camera %u px, in its sun shadow %u px\n",
+           "transparent 3D %u px, W-buffered %u px, other camera %u px, in its sun shadow %u px, light %u px\n",
            path.c_str(), written ? "" : " (not written)", width, height, pixels3D, pixels3D ? nearest : 0, farthest, depths.size(),
-           distinct16, count2D, countBehind, countW, countOther, countSun);
+           distinct16, count2D, countBehind, countW, countOther, countSun, countLight);
 }
 
 // --camera-dump: the 3D scene the core latched last (GPU3D::CameraLog), as a JSON line into [file], once per swap: the frame, the
@@ -1449,15 +1462,15 @@ void DumpCameraScene(FILE* file, u32 frame, const GPU3D::CameraLog& log)
 
 // --list-textures: the textures of the frame the OpenGL renderer drew last, a line each into [file]: the emulated frame, the content
 // hash, TexParam (but its repeat, flip and transform bits) and TexPalette, the format and size, how many polygons used it and how many
-// of them were translucent, the first one's alpha and polygon ID, their box in the frame's 3D pixels, and whether it was hidden
+// of them were translucent, the first one's alpha and polygon ID, their box in the frame's 3D pixels, and whether it was hidden or a light
 void ListTextures(FILE* file, u32 frame, const TextureList& list)
 {
     for (const TextureListEntry& e : list.Entries)
     {
-        fprintf(file, "frame %u hash %08X param %08X pal %04X format %u size %ux%u polys %u translucent %u alpha %u id %u box %d,%d..%d,%d%s\n",
+        fprintf(file, "frame %u hash %08X param %08X pal %04X format %u size %ux%u polys %u translucent %u alpha %u id %u box %d,%d..%d,%d%s%s\n",
                 frame, e.Hash, e.TexParam, e.TexPalette, (e.TexParam >> 26) & 7, 8u << ((e.TexParam >> 20) & 7),
                 8u << ((e.TexParam >> 23) & 7), e.Polygons, e.Translucent, e.Alpha, e.PolygonId, e.Box[0], e.Box[1], e.Box[2], e.Box[3],
-                e.Hidden ? " hidden" : "");
+                e.Hidden ? " hidden" : "", e.Light ? " light" : "");
     }
 }
 
@@ -1907,6 +1920,7 @@ int main(int argc, char** argv)
         if (opts.Sun)
             instance.setFrontendSun({true, opts.Sun->Direction, opts.Sun->Up});
         instance.setFrontendHiddenTextures(opts.HiddenTextures);
+        instance.setFrontendLightTextures(opts.LightTextures);
         if (commandLineGame && !opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
         {
             startFailed = true;

@@ -227,6 +227,11 @@ public:
      * out; empty while none hides any. Emulator thread only
      */
     const std::vector<melonDS::u32>& hiddenTextures() const;
+    /**
+     * The same for the light textures (melon.gpu.light_textures), whose polygons the OpenGL renderer flags in the depth; empty while none
+     * lights any. Emulator thread only
+     */
+    const std::vector<melonDS::u32>& lightTextures() const;
 
 private:
     // The API files (LuaEngineInternal.h) read the engine's state through the running script's LuaScript::engine
@@ -294,6 +299,13 @@ private:
     static int luaScreenSun(lua_State* L);
     // melon.gpu
     static int luaGpuHideTextures(lua_State* L);
+    static int luaGpuLightTextures(lua_State* L);
+    // Both: the script's texture hash list [list] from argument 1 (nil or a table of at most [maxHashes]), stamped with the next of
+    // [requests] in [order] when it changes to a non-empty one; [name] is the function's, for errors
+    static int setTextureList(lua_State* L, const char* name, size_t maxHashes, std::vector<melonDS::u32> LuaScript::* list,
+                              unsigned int LuaScript::* order, unsigned int LuaEngine::* requests);
+    // The running script's non-empty [list] with the highest [order], or an empty list
+    const std::vector<melonDS::u32>& newestTextureList(std::vector<melonDS::u32> LuaScript::* list, unsigned int LuaScript::* order) const;
 
     std::vector<LuaScriptSource> pendingScripts;
     // Outlives every script's state, which may point into its images
@@ -304,6 +316,8 @@ private:
     unsigned int sentSunRequests = 0;
     // The hidden texture lists set so far, which orders them the same way (LuaScript::hiddenTexturesOrder)
     unsigned int hiddenTextureRequests = 0;
+    // And the light texture lists (LuaScript::lightTexturesOrder)
+    unsigned int lightTextureRequests = 0;
     // Set while on_unload() runs: requests to the app are ignored, and errors are only logged
     bool isUnloading = false;
     // Set while on_frame() or on_frame_end() runs, the only callbacks whose draw calls are recorded

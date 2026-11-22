@@ -242,6 +242,9 @@ struct LuaScript
     // them or stops, and when they last changed to a non-empty list, as the newest list is the one used. Native only: the app isn't told
     std::vector<melonDS::u32> hiddenTextures;
     unsigned int hiddenTexturesOrder = 0;
+    // melon.gpu.light_textures(): the same for the texture hashes the OpenGL renderer flags as lights in the depth (LuaEngine::lightTextures)
+    std::vector<melonDS::u32> lightTextures;
+    unsigned int lightTexturesOrder = 0;
     // melon.wide: kept until the script changes it or stops (not a per-call request), and what the app was last told of it
     LuaWideCamera wideCamera;
     LuaWideCamera sentWideCamera;
