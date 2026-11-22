@@ -110,6 +110,7 @@ main ones:
 | `--window W,H[,X,Y]`, `--window2 W,H[,X,Y]` | the main / second window's size in pixels (and desktop position) for this run |
 | `--state F` | load a savestate after the reset (DS-mode states only; point `--sav` at a copy, the state replaces the save). States from the app and from `--at F:save=` load the app's way (`MelonInstance::loadState`, which also sets the RTC again); older desktop states without the RetroAchievements section load as the core's part |
 | `--press F[-L]:KEYS` | hold keys (`a`, `start`, `up`, ... joined by `+`) over frames F..L, for scripted runs |
+| `--fixed-time [YYYY-MM-DD[THH:MM[:SS]]]` | the RTC starts at that date and time (2000-2099) instead of now, so runs can be compared; the bare flag starts it at 2026-01-01 12:00. A loaded state sets it again. Games that follow the clock change with it: Pokemon Black and White's day and night, and their seasons by month |
 | `--touch F[-L]:X,Y` | touch at X,Y in the drawable pixels of the window that shows the bottom screen over frames F..L, through the same mapping as the mouse |
 | `--at F:key=KEY` | a hotkey before frame F, as if typed in the main window (`key=F9`, `key=ctrl+r`); what it changes is saved as when typed |
 | `--game-state` | print the app's Pokemon game state scene (`app/src/main/cpp/gamestate`, the camera's auto zoom) whenever it changes, and the GPU 2D shadow's mode, which a Gen 4 game's battles turn on and off |

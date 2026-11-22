@@ -158,7 +158,9 @@ struct Options
     struct DsiFiles { std::string Bios9, Bios7, Firmware, Nand, DsBios9, DsBios7; } Dsi;
     int ConsoleType = 0;       // console_type: 0 DS, 1 DSi
     float FastForwardSpeed = 0; // fast_forward_speed_multiplier, 0 for unlimited
-    bool FixedTime = false;    // the RTC starts at 2026-01-01 12:00 instead of now
+    bool FixedTime = false;    // the RTC starts at FixedDateTime instead of now
+    // --fixed-time's start: year, month, day, hour, minute, second
+    std::array<int, 6> FixedDateTime = {2026, 1, 1, 12, 0, 0};
     bool VSync = false;
     bool Unthrottled = false;
     bool Audio = true;
@@ -262,7 +264,8 @@ void Usage()
         "  --press F[-L]:KEYS          hold keys (a b x y l r start select up down left right, joined\n"
         "                              by +) over frames F..L (6 frames without L), for scripted runs\n"
         "  --boot-screen               boot through the firmware instead of directly\n"
-        "  --fixed-time                the RTC starts at 2026-01-01 12:00, for runs to compare\n"
+        "  --fixed-time [DATE]         the RTC starts at DATE, YYYY-MM-DD[THH:MM[:SS]] (2000-2099; without it\n"
+        "                              2026-01-01T12:00), for runs to compare\n"
         "  --set NAME=VALUE            a core debug switch, e.g. --set LateBlit=0 (see --list-sets)\n"
         "  --at F:reset|state|save=FILE|scale=N|renderer=R|shot=FILE|key=KEY|NAME=VALUE\n"
         "                              before frame F: a reset, the --state loaded again, a savestate\n"
@@ -451,6 +454,39 @@ bool ParseHiddenTextures(const std::string& spec, std::vector<u32>& hashes)
     return true;
 }
 
+// --fixed-time's YYYY-MM-DD[THH:MM[:SS]], with the DS RTC's year range (2000-2099) and the month's own days
+bool ParseDateTime(const char* spec, std::array<int, 6>& out)
+{
+    std::array<int, 6> t = {0, 0, 0, 0, 0, 0};
+    int length = 0;
+    int count = sscanf(spec, "%4d-%2d-%2d%n", &t[0], &t[1], &t[2], &length);
+    if (count != 3)
+        return false;
+    if (spec[length] != 0)
+    {
+        int timeLength = 0;
+        count = sscanf(spec + length, "T%2d:%2d%n", &t[3], &t[4], &timeLength);
+        if (count != 2)
+            return false;
+        length += timeLength;
+        if (spec[length] != 0)
+        {
+            timeLength = 0;
+            if (sscanf(spec + length, ":%2d%n", &t[5], &timeLength) != 1)
+                return false;
+            length += timeLength;
+        }
+        if (spec[length] != 0)
+            return false;
+    }
+    static constexpr int MONTH_DAYS[12] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (t[0] < 2000 || t[0] > 2099 || t[1] < 1 || t[1] > 12 || t[2] < 1 || t[2] > MONTH_DAYS[t[1] - 1]
+        || (t[1] == 2 && t[2] == 29 && (t[0] & 3)) || t[3] > 23 || t[4] > 59 || t[5] > 59 || t[3] < 0 || t[4] < 0 || t[5] < 0)
+        return false;
+    out = t;
+    return true;
+}
+
 bool ParseSun(int count, unsigned int color, Frontend::Sun& sun)
 {
     if (count != 1 && count != 4 && count != 5 && count != 6 && count != 9 && count != 12 && count != 13)
@@ -578,7 +614,24 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             opts.Presses.push_back(press);
         }
         else if (arg == "--boot-screen") setting("show_bios", picojson::value(true));
-        else if (arg == "--fixed-time") opts.FixedTime = true;
+        else if (arg == "--fixed-time")
+        {
+            opts.FixedTime = true;
+            // the date is optional, so a next argument that doesn't start like one (YYYY-, not the ROM or another option)
+            // is left alone
+            const char* date = i + 1 < argc ? argv[i + 1] : "";
+            bool looksLikeDate = strlen(date) > 4 && date[4] == '-'
+                && std::all_of(date, date + 4, [](char c) { return isdigit((unsigned char) c) != 0; });
+            if (looksLikeDate)
+            {
+                if (!ParseDateTime(argv[i + 1], opts.FixedDateTime))
+                {
+                    fprintf(stderr, "bad --fixed-time %s (YYYY-MM-DD[THH:MM[:SS]], 2000-2099)\n", argv[i + 1]);
+                    return false;
+                }
+                i++;
+            }
+        }
         else if (arg == "--set") opts.Sets.push_back(next());
         else if (arg == "--widedrops") opts.WideDrops = true;
         else if (arg == "--at")
@@ -1049,7 +1102,10 @@ void SetDateTime(const Options& opts, NDS& nds)
 {
     // the same start every run, so two runs can be compared byte for byte; otherwise MelonInstance set the PC's time
     if (opts.FixedTime)
-        nds.RTC.SetDateTime(2026, 1, 1, 12, 0, 0);
+    {
+        const std::array<int, 6>& t = opts.FixedDateTime;
+        nds.RTC.SetDateTime(t[0], t[1], t[2], t[3], t[4], t[5]);
+    }
 }
 
 // an empty save file, as the app makes one for a new game, since MelonInstance only loads a ROM with one there
