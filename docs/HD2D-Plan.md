@@ -214,7 +214,9 @@ Glow on chosen things instead of on anything bright. A Lua list of textures (by 
 - At strength 2 the red channel clips on 621 of 15,271 window pixels at 21:00. The 18:00 glow is mild, as the windows peak at 0.78 against 0.65.
 - App unit tests: 763, all passing.
 
-**Known issues.** The script still fades bloom out during text, so lit windows on shadowed walls darken while a text box is up. The sun shadows still fall at night; a night signal for scripts (the RTC, or light 1's colour) would let `hd2d_white.lua` turn them down. Only Striaton and one Black 2 town were checked. Not checked on the Fold, which needs an evening on the phone's clock.
+**Known issues.** The script still fades bloom out during text, so lit windows on shadowed walls darken while a text box is up. The sun shadows still fall at night; a night signal for scripts (the RTC, or light 1's colour) would let `hd2d_white.lua` turn them down. Only Striaton and one Black 2 town were checked.
+
+**On the Fold, 11-22, daytime only** (inner screen, on AC; `perf_logs/2026-11-22-hd2d-lights/fold/`): the script loads, logcat has no errors, and the scene matches step D's with no glow at noon. Against step D's script on the same build and screen, E's costs +0.04 Mcycles at 4x (3.76) and +0.09 at 8x (11.48), within noise, at 60 FPS. The inner screen costs about 1.45x the cover screen's, so these don't compare with step D's cover numbers. Not checked yet: the glow itself, which needs an evening on the phone's clock.
 
 #### Not in phase 3
 
