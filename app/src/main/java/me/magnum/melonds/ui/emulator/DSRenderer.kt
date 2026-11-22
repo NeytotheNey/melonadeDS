@@ -29,6 +29,7 @@ import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.DepthOfField
 import me.magnum.melonds.domain.model.render.Shade
+import me.magnum.melonds.domain.model.render.Sun
 import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.impl.diagnostics.DebugSwitches
 import me.magnum.melonds.impl.diagnostics.LogTags
@@ -91,6 +92,9 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     // The same for the shading, null for none
     @Volatile
     var shade: Shade? = null
+    // The same for the sun shadows, null for none
+    @Volatile
+    var sun: Sun? = null
     private lateinit var backgroundShader: Shader
     private lateinit var shadowShader: Shader
     private lateinit var overlayShader: Shader
@@ -613,10 +617,11 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         val currentBloom = bloom
         val currentDepthOfField = depthOfField
         val currentShade = shade
+        val currentSun = sun
         val filter = screenFilter
         val halvesAt1xShader = if (
             presentFrameWrapper.isValidFrame && presentFrameWrapper.halvesAt1x != 0 && currentTiltShift == null && currentBloom == null &&
-            currentDepthOfField == null && currentShade == null && filter?.canDrawHalvesAt1x == true
+            currentDepthOfField == null && currentShade == null && currentSun == null && filter?.canDrawHalvesAt1x == true
         ) {
             filter.getHalvesAt1xShader()
         } else {
@@ -630,10 +635,10 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             isDebandFoldOn = DebugSwitches.readInt("debandfold", 1) != 0
         }
         val frameTexels = presentFrameWrapper.textureWidth.toLong() * presentFrameWrapper.textureHeight
-        // Only a Lua effect that adds passes (a tilt-shift, bloom, vignette, depth of field or shading, see VideoFilterPipeline.renderPrePasses)
-        // keeps deband in the pre-pass
+        // Only a Lua effect that adds passes (a tilt-shift, bloom, vignette, depth of field, shading or sun shadows, see
+        // VideoFilterPipeline.renderPrePasses) keeps deband in the pre-pass
         val isLuaEffectActive = currentTiltShift?.let { it.hasBlur || it.hasColorBoost } == true || currentBloom?.isOff == false ||
-            currentDepthOfField?.isOff == false || currentShade?.isOff == false
+            currentDepthOfField?.isOff == false || currentShade?.isOff == false || currentSun?.isOff == false
         val debandScreenShader = if (
             presentFrameWrapper.isValidFrame && halvesAt1xShader == null && filter != null &&
             shouldFoldDeband(isDebandFoldOn, filter.canFoldDeband, isLuaEffectActive, screensDrawnPixels, frameTexels)
@@ -651,7 +656,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         // Pre-passes must run before anything is drawn to the surface; also called for invalid frames to clear the cache
         val screenTexture = if (halvesAt1xShader == null) {
             filter?.renderPrePasses(presentFrameWrapper, isBottomScreenWideInQuads, currentTiltShift, currentBloom, currentDepthOfField,
-                currentShade, foldDeband = debandScreenShader != null)
+                currentShade, currentSun, foldDeband = debandScreenShader != null)
         } else {
             null
         }
@@ -723,11 +728,12 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         shader.setHalvesAt1x(frame.halvesAt1x, frame.scaleAt1x, frame.halfScaleAt1x)
     }
 
-    // debug.melonade.comp1x: only the no-filter shader without deband or a Lua tilt-shift, bloom, vignette, depth of field or shading draws a
-    // screen at 1x straight from the 1x image; any other way the frame has to be expanded first, which costs more than the 1x draw saves. A
-    // check of state only, asked on every frame
+    // debug.melonade.comp1x: only the no-filter shader without deband or a Lua tilt-shift, bloom, vignette, depth of field, shading or sun
+    // shadows draws a screen at 1x straight from the 1x image; any other way the frame has to be expanded first, which costs more than the 1x
+    // draw saves. A check of state only, asked on every frame
     override fun canDrawHalvesAt1x(): Boolean {
-        return tiltShift == null && bloom == null && depthOfField == null && shade == null && screenFilter?.canDrawHalvesAt1x == true
+        return tiltShift == null && bloom == null && depthOfField == null && shade == null && sun == null &&
+            screenFilter?.canDrawHalvesAt1x == true
     }
 
     override fun outputScaleNeed(): Int = screensOutputScaleNeed

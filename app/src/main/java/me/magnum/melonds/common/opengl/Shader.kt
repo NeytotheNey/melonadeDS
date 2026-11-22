@@ -6,7 +6,9 @@ import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.DepthOfField
 import me.magnum.melonds.domain.model.render.Shade
+import me.magnum.melonds.domain.model.render.Sun
 import me.magnum.melonds.domain.model.render.TiltShift
+import kotlin.math.sqrt
 
 private const val INVALID_ATTRIBUTE = -1
 private const val INVALID_UNIFORM = -1
@@ -55,6 +57,17 @@ class Shader(
     private val uniformShadeColor: Int
     private val uniformShadeDepthTex: Int
     private val uniformShadeBlurTex: Int
+    // Only declared by the sun shadows' pre-passes (see ShaderProgramSource.SunMarchPrePassShader and the ones after it): their values and
+    // camera, and for the last pass the frame's depth texture on unit 1 and the shadow on unit 2
+    private val uniformSun: Int
+    private val uniformSunDirection: Int
+    private val uniformSunSoftness: Int
+    private val uniformSunColor: Int
+    private val uniformSunProjection: Int
+    private val uniformSunInverse: Int
+    private val uniformSunViewport: Int
+    private val uniformSunDepthTex: Int
+    private val uniformSunMaskTex: Int
     // Only declared by ShaderProgramSource.NoFilterHalvesAt1xShader, with its coordinate textures (VideoFilterPipeline.bindHalvesAt1xCoordinates)
     private val uniformHalvesAt1x: Int
     private val uniformCoordXTex: Int
@@ -86,6 +99,15 @@ class Shader(
         uniformShadeColor = GLES30.glGetUniformLocation(programId, "shadeColor")
         uniformShadeDepthTex = GLES30.glGetUniformLocation(programId, "shadeDepthTex")
         uniformShadeBlurTex = GLES30.glGetUniformLocation(programId, "shadeBlurTex")
+        uniformSun = GLES30.glGetUniformLocation(programId, "sun")
+        uniformSunDirection = GLES30.glGetUniformLocation(programId, "sunDirection")
+        uniformSunSoftness = GLES30.glGetUniformLocation(programId, "sunSoftness")
+        uniformSunColor = GLES30.glGetUniformLocation(programId, "sunColor")
+        uniformSunProjection = GLES30.glGetUniformLocation(programId, "sunProjection")
+        uniformSunInverse = GLES30.glGetUniformLocation(programId, "sunInverse")
+        uniformSunViewport = GLES30.glGetUniformLocation(programId, "sunViewport")
+        uniformSunDepthTex = GLES30.glGetUniformLocation(programId, "sunDepthTex")
+        uniformSunMaskTex = GLES30.glGetUniformLocation(programId, "sunMaskTex")
         uniformHalvesAt1x = GLES30.glGetUniformLocation(programId, "halvesAt1x")
         uniformCoordXTex = GLES30.glGetUniformLocation(programId, "coordXTex")
         uniformCoordYTex = GLES30.glGetUniformLocation(programId, "coordYTex")
@@ -229,6 +251,44 @@ class Shader(
         }
         if (uniformShadeBlurTex != INVALID_UNIFORM) {
             GLES30.glUniform1i(uniformShadeBlurTex, 2)
+        }
+    }
+
+    /**
+     * Sets the sun shadows' values and the depth camera they're marched with: [projection] and [inverse] (its inverse), 16 floats each
+     * column-major, and [viewport] (left, top, width, height in DS pixels of the depth texture's top half); and that the frame's depth texture
+     * is on unit 1 and the shadow on unit 2. The direction is normalized here. Call after [use].
+     */
+    fun setSun(sun: Sun, projection: FloatArray, inverse: FloatArray, viewport: FloatArray) {
+        if (uniformSun != INVALID_UNIFORM) {
+            GLES30.glUniform4f(uniformSun, sun.strength, sun.length, sun.steps.toFloat(), sun.bias)
+        }
+        if (uniformSunDirection != INVALID_UNIFORM) {
+            val length = sqrt(sun.directionX * sun.directionX + sun.directionY * sun.directionY + sun.directionZ * sun.directionZ)
+            val scale = if (length > 0f) 1f / length else 0f
+            GLES30.glUniform3f(uniformSunDirection, sun.directionX * scale, sun.directionY * scale, sun.directionZ * scale)
+        }
+        if (uniformSunSoftness != INVALID_UNIFORM) {
+            GLES30.glUniform1f(uniformSunSoftness, sun.softness)
+        }
+        if (uniformSunColor != INVALID_UNIFORM) {
+            val color = sun.color
+            GLES30.glUniform3f(uniformSunColor, (color shr 16 and 0xFF) / 255f, (color shr 8 and 0xFF) / 255f, (color and 0xFF) / 255f)
+        }
+        if (uniformSunProjection != INVALID_UNIFORM) {
+            GLES30.glUniformMatrix4fv(uniformSunProjection, 1, false, projection, 0)
+        }
+        if (uniformSunInverse != INVALID_UNIFORM) {
+            GLES30.glUniformMatrix4fv(uniformSunInverse, 1, false, inverse, 0)
+        }
+        if (uniformSunViewport != INVALID_UNIFORM) {
+            GLES30.glUniform4f(uniformSunViewport, viewport[0], viewport[1], viewport[2], viewport[3])
+        }
+        if (uniformSunDepthTex != INVALID_UNIFORM) {
+            GLES30.glUniform1i(uniformSunDepthTex, 1)
+        }
+        if (uniformSunMaskTex != INVALID_UNIFORM) {
+            GLES30.glUniform1i(uniformSunMaskTex, 2)
         }
     }
 

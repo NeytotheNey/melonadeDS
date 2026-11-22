@@ -54,6 +54,8 @@ public:
     void SetDepthOfField(const std::optional<DepthOfField>& depthOfField) { CurrentDepthOfField = depthOfField; }
     // the Lua shading over the top screen (none by default; --shade for tests), drawn on frames that have depth
     void SetShade(const std::optional<Shade>& shade) { CurrentShade = shade; }
+    // the Lua sun shadows over the top screen (none by default; --sun for tests), drawn on frames that have depth and a depth camera
+    void SetSun(const std::optional<Sun>& sun) { CurrentSun = sun; }
 
     // where [layout]'s screens of [frame] go in a drawable windowW x windowH with [fit], centered. [swap] trades the screens' places: the
     // bottom screen first (above or left), or the other screen for TopOnly and BottomOnly. Only the frame's top screen size is read
@@ -83,6 +85,7 @@ private:
     std::optional<Bloom> CurrentBloom;
     std::optional<DepthOfField> CurrentDepthOfField;
     std::optional<Shade> CurrentShade;
+    std::optional<Sun> CurrentSun;
     ScreenRenderer Surfaces[SURFACE_COUNT];
 
     GLuint CursorProgram = 0;

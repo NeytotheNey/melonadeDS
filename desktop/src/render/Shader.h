@@ -16,6 +16,7 @@ struct TiltShift;
 struct Bloom;
 struct DepthOfField;
 struct Shade;
+struct Sun;
 
 class Shader
 {
@@ -49,6 +50,10 @@ public:
     // the shading's strength, radius, range and tint, and for its last pass the frame's depth texture on unit 1 and the blurred depth on
     // unit 2
     void SetShade(const Shade& shade) const;
+    // the sun shadows' values and the depth camera they're marched with: [projection] and [inverse] (its inverse), 16 floats each
+    // column-major, and [viewport] (left, top, width, height in DS pixels of the depth texture's top half); and the frame's depth texture on
+    // unit 1 and the shadow on unit 2. The direction is normalized here
+    void SetSun(const Sun& sun, const float* projection, const float* inverse, const float* viewport) const;
     // GPU::Comp1x: which screens are at 1x, the frame's scale and theirs, and the coordinate textures on units 1 and 2
     void SetHalvesAt1x(int halvesAt1x, int scale, int halfScale) const;
 
@@ -60,6 +65,8 @@ private:
     GLint UniformHaze = -1, UniformHazeColor = -1, UniformHazeDepthTex = -1;
     GLint UniformDepthOfField = -1, UniformDepthFocus = -1, UniformDepthTex = -1, UniformFocusTex = -1;
     GLint UniformShade = -1, UniformShadeColor = -1, UniformShadeDepthTex = -1, UniformShadeBlurTex = -1;
+    GLint UniformSun = -1, UniformSunDirection = -1, UniformSunSoftness = -1, UniformSunColor = -1, UniformSunProjection = -1;
+    GLint UniformSunInverse = -1, UniformSunViewport = -1, UniformSunDepthTex = -1, UniformSunMaskTex = -1;
     GLint UniformHalvesAt1x = -1, UniformCoordXTex = -1, UniformCoordYTex = -1;
 };
 

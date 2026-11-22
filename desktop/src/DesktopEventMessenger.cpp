@@ -110,6 +110,12 @@ void DesktopEventMessenger::onLuaShade(int scriptId, float strength, float radiu
     POST_LOG("Lua script %d: shade %.2f radius %.2f\n", scriptId, strength, radius);
 }
 
+void DesktopEventMessenger::onLuaSun(int scriptId, float strength, const std::array<float, 3>& direction, const std::array<float, 3>& up,
+    float length, int steps, float bias, float softness, int color)
+{
+    POST_LOG("Lua script %d: sun %.2f length %.1f steps %d\n", scriptId, strength, length, steps);
+}
+
 void DesktopEventMessenger::onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY)
 {
     POST_LOG("Lua script %d: wide camera zoom %.2f\n", scriptId, zoom);

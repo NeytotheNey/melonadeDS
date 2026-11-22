@@ -1,5 +1,5 @@
-// What the presentation reads of a frame (the app's PresentFrameWrapper.kt) and the Lua tilt-shift, bloom, depth of field and shading a script
-// asks for (TiltShift.kt, Bloom.kt, DepthOfField.kt, Shade.kt)
+// What the presentation reads of a frame (the app's PresentFrameWrapper.kt) and the Lua tilt-shift, bloom, depth of field, shading and sun
+// shadows a script asks for (TiltShift.kt, Bloom.kt, DepthOfField.kt, Shade.kt, Sun.kt)
 #pragma once
 
 #include <algorithm>
@@ -114,6 +114,26 @@ struct Shade
     bool operator==(const Shade&) const = default;
 
     bool IsOff() const { return Strength <= 0.f || Radius <= 0.f; }
+};
+
+// Sun.kt: sun shadows on the DS top screen's 3D, marched in screen space from its depth and the camera it was drawn with. Each 3D pixel's
+// view-space position steps [Length] units towards [Direction] in [Steps] steps, and it's in shadow where the depth at a step is nearer than
+// the step by more than [Bias] units; the shadow is softened [Softness] DS pixels wide and tinted towards [Color] (0xRRGGBB) by [Strength]
+// (0 to 1). [Direction] and [Up] are in the camera's view space, normalized where they're used. [Up] isn't used by the march; it's kept for
+// the characters' shadows, which the core will draw. Only 3D pixels are shadowed, and only when the frame has its depth and a usable camera
+struct Sun
+{
+    float Strength = 0;
+    std::array<float, 3> Direction {0.50f, 0.83f, 0.26f};
+    std::array<float, 3> Up {0.0006f, 0.607f, 0.794f};
+    float Length = 96;
+    int Steps = 64;
+    float Bias = 1, Softness = 1.5f;
+    melonDS::u32 Color = 0x33384F;
+
+    bool operator==(const Sun&) const = default;
+
+    bool IsOff() const { return Strength <= 0.f || Steps <= 0 || Length <= 0.f; }
 };
 
 }

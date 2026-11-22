@@ -30,6 +30,8 @@ public:
         int hazeColor, float hazeStart, float hazeFalloff) override;
     void onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth, float range, float falloff) override;
     void onLuaShade(int scriptId, float strength, float radius, float range, int color) override;
+    void onLuaSun(int scriptId, float strength, const std::array<float, 3>& direction, const std::array<float, 3>& up, float length, int steps,
+        float bias, float softness, int color) override;
     void onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY) override;
     void onLuaStateLoaded() override;
 
@@ -60,6 +62,7 @@ private:
     static constexpr int EVENT_LUA_BLOOM = 309;
     static constexpr int EVENT_LUA_DEPTH_OF_FIELD = 310;
     static constexpr int EVENT_LUA_SHADE = 311;
+    static constexpr int EVENT_LUA_SUN = 312;
 };
 
 #endif // ANDROIDMELONEVENTMESSENGER_H

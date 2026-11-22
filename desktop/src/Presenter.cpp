@@ -228,7 +228,7 @@ ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, La
     renderer.UpdateRendererConfiguration(Config);
     if (frame.IsValid())
         renderer.UpdateScreenAreas(rects.Top, rects.Bottom, windowW, windowH);
-    renderer.DrawFrame(frame, CurrentTiltShift, CurrentBloom, CurrentDepthOfField, CurrentShade);
+    renderer.DrawFrame(frame, CurrentTiltShift, CurrentBloom, CurrentDepthOfField, CurrentShade, CurrentSun);
     return rects;
 }
 
@@ -237,7 +237,7 @@ bool Presenter::CanDrawHalvesAt1x(int surfaces) const
     bool can = true;
     for (int i = 0; i < std::min(surfaces, SURFACE_COUNT); i++)
         can = can && Surfaces[i].CanDrawHalvesAt1x(CurrentTiltShift.has_value() || CurrentBloom.has_value() || CurrentDepthOfField.has_value()
-            || CurrentShade.has_value());
+            || CurrentShade.has_value() || CurrentSun.has_value());
     return can;
 }
 

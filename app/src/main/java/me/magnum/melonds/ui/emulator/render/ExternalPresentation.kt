@@ -19,6 +19,7 @@ import me.magnum.melonds.domain.model.RuntimeBackground
 import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.DepthOfField
 import me.magnum.melonds.domain.model.render.Shade
+import me.magnum.melonds.domain.model.render.Sun
 import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.ui.emulator.DSRenderer
 import me.magnum.melonds.ui.emulator.EmulatorSurfaceView
@@ -136,6 +137,10 @@ class ExternalPresentation(
 
     fun updateShade(shade: Shade?) {
         emulatorRenderer.shade = shade
+    }
+
+    fun updateSun(sun: Sun?) {
+        emulatorRenderer.sun = sun
     }
 
     override fun onStop() {

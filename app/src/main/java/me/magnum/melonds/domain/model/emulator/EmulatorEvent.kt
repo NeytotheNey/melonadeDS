@@ -4,6 +4,7 @@ import me.magnum.melonds.domain.model.camera.WideCameraRequest
 import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.DepthOfField
 import me.magnum.melonds.domain.model.render.Shade
+import me.magnum.melonds.domain.model.render.Sun
 import me.magnum.melonds.domain.model.render.TiltShift
 
 sealed class EmulatorEvent {
@@ -20,6 +21,7 @@ sealed class EmulatorEvent {
     data class LuaBloom(val scriptId: Int, val bloom: Bloom) : EmulatorEvent()
     data class LuaDepthOfField(val scriptId: Int, val depthOfField: DepthOfField) : EmulatorEvent()
     data class LuaShade(val scriptId: Int, val shade: Shade) : EmulatorEvent()
+    data class LuaSun(val scriptId: Int, val sun: Sun) : EmulatorEvent()
     data class LuaWideCamera(val scriptId: Int, val request: WideCameraRequest) : EmulatorEvent()
     data object LuaStateLoaded : EmulatorEvent()
     data class Stop(val reason: Reason) : EmulatorEvent() {

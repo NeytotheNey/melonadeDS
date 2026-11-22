@@ -34,6 +34,13 @@ static const lua_Number kMaxDepthOfFieldFocusY = 384.0;
 // melon.screen.shade(): the depth blur's radius in DS pixels, as many taps on each side of its passes
 static const lua_Number kMinShadeRadius = 1.0;
 static const lua_Number kMaxShadeRadius = 16.0;
+// melon.screen.sun(): the march's longest reach in view-space units (White's far plane is 1025), its most steps (the shader's loop bound),
+// the largest bias in units, and the widest softening blur in DS pixels (the blur passes' tap bound)
+static const lua_Number kMinSunLength = 1.0;
+static const lua_Number kMaxSunLength = 1024.0;
+static const lua_Number kMaxSunSteps = 128.0;
+static const lua_Number kMaxSunBias = 64.0;
+static const lua_Number kMaxSunSoftness = 8.0;
 
 /**
  * A new table on the stack with [functions] in it, like luaL_newlib() for a table whose size isn't known here
@@ -492,6 +499,12 @@ void LuaEngine::sendRequests(LuaScript& script)
             const LuaShade& shade = script.sentShade;
             eventMessenger->onLuaShade(script.id, shade.strength, shade.radius, shade.range, (int) shade.color);
         }
+        if (script.sun != script.sentSun)
+        {
+            script.sentSun = script.sun;
+            const LuaSun& sun = script.sentSun;
+            eventMessenger->onLuaSun(script.id, sun.strength, sun.direction, sun.up, sun.length, sun.steps, sun.bias, sun.softness, (int) sun.color);
+        }
         if (script.wideCamera != script.sentWideCamera)
         {
             script.sentWideCamera = script.wideCamera;
@@ -547,6 +560,7 @@ int LuaEngine::setupScript(lua_State* L)
         { "haze", luaScreenHaze },
         { "depth_of_field", luaScreenDepthOfField },
         { "shade", luaScreenShade },
+        { "sun", luaScreenSun },
         { nullptr, nullptr },
     };
     static const luaL_Reg emuFunctions[] = {
@@ -713,6 +727,15 @@ void LuaEngine::closeScript(LuaScript& script)
         if (eventMessenger)
             eventMessenger->onLuaShade(script.id, off.strength, off.radius, off.range, (int) off.color);
         script.sentShade = off;
+    }
+    // The same for the sun shadows
+    script.sun = LuaSun();
+    if (script.sentSun != LuaSun())
+    {
+        LuaSun off;
+        if (eventMessenger)
+            eventMessenger->onLuaSun(script.id, off.strength, off.direction, off.up, off.length, off.steps, off.bias, off.softness, (int) off.color);
+        script.sentSun = off;
     }
     // The same for the camera: a reloaded script starts asking for nothing
     script.wideCamera = LuaWideCamera();
@@ -1123,14 +1146,71 @@ int LuaEngine::luaScreenShade(lua_State* L)
     return 0;
 }
 
+/**
+ * The [name] field of the options table at index [table] as a direction: a table of three numbers, normalized, or [defaultValue] if it's nil.
+ * Anything else, or a vector too short to have a direction, is an error
+ */
+static std::array<float, 3> getDirectionOption(lua_State* L, int table, const char* name, const std::array<float, 3>& defaultValue)
+{
+    std::array<float, 3> result = defaultValue;
+    if (lua_getfield(L, table, name) != LUA_TNIL)
+    {
+        if (!lua_istable(L, -1))
+            luaL_error(L, "%s must be a table of three numbers", name);
+        lua_Number vector[3];
+        for (int i = 0; i < 3; i++)
+        {
+            lua_rawgeti(L, -1, i + 1);
+            int isNumber;
+            vector[i] = lua_tonumberx(L, -1, &isNumber);
+            if (!isNumber || !std::isfinite(vector[i]))
+                luaL_error(L, "%s must be a table of three numbers", name);
+            lua_pop(L, 1);
+        }
+        lua_Number length = std::sqrt(vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2]);
+        if (!(length > 1e-6) || !std::isfinite(length))
+            luaL_error(L, "%s must not be zero", name);
+        for (int i = 0; i < 3; i++)
+            result[i] = (float) (vector[i] / length);
+    }
+    lua_pop(L, 1);
+    return result;
+}
+
+int LuaEngine::luaScreenSun(lua_State* L)
+{
+    LuaScript& script = getScript(L);
+    LuaSun sun;
+    sun.strength = checkStrength(L, 1, 1.0);
+    if (!lua_isnoneornil(L, 2))
+    {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        sun.direction = getDirectionOption(L, 2, "direction", sun.direction);
+        sun.up = getDirectionOption(L, 2, "up", sun.up);
+        sun.length = getNumberOptionInRange(L, 2, "length", sun.length, kMinSunLength, kMaxSunLength);
+        sun.steps = (int) std::lround(getNumberOptionInRange(L, 2, "steps", (float) sun.steps, 1.0, kMaxSunSteps));
+        sun.bias = getNumberOption(L, 2, "bias", sun.bias, kMaxSunBias);
+        sun.softness = getNumberOption(L, 2, "softness", sun.softness, kMaxSunSoftness);
+        sun.color = getColorOption(L, 2, "color", sun.color);
+    }
+
+    // Off is off, whatever the options are, so going over them while it's off costs no events
+    if (sun.strength <= 0.0f)
+        sun = LuaSun();
+
+    if (!script.engine->isUnloading)
+        script.sun = sun;
+    return 0;
+}
+
 bool LuaEngine::wantsDepth() const
 {
     for (const auto& script : scripts)
     {
         // A stopped script's were set back to off when it closed. only_3d is on by default, so it only counts while the glow is on
         const LuaBloom& bloom = script->sentBloom;
-        if (script->sentDepthOfField.strength > 0.0f || script->sentShade.strength > 0.0f || bloom.haze > 0.0f ||
-            (bloom.strength > 0.0f && bloom.onlyThreeD))
+        if (script->sentDepthOfField.strength > 0.0f || script->sentShade.strength > 0.0f || script->sentSun.strength > 0.0f ||
+            bloom.haze > 0.0f || (bloom.strength > 0.0f && bloom.onlyThreeD))
             return true;
     }
     return false;

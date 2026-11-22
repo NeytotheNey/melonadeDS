@@ -1,6 +1,7 @@
 #ifndef LUAENGINEINTERNAL_H
 #define LUAENGINEINTERNAL_H
 
+#include <array>
 #include <new>
 #include <optional>
 #include <string>
@@ -150,6 +151,29 @@ struct LuaShade
 };
 
 /**
+ * What melon.screen.sun() asks for, clamped, with its vectors normalized; a default one is off, and every call that means off makes a default
+ * one so that they compare equal. The defaults suit Pokémon White's field
+ */
+struct LuaSun
+{
+    float strength = 0.0f;
+    // Towards the sun, in the depth camera's view space
+    std::array<float, 3> direction = { 0.50f, 0.83f, 0.26f };
+    // The world's up in view space. The march doesn't use it; it's kept for the characters' shadows, which the core will draw
+    std::array<float, 3> up = { 0.0006f, 0.607f, 0.794f };
+    // View-space units (a tile is 16 in White)
+    float length = 96.0f;
+    int steps = 64;
+    float bias = 1.0f;
+    // DS pixels
+    float softness = 1.5f;
+    // The shadow's tint, 0xRRGGBB
+    melonDS::u32 color = 0x33384F;
+
+    bool operator==(const LuaSun&) const = default;
+};
+
+/**
  * What a script's melon.wide calls ask of the WideMelon camera, clamped to what any game could take (the app clamps further); a default one
  * asks for nothing
  */
@@ -208,6 +232,9 @@ struct LuaScript
     // melon.screen.shade(): the same as the depth of field
     LuaShade shade;
     LuaShade sentShade;
+    // melon.screen.sun(): the same
+    LuaSun sun;
+    LuaSun sentSun;
     // melon.wide: kept until the script changes it or stops (not a per-call request), and what the app was last told of it
     LuaWideCamera wideCamera;
     LuaWideCamera sentWideCamera;

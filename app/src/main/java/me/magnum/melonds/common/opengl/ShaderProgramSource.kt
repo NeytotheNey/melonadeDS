@@ -1033,11 +1033,12 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // The bloom's values (Shader.setBloom): strength (x), threshold (y) and radius in DS pixels (z)
         private const val BLOOM_UNIFORM = "uniform vec3 bloom;\n"
 
-        // A texel of the frame's depth texture (PresentFrameWrapper.depthTextureId, the compositor's kCompositorDepthFS) as a depth from 0 to
-        // 1: the DS's 24-bit depth in RGB, high byte in R, so 0 is 2D drawn over the 3D and 1 is where what's behind the 3D shows. A holds the
+        // A texel of the frame's depth texture (PresentFrameWrapper.depthTextureId, the compositor's kCompositorDepthFS) as a depth from 0 to 1:
+        // the DS's 24-bit depth in RGB, high byte in R, so 0 is 2D drawn over the 3D and 1 is where what's behind the 3D shows. A holds the
         // compositor's flags (1 for 2D, 2 for behind the 3D, 4 for a W-buffered 3D pixel, 8 for 3D drawn under another camera than
-        // PresentFrameWrapper.depthCamera), which nothing reads yet. The two ends are exact and
-        // every other depth stays below 1, however the GPU divides, so a test like depth < 1.0 tells real 3D from what's behind it
+        // PresentFrameWrapper.depthCamera, 16 for a pixel in a character's shadow once the renderer marks them), which the sun shadows read. The
+        // two ends are exact and every other depth stays below 1, however the GPU divides, so a test like depth < 1.0 tells real 3D from what's
+        // behind it
         private const val DEPTH_DECODE_FUNCTION = "highp float decodeDepth(highp vec4 texel) {\n" +
                 "    highp vec3 bytes = floor(texel.rgb * 255.0 + 0.5);\n" +
                 "    highp float value = bytes.r * 65536.0 + bytes.g * 256.0 + bytes.b;\n" +
@@ -1652,6 +1653,292 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    // The frame texture's texels are BGR\n" +
                     "    vec3 color = texel.bgr;\n" +
                     "    gl_FragColor = vec4(mix(color, color * shadeColor, darkening).bgr, texel.a);\n" +
+                    "}"
+        )
+
+        // The sun shadows' camera and values (Shader.setSun): sun is the strength (x), the march's length in view-space units (y), its steps
+        // (z) and its bias in units (w). sunInverse is the inverse of the depth camera's projection (PresentFrameWrapper.depthCamera), and
+        // sunViewport its viewport's left, top, width and height in DS pixels of the depth texture's top half, so with the WideMelon wings and
+        // margin before the native view's 0
+        private const val SUN_UNIFORMS = "uniform highp vec4 sun;\n" +
+                "uniform highp mat4 sunInverse;\n" +
+                "uniform highp vec4 sunViewport;\n"
+
+        // A depth texel's flags byte (DEPTH_DECODE_FUNCTION's A) has [bit] (1, 2, 4, 8 or 16). sunNdc() is a point's NDC from where it is in
+        // DS pixels of the depth's top half and its 24-bit Z-buffer depth (the core's z/w * 2^23 + 0x7FFE00 inverted), sunViewDistance() how
+        // far in front of the camera it is in view space, and sunScreen() a clip position back in DS pixels. Needs SUN_UNIFORMS first
+        private const val SUN_CAMERA_FUNCTIONS = "bool hasFlag(highp vec4 texel, float bit) {\n" +
+                "    float flags = floor(texel.a * 255.0 + 0.5);\n" +
+                "    return mod(floor(flags / bit), 2.0) == 1.0;\n" +
+                "}\n" +
+                "highp vec4 sunNdc(highp vec2 p, highp float value) {\n" +
+                "    return vec4((p.x - sunViewport.x) * 2.0 / sunViewport.z - 1.0, 1.0 - (p.y - sunViewport.y) * 2.0 / sunViewport.w,\n" +
+                "        (value - 8388096.0) / 8388608.0, 1.0);\n" +
+                "}\n" +
+                "highp float sunViewDistance(highp vec2 p, highp float value) {\n" +
+                "    highp vec4 view = sunInverse * sunNdc(p, value);\n" +
+                "    return -view.z / view.w;\n" +
+                "}\n" +
+                "highp vec2 sunScreen(highp vec4 clip) {\n" +
+                "    highp vec2 ndc = clip.xy / clip.w;\n" +
+                "    return vec2(sunViewport.x + (ndc.x + 1.0) * 0.5 * sunViewport.z, sunViewport.y + (1.0 - ndc.y) * 0.5 * sunViewport.w);\n" +
+                "}\n" +
+                "// How far apart two depths of one surface can be, in view-space units, at [dist] and [pixels] DS pixels apart: about what\n" +
+                "// a surface 16 degrees off the line of sight changes by over a DS pixel of White's camera, plus a pixel's worth for the DS's\n" +
+                "// rounding\n" +
+                "highp float sunSurfaceTolerance(highp float dist, float pixels) {\n" +
+                "    return 0.0125 * dist * (pixels + 1.0);\n" +
+                "}\n"
+
+        // The sun shadows' march, at DS resolution (VideoFilterPipeline makes its target topScreenWidth x the top screen's half's rows, the
+        // depth texture's size over the internal scale). tex (unit 0, nearest) is the frame's depth texture (PresentFrameWrapper.depthTextureId).
+        // Each target texel takes the depth texel in the middle of its DS pixel, rebuilds its view-space position, and steps sun.z times over
+        // sun.y units towards sunDirection; it's in shadow where the depth at a step is nearer than the step by more than sun.w units. A step
+        // that lands on 2D, on 3D drawn under another camera (flag 8, White's characters, which would cast shadows tilted towards the camera),
+        // on nothing, off the depth or behind the camera finds no shadow there. The shadow fades out over SUN_EDGE_FADE DS pixels before the
+        // edge the march leaves the depth through, where what would cast it is off screen. Out: the texel's depth as encodeDepth() has it in
+        // RGB and the shadow (0 to 1) in A, all 0 where it isn't 3D
+        val SunMarchPrePassShader get() = ShaderProgramSource(
+            TextureFiltering.NEAREST,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    "varying vec2 uv;\n" +
+                    "uniform highp sampler2D tex;\n" +
+                    "uniform vec2 texSize;\n" +
+                    "uniform float topScreenWidth;\n" +
+                    "uniform highp vec3 sunDirection;\n" +
+                    "uniform highp mat4 sunProjection;\n" +
+                    FRAME_LAYOUT_UNIFORM +
+                    SUN_UNIFORMS +
+                    DEPTH_VALUE_FUNCTIONS +
+                    SUN_CAMERA_FUNCTIONS +
+                    "" +
+                    "const int SUN_MAX_STEPS = 128;\n" +
+                    "const float SUN_EDGE_FADE = 32.0;\n" +
+                    "" +
+                    "// Whether depth texel t shades a step dist units in front of the camera: it's 3D, not under another camera, and nearer than\n" +
+                    "// dist - bias\n" +
+                    "bool isOccluder(highp vec2 t, highp vec2 scale, highp float dist) {\n" +
+                    "    highp vec4 depth = texture2D(tex, (t + 0.5) / texSize);\n" +
+                    "    highp float value = depthValue(depth);\n" +
+                    "    if (!isValue3D(value) || hasFlag(depth, 8.0)) {\n" +
+                    "        return false;\n" +
+                    "    }\n" +
+                    "    return sunViewDistance((t + 0.5) / scale, value) < dist - sun.w;\n" +
+                    "}\n" +
+                    "" +
+                    "// How far from p (DS pixels) along dir the march leaves the dsSize rect\n" +
+                    "highp float exitDistance(highp vec2 p, highp vec2 dir, highp vec2 dsSize) {\n" +
+                    "    highp vec2 room = vec2(dir.x > 0.0 ? dsSize.x - p.x : p.x, dir.y > 0.0 ? dsSize.y - p.y : p.y);\n" +
+                    "    highp vec2 along = abs(dir);\n" +
+                    "    highp float exit = 1.0e9;\n" +
+                    "    if (along.x > 1.0e-6) {\n" +
+                    "        exit = min(exit, room.x / along.x);\n" +
+                    "    }\n" +
+                    "    if (along.y > 1.0e-6) {\n" +
+                    "        exit = min(exit, room.y / along.y);\n" +
+                    "    }\n" +
+                    "    return exit;\n" +
+                    "}\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    // The top screen's half in DS pixels and the depth texels per DS pixel, both whole numbers\n" +
+                    "    highp vec2 dsSize = floor(vec2(topScreenWidth, frameLayout.x * frameLayout.w) + 0.5);\n" +
+                    "    highp vec2 scale = max(floor(texSize / dsSize + 0.5), 1.0);\n" +
+                    "    highp vec2 texel = min(floor((floor(uv * dsSize) + 0.5) * scale), texSize - 1.0);\n" +
+                    "    highp vec4 depth = texture2D(tex, (texel + 0.5) / texSize);\n" +
+                    "    highp float value = depthValue(depth);\n" +
+                    "    // A W-buffered pixel's depth isn't z/w (its scene has no camera, so this pass doesn't run then)\n" +
+                    "    if (!isValue3D(value) || hasFlag(depth, 4.0)) {\n" +
+                    "        gl_FragColor = vec4(0.0);\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "" +
+                    "    highp vec2 p = (texel + 0.5) / scale;\n" +
+                    "    highp vec4 view = sunInverse * sunNdc(p, value);\n" +
+                    "    highp vec3 origin = view.xyz / view.w;\n" +
+                    "    // The steps are evenly spaced in view space, so they are in clip space too\n" +
+                    "    highp vec3 stride = sunDirection * (sun.y / sun.z);\n" +
+                    "    highp vec4 clipOrigin = sunProjection * vec4(origin, 1.0);\n" +
+                    "    highp vec4 clipStep = sunProjection * vec4(stride, 0.0);\n" +
+                    "    float shadow = 0.0;\n" +
+                    "    for (int i = 1; i <= SUN_MAX_STEPS; i++) {\n" +
+                    "        float n = float(i);\n" +
+                    "        highp vec4 clip = clipOrigin + clipStep * n;\n" +
+                    "        highp float dist = -(origin.z + stride.z * n);\n" +
+                    "        // A line leaves the screen or passes the camera only once, so no later step can find a shadow either\n" +
+                    "        if (n > sun.z || dist <= 1.0 || clip.w <= 0.0) {\n" +
+                    "            break;\n" +
+                    "        }\n" +
+                    "        highp vec2 q = sunScreen(clip);\n" +
+                    "        if (q.x < 0.0 || q.y < 0.0 || q.x >= dsSize.x || q.y >= dsSize.y) {\n" +
+                    "            break;\n" +
+                    "        }\n" +
+                    "        if (isOccluder(min(floor(q * scale), texSize - 1.0), scale, dist)) {\n" +
+                    "            shadow = 1.0;\n" +
+                    "            break;\n" +
+                    "        }\n" +
+                    "    }\n" +
+                    "" +
+                    "    // The fade, over SUN_EDGE_FADE or the march's own length on screen if that's shorter, so a march that stays on screen\n" +
+                    "    // doesn't fade\n" +
+                    "    highp vec4 clipFirst = clipOrigin + clipStep;\n" +
+                    "    highp vec2 first = clipFirst.w > 0.0 ? sunScreen(clipFirst) - p : vec2(0.0);\n" +
+                    "    highp vec4 clipEnd = clipOrigin + clipStep * sun.z;\n" +
+                    "    highp float onScreen = clipEnd.w > 0.0 ? length(sunScreen(clipEnd) - p) : 1.0e9;\n" +
+                    "    highp float fade = 1.0;\n" +
+                    "    if (length(first) > 1.0e-6) {\n" +
+                    "        highp float fadeLength = clamp(onScreen, 1.0, SUN_EDGE_FADE);\n" +
+                    "        fade = clamp(exitDistance(p, normalize(first), dsSize) / fadeLength, 0.0, 1.0);\n" +
+                    "    }\n" +
+                    "    gl_FragColor = vec4(encodeDepth(value), shadow * fade);\n" +
+                    "}"
+        )
+
+        // One direction of the sun shadows' softening blur, at DS resolution like the march, whose output (or the horizontal pass's) is tex
+        // (unit 0, nearest): a Gaussian whose sigma is half of sunSoftness, with that many taps on each side (at most SUN_MAX_SOFTNESS, the Lua
+        // API's largest), over A. Only taps that are 3D and on the same surface as this texel count (their view distances within
+        // sunSurfaceTolerance), as a normalized convolution, so a lit roof doesn't take the shadow of the ground below it. Out: this texel's
+        // RGB and the blurred shadow in A
+        private fun sunBlurPrePassShader(direction: String): ShaderProgramSource {
+            return ShaderProgramSource(
+                TextureFiltering.NEAREST,
+                PRE_PASS_VERT_SHADER,
+                PRECISION_HEADER +
+                        "varying vec2 uv;\n" +
+                        "uniform highp sampler2D tex;\n" +
+                        "uniform vec2 texSize;\n" +
+                        "uniform float sunSoftness;\n" +
+                        SUN_UNIFORMS +
+                        DEPTH_VALUE_FUNCTIONS +
+                        SUN_CAMERA_FUNCTIONS +
+                        "" +
+                        "const vec2 BLUR_DIRECTION = $direction;\n" +
+                        "const int SUN_MAX_SOFTNESS = 8;\n" +
+                        "" +
+                        "// Counts the texel x taps away by kernel, if it's 3D and within the tolerance of dist\n" +
+                        "void addTap(float x, float kernel, highp float dist, inout float sum, inout float weights) {\n" +
+                        "    highp vec2 p = floor(uv * texSize) + 0.5 + BLUR_DIRECTION * x;\n" +
+                        "    // Clamping would read the edge texel again\n" +
+                        "    if (p.x < 0.0 || p.y < 0.0 || p.x > texSize.x || p.y > texSize.y) {\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "    highp vec4 texel = texture2D(tex, p / texSize);\n" +
+                        "    highp float value = depthValue(texel);\n" +
+                        "    if (!isValue3D(value)) {\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "    highp float apart = abs(sunViewDistance(p, value) - dist);\n" +
+                        "    float weight = kernel * clamp(1.0 - apart / sunSurfaceTolerance(dist, abs(x)), 0.0, 1.0);\n" +
+                        "    sum += weight * texel.a;\n" +
+                        "    weights += weight;\n" +
+                        "}\n" +
+                        "" +
+                        "void main() {\n" +
+                        "    highp vec4 center = texture2D(tex, uv);\n" +
+                        "    highp float value = depthValue(center);\n" +
+                        "    if (!isValue3D(value)) {\n" +
+                        "        gl_FragColor = center;\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "    highp float dist = sunViewDistance(floor(uv * texSize) + 0.5, value);\n" +
+                        "    float sigma = max(0.5 * sunSoftness, 0.5);\n" +
+                        "    float sum = center.a;\n" +
+                        "    float weights = 1.0;\n" +
+                        "    for (int i = 1; i <= SUN_MAX_SOFTNESS; i++) {\n" +
+                        "        float x = float(i);\n" +
+                        "        if (x > sunSoftness) {\n" +
+                        "            break;\n" +
+                        "        }\n" +
+                        "        float kernel = exp(-0.5 * (x / sigma) * (x / sigma));\n" +
+                        "        addTap(-x, kernel, dist, sum, weights);\n" +
+                        "        addTap(x, kernel, dist, sum, weights);\n" +
+                        "    }\n" +
+                        "    gl_FragColor = vec4(center.rgb, sum / weights);\n" +
+                        "}"
+            )
+        }
+
+        // Built when a script first asks for sun shadows with some softness (see VideoFilterPipeline), which runs them after the march
+        val SunBlurHorizontalPrePassShader get() = sunBlurPrePassShader("vec2(1.0, 0.0)")
+        val SunBlurVerticalPrePassShader get() = sunBlurPrePassShader("vec2(0.0, 1.0)")
+
+        // The sun shadows' last pass, at the input's resolution. A 3D pixel's own depth, from the frame's depth texture (sunDepthTex, unit 1,
+        // nearest), picks which of the four nearest DS-resolution shadow texels (sunMaskTex, unit 2, nearest: the march's or the blur's
+        // target) it takes: by their bilinear weights times how close their depth is to its own (within sunSurfaceTolerance), or the closest
+        // one's if none is close. So the shadow's edges follow the full-resolution depth at any scale, with no halo where a DS pixel straddles
+        // an edge. A pixel with flag 16 (in a character's shadow, which the renderer marks) is in shadow too. The shadow mixes the pixel towards
+        // itself times sunColor (RGB) by sun.x. 2D over the 3D, what's behind the 3D, the gap and the DS bottom screen stay as they are
+        val SunApplyPrePassShader get() = ShaderProgramSource(
+            TextureFiltering.NEAREST,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    "varying vec2 uv;\n" +
+                    "uniform sampler2D tex;\n" +
+                    "uniform float topScreenWidth;\n" +
+                    "uniform highp sampler2D sunDepthTex;\n" +
+                    "uniform highp sampler2D sunMaskTex;\n" +
+                    "uniform vec3 sunColor;\n" +
+                    FRAME_LAYOUT_UNIFORM +
+                    "#define topScreenEnd frameLayout.x\n" +
+                    SUN_UNIFORMS +
+                    DEPTH_VALUE_FUNCTIONS +
+                    SUN_CAMERA_FUNCTIONS +
+                    "" +
+                    "// Counts the shadow texel t (clamped onto its target of dsSize texels) by bilinear times how near its depth is to dist, and\n" +
+                    "// keeps the nearest one's shadow in closest (x the shadow, y how far apart)\n" +
+                    "void addTap(highp vec2 t, highp vec2 p, highp vec2 dsSize, float bilinear, highp float dist, inout float sum,\n" +
+                    "        inout float weights, inout highp vec2 closest) {\n" +
+                    "    t = clamp(t, vec2(0.0), dsSize - 1.0);\n" +
+                    "    highp vec4 texel = texture2D(sunMaskTex, (t + 0.5) / dsSize);\n" +
+                    "    highp float value = depthValue(texel);\n" +
+                    "    if (!isValue3D(value)) {\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    highp float apart = abs(sunViewDistance(t + 0.5, value) - dist);\n" +
+                    "    float weight = bilinear * clamp(1.0 - apart / sunSurfaceTolerance(dist, length(t + 0.5 - p)), 0.0, 1.0);\n" +
+                    "    sum += weight * texel.a;\n" +
+                    "    weights += weight;\n" +
+                    "    if (apart < closest.y) {\n" +
+                    "        closest = vec2(texel.a, apart);\n" +
+                    "    }\n" +
+                    "}\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    vec4 texel = texture2D(tex, uv);\n" +
+                    "    // The gap and the DS bottom screen stay as they are\n" +
+                    "    if (uv.y >= topScreenEnd) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    vec2 depthUv = vec2(uv.x, clamp(uv.y / topScreenEnd, 0.0, 1.0));\n" +
+                    "    highp vec4 depth = texture2D(sunDepthTex, depthUv);\n" +
+                    "    highp float value = depthValue(depth);\n" +
+                    "    if (!isValue3D(value)) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "" +
+                    "    float shadow = 1.0;\n" +
+                    "    if (!hasFlag(depth, 16.0)) {\n" +
+                    "        highp vec2 dsSize = floor(vec2(topScreenWidth, topScreenEnd * frameLayout.w) + 0.5);\n" +
+                    "        highp vec2 p = depthUv * dsSize;\n" +
+                    "        highp float dist = sunViewDistance(p, value);\n" +
+                    "        highp vec2 base = floor(p - 0.5);\n" +
+                    "        vec2 f = p - 0.5 - base;\n" +
+                    "        float sum = 0.0;\n" +
+                    "        float weights = 0.0;\n" +
+                    "        highp vec2 closest = vec2(0.0, 1.0e9);\n" +
+                    "        addTap(base, p, dsSize, (1.0 - f.x) * (1.0 - f.y), dist, sum, weights, closest);\n" +
+                    "        addTap(base + vec2(1.0, 0.0), p, dsSize, f.x * (1.0 - f.y), dist, sum, weights, closest);\n" +
+                    "        addTap(base + vec2(0.0, 1.0), p, dsSize, (1.0 - f.x) * f.y, dist, sum, weights, closest);\n" +
+                    "        addTap(base + vec2(1.0, 1.0), p, dsSize, f.x * f.y, dist, sum, weights, closest);\n" +
+                    "        shadow = weights > 0.001 ? sum / weights : closest.x;\n" +
+                    "    }\n" +
+                    "" +
+                    "    // The frame texture's texels are BGR\n" +
+                    "    vec3 color = texel.bgr;\n" +
+                    "    gl_FragColor = vec4(mix(color, color * sunColor, sun.x * shadow).bgr, texel.a);\n" +
                     "}"
         )
 

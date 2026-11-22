@@ -1,6 +1,7 @@
--- description: HD-2D look for Pokémon White (and Black): shading, depth of field, haze, bloom and vignette in the overworld (the shading, depth of field and haze need the OpenGL renderer; the tilt-shift is a fake one for the others). Text keeps the shading, depth of field, haze and vignette, battles and menus clear it all. Hold L, tap R: off/auto.
+-- description: HD-2D look for Pokémon White (and Black): sun shadows, shading, depth of field, haze, bloom and vignette in the overworld (the sun shadows, shading, depth of field and haze need the OpenGL renderer; the tilt-shift is a fake one for the others). Text keeps the sun shadows, shading, depth of field, haze and vignette, battles and menus clear it all. Hold L, tap R: off/auto.
 -- option: dof type=number min=0 max=1 step=0.05 default=1 label="Depth of field strength"
 -- option: dof_radius type=number min=1 max=12 step=1 default=4 label="Depth of field radius in DS pixels"
+-- option: sun type=number min=0 max=1 step=0.05 default=0.6 label="Sun shadow strength"
 -- option: shade type=number min=0 max=1 step=0.05 default=0.7 label="Shading strength"
 -- option: haze type=number min=0 max=1 step=0.05 default=0.6 label="Haze strength"
 -- option: blur type=number min=0 max=1 step=0.05 default=0 label="Tilt-shift strength"
@@ -43,6 +44,19 @@ local dof_options = {
     falloff = 0.0015,
 }
 
+-- Shadows from a sun in the north-east, 45 degrees up, in the view space of White's field camera (a tile is
+-- 16 units, the tallest roofs about 90): long enough for a roof's shadow to cross the street. up isn't
+-- used by the shadows the screen marches; it's for the characters' own shadows, which the renderer will draw
+local sun_options = {
+    direction = { 0.50, 0.83, 0.26 },
+    up = { 0.0006, 0.607, 0.794 },
+    length = 96,
+    steps = 64,
+    bias = 1,
+    softness = 1.5,
+    color = 0x33384F,
+}
+
 -- Soft shadows where something stands in front of what's behind it: along walls, inside roof rims, around
 -- trees and the player. A smaller range in raw depth draws dark outlines around everything instead
 local shade_options = {
@@ -52,8 +66,8 @@ local shade_options = {
 }
 
 -- Each effect fades from 0 to its full strength (the option), at the same speed whatever that is
-local current = { dof = 0, shade = 0, haze = 0, blur = 0, bloom = 0, vignette = 0 }
-local target = { dof = 0, shade = 0, haze = 0, blur = 0, bloom = 0, vignette = 0 }
+local current = { dof = 0, sun = 0, shade = 0, haze = 0, blur = 0, bloom = 0, vignette = 0 }
+local target = { dof = 0, sun = 0, shade = 0, haze = 0, blur = 0, bloom = 0, vignette = 0 }
 local should_snap = false
 
 local is_automatic = true
@@ -73,8 +87,9 @@ local function set_targets(state)
     target.blur = is_field and melon.options.blur or 0
     target.bloom = is_field and melon.options.bloom or 0
     -- White text boxes would glow and take the tilt-shift's blur, so text keeps only the vignette, and the
-    -- shading, depth of field and haze, which leave 2D as it is
+    -- sun shadows, shading, depth of field and haze, which leave 2D as it is
     target.dof = (is_field or is_text) and melon.options.dof or 0
+    target.sun = (is_field or is_text) and melon.options.sun or 0
     target.shade = (is_field or is_text) and melon.options.shade or 0
     target.haze = (is_field or is_text) and melon.options.haze or 0
     target.vignette = (is_field or is_text) and melon.options.vignette or 0
@@ -124,6 +139,7 @@ function on_frame()
     should_snap = false
 
     -- Called every frame: only frames where a value changes cost an event
+    melon.screen.sun(current.sun, sun_options)
     melon.screen.shade(current.shade, shade_options)
     melon.screen.depth_of_field(current.dof, dof_options)
     melon.screen.haze(current.haze, haze_options)

@@ -1,7 +1,7 @@
 // Port of the app's VideoFilterPipeline.kt: the GL objects of a VideoFilter (screen shader, pre-pass shaders and their targets), and the
 // pre-passes run over a frame before its screens are drawn: deband (unless the screen shader takes it), the filter's own, then a Lua shading,
-// then a Lua depth of field, then a Lua bloom, haze and vignette, then a Lua tilt-shift; and GPU::Comp1x's 1x shader and expand pass. UI thread
-// only, with its GL context current
+// then Lua sun shadows, then a Lua depth of field, then a Lua bloom, haze and vignette, then a Lua tilt-shift; and GPU::Comp1x's 1x shader and
+// expand pass. UI thread only, with its GL context current
 #pragma once
 
 #include <memory>
@@ -54,15 +54,16 @@ public:
     // the 1x shader with this pipeline's color correction, built the first time; null if it can't be (RenderPrePasses expands the frame then)
     const Shader* GetHalvesAt1xShader();
 
-    // runs the pre-passes, then [shade], [depthOfField], [bloom] and [tiltShift] if there are any (in that order, so the depth of field blurs
-    // the shading, the glow is of the focused picture and the tilt-shift's blur softens the glow too), and returns the texture the screen
-    // shader should draw with its size (texSize); call it before drawing to the window and for no frame too, then set the program, vertex
-    // array, array buffer and texture unit 0 again. The shading, the depth of field, the haze and a 3D-only glow need the frame's depth, so a
-    // frame without one is drawn unshaded, sharp, without haze, and with a glow on every pixel. With [foldDeband] the deband pre-pass is left
-    // out, for a frame drawn with GetDebandScreenShader
+    // runs the pre-passes, then [shade], [sun], [depthOfField], [bloom] and [tiltShift] if there are any (in that order, so the depth of field
+    // blurs the shading and the shadows, the glow is of the focused picture and the tilt-shift's blur softens the glow too), and returns the
+    // texture the screen shader should draw with its size (texSize); call it before drawing to the window and for no frame too, then set the
+    // program, vertex array, array buffer and texture unit 0 again. The shading, the sun shadows, the depth of field, the haze and a 3D-only
+    // glow need the frame's depth, so a frame without one is drawn unshaded, without shadows, sharp, without haze, and with a glow on every
+    // pixel; the sun shadows also need the frame's depth camera. With [foldDeband] the deband pre-pass is left out, for a frame drawn with
+    // GetDebandScreenShader
     const FilterOutput& RenderPrePasses(const FrameView& frame, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift,
         const std::optional<Bloom>& bloom, const std::optional<DepthOfField>& depthOfField, const std::optional<Shade>& shade,
-        bool foldDeband = false);
+        const std::optional<Sun>& sun, bool foldDeband = false);
 
 private:
     class PrePass;
@@ -70,11 +71,15 @@ private:
     struct BloomPasses;
     struct DepthOfFieldPasses;
     struct ShadePasses;
+    struct SunPasses;
+    struct SunCamera;
 
     bool RenderDepthOfField(DepthOfFieldPasses& passes, const DepthOfField& depthOfField, const FrameView& frame, bool isBottomScreenWide);
     DepthOfFieldPasses* GetDepthOfFieldPasses();
     void RenderShade(ShadePasses& passes, const Shade& shade, const FrameView& frame, bool isBottomScreenWide);
     ShadePasses* GetShadePasses();
+    void RenderSun(SunPasses& passes, const Sun& sun, const FrameView& frame, bool isBottomScreenWide);
+    SunPasses* GetSunPasses();
 
     bool RenderPass(PrePass& pass, int topScreenWidth, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift);
     void BeginPasses();
@@ -140,6 +145,11 @@ private:
     std::unique_ptr<ShadePasses> ShadePassesBuilt;
     bool IsShadeBuilt = false;
     bool HasLoggedShadeTarget = false;
+    // the same for a script's sun shadows, and the camera they're marched with, filled for each new frame
+    std::unique_ptr<SunPasses> SunPassesBuilt;
+    std::unique_ptr<SunCamera> SunCameraOfFrame;
+    bool IsSunBuilt = false;
+    bool HasLoggedSunTarget = false;
 
     FilterOutput Output;
 
@@ -154,6 +164,7 @@ private:
     std::optional<Bloom> LastFrameBloom;
     std::optional<DepthOfField> LastFrameDepthOfField;
     std::optional<Shade> LastFrameShade;
+    std::optional<Sun> LastFrameSun;
     GLuint LastFrameDepthTexture = 0;
     bool LastFrameRanDeband = false;
     GLuint LastOutputTextureId = 0;

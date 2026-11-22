@@ -6,7 +6,9 @@
 #include <timeapi.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cmath>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -173,6 +175,8 @@ struct Options
     std::optional<Frontend::DepthOfField> DepthOfField;
     // --shade: the Lua shading's passes the same way, with the frames' depth asked of the core too
     std::optional<Frontend::Shade> Shade;
+    // --sun: the Lua sun shadows' passes the same way, with the frames' depth asked of the core too
+    std::optional<Frontend::Sun> Sun;
     // --output-cap: the windows' output scale need goes to the core (GPU::OutputCap) after each present, as the app's surfaces send theirs
     bool OutputCap = false;
     bool Hidden = false;
@@ -315,6 +319,12 @@ void Usage()
         "                              shaded pixels go towards the tint (0-1), the depth blur's radius in DS pixels (1-16,\n"
         "                              8), how much farther than the blurred depth a pixel is when fully shaded (0-1,\n"
         "                              0.0008), and the tint in hex (33384F)\n"
+        "  --sun STRENGTH[,LENGTH,STEPS,BIAS[,SOFTNESS[,RRGGBB[,DX,DY,DZ[,UX,UY,UZ]]]]]\n"
+        "                              the Lua sun shadows over the top screen's 3D, for tests (OpenGL only): how far the\n"
+        "                              shadows go towards the tint (0-1), how far the march reaches in view-space units\n"
+        "                              (1-1024, 96) in how many steps (1-128, 64), the bias in units (0-64, 1), the softness\n"
+        "                              in DS pixels (0-8, 1.5), the tint in hex (33384F), the direction towards the sun\n"
+        "                              (0.50,0.83,0.26) and up (0.0006,0.607,0.794) in view space\n"
         "  --output-cap                send the windows' screen size to the core (GPU::OutputCap), as the app does: the\n"
         "                              frame is drawn no bigger than the screens are shown\n"
         "  --vsync                     wait for vsync on swap (pacing stays at the DS's 59.83 Hz)\n"
@@ -403,6 +413,34 @@ void Usage()
 
 using Frontend::ApplySet;
 using Frontend::ReadFile;
+
+// [vector] normalized, false if it's too short to have a direction
+bool NormalizeDirection(std::array<float, 3>& vector)
+{
+    float length = std::sqrt(vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2]);
+    if (!(length > 1e-6f) || !std::isfinite(length))
+        return false;
+    for (float& v : vector)
+        v /= length;
+    return true;
+}
+
+// --sun's [count] fields read into [sun] (and [color]), held to what a script could ask for (melon.screen.sun); false if it isn't a whole
+// group of them or a vector has no direction
+bool ParseSun(int count, unsigned int color, Frontend::Sun& sun)
+{
+    if (count != 1 && count != 4 && count != 5 && count != 6 && count != 9 && count != 12)
+        return false;
+    if (!NormalizeDirection(sun.Direction) || !NormalizeDirection(sun.Up))
+        return false;
+    sun.Strength = std::clamp(sun.Strength, 0.f, 1.f);
+    sun.Length = std::clamp(sun.Length, 1.f, 1024.f);
+    sun.Steps = std::clamp(sun.Steps, 1, 128);
+    sun.Bias = std::clamp(sun.Bias, 0.f, 64.f);
+    sun.Softness = std::clamp(sun.Softness, 0.f, 8.f);
+    sun.Color = color & 0xFFFFFF;
+    return true;
+}
 
 bool ParseArgs(int argc, char** argv, Options& opts)
 {
@@ -654,6 +692,22 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             shade.Range = std::clamp(shade.Range, 0.f, 1.f);
             shade.Color = color & 0xFFFFFF;
             opts.Shade = shade.IsOff() ? std::nullopt : std::optional<Frontend::Shade>(shade);
+        }
+        else if (arg == "--sun")
+        {
+            std::string spec = next();
+            Frontend::Sun sun;
+            unsigned int color = sun.Color;
+            std::array<float, 3>& d = sun.Direction;
+            std::array<float, 3>& u = sun.Up;
+            int count = sscanf(spec.c_str(), "%f,%f,%d,%f,%f,%x,%f,%f,%f,%f,%f,%f", &sun.Strength, &sun.Length, &sun.Steps, &sun.Bias,
+                &sun.Softness, &color, &d[0], &d[1], &d[2], &u[0], &u[1], &u[2]);
+            if (!ParseSun(count, color, sun))
+            {
+                fprintf(stderr, "bad --sun %s (STRENGTH[,LENGTH,STEPS,BIAS[,SOFTNESS[,RRGGBB[,DX,DY,DZ[,UX,UY,UZ]]]]])\n", spec.c_str());
+                return false;
+            }
+            opts.Sun = sun.IsOff() ? std::nullopt : std::optional<Frontend::Sun>(sun);
         }
         else if (arg == "--output-cap") opts.OutputCap = true;
         else if (arg == "--vsync") setting("desktop_vsync", picojson::value(true));
@@ -1537,6 +1591,7 @@ int main(int argc, char** argv)
     presenter.SetBloom(opts.Bloom);
     presenter.SetDepthOfField(opts.DepthOfField);
     presenter.SetShade(opts.Shade);
+    presenter.SetSun(opts.Sun);
 
     std::string cacheDir = opts.CacheDir.empty() ? exeDir + "cache" : opts.CacheDir;
     std::error_code ec;
@@ -1728,10 +1783,10 @@ int main(int argc, char** argv)
     callbacks.OnStart = [&](MelonDSAndroid::MelonInstance& instance)
     {
         SetDateTime(opts, *instance.getNds());
-        // as LuaEngine::wantsDepth: the depth of field, the shading, the haze and a 3D-only glow read the depth
+        // as LuaEngine::wantsDepth: the depth of field, the shading, the sun shadows, the haze and a 3D-only glow read the depth
         bool bloomWantsDepth = opts.Bloom && (opts.Bloom->HasHaze() || (opts.Bloom->HasBloom() && opts.Bloom->OnlyThreeD));
-        instance.setDepthWanted(opts.DepthOfField.has_value() || opts.Shade.has_value() || bloomWantsDepth || !opts.DepthShotPath.empty()
-                                || !opts.DepthRawPath.empty());
+        instance.setDepthWanted(opts.DepthOfField.has_value() || opts.Shade.has_value() || opts.Sun.has_value() || bloomWantsDepth
+                                || !opts.DepthShotPath.empty() || !opts.DepthRawPath.empty());
         if (commandLineGame && !opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
         {
             startFailed = true;

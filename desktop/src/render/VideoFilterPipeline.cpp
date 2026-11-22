@@ -1,6 +1,7 @@
 #include "render/VideoFilterPipeline.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace Frontend
@@ -44,7 +45,57 @@ void UnbindTexture(GLenum unit)
     glActiveTexture(GL_TEXTURE0);
 }
 
+// [inverse] gets the inverse of the column-major 4x4 [m] (as android.opengl.Matrix.invertM gives it), worked out in double by cofactors;
+// false, leaving it as it was, if [m] has none
+bool InvertMatrix(const std::array<float, 16>& m, std::array<float, 16>& inverse)
+{
+    double a[16], c[16];
+    for (int i = 0; i < 16; i++)
+        a[i] = m[i];
+    c[0] = a[5] * a[10] * a[15] - a[5] * a[11] * a[14] - a[9] * a[6] * a[15] + a[9] * a[7] * a[14] + a[13] * a[6] * a[11] - a[13] * a[7] * a[10];
+    c[4] = -a[4] * a[10] * a[15] + a[4] * a[11] * a[14] + a[8] * a[6] * a[15] - a[8] * a[7] * a[14] - a[12] * a[6] * a[11] + a[12] * a[7] * a[10];
+    c[8] = a[4] * a[9] * a[15] - a[4] * a[11] * a[13] - a[8] * a[5] * a[15] + a[8] * a[7] * a[13] + a[12] * a[5] * a[11] - a[12] * a[7] * a[9];
+    c[12] = -a[4] * a[9] * a[14] + a[4] * a[10] * a[13] + a[8] * a[5] * a[14] - a[8] * a[6] * a[13] - a[12] * a[5] * a[10] + a[12] * a[6] * a[9];
+    c[1] = -a[1] * a[10] * a[15] + a[1] * a[11] * a[14] + a[9] * a[2] * a[15] - a[9] * a[3] * a[14] - a[13] * a[2] * a[11] + a[13] * a[3] * a[10];
+    c[5] = a[0] * a[10] * a[15] - a[0] * a[11] * a[14] - a[8] * a[2] * a[15] + a[8] * a[3] * a[14] + a[12] * a[2] * a[11] - a[12] * a[3] * a[10];
+    c[9] = -a[0] * a[9] * a[15] + a[0] * a[11] * a[13] + a[8] * a[1] * a[15] - a[8] * a[3] * a[13] - a[12] * a[1] * a[11] + a[12] * a[3] * a[9];
+    c[13] = a[0] * a[9] * a[14] - a[0] * a[10] * a[13] - a[8] * a[1] * a[14] + a[8] * a[2] * a[13] + a[12] * a[1] * a[10] - a[12] * a[2] * a[9];
+    c[2] = a[1] * a[6] * a[15] - a[1] * a[7] * a[14] - a[5] * a[2] * a[15] + a[5] * a[3] * a[14] + a[13] * a[2] * a[7] - a[13] * a[3] * a[6];
+    c[6] = -a[0] * a[6] * a[15] + a[0] * a[7] * a[14] + a[4] * a[2] * a[15] - a[4] * a[3] * a[14] - a[12] * a[2] * a[7] + a[12] * a[3] * a[6];
+    c[10] = a[0] * a[5] * a[15] - a[0] * a[7] * a[13] - a[4] * a[1] * a[15] + a[4] * a[3] * a[13] + a[12] * a[1] * a[7] - a[12] * a[3] * a[5];
+    c[14] = -a[0] * a[5] * a[14] + a[0] * a[6] * a[13] + a[4] * a[1] * a[14] - a[4] * a[2] * a[13] - a[12] * a[1] * a[6] + a[12] * a[2] * a[5];
+    c[3] = -a[1] * a[6] * a[11] + a[1] * a[7] * a[10] + a[5] * a[2] * a[11] - a[5] * a[3] * a[10] - a[9] * a[2] * a[7] + a[9] * a[3] * a[6];
+    c[7] = a[0] * a[6] * a[11] - a[0] * a[7] * a[10] - a[4] * a[2] * a[11] + a[4] * a[3] * a[10] + a[8] * a[2] * a[7] - a[8] * a[3] * a[6];
+    c[11] = -a[0] * a[5] * a[11] + a[0] * a[7] * a[9] + a[4] * a[1] * a[11] - a[4] * a[3] * a[9] - a[8] * a[1] * a[7] + a[8] * a[3] * a[5];
+    c[15] = a[0] * a[5] * a[10] - a[0] * a[6] * a[9] - a[4] * a[1] * a[10] + a[4] * a[2] * a[9] + a[8] * a[1] * a[6] - a[8] * a[2] * a[5];
+    double det = a[0] * c[0] + a[1] * c[4] + a[2] * c[8] + a[3] * c[12];
+    if (det == 0.0 || !std::isfinite(det))
+        return false;
+    for (int i = 0; i < 16; i++)
+        inverse[i] = (float)(c[i] / det);
+    return true;
 }
+
+}
+
+// the frame's depth camera as the sun shadows' passes take it (Shader::SetSun), filled for each new frame
+struct VideoFilterPipeline::SunCamera
+{
+    std::array<float, 16> Projection {};
+    std::array<float, 16> Inverse {};
+    std::array<float, 4> Viewport {};
+
+    // [frame]'s depth camera, with its viewport moved into DS pixels of the depth texture's top half (the WideMelon wings and margin come
+    // before the native view's 0); false if it can't be used: a viewport with no size or a projection with no inverse
+    bool Set(const FrameView& frame)
+    {
+        Projection = frame.DepthProjection;
+        Viewport = frame.DepthViewport;
+        Viewport[0] += (frame.TopWidth - 256) / 2.f;
+        Viewport[1] += (float)frame.TopMargin;
+        return Viewport[2] > 0.f && Viewport[3] > 0.f && InvertMatrix(Projection, Inverse);
+    }
+};
 
 // one pass, [Scale] times its input on each axis, into a texture of its own
 class VideoFilterPipeline::PrePass
@@ -90,7 +141,8 @@ public:
     // the input through this pass's shader into the target; the caller binds the quad and sets the viewport and blending
     void Render(GLuint inputTexture, int inputWidth, int inputHeight, int topScreenWidth, int topScreenHeight, bool isBottomScreenWide,
         const std::optional<TiltShift>& tiltShift, int halvesAt1x = 0, int scaleAt1x = 1, int halfScaleAt1x = 1, const Bloom* bloom = nullptr,
-        const DepthOfField* depthOfField = nullptr, float focusU = 0.f, float focusV = 0.f, float focusAgeStep = 0.f, const Shade* shade = nullptr)
+        const DepthOfField* depthOfField = nullptr, float focusU = 0.f, float focusV = 0.f, float focusAgeStep = 0.f, const Shade* shade = nullptr,
+        const Sun* sun = nullptr, const SunCamera* sunCamera = nullptr)
     {
         glBindFramebuffer(GL_FRAMEBUFFER, Framebuffer);
         // The quad covers every texel, so the old contents never have to be loaded
@@ -117,6 +169,8 @@ public:
             Program->SetDepthOfField(*depthOfField, focusU, focusV, focusAgeStep);
         if (shade)
             Program->SetShade(*shade);
+        if (sun && sunCamera)
+            Program->SetSun(*sun, sunCamera->Projection.data(), sunCamera->Inverse.data(), sunCamera->Viewport.data());
         Program->SetHalvesAt1x(halvesAt1x, scaleAt1x, halfScaleAt1x);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
@@ -179,6 +233,12 @@ struct VideoFilterPipeline::BloomPasses
 struct VideoFilterPipeline::ShadePasses
 {
     std::unique_ptr<PrePass> Downsample, Horizontal, Vertical, Apply;
+};
+
+// the sun shadows' march and two softening passes at DS resolution, then the apply pass at the input's
+struct VideoFilterPipeline::SunPasses
+{
+    std::unique_ptr<PrePass> March, Horizontal, Vertical, Apply;
 };
 
 VideoFilterPipeline::VideoFilterPipeline(const VideoFilter& filter, bool colorCorrection)
@@ -338,7 +398,8 @@ GLuint VideoFilterPipeline::ExpandHalvesAt1x(const FrameView& frame)
 }
 
 const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame, bool isBottomScreenWide, const std::optional<TiltShift>& tiltShift,
-    const std::optional<Bloom>& bloom, const std::optional<DepthOfField>& depthOfField, const std::optional<Shade>& shade, bool foldDeband)
+    const std::optional<Bloom>& bloom, const std::optional<DepthOfField>& depthOfField, const std::optional<Shade>& shade,
+    const std::optional<Sun>& sun, bool foldDeband)
 {
     Output.Set(frame.Texture, frame.Width, frame.Height);
 
@@ -372,8 +433,10 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     if (!depthOfFieldPasses && DepthOfFieldPassesBuilt)
         DepthOfFieldPassesBuilt->NeedsFocusClear = true;
     ShadePasses* shadePasses = shade && !shade->IsOff() && hasDepth ? GetShadePasses() : nullptr;
+    // Without a camera (Compute, Software, W-buffered or orthographic scenes) there's nothing to march with
+    SunPasses* sunPasses = sun && !sun->IsOff() && hasDepth && frame.DepthCameraValid ? GetSunPasses() : nullptr;
     bool runsDeband = DebandPass && !foldDeband;
-    bool hasLuaPasses = tiltShiftPasses || tiltShiftColorPass || combineVariant != NO_COMBINE || depthOfFieldPasses || shadePasses;
+    bool hasLuaPasses = tiltShiftPasses || tiltShiftColorPass || combineVariant != NO_COMBINE || depthOfFieldPasses || shadePasses || sunPasses;
     if (!runsDeband && PrePasses.empty() && !hasLuaPasses)
         return Output;
 
@@ -386,11 +449,12 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     std::optional<Bloom> appliedBloom = combineVariant != NO_COMBINE ? bloom : std::nullopt;
     std::optional<DepthOfField> appliedDepthOfField = depthOfFieldPasses ? depthOfField : std::nullopt;
     std::optional<Shade> appliedShade = shadePasses ? shade : std::nullopt;
-    GLuint depthTexture = depthOfFieldPasses || onlyThreeDBrightPass || usesHaze || shadePasses ? frame.DepthTexture : 0;
+    std::optional<Sun> appliedSun = sunPasses ? sun : std::nullopt;
+    GLuint depthTexture = depthOfFieldPasses || onlyThreeDBrightPass || usesHaze || shadePasses || sunPasses ? frame.DepthTexture : 0;
     bool isSameFrame = frame.Sequence != 0 && frame.Sequence == LastFrameSequence && frame.Texture == LastFrameTextureId && width == LastFrameWidth
         && height == LastFrameHeight && isBottomScreenWide == LastFrameBottomScreenWide && appliedTiltShift == LastFrameTiltShift
         && appliedBloom == LastFrameBloom && appliedDepthOfField == LastFrameDepthOfField && appliedShade == LastFrameShade
-        && depthTexture == LastFrameDepthTexture && runsDeband == LastFrameRanDeband;
+        && appliedSun == LastFrameSun && depthTexture == LastFrameDepthTexture && runsDeband == LastFrameRanDeband;
     if (isSameFrame)
     {
         Output.Set(LastOutputTextureId, LastOutputWidth, LastOutputHeight);
@@ -422,6 +486,8 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
 
     if (isComplete && shadePasses && appliedShade)
         RenderShade(*shadePasses, *appliedShade, frame, isBottomScreenWide);
+    if (isComplete && sunPasses && appliedSun)
+        RenderSun(*sunPasses, *appliedSun, frame, isBottomScreenWide);
     if (isComplete && depthOfFieldPasses && appliedDepthOfField)
         isComplete = RenderDepthOfField(*depthOfFieldPasses, *appliedDepthOfField, frame, isBottomScreenWide);
     if (isComplete && appliedBloom)
@@ -453,6 +519,7 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     LastFrameBloom = appliedBloom;
     LastFrameDepthOfField = appliedDepthOfField;
     LastFrameShade = appliedShade;
+    LastFrameSun = appliedSun;
     LastFrameDepthTexture = depthTexture;
     LastFrameRanDeband = runsDeband;
     LastOutputTextureId = InputTexture;
@@ -712,6 +779,86 @@ VideoFilterPipeline::ShadePasses* VideoFilterPipeline::GetShadePasses()
         }
     }
     return ShadePassesBuilt.get();
+}
+
+// the current input shadowed by [sun] through [passes], keeping its size: the march at DS resolution from the frame's depth and its camera,
+// softened there if [sun] asks for it, then the apply pass picks each pixel's shadow by its own depth, with the depth texture on unit 1 and
+// the shadow on unit 2 (both nearest). A target that can't be made, or a camera that can't be inverted, leaves the shadows out, logged once,
+// so the frame is still drawn
+void VideoFilterPipeline::RenderSun(SunPasses& passes, const Sun& sun, const FrameView& frame, bool isBottomScreenWide)
+{
+    BeginPasses();
+    // The depth texture's size at the internal scale, as for the shading
+    int scale = frame.FrameHeight() > 0 ? frame.Height / frame.FrameHeight() : 0;
+    int dsWidth = frame.TopWidth;
+    int dsHeight = frame.TopScreenHeight();
+    int depthWidth = frame.Width;
+    int depthHeight = dsHeight * scale;
+    // The blur's taps go out to the softness in whole DS pixels, so under 1 it has none
+    bool hasSoftness = sun.Softness >= 1.f;
+    SunCamera& camera = *SunCameraOfFrame;
+    bool isReady = scale > 0 && dsWidth > 0 && camera.Set(frame) && passes.March->PrepareTarget(dsWidth, dsHeight)
+        && (!hasSoftness || (passes.Horizontal->PrepareTarget(dsWidth, dsHeight) && passes.Vertical->PrepareTarget(dsWidth, dsHeight)))
+        && passes.Apply->PrepareTarget(InputWidth, InputHeight);
+    if (!isReady)
+    {
+        if (!HasLoggedSunTarget)
+        {
+            HasLoggedSunTarget = true;
+            fprintf(stderr, "a sun shadow target can't be made or the camera can't be inverted, so the shadows are left out\n");
+        }
+        return;
+    }
+
+    glViewport(0, 0, dsWidth, dsHeight);
+    passes.March->Render(frame.DepthTexture, depthWidth, depthHeight, dsWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+        nullptr, nullptr, 0.f, 0.f, 0.f, nullptr, &sun, &camera);
+    GLuint shadowTexture = passes.March->Texture;
+    if (hasSoftness)
+    {
+        passes.Horizontal->Render(shadowTexture, dsWidth, dsHeight, dsWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+            nullptr, nullptr, 0.f, 0.f, 0.f, nullptr, &sun, &camera);
+        passes.Vertical->Render(passes.Horizontal->Texture, dsWidth, dsHeight, dsWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0,
+            1, 1, nullptr, nullptr, 0.f, 0.f, 0.f, nullptr, &sun, &camera);
+        shadowTexture = passes.Vertical->Texture;
+    }
+
+    BindDepthTexture(GL_TEXTURE1, frame.DepthTexture);
+    // Nearest too, as its RGB is a depth that can't be mixed
+    BindDepthTexture(GL_TEXTURE2, shadowTexture);
+    glViewport(0, 0, InputWidth, InputHeight);
+    passes.Apply->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+        nullptr, nullptr, 0.f, 0.f, 0.f, nullptr, &sun, &camera);
+    UnbindTexture(GL_TEXTURE1);
+    UnbindTexture(GL_TEXTURE2);
+    InputTexture = passes.Apply->Texture;
+}
+
+VideoFilterPipeline::SunPasses* VideoFilterPipeline::GetSunPasses()
+{
+    if (!IsSunBuilt)
+    {
+        IsSunBuilt = true;
+        std::unique_ptr<Shader> march = CreateShaderProgramOrNull(FindShader("SunMarchPrePassShader"));
+        std::unique_ptr<Shader> horizontal = CreateShaderProgramOrNull(FindShader("SunBlurHorizontalPrePassShader"));
+        std::unique_ptr<Shader> vertical = CreateShaderProgramOrNull(FindShader("SunBlurVerticalPrePassShader"));
+        std::unique_ptr<Shader> apply = CreateShaderProgramOrNull(FindShader("SunApplyPrePassShader"));
+        if (march && horizontal && vertical && apply)
+        {
+            SunPassesBuilt = std::make_unique<SunPasses>();
+            SunPassesBuilt->March = std::make_unique<PrePass>(std::move(march), 1, false);
+            SunPassesBuilt->Horizontal = std::make_unique<PrePass>(std::move(horizontal), 1, false);
+            SunPassesBuilt->Vertical = std::make_unique<PrePass>(std::move(vertical), 1, false);
+            SunPassesBuilt->Apply = std::make_unique<PrePass>(std::move(apply), 1, false);
+            SunCameraOfFrame = std::make_unique<SunCamera>();
+        }
+        else
+        {
+            // The frame is drawn without shadows rather than not at all (what did build goes with the unique_ptrs)
+            fprintf(stderr, "sun shadow shaders failed to build, so the shadows are left out\n");
+        }
+    }
+    return SunPassesBuilt.get();
 }
 
 void VideoFilterPipeline::LogBloomTarget()

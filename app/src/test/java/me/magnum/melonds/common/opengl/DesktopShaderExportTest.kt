@@ -67,7 +67,8 @@ class DesktopShaderExportTest {
             "TiltShiftHorizontalPrePassShader", "TiltShiftVerticalPrePassShader", "TiltShiftColorPrePassShader", "BloomBrightPrePassShader",
             "BloomBlurHorizontalPrePassShader", "BloomBlurVerticalPrePassShader", "BloomCombinePrePassShader", "DepthOfFieldHorizontalPrePassShader",
             "DepthOfFieldVerticalPrePassShader", "DepthOfFieldFocusShader", "ShadeDownsamplePrePassShader", "ShadeBlurHorizontalPrePassShader",
-            "ShadeBlurVerticalPrePassShader", "ShadeApplyPrePassShader")) {
+            "ShadeBlurVerticalPrePassShader", "ShadeApplyPrePassShader", "SunMarchPrePassShader", "SunBlurHorizontalPrePassShader",
+            "SunBlurVerticalPrePassShader", "SunApplyPrePassShader")) {
             assertTrue(name, name in shaders.keys)
         }
         assertEquals(shaders.size, names.size)

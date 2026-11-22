@@ -37,6 +37,7 @@ import me.magnum.melonds.domain.model.camera.WideCameraRequest
 import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.DepthOfField
 import me.magnum.melonds.domain.model.render.Shade
+import me.magnum.melonds.domain.model.render.Sun
 import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.domain.model.retroachievements.RAEvent
 import me.magnum.melonds.domain.model.rom.Rom
@@ -225,6 +226,24 @@ class AndroidEmulatorManager(
                     color = data.getInt(),
                 )
                 _emulatorEvents.tryEmit(EmulatorEvent.LuaShade(scriptId, shade))
+            }
+            EmulatorEventType.EventLuaSun -> {
+                val scriptId = data.getInt()
+                val sun = Sun(
+                    strength = data.getFloat(),
+                    directionX = data.getFloat(),
+                    directionY = data.getFloat(),
+                    directionZ = data.getFloat(),
+                    upX = data.getFloat(),
+                    upY = data.getFloat(),
+                    upZ = data.getFloat(),
+                    length = data.getFloat(),
+                    steps = data.getInt(),
+                    bias = data.getFloat(),
+                    softness = data.getFloat(),
+                    color = data.getInt(),
+                )
+                _emulatorEvents.tryEmit(EmulatorEvent.LuaSun(scriptId, sun))
             }
         }
     }

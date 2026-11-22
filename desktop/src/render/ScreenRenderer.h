@@ -55,7 +55,7 @@ public:
     // runs the filter's pre-passes, clears the bound framebuffer (the window, at its viewport) and draws the screens; the caller sets up the
     // state the core left behind first
     void DrawFrame(const FrameView& frame, const std::optional<TiltShift>& tiltShift, const std::optional<Bloom>& bloom,
-        const std::optional<DepthOfField>& depthOfField, const std::optional<Shade>& shade);
+        const std::optional<DepthOfField>& depthOfField, const std::optional<Shade>& shade, const std::optional<Sun>& sun);
 
     // GPU::Comp1x: whether a frame with a screen at 1x can be drawn as it is (the no-filter shader without deband or a Lua tilt-shift, bloom
     // or vignette)
