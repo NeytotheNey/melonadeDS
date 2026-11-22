@@ -9,6 +9,8 @@
 //   pad-down NAME, pad-up NAME   a controller button pressed (held over the next steps) or let go
 //   key-down NAME, key-up NAME   the same for a key; key-repeat NAME: a repeated KEYDOWN, as a held key sends them
 //   mouse-down X Y, mouse-up X Y   the pointer moved to X,Y of the main window (its points) and the left button pressed or let go there
+//   mouse-move X Y     the pointer moved to X,Y of the main window, the left button still held after a mouse-down (a drag)
+//   wheel N            the mouse wheel turned N notches (positive: away from you) where the pointer is
 //   axis NAME VALUE    a stick or trigger of the --virtual-pad at VALUE (-32768 to 32767; triggers 0 to 32767): axis rightx 20000
 //   wait N             N passes of the frame loop (UI frames while a menu is up)
 //   sleep MS           MS milliseconds of real time (the game runs on meanwhile, unless it's held)
@@ -31,7 +33,7 @@ namespace Frontend
 
 struct UiStep
 {
-    enum class Kind { Action, Text, Key, Pad, PadDown, PadUp, KeyDown, KeyUp, KeyRepeat, MouseDown, MouseUp, Axis, Wait, Sleep, Frame, Shot, Screenshot, WaitScan, WaitSync, Quit } Type;
+    enum class Kind { Action, Text, Key, Pad, PadDown, PadUp, KeyDown, KeyUp, KeyRepeat, MouseDown, MouseUp, MouseMove, Wheel, Axis, Wait, Sleep, Frame, Shot, Screenshot, WaitScan, WaitSync, Quit } Type;
     std::string Arg;  // the action's name, the text, the key's or button's name, the file
     std::string Text; // the line as written
     unsigned Number = 0;

@@ -110,6 +110,10 @@ add_executable(melonade-desktop
     src/ImageFile.h
     src/Input.cpp
     src/Input.h
+    src/layout/LayoutEditing.cpp
+    src/layout/LayoutEditing.h
+    src/layout/LayoutEditSession.cpp
+    src/layout/LayoutEditSession.h
     src/layout/LayoutGeometry.cpp
     src/layout/LayoutGeometry.h
     src/layout/LayoutModel.cpp
@@ -165,12 +169,16 @@ add_executable(melonade-desktop
     src/ui/Icons.h
     src/ui/InputScreen.cpp
     src/ui/KeyboardTestScreen.cpp
+    src/ui/LayoutEditor.h
+    src/ui/LayoutEditorMenus.cpp
+    src/ui/LayoutEditorScreen.cpp
     src/ui/LayoutsScreen.cpp
     src/ui/LibraryCards.cpp
     src/ui/LibraryCards.h
     src/ui/LibraryScreen.cpp
     src/ui/MosaicLayout.cpp
     src/ui/MosaicLayout.h
+    src/ui/PanelScreen.cpp
     src/ui/PauseScreen.cpp
     src/ui/Screen.h
     src/ui/Screens.h

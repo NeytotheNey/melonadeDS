@@ -55,11 +55,22 @@ public:
     // how many custom layouts the file has
     int CustomCount() const { return (int)Custom.size(); }
 
-    // the custom layouts written as layouts.json to [file] (--export-layouts; the layout editor saves this way later). False when it can't
-    // be written
+    // the custom layouts written as layouts.json to [file] (--export-layouts). False when it can't be written
     bool Write(const std::filesystem::path& file) const;
     // to the profile's layouts.json, unless that file didn't parse (then it's kept as it was and this is false)
     bool Save() const;
+    // layouts.json can be written (it parsed, or there's none yet)
+    bool CanSave() const { return !FileBroken && !Dir.empty(); }
+
+    // The layout editor's and the list's changes, each saved at once (Save). [config] (with an id) replaces the custom layout with its id, or
+    // goes after the others; Remove takes one out. False, with nothing changed, when the file can't be written. Either rebuilds the list,
+    // so pointers from All, Find and FindByName are stale afterwards
+    bool Put(const LayoutConfiguration& config);
+    bool Remove(const std::string& id);
+    // a custom layout's own copy (unreadable ones aren't found), or null
+    const LayoutConfiguration* FindCustom(const std::string& id) const;
+    // a new layout's id: a random UUID in the app's form (UUID.randomUUID().toString())
+    static std::string NewId();
 
     // the desktop built-ins' ids (nameUUIDFromBytes of "melonade-desktop-layout:<alias>", like the app's built-in backgrounds)
     static const char* DesktopLayoutId(BuiltInLayout layout);

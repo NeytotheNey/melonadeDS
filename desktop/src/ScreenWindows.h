@@ -13,6 +13,7 @@
 #include <SDL.h>
 
 #include "Presenter.h"
+#include "layout/LayoutEditing.h"
 #include "layout/Layouts.h"
 
 namespace Frontend
@@ -85,6 +86,17 @@ public:
     void SetLayout(const LayoutChoice& choice);
     const LayoutChoice& GetLayout() const { return Choice; }
     void SetBackgroundOverride(const std::optional<std::string>& key, const std::optional<BackgroundMode>& mode);
+    // the layout editor's layout in the window it edits, over the layout in use and the run's background, until it's taken away (none)
+    void SetPreview(const std::optional<LayoutPreview>& preview);
+    // the window a surface draws (0 the main one, 1 the second one; null when there's none), its drawable size, and the surface of the window
+    // that has the keyboard focus (the main one when neither has)
+    SDL_Window* SurfaceWindow(int surface) const { return surface == 1 ? SecondWindow : surface == 0 ? MainWindow : nullptr; }
+    void SurfaceSize(int surface, int& w, int& h) const;
+    int FocusedSurface() const;
+    // what the layout in use shows in [surface] now, unswapped, as a layout to start a new one from: the desktop's arrangements on whole
+    // pixels, the app's Default for the window's size, a detached window's screen at its fit; none for a custom layout (the editor opens
+    // the layout itself)
+    std::optional<UILayout> ShownAsLayout(int surface) const;
     // the fit of the top or the bottom screen when detached (the settings)
     void SetFit(bool top, Fit fit);
     // the second window's title bar and always-on-top again from desktop_bottom_no_title and desktop_bottom_on_top
@@ -152,6 +164,7 @@ private:
     // the plan for the main window (0) or the second one (1) at a drawable w x h
     const SurfacePlan& Plan(int surface, int w, int h) const;
     SurfacePlan MakePlan(bool detached, bool top, int w, int h) const;
+    SurfacePlan MakePreviewPlan(bool detached, bool top) const;
 
     // false when it can't (MELONADE_TEST_NO_SECOND_WINDOW=1 makes it fail, for tests)
     bool OpenSecond();
@@ -180,7 +193,8 @@ private:
     LayoutChoice Choice;
     std::optional<std::string> BackgroundKey;
     std::optional<BackgroundMode> BackgroundModeOverride;
-    // goes up when the layout or the background override changes
+    std::optional<LayoutPreview> Preview;
+    // goes up when the layout, the background override or the preview changes
     int Version = 0;
     mutable PlanKey PlanKeys[2];
     mutable SurfacePlan Plans[2];

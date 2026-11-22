@@ -519,7 +519,15 @@ void ScreenRenderer::DrawFrame(const FrameView& frame, const std::optional<TiltS
 
     glClear(GL_COLOR_BUFFER_BIT);
     if (!frame.IsValid())
+    {
+        // the layout editor with no game: its background under the editor's stand-ins for the screens
+        if (BackgroundWithoutFrame)
+        {
+            LoadBackgroundIfNeeded(waitForBackground);
+            RenderBackground();
+        }
         return;
+    }
 
     LoadBackgroundIfNeeded(waitForBackground);
     RenderBackground();

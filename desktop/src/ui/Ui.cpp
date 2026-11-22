@@ -18,6 +18,7 @@
 #include "Screens.h"
 #include "Settings.h"
 #include "Widgets.h"
+#include "layout/Layouts.h"
 
 using Frontend::MenuAction;
 
@@ -199,6 +200,16 @@ std::string App::TopId() const
     return Stack.empty() ? "" : Stack.back()->Id();
 }
 
+bool App::HasScreen(const char* id) const
+{
+    for (const std::unique_ptr<Screen>& screen : Stack)
+    {
+        if (strcmp(screen->Id(), id) == 0)
+            return true;
+    }
+    return false;
+}
+
 void App::ApplyScale(int w, int h)
 {
     if (!Hidden)
@@ -245,7 +256,8 @@ void App::BuildFrame()
         ImDrawList* background = ImGui::GetBackgroundDrawList();
         // the game's last frame dimmed behind an overlay, the surface behind the others
         ImVec2 end(viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y);
-        background->AddRectFilled(viewport->Pos, end, top->Overlay() ? WithAlpha(Colors_->Scrim, 0.6f) : Colors_->Surface);
+        if (!top->Overlay() || top->Dims())
+            background->AddRectFilled(viewport->Pos, end, top->Overlay() ? WithAlpha(Colors_->Scrim, 0.6f) : Colors_->Surface);
         ImGui::SetNextWindowPos(viewport->Pos);
         ImGui::SetNextWindowSize(viewport->Size);
         if (top->WantFocus && !KeyboardOpen())
@@ -447,6 +459,24 @@ bool App::OpenPath(const std::string& path)
         Push(MakeSettingsScreen("display"));
         Push(MakeLayoutsScreen(LayoutsFor::Global));
     }
+    else if (path == "layout-editor" || path.rfind("layout-editor/", 0) == 0)
+    {
+        // the layout in use, a new one ("new"), or a custom one by its id; over the pause menu with a game, over the layouts list without
+        std::string rest = path.size() > 14 ? path.substr(14) : "";
+        LayoutEditorOpen open;
+        open.Kind = rest.empty() ? LayoutEditorOpen::What::InUse : rest == "new" ? LayoutEditorOpen::What::New : LayoutEditorOpen::What::Layout;
+        open.Id = open.Kind == LayoutEditorOpen::What::Layout ? rest : "";
+        if (open.Kind == LayoutEditorOpen::What::Layout && (!HostPtr->Layouts || !HostPtr->Layouts->FindCustom(open.Id)))
+            return false;
+        if (game && Stack.empty())
+            OpenPause();
+        else if (!game)
+        {
+            Push(MakeSettingsScreen("display"));
+            Push(MakeLayoutsScreen(LayoutsFor::Global));
+        }
+        Push(MakeLayoutEditorScreen(open));
+    }
     else if (path == "settings" || path.rfind("settings/", 0) == 0 || path == "input")
     {
         std::string tab = path.size() > 9 && path != "input" ? path.substr(9) : "";
@@ -520,6 +550,21 @@ void App::Menu()
     // Start or Guide in the menus: back to the game, or with none the screen's own (the library's menu)
     if (Busy || KeyboardOpen())
         return;
+    // a screen that takes the button (the layout editor), with cards of its own over it: those close and it's back on top; on top, it
+    // gets the press. Never all the way back to the game past it, which would leave its changes behind unasked
+    for (size_t i = Stack.size(); i-- > 0;)
+    {
+        if (!Stack[i]->OwnsMenuButton())
+            continue;
+        if (i + 1 == Stack.size())
+        {
+            Stack[i]->MenuButton(*this);
+            return;
+        }
+        while (Stack.size() > i + 1)
+            Pop();
+        return;
+    }
     if (HostPtr->GameRunning && HostPtr->GameRunning())
         CloseAll();
     else if (Screen* top = Top())
@@ -609,6 +654,11 @@ void App::FeedAxis(const SDL_ControllerAxisEvent& event)
         io.AddKeyAnalogEvent(ImGuiKey_GamepadLStickUp, event.value < -dead, std::max(0.f, -v));
         io.AddKeyAnalogEvent(ImGuiKey_GamepadLStickDown, event.value > dead, std::max(0.f, v));
     }
+    // the triggers, which only the layout editor reads (its resize); ImGui's navigation leaves them alone
+    else if (event.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT)
+        io.AddKeyAnalogEvent(ImGuiKey_GamepadL2, event.value > dead, std::max(0.f, v));
+    else if (event.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT)
+        io.AddKeyAnalogEvent(ImGuiKey_GamepadR2, event.value > dead, std::max(0.f, v));
 }
 
 bool App::ProcessEvent(const SDL_Event& event)
@@ -677,7 +727,9 @@ bool App::ProcessEvent(const SDL_Event& event)
                     Back();
                 else if (action == MenuAction::Clear)
                 {
-                    if (Top())
+                    if (Top() && key == SDLK_DELETE)
+                        Top()->DeleteKey(*this);
+                    else if (Top())
                         Top()->Clear(*this);
                 }
                 else if (Top() && (action == MenuAction::TabPrev || action == MenuAction::TabNext))

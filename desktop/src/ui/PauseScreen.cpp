@@ -1,5 +1,5 @@
 // The pause menu: a panel along the left over the game's last frame, dimmed. Resume, savestates, the screens (together or detached, swap),
-// settings, reset and quitting
+// the layout (pick one, or edit the one in use), settings, reset and quitting
 #include "Icons.h"
 #include "Screens.h"
 #include "Ui.h"
@@ -89,6 +89,10 @@ public:
             const Frontend::LayoutChoice* inUse = host.Layouts && host.LayoutInUse ? host.Layouts->Find(host.LayoutInUse()) : nullptr;
             if (MenuRow(app, "##layout", Icon::Dashboard, "Layout", inUse ? inUse->DisplayName.c_str() : nullptr))
                 app.Push(MakeLayoutsScreen(LayoutsFor::InGame));
+            // the layout in use in the layout editor; a built-in one can't change, so a new layout starts from what it shows
+            bool builtIn = inUse && inUse->BuiltIn != Frontend::BuiltInLayout::None;
+            if (MenuRow(app, "##editlayout", Icon::Edit, builtIn ? "New layout from this one" : "Edit layout", nullptr))
+                app.Push(MakeLayoutEditorScreen({LayoutEditorOpen::What::InUse, ""}));
         }
         Divider(app);
 

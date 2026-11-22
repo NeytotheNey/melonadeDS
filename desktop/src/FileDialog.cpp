@@ -12,7 +12,7 @@ namespace Frontend
 namespace
 {
 
-enum class Kind { Rom, Folder, GbaRom };
+enum class Kind { Rom, Folder, GbaRom, Image };
 
 std::optional<std::string> ShowOpenDialog(SDL_Window* parent, const std::string& startDir, Kind kind)
 {
@@ -32,6 +32,17 @@ std::optional<std::string> ShowOpenDialog(SDL_Window* parent, const std::string&
     {
         dialog->SetTitle(L"Choose a folder");
         dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PICKFOLDERS | FOS_PATHMUSTEXIST);
+    }
+    else if (kind == Kind::Image)
+    {
+        const COMDLG_FILTERSPEC filters[] = {
+            {L"Images (*.png, *.jpg, *.jpeg, *.gif, *.bmp, *.svg)", L"*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.svg"},
+            {L"All files", L"*.*"},
+        };
+        dialog->SetFileTypes(2, filters);
+        dialog->SetFileTypeIndex(1);
+        dialog->SetTitle(L"Background image");
+        dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST);
     }
     else if (kind == Kind::GbaRom)
     {
@@ -102,6 +113,11 @@ std::optional<std::string> OpenGbaRomDialog(SDL_Window* parent, const std::strin
     // (it opens in the ROM's folder)
     std::string dir = startDir.empty() ? "" : PathToUtf8(PathFromUtf8(startDir).parent_path());
     return ShowOpenDialog(parent, dir, Kind::GbaRom);
+}
+
+std::optional<std::string> OpenImageDialog(SDL_Window* parent)
+{
+    return ShowOpenDialog(parent, "", Kind::Image);
 }
 
 }

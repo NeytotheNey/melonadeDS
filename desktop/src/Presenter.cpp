@@ -223,12 +223,12 @@ ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, co
     ScreenRenderer& renderer = Surfaces[std::clamp(surface, 0, SURFACE_COUNT - 1)];
     renderer.UpdateRendererConfiguration(Config);
     renderer.SetBackground(background);
+    renderer.SetBackgroundWithoutFrame(screens.ShowBackgroundWithoutFrame);
     ScreenRects rects;
-    if (frame.IsValid())
-    {
+    if (frame.IsValid() || screens.ShowBackgroundWithoutFrame)
         renderer.UpdateScreenAreas(screens, windowW, windowH);
+    if (frame.IsValid())
         rects = RectsFor(screens, frame.TopWidth, frame.TopMargin, (float)windowW);
-    }
     renderer.DrawFrame(frame, CurrentTiltShift, waitForBackground);
     return rects;
 }

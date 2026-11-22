@@ -52,6 +52,8 @@ struct SurfaceScreens
     // WideMelon camera's margin rows too (Top and Bottom say which are shown)
     bool AsPlaced = false;
     Rect PlacedTop, PlacedBottom;
+    // the background drawn while there's no frame too (the layout editor with no game running)
+    bool ShowBackgroundWithoutFrame = false;
 
     bool operator==(const SurfaceScreens&) const = default;
 };
@@ -110,6 +112,8 @@ public:
     void UpdateRendererConfiguration(const RendererConfig& config);
     // where the screens go in a [surfaceW] x [surfaceH] drawable; the quads are built again only when it changes
     void UpdateScreenAreas(const SurfaceScreens& screens, int surfaceW, int surfaceH);
+    // the background drawn while there's no frame (SurfaceScreens::ShowBackgroundWithoutFrame), set for each draw
+    void SetBackgroundWithoutFrame(bool on) { BackgroundWithoutFrame = on; }
     // the backgrounds to read from, and the one to show (loaded on the next frame that needs it, as DSRenderer.setBackground)
     void SetBackgroundStore(Backgrounds* store) { Store = store; }
     void SetBackground(const SurfaceBackground& background);
@@ -202,6 +206,7 @@ private:
     void DropBackgroundLoad();
     // the background asked for couldn't be shown: not tried again for a new size, only when it's asked for again
     bool BackgroundFailed = false;
+    bool BackgroundWithoutFrame = false;
     std::unique_ptr<Shader> BackgroundShader;
     bool IsBackgroundShaderTried = false;
     GLint MaxTextureSize = 0;

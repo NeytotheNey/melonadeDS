@@ -483,6 +483,27 @@ ScreenWindows::SurfacePlan ScreenWindows::MakePlan(bool detached, bool top, int 
     return plan;
 }
 
+ScreenWindows::SurfacePlan ScreenWindows::MakePreviewPlan(bool detached, bool top) const
+{
+    // the editor's layout as it is: the DS top screen in its top screen rect (never swapped), and its background, also without a game
+    SurfacePlan plan;
+    const ScreenLayout& layout = Preview->Layout.Main;
+    if (!detached)
+    {
+        plan.Screens.Top = PlaceOf(layout.Find("TOP_SCREEN"));
+        plan.Screens.Bottom = PlaceOf(layout.Find("BOTTOM_SCREEN"));
+    }
+    else
+    {
+        const LayoutComponent* screen = layout.Find(top ? "TOP_SCREEN" : "BOTTOM_SCREEN");
+        (top ? plan.Screens.Top : plan.Screens.Bottom) = PlaceOf(screen);
+    }
+    plan.Screens.IsWideLayout = Preview->IsWide;
+    plan.Screens.ShowBackgroundWithoutFrame = true;
+    plan.Background = {layout.BackgroundId.value_or(""), layout.GetMode()};
+    return plan;
+}
+
 const ScreenWindows::SurfacePlan& ScreenWindows::Plan(int surface, int w, int h) const
 {
     int i = std::clamp(surface, 0, 1);
@@ -492,10 +513,70 @@ const ScreenWindows::SurfacePlan& ScreenWindows::Plan(int surface, int w, int h)
     PlanKey key {detached, top, Swap, w, h, FitTop, FitBottom, Shape.TopWidth, Shape.TopMargin, Version};
     if (!(key == PlanKeys[i]))
     {
-        Plans[i] = MakePlan(detached, top, w, h);
+        Plans[i] = Preview && Preview->Surface == i ? MakePreviewPlan(detached, top) : MakePlan(detached, top, w, h);
         PlanKeys[i] = key;
     }
     return Plans[i];
+}
+
+void ScreenWindows::SetPreview(const std::optional<LayoutPreview>& preview)
+{
+    Preview = preview;
+    Version++;
+    MainRects = SecondRects = {};
+}
+
+void ScreenWindows::SurfaceSize(int surface, int& w, int& h) const
+{
+    w = h = 0;
+    if (SDL_Window* window = SurfaceWindow(surface))
+        SDL_GL_GetDrawableSize(window, &w, &h);
+}
+
+int ScreenWindows::FocusedSurface() const
+{
+    SDL_Window* focused = SDL_GetKeyboardFocus();
+    return SecondWindow && focused == SecondWindow ? 1 : 0;
+}
+
+std::optional<UILayout> ScreenWindows::ShownAsLayout(int surface) const
+{
+    int w, h;
+    SurfaceSize(surface, w, h);
+    Layout arrangement = ArrangementOf(Choice.BuiltIn);
+    if (w <= 0 || h <= 0 || Choice.BuiltIn == BuiltInLayout::None)
+        return std::nullopt;
+    UILayout layout;
+    std::vector<LayoutComponent> components;
+    auto add = [&](const Rect& r, const char* name)
+    {
+        if (r.W <= 0 || r.H <= 0)
+            return;
+        LayoutComponent c;
+        c.Rect = Whole(r);
+        c.Component = name;
+        components.push_back(c);
+    };
+    // placed for a plain 256-wide frame: a layout keeps the DS's 4:3 rects (with no wideAspect), and a WideMelon frame grows its top
+    // screen when drawn, as the app's normal layouts do, where the wide frame's shape here would stretch a later 256-wide one
+    FrameView normal;
+    if (!IsDetached())
+    {
+        if (arrangement == Layout::Count)
+            return BuildDefaultLayout(w, h);
+        ScreenRects rects = Presenter::Place(normal, w, h, arrangement, Fit::Aspect, false);
+        add(rects.Top, "TOP_SCREEN");
+        add(rects.Bottom, "BOTTOM_SCREEN");
+    }
+    else
+    {
+        // the window's screen at its fit, as a layout without detached variants shows it
+        bool top = surface == 0 ? MainShowsTop() : !MainShowsTop();
+        ScreenRects rects = Presenter::Place(normal, w, h, top ? Layout::TopOnly : Layout::BottomOnly, top ? FitTop : FitBottom);
+        add(top ? rects.Top : rects.Bottom, top ? "TOP_SCREEN" : "BOTTOM_SCREEN");
+    }
+    layout.Main.Components = std::move(components);
+    return layout;
 }
 
 std::string ScreenWindows::Title(bool main) const

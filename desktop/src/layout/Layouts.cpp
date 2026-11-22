@@ -1,10 +1,12 @@
 #include "layout/Layouts.h"
 
 #include <windows.h>
+#include <objbase.h>
 
 #include <cctype>
 #include <cstdio>
 #include <fstream>
+#include <random>
 #include <sstream>
 
 #include "Settings.h"
@@ -209,6 +211,87 @@ bool Layouts::Save() const
     if (FileBroken || Dir.empty())
         return false;
     return Write(Dir / FILE_NAME);
+}
+
+namespace
+{
+
+// the readable custom layout with [id] (any case), or -1
+int IndexOf(const std::vector<LayoutConfiguration>& custom, const std::string& id)
+{
+    std::string wanted = Lower(id);
+    for (size_t i = 0; i < custom.size(); i++)
+    {
+        if (!custom[i].Unreadable && custom[i].Id && Lower(*custom[i].Id) == wanted)
+            return (int)i;
+    }
+    return -1;
+}
+
+}
+
+const LayoutConfiguration* Layouts::FindCustom(const std::string& id) const
+{
+    int i = IndexOf(Custom, id);
+    return i < 0 ? nullptr : &Custom[i];
+}
+
+bool Layouts::Put(const LayoutConfiguration& config)
+{
+    if (!config.Id || !CanSave())
+        return false;
+    std::vector<LayoutConfiguration> before = Custom;
+    int i = IndexOf(Custom, *config.Id);
+    if (i >= 0)
+        Custom[i] = config;
+    else
+        Custom.push_back(config);
+    if (!Save())
+    {
+        Custom = std::move(before);
+        return false;
+    }
+    Rebuild();
+    printf("layouts: saved %s (%d in %s)\n", config.Id->c_str(), CustomCount(), FILE_NAME);
+    return true;
+}
+
+bool Layouts::Remove(const std::string& id)
+{
+    int i = IndexOf(Custom, id);
+    if (i < 0 || !CanSave())
+        return false;
+    std::vector<LayoutConfiguration> before = Custom;
+    Custom.erase(Custom.begin() + i);
+    if (!Save())
+    {
+        Custom = std::move(before);
+        return false;
+    }
+    Rebuild();
+    printf("layouts: deleted %s (%d left in %s)\n", id.c_str(), CustomCount(), FILE_NAME);
+    return true;
+}
+
+std::string Layouts::NewId()
+{
+    // version 4 (random) as UUID.randomUUID; CoCreateGuid makes those
+    GUID g {};
+    if (CoCreateGuid(&g) != S_OK)
+    {
+        // no COM: the same form from the C++ random device
+        std::random_device random;
+        g.Data1 = random();
+        g.Data2 = (unsigned short)random();
+        g.Data3 = (unsigned short)((random() & 0x0fff) | 0x4000);
+        for (unsigned char& b : g.Data4)
+            b = (unsigned char)random();
+        g.Data4[0] = (unsigned char)((g.Data4[0] & 0x3f) | 0x80);
+    }
+    char text[37];
+    snprintf(text, sizeof(text), "%08lx-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x", (unsigned long)g.Data1, g.Data2, g.Data3, g.Data4[0],
+        g.Data4[1], g.Data4[2], g.Data4[3], g.Data4[4], g.Data4[5], g.Data4[6], g.Data4[7]);
+    return text;
 }
 
 }

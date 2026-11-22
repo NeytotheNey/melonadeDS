@@ -9,6 +9,7 @@
 
 #include "picojson/picojson.h"
 #include "SaveSlots.h"
+#include "layout/LayoutEditing.h"
 
 namespace Frontend { class Settings; class Input; class Library; class MetadataSync; class Layouts; class Backgrounds; }
 
@@ -62,6 +63,17 @@ struct Host
     std::function<std::string()> LayoutInUse;
     std::function<std::string()> LayoutSource;
     std::function<void(const std::string& id)> PickLayoutInGame;
+    // The layout editor's: the window it edits ([surface] 0 or 1 when detached, -1 for the focused one; together always the main window),
+    // the layout shown there while it edits (none: the layout in use again), what the layout in use shows in a window as a layout to start
+    // a new one from (none for a custom layout), and, after layouts.json changed (a save, a copy, a delete), the windows put on the layout
+    // in use again: called right after Layouts::Put or Remove, before anything asks for the layout in use (the list was made again)
+    std::function<Frontend::LayoutEditTarget(int surface)> LayoutEditTarget;
+    std::function<void(const std::optional<Frontend::LayoutPreview>&)> SetLayoutPreview;
+    std::function<std::optional<Frontend::UILayout>(int surface)> ShownAsLayout;
+    std::function<void()> LayoutsChanged;
+    // an image or SVG for a background through the Windows file dialog, queued to after the frame as OpenRom: [done] gets the file (UTF-8),
+    // or nothing when it was cancelled (at once in a hidden run)
+    std::function<void(std::function<void(const std::optional<std::string>& file)> done)> PickBackgroundFile;
 
     std::function<bool()> IsDetached;
     std::function<void(bool)> SetDetached;

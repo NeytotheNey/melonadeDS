@@ -75,7 +75,7 @@ main ones:
 | `--set Name=Value` | a core debug switch on `GPU`, e.g. `--set LateBlit=0` (`--list-sets`) |
 | `--frames N` | quit after N frames and print frame time stats: the game's frames, plus the UI's while no game frame runs (the start screen, a menu over the paused game), and how many presented frames had a screen at 1x (GPU::Comp1x) |
 | `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window, menus included, when `--frames` or `--ui-script` ends the run; detached, the windows as `F_top.bmp` and `F_bottom.bmp` |
-| `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `pause`, `pause/save`, `pause/load`, `pause/layout`, `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`), `layouts` (the global layout's list), `input`, `keyboard`; with a game, once its first frame is shown |
+| `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `pause`, `pause/save`, `pause/load`, `pause/layout`, `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`), `layouts` (the global layout's list), `layout-editor` (the [layout editor](#layout-editor) on the layout in use), `layout-editor/new`, `layout-editor/ID` (a custom layout by its id), `input`, `keyboard`; with a game, once its first frame is shown |
 | `--layout NAME\|ID` | the [layout](#layouts-and-backgrounds) for the run, over the game's own and the settings' (never stored): a layout's name in any case or its id from `layouts.json`, `default` (the app's Default), or the desktop's `vertical`, `horizontal`, `top`, `bottom`; an unknown one lists them and quits. It also means the screens together, unless `--detach` is given too (then it's the layout for when they're together again, and its detached windows' layouts) |
 | `--background FILE\|NAME` | the background for the run, over the layout's: an image (PNG, JPEG, BMP, GIF) or SVG file, a background's name (`crimson`, `pearl-tech`, `Pearl Tech`, or a user background's name from `backgrounds.json`) or id, or `none` |
 | `--background-mode MODE` | how it's placed for the run: `stretch`, `fit-center`, `fit-top`, `fit-left`, `fit-bottom`, `fit-right` (the app's `BackgroundMode`, `FIT_CENTER` style too) |
@@ -149,6 +149,7 @@ also means the screens together for that run, unless `--detach` is given too.
 | `desktop_vsync` | `true`, `false` | the main window waits for vsync (`--vsync`) |
 | `input_layout_id` | a layout's id | the global [layout](#layouts-and-backgrounds) (the app's key; default the app's Default, `00000000-0000-0000-0000-000000000000`); F2 and the pause menu change it when the one in use is the global one. Before it's set, an older profile's `desktop_layout` (`vertical`, `horizontal`, `top`, `bottom`, which the desktop no longer writes) still picks that arrangement |
 | (`layouts.json`, `backgrounds.json`) | | the custom layouts and the user's backgrounds, the app's files, next to `settings.json`, see [Layouts and backgrounds](#layouts-and-backgrounds) |
+| `layout_editor_snap_to_grid`, `layout_editor_grid_size` | `true`, `false`; `SMALL`, `MEDIUM`, `LARGE` | the [layout editor](#layout-editor)'s snapping and its grid (16, 32 or 48 reference pixels), the app's keys and values (default off, `MEDIUM`) |
 | `desktop_screens` | `together`, `detached` | F9 |
 | `desktop_swap_screens` | `true`, `false` | F1 |
 | `desktop_fit_top`, `desktop_fit_bottom` | `aspect`, `integer`, `stretch` | each screen's fit when detached, F10 |
@@ -197,7 +198,8 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
   `--open library/settings` opens the first game's.
 - **Pause menu** (the Pause binding: Esc, Guide, or Select + Start held; over the last frame, dimmed): Resume, Save state, Load state,
   Detached screens, Swap screens, Layout (the list of layouts, the one in use marked; a pick is stored where that one came from: the
-  game's own layout, the run's `--layout`, or the global one, and a line over the list says which), Settings, Reset, Quit to library, Quit.
+  game's own layout, the run's `--layout`, or the global one, and a line over the list says which), Edit layout (the [layout
+  editor](#layout-editor) on the layout in use; "New layout from this one" for a built-in one), Settings, Reset, Quit to library, Quit.
 - **Save state / Load state**: the app's nine slots next to the ROM (`<rom>.ml0`, the quick slot, to
   `.ml8`, so states move between phone and PC), saved and loaded through `MelonInstance` on the
   emulator thread. Loading a state takes its save into memory only (`SaveManager::SyncFromState`), so
@@ -232,6 +234,8 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
 | `pad NAME` | a controller button pressed and released, as SDL names it (`pad start`, `pad guide`, `pad b`); with `--virtual-pad`, on that pad |
 | `pad-down NAME`, `pad-up NAME`, `key-down NAME`, `key-up NAME` | a button or key held over the next steps, or let go (combos, holds); `key-repeat NAME` sends a repeated KEYDOWN, as a held key does |
 | `mouse-down X Y`, `mouse-up X Y` | the pointer moved to X,Y of the main window and the left button pressed there or let go (a `wait` between the two holds it: a long press) |
+| `mouse-move X Y` | the pointer moved to X,Y of the main window, the left button still held after a `mouse-down` (a drag: several of them, then `mouse-up`) |
+| `wheel N` | the mouse wheel turned N notches where the pointer is (positive: away from you) |
 | `axis NAME VALUE` | a stick or trigger of the `--virtual-pad` (`axis rightx 20000`, `axis righttrigger 32767`) |
 | `wait N` | N passes of the frame loop (UI frames while a menu is up) |
 | `sleep MS` | MS milliseconds of real time, the game running on unless it's held |
@@ -487,7 +491,8 @@ missing) is left out of the list and written back as it was; a file that doesn't
 layouts, 1000 variants, 256 components, 32 MB, nesting depth 64). The desktop's one addition is a layout's `detached` pair (`{"top": [...],
 "bottom": [...]}`, variant entries like `layoutVariants`, each with the window's one screen), which the app's Gson DTOs skip as an unknown
 field (checked with the app's own compiled `LayoutConfigurationDto` and Gson 2.14: it reads such a file, and a save on the phone drops the
-pair). The layout editor that writes layouts here comes next (phase 3 step B2); until then the file comes from the phone or by hand.
+pair). The [layout editor](#layout-editor) and the list's rename, copy and delete write it, each change at once, through a `.tmp` file that
+replaces it in one step; a file that didn't parse is never written over (the editor says so, and saving does nothing).
 
 **Which variant a window gets.** The app keeps a variant per screen size it was edited on and only uses one made for exactly the current
 size and orientation, else its default layout. A window can be any size, so the desktop's rule is:
@@ -539,6 +544,82 @@ pattern tiles or parse more than 64 MB in all is given up with a logged error, a
 the app quits) stops at its next stage, layer, tile or row. `<text>` isn't drawn (nanosvg has none), so Pearl Tech misses its two small
 decals' words ("MLN-01", "HANDLE WITH CARE").
 
+### Layout editor
+
+A port of the app's layout editor (`ui/layouteditor`) for the screens (`src/ui/LayoutEditor*.cpp`, `src/layout/LayoutEditing.cpp` for
+the geometry and snapping, `src/layout/LayoutEditSession.cpp` for the layout being edited), with the layout management around it.
+
+**Ways in.** The layout lists (Settings > Display > Layout, a game's settings, the pause menu's Layout) start with New layout, which
+starts from the Default as the app's does; a custom layout's options button (Right from its row, or the mouse) has Edit, Rename, Copy
+(asks the copy's name, as the app's) and Delete (asked first: the app deletes at once with an Undo). The built-in layouts have no options,
+as the app's Default has none. The pause menu's Edit layout opens the layout in use; with a built-in one in use it's New layout from this
+one, which starts from what the window shows (the arrangement on whole pixels, placed for a 256-wide frame so WideMelon grows it as it
+does a normal layout; asked again after a swap or a resize, and back after an undone Reset), is saved with those screens even when
+nothing was changed, and once saved takes the built-in's place where that came from (the game's own, the run's or the global one). `--open layout-editor`, `layout-editor/new` and `layout-editor/ID` open it for
+hidden checks (over the pause menu with a game, over the layouts list without). Deleting the global layout puts the Default back in
+`input_layout_id`, as the app falls back; a game whose own layout is gone uses the global one, as before.
+
+**What it shows.** The window being edited shows the layout as it's edited, drawn by the renderer: the game's frame where the screens
+are (paused, as under every menu) with the layout's background, or with no game the background under the app's stand-ins (blue for the
+top screen, red for the bottom, half see-through until picked). The selected screen gets the app's corner handles; a bar at the top has
+the menu button, the layout's name (and "not saved"), which variant is edited and the selected screen's size and place.
+
+**Which variant.** The one made for the window's drawable size, as the app edits the one for the current display. A layout without one
+shows what the window would (another size's variant scaled, or the default layout), and the first change makes a variant for this size
+from it, which the bar says ("the 1080 x 2340 variant scaled; the first change makes one for this size"). Only what's changed is written
+into a variant: its screens, its background, its widescreen ratio; the on-screen buttons, the other variants and layouts and every field
+the desktop doesn't know stay as they were, byte for byte. A window resized while the editor is open goes on with the variant for its new
+size, also under one of its cards. **Detached**, it edits the focused window's one-screen layout (the `detached` pair's `top` or
+`bottom`, by the screen it shows), and the menu's Edit the other window switches; the second window shows the layout itself and the main
+window a copy of it to work on. A layout whose `detached` pair didn't parse (kept in the file as it was) can't be edited detached: the
+editor says so and doesn't open, and editing it together leaves the pair alone.
+
+**Controls.**
+
+| | Mouse | Controller | Keyboard |
+|---|---|---|---|
+| Pick a screen | click it (nothing: let go) | L / R | Tab, Shift+Tab, Q / W |
+| Move | drag it | D-pad: a pixel; left stick: 16 pixels, repeating while held | arrows: a pixel; Shift+arrows: 16 |
+| Resize | drag a corner handle (the opposite corner stays); the wheel | LT / RT: 16 pixels of width, repeating while held | - and +: 16; Shift: 1 |
+| The screen's panel | | A | Enter |
+| Undo | | X | Ctrl+Z |
+| Remove the selected screen | | (its panel) | Delete (undoable; the menu adds it back) |
+| The menu | the menu button | Start (over one of the editor's cards: the card closes) | M |
+| Back | | B: the panel, then the screen, then leave | Esc |
+
+Start never goes back to the game past the editor, and F2 (the next layout) and the detach hotkey (F9) are held off while it's open,
+with a toast, so nothing changes the layout choice or the windows under it.
+
+A held stick or trigger steps at once, then after 400 ms every 50 ms, as the app's repeating buttons. Resizing keeps the screen's aspect
+ratio, guessed from its shape as the app does (4:3, 16:9, a wide variant's own ratio for its top screen, or free). The controls keep the
+screen's corner that's nearest a corner of the window in place; a dragged handle keeps the opposite corner.
+
+**The screen's panel** (the app's item panel, docked on the side away from the screen): size (a pixel a step; width and height when
+free), aspect ratio, the top screen's widescreen ratio (Off, 16:10, 16:9, 20:9, 21:9: the variant's `wideAspect`, the top screen widened
+as the app's Wide chip does), scale (1x, 2x, 3x where they fit, and Fit), opacity (5% steps), above the other screen, center horizontally
+and vertically, swap places with the other screen, remove this screen (the menu adds it back), Done.
+
+**The menu** (the app's): Properties (the name on the on-screen keyboard, and the orientation and buttons' opacity the phone uses),
+Background (the app's built-ins and the user's from `backgrounds.json`, None, the six modes, and Add an image file, which goes into
+`backgrounds.json` with its path; that's the Windows file dialog, after the frame, so it needs a mouse or keyboard and isn't offered in a
+hidden run), Snap to grid and Grid size, Add the top or bottom screen when one was removed, Undo, Edit the other
+window (detached), Revert changes (to the layout as saved last), Reset to default (no variants of its own; detached, no detached pair),
+Save, Save and exit, Exit without saving (asked when there are unsaved changes). A layout without a name asks for one before it's saved,
+with the app's "My Layout". Back with nothing selected leaves, asking first (Save and exit, Exit without saving, Keep editing) when
+something's unsaved.
+
+**Snapping** (`LayoutEditorSnapping.kt`, on with Snap to grid, off by default as in the app): a dragged screen's nearer edge goes to the
+nearest line: the grid every 16, 32 or 48 reference pixels out from the window's middle, the window's edges, the place that centers it,
+and the other screen's edges and middle within 5% of its size; a corner handle snaps the dragged corner the same way. The D-pad never
+snaps (as the app's), and with snapping on the left stick and Shift+arrows step to the next of those lines instead of 16 pixels, so a
+controller can line screens up too.
+
+**Where it differs from the app.** Its changes show at once and can be undone (the app has no undo; its dialogs have OK and Cancel), and
+the list asks before a delete instead of offering an Undo. It has no on-screen buttons to add or place (a PC draws none; the ones in a
+layout stay as they are), no floating menu button to drag (the bar's button stays put), and no folds. Swap places and the editor for the
+detached windows are the desktop's own. The game behind it is paused, as under every menu. The pause menu's edit of a built-in layout
+makes a new one from what it shows, where the app only edits custom layouts.
+
 ### Windows and detached screens
 
 The process is per-monitor DPI aware: window sizes are real pixels on every monitor, and Windows
@@ -581,8 +662,8 @@ A scripted check, e.g. comparing renderers on the same frame:
   the PC build interprets unless `--jit` / `--fastmem` ask for it. The app runs the ARM64 JIT,
   which this doesn't test.
 - The screens are drawn with the app's filters, deband, layouts and backgrounds ([Screen filters](#screen-filters), [Layouts and
-  backgrounds](#layouts-and-backgrounds)), but not yet with its frame pacing to the display's vsync, its layout editor (step B2) or its
-  on-screen controls (a PC has none to touch). A window picks or scales a layout's variant by its own rule, SVG backgrounds draw no
+  backgrounds](#layouts-and-backgrounds)), but not yet with its frame pacing to the display's vsync or its on-screen controls (a PC has
+  none to touch). The layout editor edits the screens only, and differs from the app's in the ways [its section](#layout-editor) lists. A window picks or scales a layout's variant by its own rule, SVG backgrounds draw no
   `<text>`, and WebP or HEIF background images aren't read. The app draws a background with whatever blending the previous frame left on,
   so a translucent pixel of a background comes out darker on the phone; the desktop draws it opaque. The built-in backgrounds are opaque
   (or fully transparent), so they look the same. Lua scripts, rewind and

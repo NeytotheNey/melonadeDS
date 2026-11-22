@@ -74,6 +74,9 @@ public:
 
     // the built-in backgrounds, and [profileDir]'s backgrounds.json
     void Load(const std::filesystem::path& profileDir);
+    // [file] added to backgrounds.json as the user's background (named for the file, with a new id, the path as its uri; the entries there
+    // kept as they are), and the list read again: its id, or none with [error] when backgrounds.json can't be read or written
+    std::optional<std::string> AddUserFile(const std::filesystem::path& file, std::string& error);
     const std::vector<Entry>& All() const { return Entries; }
     const Entry* Find(const std::string& id) const;
 
@@ -92,6 +95,7 @@ public:
     void Report(const std::string& key, const std::string& error);
 
 private:
+    std::filesystem::path Dir;
     std::vector<Entry> Entries;
     // the user's SVG files read so far, by key, so a resize doesn't read them again
     std::map<std::string, std::shared_ptr<const std::vector<uint8_t>>> SvgCache;

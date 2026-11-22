@@ -18,6 +18,10 @@ public:
     virtual const char* Id() const = 0;
     // drawn over the game, which shows dimmed behind it; otherwise the screen fills the window
     virtual bool Overlay() const { return false; }
+    // an overlay that leaves the game as it is, not dimmed (the layout editor)
+    virtual bool Dims() const { return true; }
+    // Start or Guide go to the screen's MenuButton even while a game runs, instead of back to the game
+    virtual bool OwnsMenuButton() const { return false; }
     // the screen's contents, inside its full-window ImGui window (cursor at the top left, no padding)
     virtual void Draw(App& app) = 0;
     // Back (B, Esc, Backspace): true when the screen handled it, otherwise it's closed
@@ -26,6 +30,8 @@ public:
     virtual void Tab(App&, int /*direction*/) {}
     // X (Delete): clears what has the focus, where a screen has something to clear
     virtual void Clear(App&) {}
+    // the Delete key, which is Clear unless a screen gives it a meaning of its own (the layout editor: remove the selected screen)
+    virtual void DeleteKey(App& app) { Clear(app); }
     // Start or Guide while no game runs (with one, they go back to it): the library opens its menu
     virtual void MenuButton(App&) {}
 

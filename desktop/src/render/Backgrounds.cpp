@@ -12,6 +12,7 @@
 #include <thread>
 
 #include "Settings.h"
+#include "layout/Layouts.h"
 #include "render/SvgBackground.h"
 
 // stb_image again, as a private copy: ArtImage.cpp's is built for the library's small art, capped at 4096 pixels a side. This one takes a
@@ -272,8 +273,61 @@ bool DecodeRaster(const uint8_t* data, size_t size, int surfaceWidth, int surfac
 
 }
 
+std::optional<std::string> Backgrounds::AddUserFile(const fs::path& file, std::string& error)
+{
+    if (Dir.empty())
+    {
+        error = "no profile folder";
+        return std::nullopt;
+    }
+    fs::path list = Dir / "backgrounds.json";
+    picojson::array items;
+    std::error_code ec;
+    if (fs::is_regular_file(list, ec))
+    {
+        // the file's entries go back as they are; one that can't be read isn't written over
+        std::vector<uint8_t> bytes;
+        picojson::value root;
+        error = ReadWhole(list, MAX_LIST_FILE, bytes) ? ParseJson(std::string(bytes.begin(), bytes.end()), root) : std::string("can't be read");
+        if (error.empty() && !root.is<picojson::array>())
+            error = "not a list";
+        if (!error.empty())
+            return std::nullopt;
+        items = root.get<picojson::array>();
+    }
+    std::string id = Layouts::NewId();
+    picojson::object entry;
+    entry["id"] = picojson::value(id);
+    entry["name"] = picojson::value(PathToUtf8(file.stem()));
+    entry["uri"] = picojson::value(PathToUtf8(fs::absolute(file, ec)));
+    items.push_back(picojson::value(entry));
+    fs::path temp = list;
+    temp += ".tmp";
+    {
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        out << picojson::value(items).serialize();
+        out.close();
+        if (out.fail())
+        {
+            fs::remove(temp, ec);
+            error = "can't write " + PathToUtf8(temp);
+            return std::nullopt;
+        }
+    }
+    if (!MoveFileExW(temp.c_str(), list.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        fs::remove(temp, ec);
+        error = "can't replace " + PathToUtf8(list);
+        return std::nullopt;
+    }
+    printf("backgrounds: added %s as %s\n", PathToUtf8(file).c_str(), id.c_str());
+    Load(Dir);
+    return id;
+}
+
 void Backgrounds::Load(const fs::path& profileDir)
 {
+    Dir = profileDir;
     Entries.clear();
     SvgCache.clear();
     std::vector<const EmbeddedBackgroundFile*> files;

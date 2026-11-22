@@ -318,7 +318,8 @@ void Usage()
         "\n"
         "  --open SCREEN               open a menu screen at the start: library (or start), library/details or\n"
         "                              library/settings (the first game's details or game settings, once the scan\n"
-        "                              is done), pause, pause/save, pause/load,\n"
+        "                              is done), pause, pause/save, pause/load, pause/layout, layouts,\n"
+        "                              layout-editor (the layout in use), layout-editor/new, layout-editor/ID,\n"
         "                              settings, settings/video (display, emulation, audio, controls, library),\n"
         "                              input, keyboard (a text field and the on-screen keyboard); with a\n"
         "                              game, once its first frame is shown\n"
@@ -1245,6 +1246,8 @@ int main(int argc, char** argv)
             fprintf(stderr, "  %s  %s%s\n", c.Id().c_str(), c.DisplayName.c_str(), c.Alias.empty() ? "" : (" (" + c.Alias + ")").c_str());
         return 1;
     }
+    // its id too, to find it again after layouts.json changes (the layout editor, the list's copy and delete rebuild the list)
+    std::string runLayoutId = runLayout ? runLayout->Id() : "";
     std::optional<std::string> runBackground;
     if (!opts.BackgroundArg.empty())
     {
@@ -1755,7 +1758,10 @@ int main(int argc, char** argv)
         LayoutFrom from;
         resolveLayout(&from);
         if (from == LayoutFrom::Run && runLayout)
+        {
             runLayout = choice;
+            runLayoutId = choice->Id();
+        }
         else if (from == LayoutFrom::Run)
             gameRunLayoutId = id;
         else if (from == LayoutFrom::Game)
@@ -2262,6 +2268,39 @@ int main(int argc, char** argv)
         return from == LayoutFrom::Run ? "run" : from == LayoutFrom::Game ? "game" : "global";
     };
     host.PickLayoutInGame = [&](const std::string& id) { pickLayout(id); };
+    // the layout editor's window: together the main one; detached the one asked for, or the focused one
+    host.LayoutEditTarget = [&](int surface)
+    {
+        Frontend::LayoutEditTarget target;
+        target.Detached = windows.IsDetached();
+        target.Surface = !target.Detached ? 0 : surface < 0 ? windows.FocusedSurface() : std::clamp(surface, 0, 1);
+        // the main window shows the top screen unless they're swapped
+        target.TopScreen = (target.Surface == 0) != windows.IsSwapped();
+        windows.SurfaceSize(target.Surface, target.W, target.H);
+        return target;
+    };
+    host.SetLayoutPreview = [&](const std::optional<Frontend::LayoutPreview>& preview)
+    {
+        windows.SetPreview(preview);
+        redraw = true;
+    };
+    host.ShownAsLayout = [&](int surface) { return windows.ShownAsLayout(surface); };
+    host.LayoutsChanged = [&]
+    {
+        // layouts.json changed and the list was made again: the run's layout found again by its id (gone: the next one in line)
+        runLayout = runLayoutId.empty() ? nullptr : layouts.Find(runLayoutId);
+        applyLayout();
+    };
+    host.PickBackgroundFile = [&](std::function<void(const std::optional<std::string>&)> done)
+    {
+        if (opts.Hidden)
+        {
+            done(std::nullopt);
+            return;
+        }
+        // after the frame, as Open ROM: the dialog is modal and the menus can't draw meanwhile
+        messenger->Post([&, done] { done(Frontend::OpenImageDialog(window)); });
+    };
     host.IsDetached = [&] { return windows.IsDetached(); };
     host.SetDetached = [&](bool detached)
     {
@@ -2470,6 +2509,8 @@ int main(int argc, char** argv)
     int scriptSyncQuiet = 0;
     u32 scriptFrame = 0;
     std::function<void()> scriptRelease;
+    // the left button held by a mouse-down step, for the mouse-move steps of a drag
+    bool scriptMouseHeld = false;
 
     // UI thread: the window as drawn now (the game's newest frame, then the menus' last frame), into [path] (_top/_bottom when detached)
     auto windowShot = [&](const std::string& path)
@@ -2566,6 +2607,12 @@ int main(int argc, char** argv)
         }
         case SDLK_F2:
         {
+            // not while the layout editor is open: it would store a layout choice under it (and change which one its new layout replaces)
+            if (ui.HasScreen("layout-editor"))
+            {
+                ui.Toast("Close the layout editor to pick another layout");
+                break;
+            }
             // the next layout in the list, stored where the one in use came from
             const std::vector<Frontend::LayoutChoice>& all = layouts.All();
             size_t i = 0;
@@ -2637,7 +2684,17 @@ int main(int argc, char** argv)
             break;
         }
         case Action::SwapScreens: windows.ToggleSwap(); redraw = true; break;
-        case Action::DetachScreens: windows.SetDetached(!windows.IsDetached()); redraw = true; break;
+        case Action::DetachScreens:
+            // the layout editor edits one window's layout: the windows stay as they are until it's closed
+            if (ui.HasScreen("layout-editor"))
+            {
+                if (down)
+                    ui.Toast("Close the layout editor to put the screens together or apart");
+                break;
+            }
+            windows.SetDetached(!windows.IsDetached());
+            redraw = true;
+            break;
         case Action::Fullscreen: windows.ToggleFullscreen(focusId); redraw = true; break;
         case Action::Screenshot:
         {
@@ -2851,6 +2908,32 @@ int main(int argc, char** argv)
             event.button.x = step.Value;
             event.button.y = (int)step.Number;
             SDL_PushEvent(&event);
+            scriptMouseHeld = down;
+            scriptDelay = 1;
+            break;
+        }
+        case Kind::MouseMove:
+        {
+            // a drag's move: the button held since the last mouse-down
+            SDL_Event motion {};
+            motion.type = SDL_MOUSEMOTION;
+            motion.motion.windowID = SDL_GetWindowID(window);
+            motion.motion.x = step.Value;
+            motion.motion.y = (int)step.Number;
+            motion.motion.state = scriptMouseHeld ? SDL_BUTTON_LMASK : 0;
+            SDL_PushEvent(&motion);
+            scriptDelay = 1;
+            break;
+        }
+        case Kind::Wheel:
+        {
+            SDL_Event wheel {};
+            wheel.type = SDL_MOUSEWHEEL;
+            wheel.wheel.windowID = SDL_GetWindowID(window);
+            wheel.wheel.y = step.Value;
+            wheel.wheel.preciseY = (float)step.Value;
+            wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+            SDL_PushEvent(&wheel);
             scriptDelay = 1;
             break;
         }
