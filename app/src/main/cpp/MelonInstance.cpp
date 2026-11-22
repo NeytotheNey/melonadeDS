@@ -508,6 +508,10 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         nds->GPU.GetRenderer3D().SetOutputTexture(outputBuffer, renderFrame->frameTexture);
         // 0 when none is wanted, which tells the renderer to keep no depth
         nds->GPU.GetRenderer3D().SetOutputDepthTexture(outputBuffer, renderFrame->depthTexture);
+        // The characters' sun shadows OpenGL draws into the depth's flags, the newest script's or else the frontend's; the scripts' last word on
+        // them is the previous frame's, as for the depth
+        SunShadows sun = luaEngine.sunShadows();
+        nds->GPU.GetRenderer3D().SetSunShadows(sun.On ? sun : frontendSun);
     }
 
     bool hasLuaFrameRun = false;

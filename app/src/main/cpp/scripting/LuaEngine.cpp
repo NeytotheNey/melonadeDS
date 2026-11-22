@@ -502,6 +502,7 @@ void LuaEngine::sendRequests(LuaScript& script)
         if (script.sun != script.sentSun)
         {
             script.sentSun = script.sun;
+            script.sentSunOrder = ++sentSunRequests;
             const LuaSun& sun = script.sentSun;
             eventMessenger->onLuaSun(script.id, sun.strength, sun.direction, sun.up, sun.length, sun.steps, sun.bias, sun.softness, (int) sun.color);
         }
@@ -1201,6 +1202,25 @@ int LuaEngine::luaScreenSun(lua_State* L)
     if (!script.engine->isUnloading)
         script.sun = sun;
     return 0;
+}
+
+melonDS::SunShadows LuaEngine::sunShadows() const
+{
+    // The newest request wins, as in the app (LuaSunRequests). A stopped script's was set back to off when it closed
+    const LuaScript* newest = nullptr;
+    for (const auto& script : scripts)
+    {
+        if (script->sentSun.strength > 0.0f && (!newest || script->sentSunOrder > newest->sentSunOrder))
+            newest = script.get();
+    }
+    melonDS::SunShadows sun;
+    if (newest)
+    {
+        sun.On = true;
+        sun.Direction = newest->sentSun.direction;
+        sun.Up = newest->sentSun.up;
+    }
+    return sun;
 }
 
 bool LuaEngine::wantsDepth() const

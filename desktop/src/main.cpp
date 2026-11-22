@@ -1275,7 +1275,7 @@ void DepthShot(const Frame& frame, const std::string& path, const std::string& r
         return;
 
     std::vector<u32> depths;
-    u32 count2D = 0, countBehind = 0, countW = 0, countOther = 0, nearest = 0xFFFFFF, farthest = 0;
+    u32 count2D = 0, countBehind = 0, countW = 0, countOther = 0, countSun = 0, nearest = 0xFFFFFF, farthest = 0;
     for (size_t i = 0; i < texels.size(); i += 4)
     {
         const u8 flags = texels[i + 3];
@@ -1284,6 +1284,8 @@ void DepthShot(const Frame& frame, const std::string& path, const std::string& r
             countW++;
         if (flags & 8)
             countOther++;
+        if (flags & 16)
+            countSun++;
         if (flags & 1)
             count2D++;
         else if (flags & 2)
@@ -1329,9 +1331,9 @@ void DepthShot(const Frame& frame, const std::string& path, const std::string& r
             distinct16++;
     }
     printf("depth shot: %s%s, %dx%d; 3D %zu px, depth 0x%06X..0x%06X, %zu distinct values (%zu at 16 bits); 2D %u px, "
-           "transparent 3D %u px, W-buffered %u px, other camera %u px\n",
+           "transparent 3D %u px, W-buffered %u px, other camera %u px, in its sun shadow %u px\n",
            path.c_str(), written ? "" : " (not written)", width, height, pixels3D, pixels3D ? nearest : 0, farthest, depths.size(),
-           distinct16, count2D, countBehind, countW, countOther);
+           distinct16, count2D, countBehind, countW, countOther, countSun);
 }
 
 // --camera-dump: the 3D scene the core latched last (GPU3D::CameraLog), as a JSON line into [file], once per swap: the frame, the
@@ -1787,6 +1789,9 @@ int main(int argc, char** argv)
         bool bloomWantsDepth = opts.Bloom && (opts.Bloom->HasHaze() || (opts.Bloom->HasBloom() && opts.Bloom->OnlyThreeD));
         instance.setDepthWanted(opts.DepthOfField.has_value() || opts.Shade.has_value() || opts.Sun.has_value() || bloomWantsDepth
                                 || !opts.DepthShotPath.empty() || !opts.DepthRawPath.empty());
+        // and the characters' own shadows the core draws for it, as melon.screen.sun has it draw them
+        if (opts.Sun)
+            instance.setFrontendSun({true, opts.Sun->Direction, opts.Sun->Up});
         if (commandLineGame && !opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
         {
             startFailed = true;

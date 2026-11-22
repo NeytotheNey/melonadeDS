@@ -1036,7 +1036,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // A texel of the frame's depth texture (PresentFrameWrapper.depthTextureId, the compositor's kCompositorDepthFS) as a depth from 0 to 1:
         // the DS's 24-bit depth in RGB, high byte in R, so 0 is 2D drawn over the 3D and 1 is where what's behind the 3D shows. A holds the
         // compositor's flags (1 for 2D, 2 for behind the 3D, 4 for a W-buffered 3D pixel, 8 for 3D drawn under another camera than
-        // PresentFrameWrapper.depthCamera, 16 for a pixel in a character's shadow once the renderer marks them), which the sun shadows read. The
+        // PresentFrameWrapper.depthCamera, 16 for a pixel in a character's shadow, which the renderer draws), which the sun shadows read. The
         // two ends are exact and every other depth stays below 1, however the GPU divides, so a test like depth < 1.0 tells real 3D from what's
         // behind it
         private const val DEPTH_DECODE_FUNCTION = "highp float decodeDepth(highp vec4 texel) {\n" +

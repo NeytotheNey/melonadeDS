@@ -217,6 +217,11 @@ public:
      * (melon.screen.depth_of_field, haze, bloom's only_3d, shade and sun), so the frames should keep their depth; emulator thread only
      */
     bool wantsDepth() const;
+    /**
+     * The sun shadows of the running script that asked for them last (melon.screen.sun), as the app was last told, for the OpenGL renderer to
+     * draw the characters' own; off while none asks. Emulator thread only
+     */
+    melonDS::SunShadows sunShadows() const;
 
 private:
     // The API files (LuaEngineInternal.h) read the engine's state through the running script's LuaScript::engine
@@ -288,6 +293,8 @@ private:
     std::shared_ptr<const LuaFolderContent> folderContent;
     std::vector<std::unique_ptr<LuaScript>> scripts;
     int activeScriptCount = 0;
+    // The sun shadow requests sent so far, which orders them (LuaScript::sentSunOrder)
+    unsigned int sentSunRequests = 0;
     // Set while on_unload() runs: requests to the app are ignored, and errors are only logged
     bool isUnloading = false;
     // Set while on_frame() or on_frame_end() runs, the only callbacks whose draw calls are recorded

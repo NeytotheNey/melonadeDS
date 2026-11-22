@@ -232,9 +232,10 @@ struct LuaScript
     // melon.screen.shade(): the same as the depth of field
     LuaShade shade;
     LuaShade sentShade;
-    // melon.screen.sun(): the same
+    // melon.screen.sun(): the same, and when the app was told of it (LuaEngine::sunShadows), as the newest request is the one shown
     LuaSun sun;
     LuaSun sentSun;
+    unsigned int sentSunOrder = 0;
     // melon.wide: kept until the script changes it or stops (not a per-call request), and what the app was last told of it
     LuaWideCamera wideCamera;
     LuaWideCamera sentWideCamera;

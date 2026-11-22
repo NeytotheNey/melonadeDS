@@ -58,6 +58,9 @@ public:
     void setWideView(int width, int margin) { requestedWideView.store(packWideView(width, margin), std::memory_order_relaxed); }
     // Whether the frontend wants each frame's depth (Frame::depthTexture) whatever the scripts ask for (the desktop's --dof); any thread
     void setDepthWanted(bool wanted) { isFrontendDepthWanted.store(wanted, std::memory_order_relaxed); }
+    // The characters' sun shadows the OpenGL renderer draws while no script asks for its own (the desktop's --sun); emulator thread, between
+    // frames
+    void setFrontendSun(const melonDS::SunShadows& sun) { frontendSun = sun; }
     float getMotionData(MotionQueryType type);
     void touchScreen(u16 x, u16 y);
     void releaseScreen();
@@ -180,6 +183,8 @@ private:
     std::atomic_bool luaDrawingsInScreenshots = false;
     // setDepthWanted(), read by the emulator thread before each frame
     std::atomic_bool isFrontendDepthWanted = false;
+    // setFrontendSun(), emulator thread only
+    melonDS::SunShadows frontendSun {};
     // The width and margin of the top screen's 3D view, for the emulator thread: they start at EmulatorConfiguration::wideViewWidth and
     // wideViewMargin and then follow setWideView() (configuration updates don't change them)
     int wideViewWidth;
