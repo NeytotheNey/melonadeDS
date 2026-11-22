@@ -429,14 +429,23 @@ bool App::OpenPath(const std::string& path)
             return false;
         ShowStart(path == "library/details" ? LibraryOpen::Details : path == "library/settings" ? LibraryOpen::Settings : LibraryOpen::None);
     }
-    else if (path == "pause" || path == "pause/save" || path == "pause/load")
+    else if (path == "pause" || path == "pause/save" || path == "pause/load" || path == "pause/layout")
     {
         if (!game)
             return false;
         if (Stack.empty())
             OpenPause();
-        if (path != "pause")
+        if (path == "pause/layout")
+            Push(MakeLayoutsScreen(LayoutsFor::InGame));
+        else if (path != "pause")
             Push(MakeStatesScreen(path == "pause/save"));
+    }
+    else if (path == "layouts")
+    {
+        if (game && Stack.empty())
+            OpenPause();
+        Push(MakeSettingsScreen("display"));
+        Push(MakeLayoutsScreen(LayoutsFor::Global));
     }
     else if (path == "settings" || path.rfind("settings/", 0) == 0 || path == "input")
     {

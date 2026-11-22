@@ -67,6 +67,9 @@ add_library(sqlite3 STATIC "${THIRD_PARTY}/sqlite/sqlite3.c")
 # no extensions loaded from DLLs; double-quoted strings are identifiers only (SQLite's advice for new code)
 target_compile_definitions(sqlite3 PRIVATE SQLITE_OMIT_LOAD_EXTENSION SQLITE_DQS=0 SQLITE_THREADSAFE=1 SQLITE_DEFAULT_MEMSTATUS=0)
 add_library(miniz STATIC "${THIRD_PARTY}/miniz/miniz.c")
+# nanosvg (header-only) for the layouts' SVG backgrounds, built in src/render/NanoSvg.c
+add_library(nanosvg STATIC src/render/NanoSvg.c)
+target_include_directories(nanosvg PRIVATE "${THIRD_PARTY}")
 add_library(lzma7z STATIC
     "${THIRD_PARTY}/lzma/7zAlloc.c" "${THIRD_PARTY}/lzma/7zArcIn.c" "${THIRD_PARTY}/lzma/7zBuf.c" "${THIRD_PARTY}/lzma/7zBuf2.c"
     "${THIRD_PARTY}/lzma/7zCrc.c" "${THIRD_PARTY}/lzma/7zCrcOpt.c" "${THIRD_PARTY}/lzma/7zDec.c" "${THIRD_PARTY}/lzma/7zFile.c"
@@ -107,6 +110,12 @@ add_executable(melonade-desktop
     src/ImageFile.h
     src/Input.cpp
     src/Input.h
+    src/layout/LayoutGeometry.cpp
+    src/layout/LayoutGeometry.h
+    src/layout/LayoutModel.cpp
+    src/layout/LayoutModel.h
+    src/layout/Layouts.cpp
+    src/layout/Layouts.h
     src/Library.cpp
     src/Library.h
     src/LibraryDb.cpp
@@ -118,6 +127,9 @@ add_executable(melonade-desktop
     src/Frontend.h
     src/Presenter.cpp
     src/Presenter.h
+    src/render/Backgrounds.cpp
+    src/render/Backgrounds.h
+    "${CMAKE_BINARY_DIR}/generated/background_files.inc"
     src/render/PresentFrame.h
     src/render/Shader.cpp
     src/render/Shader.h
@@ -127,6 +139,8 @@ add_executable(melonade-desktop
     src/render/VideoFilterPipeline.h
     src/render/ScreenRenderer.cpp
     src/render/ScreenRenderer.h
+    src/render/SvgBackground.cpp
+    src/render/SvgBackground.h
     "${CMAKE_BINARY_DIR}/generated/shader_files.inc"
     src/Resources.h
     src/resources.rc
@@ -151,6 +165,7 @@ add_executable(melonade-desktop
     src/ui/Icons.h
     src/ui/InputScreen.cpp
     src/ui/KeyboardTestScreen.cpp
+    src/ui/LayoutsScreen.cpp
     src/ui/LibraryCards.cpp
     src/ui/LibraryCards.h
     src/ui/LibraryScreen.cpp
@@ -200,6 +215,16 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/generated/shader_files.inc"
     DEPENDS ${SHADER_SOURCES} "${CMAKE_CURRENT_SOURCE_DIR}/EmbedShaders.cmake"
     COMMENT "Embedding desktop/shaders")
 
+# the app's built-in backgrounds (its assets' SVGs), embedded the same way, so the exe shows them with no files next to it:
+# generated/background_files.inc
+set(BACKGROUND_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../app/src/main/assets/backgrounds")
+file(GLOB BACKGROUND_SOURCES CONFIGURE_DEPENDS "${BACKGROUND_DIR}/*.svg")
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/generated/background_files.inc"
+    COMMAND ${CMAKE_COMMAND} "-DBACKGROUND_DIR=${BACKGROUND_DIR}" "-DOUTPUT=${CMAKE_BINARY_DIR}/generated/background_files.inc"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/EmbedBackgrounds.cmake"
+    DEPENDS ${BACKGROUND_SOURCES} "${CMAKE_CURRENT_SOURCE_DIR}/EmbedBackgrounds.cmake"
+    COMMENT "Embedding the app's backgrounds")
+
 # the resource script embeds these, so it's compiled again when one changes
 set_source_files_properties(src/resources.rc PROPERTIES OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/app.ico;${CMAKE_CURRENT_SOURCE_DIR}/src/app.manifest;${CMAKE_BINARY_DIR}/generated/version.h;${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/roboto/Roboto-Regular.ttf;${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/roboto/Roboto-Medium.ttf;${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/material-symbols/MaterialSymbolsOutlined-subset.ttf")
@@ -214,7 +239,7 @@ target_compile_options(melonade-desktop PRIVATE -Wall -Wextra -Wno-unused-parame
 # ole32/uuid: COM for the file dialog (shell32) and the slot screenshots (windowscodecs, WIC); winhttp for the metadata sync's requests,
 # bcrypt for the ROMs' MD5 and SHA1, crypt32 for the Web API key (DPAPI); all system DLLs
 # rhash-rom before melonade-shared, whose rcheevos it calls into
-target_link_libraries(melonade-desktop PRIVATE rhash-rom melonade-shared core imgui sqlite3 miniz lzma7z SDL2::SDL2main SDL2::SDL2 winmm ole32 uuid shell32 windowscodecs winhttp bcrypt crypt32)
+target_link_libraries(melonade-desktop PRIVATE rhash-rom melonade-shared core imgui sqlite3 miniz lzma7z nanosvg SDL2::SDL2main SDL2::SDL2 winmm ole32 uuid shell32 windowscodecs winhttp bcrypt crypt32)
 
 if (MINGW)
     # a GUI program (no console window of its own; a run from a console writes to it, see AttachParentConsole in main.cpp); static so the

@@ -16,6 +16,7 @@
 #include "Settings.h"
 #include "Ui.h"
 #include "Widgets.h"
+#include "layout/Layouts.h"
 
 namespace Ui
 {
@@ -28,7 +29,6 @@ struct Option { const char* Value; const char* Name; };
 const Option kRenderers[] = {{"software", "Software"}, {"opengl", "OpenGL"}, {"compute", "Compute"}};
 const Option kThemes[] = {{"system", "System"}, {"light", "Light"}, {"dark", "Dark"}};
 const Option kScreens[] = {{"together", "Together"}, {"detached", "Detached (two windows)"}};
-const Option kLayouts[] = {{"vertical", "Top over bottom"}, {"horizontal", "Side by side"}, {"top", "Top only"}, {"bottom", "Bottom only"}};
 const Option kFits[] = {{"aspect", "Keep aspect"}, {"integer", "Integer scale"}, {"stretch", "Stretch"}};
 const Option kFullscreen[] = {{"borderless", "Borderless"}, {"exclusive", "Exclusive"}};
 // the app's video_filtering list (arrays.xml's video_filtering_values and strings.xml's video_filtering_options), which leaves out the
@@ -311,7 +311,23 @@ private:
         bool detached = s.GetString("desktop_screens", "together") == "detached";
         SectionLabel(app, "Screens");
         Choice(app, "desktop_screens", Icon::OpenInNew, "Screens", kScreens, "together");
-        Choice(app, "desktop_layout", Icon::DesktopWindows, "Layout", kLayouts, "vertical", detached ? "When they're together" : nullptr);
+        {
+            // the global layout (input_layout_id, the app's key); a game with its own shows that one instead
+            Host& host = app.GetHost();
+            std::string name = "Default";
+            if (host.Layouts)
+            {
+                std::string id = s.GetString("input_layout_id", "");
+                const Frontend::LayoutChoice* c = id.empty() ? nullptr : host.Layouts->Find(id);
+                if (!c && id.empty() && s.Find("desktop_layout"))
+                    c = host.Layouts->FindByName(s.GetString("desktop_layout", ""));
+                name = c ? c->DisplayName : host.Layouts->Default().DisplayName;
+            }
+            std::string detail = name + (detached ? " (when they're together; its detached layouts when it has them)" : "");
+            if (DetailRow(app, "##layout", Icon::Dashboard, "Layout", detail.c_str(), TakeFirst()))
+                app.Push(MakeLayoutsScreen(LayoutsFor::Global));
+            Track("input_layout_id");
+        }
         Toggle(app, "desktop_swap_screens", Icon::SwapVert, "Swap screens", "The bottom screen where the top one is", false);
         SectionLabel(app, "Detached screens");
         Choice(app, "desktop_fit_top", Icon::FitScreen, "Top screen fit", kFits, "aspect");

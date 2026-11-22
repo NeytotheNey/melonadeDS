@@ -1,7 +1,8 @@
 // A game's own settings, the app's ROM settings screen (RomConfigUi) for what the desktop can apply when the game boots: its display
-// name (on the on-screen keyboard), the console it boots as (locked to DSi for a DSiWare title, as the app does) and the GBA slot. They're
-// kept by the ROM's RetroAchievements hash, so every copy of the game shares them. The app's other per-game settings belong to later phases
-// and are listed disabled ("Coming later"): the microphone (phase 6), the controller layout and WideMelon (phase 3) and mods (phase 4).
+// name (on the on-screen keyboard), the console it boots as (locked to DSi for a DSiWare title, as the app does), the GBA slot and its own
+// layout (or the global one). They're kept by the ROM's RetroAchievements hash, so every copy of the game shares them. The app's other
+// per-game settings belong to later phases and are listed disabled ("Coming later"): the microphone (phase 6), WideMelon (phase 3 step C)
+// and mods (phase 4).
 // Changes go to library.db at once (Library::SetConfig) and apply the next time the game starts, from the library or the command line.
 // Reached from the details screen, a featured mosaic tile's menu button, or by holding confirm (or the mouse) on a tile
 #include <algorithm>
@@ -14,6 +15,7 @@
 #include "Settings.h"
 #include "Ui.h"
 #include "Widgets.h"
+#include "layout/Layouts.h"
 
 namespace Ui
 {
@@ -164,10 +166,23 @@ public:
             }
         }
 
+        SectionLabel(app, "Layout");
+        {
+            // the app's per-game layout (RomConfig.layoutId), "Use global layout" by default
+            std::string detail = "Use global layout";
+            if (!config.LayoutId.empty())
+            {
+                const Frontend::LayoutChoice* c = host.Layouts ? host.Layouts->Find(config.LayoutId) : nullptr;
+                detail = c ? c->DisplayName : "A layout that's gone (the global one shows)";
+            }
+            if (DetailRow(app, "##layout", Icon::Dashboard, "Layout", detail.c_str(), false))
+                app.Push(MakeLayoutsScreen(LayoutsFor::Game, &Entry));
+            Track("layout");
+        }
+
         SectionLabel(app, "Coming later");
         // the app's other per-game settings, for the phases that build what they need
         MenuRow(app, "##mic", Icon::Mic, "Microphone source", "Coming later", false, false);
-        MenuRow(app, "##layout", Icon::Dashboard, "Controller layout", "Coming later", false, false);
         MenuRow(app, "##wide", Icon::AspectRatio, "Widescreen (WideMelon)", "Coming later", false, false);
         MenuRow(app, "##mods", Icon::Extension, "Mods", "Coming later", false, false);
 

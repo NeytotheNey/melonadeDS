@@ -24,6 +24,11 @@ std::filesystem::path ResolveProfileDir(const std::string& profileArg, bool scri
 std::filesystem::path PathFromUtf8(const std::string& text);
 std::string PathToUtf8(const std::filesystem::path& path);
 
+// picojson::parse for text from outside (files, network replies): refused when its arrays and objects nest deeper than 64 (picojson
+// recurses, so a file of thousands of '[' would overflow the stack), and picojson's own exceptions (a number it can't hold) turned into the
+// error. Empty when it parsed
+std::string ParseJson(const std::string& text, picojson::value& out);
+
 class Settings
 {
 public:

@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -16,6 +17,42 @@ namespace Frontend
 // Through Windows' own conversions, which never throw: text that isn't valid UTF-8 (a zip entry's name in another code page) or a name
 // with a lone surrogate (which NTFS allows) comes out with U+FFFD in place of what can't be converted, where std::filesystem's own
 // conversions would throw
+std::string ParseJson(const std::string& text, picojson::value& out)
+{
+    // the deepest the arrays and objects nest, outside strings
+    constexpr int MAX_NESTING = 64;
+    int depth = 0, deepest = 0;
+    bool inString = false;
+    for (size_t i = 0; i < text.size(); i++)
+    {
+        char c = text[i];
+        if (inString)
+        {
+            if (c == '\\')
+                i++;
+            else if (c == '"')
+                inString = false;
+        }
+        else if (c == '"')
+            inString = true;
+        else if (c == '[' || c == '{')
+            deepest = std::max(deepest, ++depth);
+        else if (c == ']' || c == '}')
+            depth--;
+        if (deepest > MAX_NESTING)
+            return "nested deeper than " + std::to_string(MAX_NESTING);
+    }
+    try
+    {
+        return picojson::parse(out, text);
+    }
+    catch (const std::exception& e)
+    {
+        std::string error = e.what();
+        return error.empty() ? "a value picojson can't hold" : error;
+    }
+}
+
 fs::path PathFromUtf8(const std::string& text)
 {
     if (text.empty())
@@ -83,18 +120,7 @@ bool Settings::Load(const fs::path& dir)
     text << in.rdbuf();
     std::string content = text.str();
     picojson::value root;
-    std::string error;
-    try
-    {
-        // picojson throws on a number it can't hold (1e999 is infinite), and on anything else unexpected
-        error = picojson::parse(root, content);
-    }
-    catch (const std::exception& e)
-    {
-        error = e.what();
-        if (error.empty())
-            error = "a value picojson can't hold";
-    }
+    std::string error = ParseJson(content, root);
     if (!error.empty() || !root.is<picojson::object>())
     {
         fprintf(stderr, "settings: %s doesn't parse (%s), starting from the defaults; it's kept as settings.json.bad\n",

@@ -4,6 +4,7 @@
 #include "Screens.h"
 #include "Ui.h"
 #include "Widgets.h"
+#include "layout/Layouts.h"
 
 namespace Ui
 {
@@ -84,6 +85,11 @@ public:
         bool swapped = host.IsSwapped && host.IsSwapped();
         if (ToggleRow(app, "##swap", Icon::SwapVert, "Swap screens", nullptr, swapped) && host.ToggleSwap)
             host.ToggleSwap();
+        {
+            const Frontend::LayoutChoice* inUse = host.Layouts && host.LayoutInUse ? host.Layouts->Find(host.LayoutInUse()) : nullptr;
+            if (MenuRow(app, "##layout", Icon::Dashboard, "Layout", inUse ? inUse->DisplayName.c_str() : nullptr))
+                app.Push(MakeLayoutsScreen(LayoutsFor::InGame));
+        }
         Divider(app);
 
         if (MenuRow(app, "##settings", Icon::Settings, "Settings", nullptr))

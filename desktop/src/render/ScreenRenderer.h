@@ -1,13 +1,18 @@
-// Port of the screen drawing in the app's DSRenderer.kt, one per window as the app has one per surface: the screen quads (with the frame's
-// columns and rows), the screen filter (VideoFilterPipeline, rebuilt when the filter, deband or the DS screen colors change), the screen
-// shadows, GPU::Comp1x's 1x shader, deband in the screen shader where it's cheaper (DebandFold.kt) and the output cap's need. The background
-// (phase 3 step B) and the Lua drawings (phase 4) aren't drawn yet; DrawFrame says where they go. UI thread only, with its GL context current
+// Port of the screen drawing in the app's DSRenderer.kt, one per window as the app has one per surface: the background (the layout's, an
+// SVG rasterized for the surface or an image), the screen quads where the layout puts them (getScreensDrawing, with each screen's opacity
+// and the one on top drawn last), the screen filter (VideoFilterPipeline, rebuilt when the filter, deband or the DS screen colors change), the
+// screen shadows, GPU::Comp1x's 1x shader, deband in the screen shader where it's cheaper (DebandFold.kt) and the output cap's need. The Lua
+// drawings (phase 4) aren't drawn yet; DrawFrame says where they go. UI thread only, with its GL context current
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <memory>
 #include <optional>
+#include <string>
 
+#include "layout/LayoutGeometry.h"
+#include "render/Backgrounds.h"
 #include "render/PresentFrame.h"
 #include "render/ShaderLibrary.h"
 #include "render/VideoFilterPipeline.h"
@@ -21,7 +26,58 @@ struct Rect
     float X = 0, Y = 0, W = 0, H = 0;
 
     bool operator==(const Rect&) const = default;
+
+    static Rect Of(const IntRect& r) { return {(float)r.X, (float)r.Y, (float)r.W, (float)r.H}; }
 };
+
+// a DS screen's place in a layout: its rect in the surface's pixels, its opacity and whether the layout puts it on top
+struct ScreenPlace
+{
+    IntRect Rect;
+    float Alpha = 1;
+    bool OnTop = false;
+
+    bool operator==(const ScreenPlace&) const = default;
+};
+
+// what DSRenderer.updateScreenAreas gets: where the DS top and bottom screens go (the layout's rects, already traded when the screens are
+// swapped; none for a screen the layout doesn't show), whether the layout is a wide one and whether the screens are swapped
+struct SurfaceScreens
+{
+    std::optional<ScreenPlace> Top, Bottom;
+    bool IsWideLayout = false;
+    bool AreScreensSwapped = false;
+    // the desktop's own placements (its four built-in layouts, and a detached window's fit): PlacedTop and PlacedBottom are where the screens
+    // are drawn, on fractional pixels and already shaped for the frame (WideMelon's width), and the top screen shows its whole half, the
+    // WideMelon camera's margin rows too (Top and Bottom say which are shown)
+    bool AsPlaced = false;
+    Rect PlacedTop, PlacedBottom;
+
+    bool operator==(const SurfaceScreens&) const = default;
+};
+
+// the background a surface shows: Backgrounds' key (an id, a file; empty for none) and how it's placed
+struct SurfaceBackground
+{
+    std::string Key;
+    BackgroundMode Mode = BackgroundMode::FitCenter;
+
+    bool operator==(const SurfaceBackground&) const = default;
+};
+
+class Shader;
+
+// where a layout's [screens] (not AsPlaced) are drawn for a frame [frameTopWidth] DS pixels wide with [frameMargin] rows above and below its
+// top screen, on a surface [surfaceWidth] wide (getScreensDrawing)
+ScreensDrawing DrawingFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, float surfaceWidth);
+
+// where the screens end up, in the surface's pixels (W 0 for one not drawn): the top screen's picture, and the bottom screen's middle 256
+// columns (where touches go); the places as they are for AsPlaced
+struct ScreenRects
+{
+    Rect Top, Bottom;
+};
+ScreenRects RectsFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, float surfaceWidth);
 
 // RuntimeRendererConfiguration.kt without the internal resolution: the video filter (video_filtering), deband (video_deband), the DS screen
 // colors (video_ds_screen_colors, Pokefan531's color profile) and the screen shadow (video_screen_shadow)
@@ -43,6 +99,8 @@ class ScreenRenderer
 {
 public:
     ScreenRenderer() = default;
+    // a background decode still running is told to stop; nothing waits for it
+    ~ScreenRenderer();
     ScreenRenderer(const ScreenRenderer&) = delete;
     ScreenRenderer& operator=(const ScreenRenderer&) = delete;
 
@@ -50,11 +108,15 @@ public:
     void Release();
 
     void UpdateRendererConfiguration(const RendererConfig& config);
-    // where the screens go in a [surfaceW] x [surfaceH] drawable (a W of 0 leaves one out); the quads are built again only when it changes
-    void UpdateScreenAreas(const Rect& top, const Rect& bottom, int surfaceW, int surfaceH);
-    // runs the filter's pre-passes, clears the bound framebuffer (the window, at its viewport) and draws the screens; the caller sets up the
-    // state the core left behind first
-    void DrawFrame(const FrameView& frame, const std::optional<TiltShift>& tiltShift);
+    // where the screens go in a [surfaceW] x [surfaceH] drawable; the quads are built again only when it changes
+    void UpdateScreenAreas(const SurfaceScreens& screens, int surfaceW, int surfaceH);
+    // the backgrounds to read from, and the one to show (loaded on the next frame that needs it, as DSRenderer.setBackground)
+    void SetBackgroundStore(Backgrounds* store) { Store = store; }
+    void SetBackground(const SurfaceBackground& background);
+    // runs the filter's pre-passes, clears the bound framebuffer (the window, at its viewport) and draws the background and the screens; the
+    // caller sets up the state the core left behind first. A background is decoded on a worker and shows once it's ready (the one before
+    // it, placed for the new size, until then); [waitForBackground] waits for it instead, so a window shot always has it
+    void DrawFrame(const FrameView& frame, const std::optional<TiltShift>& tiltShift, bool waitForBackground = false);
 
     // GPU::Comp1x: whether a frame with a screen at 1x can be drawn as it is (the no-filter shader without deband or a tilt-shift)
     bool CanDrawHalvesAt1x(bool isTiltShiftOn) const;
@@ -66,7 +128,7 @@ public:
 private:
     void ApplyRendererConfiguration();
     void UpdateScreenCoordinates();
-    void UpdateShadowCoordinates(const Rect* top, const Rect* bottom);
+    void UpdateShadowCoordinates(const Rect* top, const Rect* bottom, float topAlpha, float bottomAlpha);
     void UpdateShader();
     void EnsureGlObjects();
     void PutQuad(const Rect& rect, float leftU, float rightU, float topV, float bottomV, float alpha);
@@ -75,6 +137,11 @@ private:
     void UseScreenShader(const Shader& shader, GLuint textureId, int textureWidth, int textureHeight, const FrameView& frame);
     void SetScreenVertexAttributes(const Shader& shader);
     void RenderScreenShadows();
+    void LoadBackgroundIfNeeded(bool wait);
+    void StartBackgroundLoad();
+    void FinishBackgroundLoad();
+    void RenderBackground();
+    void UpdateBackgroundPosition();
 
     RendererConfig Config;
     bool MustUpdateConfiguration = true;
@@ -107,10 +174,37 @@ private:
     // the frame shape the quads were built for (the last valid frame's), and the screens' places
     int FrameTopScreenWidth = 256;
     int FrameTopScreenMargin = 0;
-    Rect TopScreenRect, BottomScreenRect;
+    SurfaceScreens Screens;
     float Width = 0, Height = 0;
-    // whether the bottom screen is the one drawn wide; the desktop's swap keeps the top one wide, so never
+    // AreScreensSwapped as it was when the quads were built, given to the filters so they keep the same screen's sides (the desktop's own
+    // placements keep the top screen the wide one)
     bool IsBottomScreenWideInQuads = false;
+
+    // the background: what's asked, what the texture holds (and for what surface size and mode), and whether loading it failed for that
+    Backgrounds* Store = nullptr;
+    SurfaceBackground Background;
+    bool MustLoadBackground = false;
+    bool IsBackgroundLoaded = false;
+    bool IsBackgroundPositionDirty = true;
+    bool IsLoadedSvg = false;
+    int LoadedForWidth = 0, LoadedForHeight = 0;
+    int BackgroundWidth = 0, BackgroundHeight = 0;
+    GLuint BackgroundTexture = 0, BackgroundVbo = 0, BackgroundVao = 0;
+    // a background being decoded on a worker thread of its own (StartBackgroundDecode): what it's for, and the job it hands its result back
+    // through. Dropping it (the background changed, the GL objects or the renderer go) sets the job's Cancel and never waits; UI thread
+    struct BackgroundLoad
+    {
+        SurfaceBackground For;
+        int Width = 0, Height = 0;
+        std::shared_ptr<BackgroundJob> Job;
+    };
+    std::optional<BackgroundLoad> Loading;
+    void DropBackgroundLoad();
+    // the background asked for couldn't be shown: not tried again for a new size, only when it's asked for again
+    bool BackgroundFailed = false;
+    std::unique_ptr<Shader> BackgroundShader;
+    bool IsBackgroundShaderTried = false;
+    GLint MaxTextureSize = 0;
 };
 
 }

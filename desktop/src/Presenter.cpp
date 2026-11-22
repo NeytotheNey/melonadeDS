@@ -199,7 +199,8 @@ ScreenRects Presenter::Place(const FrameView& frame, int windowW, int windowH, L
     return {Top, Bottom};
 }
 
-ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, Layout layout, Fit fit, bool swap, int surface)
+ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, const SurfaceScreens& screens, const SurfaceBackground& background,
+    int surface, bool waitForBackground)
 {
     // the core leaves its own state behind, so all of what's drawn here is set first
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -219,12 +220,16 @@ ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, La
     glViewport(0, 0, windowW, windowH);
     glClearColor(0, 0, 0, 1);
 
-    ScreenRects rects = frame.IsValid() ? Place(frame, windowW, windowH, layout, fit, swap) : ScreenRects {};
     ScreenRenderer& renderer = Surfaces[std::clamp(surface, 0, SURFACE_COUNT - 1)];
     renderer.UpdateRendererConfiguration(Config);
+    renderer.SetBackground(background);
+    ScreenRects rects;
     if (frame.IsValid())
-        renderer.UpdateScreenAreas(rects.Top, rects.Bottom, windowW, windowH);
-    renderer.DrawFrame(frame, CurrentTiltShift);
+    {
+        renderer.UpdateScreenAreas(screens, windowW, windowH);
+        rects = RectsFor(screens, frame.TopWidth, frame.TopMargin, (float)windowW);
+    }
+    renderer.DrawFrame(frame, CurrentTiltShift, waitForBackground);
     return rects;
 }
 

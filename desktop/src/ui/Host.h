@@ -10,7 +10,7 @@
 #include "picojson/picojson.h"
 #include "SaveSlots.h"
 
-namespace Frontend { class Settings; class Input; class Library; class MetadataSync; }
+namespace Frontend { class Settings; class Input; class Library; class MetadataSync; class Layouts; class Backgrounds; }
 
 namespace Ui
 {
@@ -54,6 +54,14 @@ struct Host
     std::function<void()> Quit;
     std::function<void()> OpenRom;
     std::function<bool(const std::string& path)> BootRom;
+
+    // the layouts to pick from (Settings > Display, a game's settings, the pause menu), the one the windows show, where it comes from now
+    // ("run": --layout, "game": the game's own, "global": the settings'), and a pick while a game runs, stored where that one came from
+    Frontend::Layouts* Layouts = nullptr;
+    Frontend::Backgrounds* Backgrounds = nullptr;
+    std::function<std::string()> LayoutInUse;
+    std::function<std::string()> LayoutSource;
+    std::function<void(const std::string& id)> PickLayoutInGame;
 
     std::function<bool()> IsDetached;
     std::function<void(bool)> SetDetached;

@@ -16,7 +16,7 @@ enum class LibraryOpen { None, Details, Settings };
 std::unique_ptr<Screen> MakeLibraryScreen(LibraryOpen open = LibraryOpen::None);
 // a game's details, with Play and its settings
 std::unique_ptr<Screen> MakeGameDetailsScreen(const Frontend::LibraryEntry& entry);
-// a game's own settings (RomConfig: its display name, console and GBA slot), kept in the library by its path
+// a game's own settings (RomConfig: its display name, console, GBA slot and layout), kept in the library by its RetroAchievements hash
 std::unique_ptr<Screen> MakeGameSettingsScreen(const Frontend::LibraryEntry& entry);
 std::unique_ptr<Screen> MakePauseScreen();
 // the savestate slots, on the Save tab or the Load tab
@@ -27,5 +27,9 @@ std::unique_ptr<Screen> MakeSettingsScreen(const std::string& tab = "");
 std::unique_ptr<Screen> MakeInputScreen();
 // a text field and the on-screen keyboard, for tests (--open keyboard)
 std::unique_ptr<Screen> MakeKeyboardTestScreen();
+// the layouts: the global one (Settings > Display, --open layouts), a game's own ([entry]'s), or one picked while the game runs (the
+// pause menu, --open pause/layout)
+enum class LayoutsFor { Global, Game, InGame };
+std::unique_ptr<Screen> MakeLayoutsScreen(LayoutsFor mode, const Frontend::LibraryEntry* entry = nullptr);
 
 }

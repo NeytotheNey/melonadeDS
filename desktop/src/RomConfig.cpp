@@ -10,6 +10,7 @@ constexpr const char* kConsoleKey = "runtimeConsoleType";
 constexpr const char* kNameKey = "customName";
 constexpr const char* kGbaKey = "gbaSlotConfig.type";
 constexpr const char* kGbaRomKey = "gbaSlotConfig.gbaRomPath";
+constexpr const char* kLayoutKey = "layoutId";
 
 // the app's enum names, as its RomConfigDto stores them
 const char* ConsoleValue(RomConfig::Console c)
@@ -37,7 +38,7 @@ const char* GbaValue(RomConfig::GbaSlot s)
 
 const std::vector<std::string>& RomConfig::Keys()
 {
-    static const std::vector<std::string> keys = {kConsoleKey, kNameKey, kGbaKey, kGbaRomKey};
+    static const std::vector<std::string> keys = {kConsoleKey, kNameKey, kGbaKey, kGbaRomKey, kLayoutKey};
     return keys;
 }
 
@@ -53,6 +54,8 @@ std::map<std::string, std::string> RomConfig::ToFields() const
     // (also with another slot chosen, so the file is still there when GBA ROM is chosen again)
     if (!GbaRomPath.empty())
         fields[kGbaRomKey] = GbaRomPath;
+    if (!LayoutId.empty())
+        fields[kLayoutKey] = LayoutId;
     return fields;
 }
 
@@ -74,6 +77,7 @@ RomConfig RomConfig::FromFields(const std::map<std::string, std::string>& fields
             c.Gba = s;
     }
     c.GbaRomPath = get(kGbaRomKey);
+    c.LayoutId = get(kLayoutKey);
     return c;
 }
 
@@ -102,9 +106,11 @@ bool RomConfig::Apply(const std::string& key, const std::string& value, std::str
     }
     else if (key == "name")
         CustomName = value;
+    else if (key == "layout")
+        LayoutId = value == "global" ? std::string() : value;
     else
     {
-        error = "the keys are console, gba-slot, gba-rom and name";
+        error = "the keys are console, gba-slot, gba-rom, name and layout";
         return false;
     }
     return true;
@@ -143,6 +149,8 @@ std::string RomConfig::Describe() const
         add("GBA ROM kept for later (" + GbaRomPath + ")");
     if (!CustomName.empty())
         add("name \"" + CustomName + "\"");
+    if (!LayoutId.empty())
+        add("layout " + LayoutId);
     return text.empty() ? "defaults" : text;
 }
 
