@@ -45,8 +45,8 @@ local dof_options = {
 }
 
 -- Shadows from a sun in the north-east, 45 degrees up, in the view space of White's field camera (a tile is
--- 16 units, the tallest roofs about 90): long enough for a roof's shadow to cross the street. up isn't
--- used by the shadows the screen marches; it's for the characters' own shadows, which the renderer will draw
+-- 16 units, the tallest roofs about 90): long enough for a roof's shadow to cross the street. up is for the
+-- characters' own shadows, which the renderer draws standing on their feet
 local sun_options = {
     direction = { 0.50, 0.83, 0.26 },
     up = { 0.0006, 0.607, 0.794 },
@@ -56,6 +56,13 @@ local sun_options = {
     softness = 1.5,
     color = 0x33384F,
 }
+
+-- While the sun shadows are on, the game's own shadows go, or there'd be two under everyone: the dark ovals
+-- under the player and the NPCs are all one 16 x 16 four-color texture, drawn translucent (alpha 19,
+-- polygon ID 2). Its content hash, from the desktop's --list-textures, stays the same wherever the game
+-- loads it in VRAM
+local BLOB_SHADOW_TEXTURES = { 0xC9FDE257 }
+local NO_TEXTURES = {}
 
 -- Soft shadows where something stands in front of what's behind it: along walls, inside roof rims, around
 -- trees and the player. A smaller range in raw depth draws dark outlines around everything instead
@@ -140,6 +147,7 @@ function on_frame()
 
     -- Called every frame: only frames where a value changes cost an event
     melon.screen.sun(current.sun, sun_options)
+    melon.gpu.hide_textures(current.sun > 0 and BLOB_SHADOW_TEXTURES or NO_TEXTURES)
     melon.screen.shade(current.shade, shade_options)
     melon.screen.depth_of_field(current.dof, dof_options)
     melon.screen.haze(current.haze, haze_options)

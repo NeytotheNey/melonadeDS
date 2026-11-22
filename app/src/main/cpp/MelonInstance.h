@@ -61,6 +61,9 @@ public:
     // The characters' sun shadows the OpenGL renderer draws while no script asks for its own (the desktop's --sun); emulator thread, between
     // frames
     void setFrontendSun(const melonDS::SunShadows& sun) { frontendSun = sun; }
+    // The texture hashes the OpenGL renderer leaves out while no script hides any (the desktop's --hide-textures); emulator thread, between
+    // frames
+    void setFrontendHiddenTextures(std::vector<u32> hashes) { frontendHiddenTextures = std::move(hashes); }
     float getMotionData(MotionQueryType type);
     void touchScreen(u16 x, u16 y);
     void releaseScreen();
@@ -185,6 +188,8 @@ private:
     std::atomic_bool isFrontendDepthWanted = false;
     // setFrontendSun(), emulator thread only
     melonDS::SunShadows frontendSun {};
+    // setFrontendHiddenTextures(), emulator thread only
+    std::vector<u32> frontendHiddenTextures;
     // The width and margin of the top screen's 3D view, for the emulator thread: they start at EmulatorConfiguration::wideViewWidth and
     // wideViewMargin and then follow setWideView() (configuration updates don't change them)
     int wideViewWidth;

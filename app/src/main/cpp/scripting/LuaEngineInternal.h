@@ -236,6 +236,10 @@ struct LuaScript
     LuaSun sun;
     LuaSun sentSun;
     unsigned int sentSunOrder = 0;
+    // melon.gpu.hide_textures(): the texture hashes the OpenGL renderer leaves out (LuaEngine::hiddenTextures), kept until the script changes
+    // them or stops, and when they last changed to a non-empty list, as the newest list is the one used. Native only: the app isn't told
+    std::vector<melonDS::u32> hiddenTextures;
+    unsigned int hiddenTexturesOrder = 0;
     // melon.wide: kept until the script changes it or stops (not a per-call request), and what the app was last told of it
     LuaWideCamera wideCamera;
     LuaWideCamera sentWideCamera;

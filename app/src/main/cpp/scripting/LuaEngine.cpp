@@ -564,6 +564,10 @@ int LuaEngine::setupScript(lua_State* L)
         { "sun", luaScreenSun },
         { nullptr, nullptr },
     };
+    static const luaL_Reg gpuFunctions[] = {
+        { "hide_textures", luaGpuHideTextures },
+        { nullptr, nullptr },
+    };
     static const luaL_Reg emuFunctions[] = {
         { "fast_forward", luaSetBoolRequest<&LuaScript::fastForward> },
         { nullptr, nullptr },
@@ -585,6 +589,8 @@ int LuaEngine::setupScript(lua_State* L)
     lua_setfield(L, -2, "mem");
     luaL_newlib(L, screenFunctions);
     lua_setfield(L, -2, "screen");
+    luaL_newlib(L, gpuFunctions);
+    lua_setfield(L, -2, "gpu");
     newLibrary(L, LuaDrawApi::functions);
     lua_setfield(L, -2, "draw");
     newLibrary(L, LuaFolderApi::imageFunctions);
@@ -738,6 +744,8 @@ void LuaEngine::closeScript(LuaScript& script)
             eventMessenger->onLuaSun(script.id, off.strength, off.direction, off.up, off.length, off.steps, off.bias, off.softness, (int) off.color);
         script.sentSun = off;
     }
+    // A reloaded script starts hiding nothing
+    script.hiddenTextures.clear();
     // The same for the camera: a reloaded script starts asking for nothing
     script.wideCamera = LuaWideCamera();
     if (script.sentWideCamera != LuaWideCamera())
@@ -1221,6 +1229,51 @@ melonDS::SunShadows LuaEngine::sunShadows() const
         sun.Up = newest->sentSun.up;
     }
     return sun;
+}
+
+int LuaEngine::luaGpuHideTextures(lua_State* L)
+{
+    LuaScript& script = getScript(L);
+    std::array<melonDS::u32, melonDS::MaxHiddenTextures> hashes;
+    size_t count = 0;
+    // nil or {} hides nothing
+    if (!lua_isnoneornil(L, 1))
+    {
+        luaL_checktype(L, 1, LUA_TTABLE);
+        const lua_Unsigned length = lua_rawlen(L, 1);
+        if (length > melonDS::MaxHiddenTextures)
+            luaL_error(L, "hide_textures takes at most %d hashes", (int) melonDS::MaxHiddenTextures);
+        for (lua_Unsigned i = 1; i <= length; i++)
+        {
+            lua_rawgeti(L, 1, (lua_Integer) i);
+            int isInteger;
+            const lua_Integer hash = lua_tointegerx(L, -1, &isInteger);
+            if (!isInteger || hash < 1 || hash > 0xFFFFFFFF)
+                luaL_error(L, "a texture hash must be a whole number from 1 to 0xFFFFFFFF");
+            lua_pop(L, 1);
+            hashes[count++] = (melonDS::u32) hash;
+        }
+    }
+
+    if (script.engine->isUnloading || std::equal(hashes.begin(), hashes.begin() + count, script.hiddenTextures.begin(), script.hiddenTextures.end()))
+        return 0;
+    script.hiddenTextures.assign(hashes.begin(), hashes.begin() + count);
+    if (count)
+        script.hiddenTexturesOrder = ++script.engine->hiddenTextureRequests;
+    return 0;
+}
+
+const std::vector<melonDS::u32>& LuaEngine::hiddenTextures() const
+{
+    // The newest list wins, as for the sun. A stopped script's was cleared when it closed
+    static const std::vector<melonDS::u32> none;
+    const LuaScript* newest = nullptr;
+    for (const auto& script : scripts)
+    {
+        if (!script->hiddenTextures.empty() && (!newest || script->hiddenTexturesOrder > newest->hiddenTexturesOrder))
+            newest = script.get();
+    }
+    return newest ? newest->hiddenTextures : none;
 }
 
 bool LuaEngine::wantsDepth() const

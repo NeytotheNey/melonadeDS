@@ -222,6 +222,11 @@ public:
      * draw the characters' own; off while none asks. Emulator thread only
      */
     melonDS::SunShadows sunShadows() const;
+    /**
+     * The texture hashes of the running script that changed its non-empty list last (melon.gpu.hide_textures), for the OpenGL renderer to leave
+     * out; empty while none hides any. Emulator thread only
+     */
+    const std::vector<melonDS::u32>& hiddenTextures() const;
 
 private:
     // The API files (LuaEngineInternal.h) read the engine's state through the running script's LuaScript::engine
@@ -287,6 +292,8 @@ private:
     static int luaScreenDepthOfField(lua_State* L);
     static int luaScreenShade(lua_State* L);
     static int luaScreenSun(lua_State* L);
+    // melon.gpu
+    static int luaGpuHideTextures(lua_State* L);
 
     std::vector<LuaScriptSource> pendingScripts;
     // Outlives every script's state, which may point into its images
@@ -295,6 +302,8 @@ private:
     int activeScriptCount = 0;
     // The sun shadow requests sent so far, which orders them (LuaScript::sentSunOrder)
     unsigned int sentSunRequests = 0;
+    // The hidden texture lists set so far, which orders them the same way (LuaScript::hiddenTexturesOrder)
+    unsigned int hiddenTextureRequests = 0;
     // Set while on_unload() runs: requests to the app are ignored, and errors are only logged
     bool isUnloading = false;
     // Set while on_frame() or on_frame_end() runs, the only callbacks whose draw calls are recorded

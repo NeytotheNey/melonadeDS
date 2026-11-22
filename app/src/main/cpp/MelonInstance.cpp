@@ -512,6 +512,9 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         // them is the previous frame's, as for the depth
         SunShadows sun = luaEngine.sunShadows();
         nds->GPU.GetRenderer3D().SetSunShadows(sun.On ? sun : frontendSun);
+        // And the textures it leaves out, the same way
+        const std::vector<u32>& hidden = luaEngine.hiddenTextures().empty() ? frontendHiddenTextures : luaEngine.hiddenTextures();
+        nds->GPU.GetRenderer3D().SetHiddenTextures(hidden.data(), (u32) hidden.size());
     }
 
     bool hasLuaFrameRun = false;
