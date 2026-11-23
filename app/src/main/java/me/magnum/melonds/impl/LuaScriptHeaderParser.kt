@@ -17,6 +17,7 @@ object LuaScriptHeaderParser {
     private const val MAX_DESCRIPTION_LENGTH = 120
     private val DESCRIPTION_KEY = Regex("description\\s*:\\s*(.*)", RegexOption.IGNORE_CASE)
     private val OPTION_KEY = Regex("option\\s*:\\s*(.*)", RegexOption.IGNORE_CASE)
+    private val SECTION_KEY = Regex("section\\s*:\\s*(.*)", RegexOption.IGNORE_CASE)
     private val BLOCK_COMMENT_OPENER = Regex("^--\\[=*\\[")
     private val BLOCK_COMMENT_CLOSER = Regex("]=*]")
 
@@ -39,9 +40,9 @@ object LuaScriptHeaderParser {
     )
 
     /**
-     * An option line split up: its key, its label (the key if it has none), and its other attributes
+     * An option line split up: its key, its label (the key if it has none), the section it's under, and its other attributes
      */
-    private class OptionLine(val key: String, val label: String, val attributes: Map<String, String>) {
+    private class OptionLine(val key: String, val label: String, val section: String?, val attributes: Map<String, String>) {
         operator fun get(name: String) = attributes[name]
     }
 
@@ -56,6 +57,7 @@ object LuaScriptHeaderParser {
         var firstLine: String? = null
         val options = mutableListOf<LuaScriptOption>()
         var unreadableOptionCount = 0
+        var section: String? = null
         var isInBlockComment = false
 
         for ((index, rawLine) in lines.withIndex()) {
@@ -90,9 +92,16 @@ object LuaScriptHeaderParser {
                 continue
             }
 
+            val sectionMatch = SECTION_KEY.matchEntire(text)
+            if (sectionMatch != null) {
+                // An empty section line ends the section
+                section = sectionMatch.groupValues[1].trim().ifEmpty { null }?.let { capText(it, MAX_LABEL_LENGTH) }
+                continue
+            }
+
             val optionMatch = OPTION_KEY.matchEntire(text)
             if (optionMatch != null) {
-                val option = parseOption(optionMatch.groupValues[1])
+                val option = parseOption(optionMatch.groupValues[1], section)
                 if (option == null || options.size >= MAX_OPTIONS || options.any { it.key == option.key }) {
                     unreadableOptionCount++
                 } else {
@@ -106,7 +115,7 @@ object LuaScriptHeaderParser {
                 // The first non-empty description line wins, and an empty one is never used as the fallback either
                 val descriptionText = descriptionMatch.groupValues[1].trim()
                 if (description == null && descriptionText.isNotEmpty()) {
-                    description = capDescription(descriptionText)
+                    description = capText(descriptionText, MAX_DESCRIPTION_LENGTH)
                 }
                 continue
             }
@@ -117,7 +126,7 @@ object LuaScriptHeaderParser {
         }
 
         return LuaScriptHeader(
-            description = description ?: firstLine?.let { capDescription(it) },
+            description = description ?: firstLine?.let { capText(it, MAX_DESCRIPTION_LENGTH) },
             options = options,
             unreadableOptionCount = unreadableOptionCount,
         )
@@ -127,7 +136,7 @@ object LuaScriptHeaderParser {
      * Parses what follows `option:`, or returns null on any malformed part (a bad key, an unknown type or attribute, an attribute given twice,
      * an unclosed quote, or values the type doesn't allow)
      */
-    private fun parseOption(text: String): LuaScriptOption? {
+    private fun parseOption(text: String, section: String?): LuaScriptOption? {
         val key = text.takeWhile { !it.isWhitespace() }
         if (!OPTION_NAME.matches(key)) {
             return null
@@ -142,7 +151,7 @@ object LuaScriptHeaderParser {
         if (label.length > MAX_LABEL_LENGTH) {
             return null
         }
-        return type.parse(OptionLine(key, label.ifEmpty { key }, attributes))
+        return type.parse(OptionLine(key, label.ifEmpty { key }, section, attributes))
     }
 
     /**
@@ -204,7 +213,7 @@ object LuaScriptHeaderParser {
             "true" -> true
             else -> return null
         }
-        return LuaScriptOption.Toggle(line.key, line.label, default)
+        return LuaScriptOption.Toggle(line.key, line.label, default, line.section)
     }
 
     private fun parseNumber(line: OptionLine): LuaScriptOption? {
@@ -222,7 +231,7 @@ object LuaScriptHeaderParser {
         }
 
         val decimals = maxOf(getDecimals(minText), getDecimals(stepText))
-        val option = LuaScriptOption.Number(line.key, line.label, min, max, step, min, decimals)
+        val option = LuaScriptOption.Number(line.key, line.label, min, max, step, min, decimals, line.section)
         val default = defaultText?.toDouble() ?: return option
         // The default has to be on the slider; between two steps it goes to the closest one
         val defaultStep = option.stepOf(default) ?: return null
@@ -245,7 +254,7 @@ object LuaScriptHeaderParser {
         if (default !in values) {
             return null
         }
-        return LuaScriptOption.Choice(line.key, line.label, values, default)
+        return LuaScriptOption.Choice(line.key, line.label, values, default, line.section)
     }
 
     private fun parseLayout(line: OptionLine): LuaScriptOption? {
@@ -253,15 +262,18 @@ object LuaScriptHeaderParser {
         if (line["default"] != null) {
             return null
         }
-        return LuaScriptOption.Layout(line.key, line.label)
+        return LuaScriptOption.Layout(line.key, line.label, line.section)
     }
 
-    private fun capDescription(text: String): String {
-        if (text.length <= MAX_DESCRIPTION_LENGTH) {
+    /**
+     * [text] cut to [maxLength] characters, ending in an ellipsis when it was longer
+     */
+    private fun capText(text: String, maxLength: Int): String {
+        if (text.length <= maxLength) {
             return text
         }
 
-        var cut = MAX_DESCRIPTION_LENGTH - 1
+        var cut = maxLength - 1
         // Don't split a surrogate pair
         if (Character.isHighSurrogate(text[cut - 1]) && Character.isLowSurrogate(text[cut])) {
             cut--

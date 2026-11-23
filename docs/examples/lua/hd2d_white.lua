@@ -1,15 +1,22 @@
 -- description: HD-2D look for Pokémon White (and Black): sun shadows, shading, depth of field, haze, bloom with glowing windows at night, and vignette in the overworld (the sun shadows, shading, depth of field and haze need the OpenGL renderer; the tilt-shift is a fake one for the others). Text keeps the sun shadows, shading, depth of field, haze and vignette, battles and menus clear it all. Hold L, tap R: off/auto.
--- option: dof type=number min=0 max=1 step=0.05 default=1 label="Depth of field strength"
--- option: dof_radius type=number min=1 max=12 step=1 default=4 label="Depth of field radius in DS pixels"
+-- section: Light and shadow
 -- option: sun type=number min=0 max=1 step=0.05 default=0.6 label="Sun shadow strength"
+-- option: sun_length type=number min=32 max=160 step=8 default=96 label="Sun shadow length"
 -- option: shade type=number min=0 max=1 step=0.05 default=0.35 label="Shading strength"
+-- section: Depth of field
+-- option: dof type=number min=0 max=1 step=0.05 default=1 label="Strength"
+-- option: dof_radius type=number min=1 max=12 step=1 default=4 label="Radius in DS pixels"
+-- section: Atmosphere
 -- option: haze type=number min=0 max=1 step=0.05 default=0.6 label="Haze strength"
--- option: blur type=number min=0 max=1 step=0.05 default=0 label="Tilt-shift strength"
--- option: radius type=number min=1 max=12 step=1 default=6 label="Tilt-shift radius in DS pixels"
--- option: bloom type=number min=0 max=2 step=0.05 default=0.6 label="Bloom strength"
--- option: threshold type=number min=0 max=1 step=0.05 default=0.8 label="Bloom threshold"
--- option: bloom_radius type=number min=1 max=8 step=1 default=3 label="Bloom radius in DS pixels"
 -- option: vignette type=number min=0 max=1 step=0.05 default=0.35 label="Vignette strength"
+-- section: Bloom
+-- option: bloom type=number min=0 max=2 step=0.05 default=0.6 label="Strength"
+-- option: threshold type=number min=0 max=1 step=0.05 default=0.8 label="Threshold"
+-- option: bloom_radius type=number min=1 max=8 step=1 default=3 label="Radius in DS pixels"
+-- section: Tilt-shift
+-- option: blur type=number min=0 max=1 step=0.05 default=0 label="Strength"
+-- option: radius type=number min=1 max=12 step=1 default=6 label="Radius in DS pixels"
+-- section: Transitions
 -- option: fade type=number min=1 max=120 step=1 default=30 label="Fade length in frames"
 
 -- Where the overworld is comes from melon.game.state(), the app's native field read, which knows Black
@@ -66,19 +73,24 @@ local FOCUS_TEXTURES = {
 }
 
 -- Shadows from a sun in the north-west, 45 degrees up, in the view space of White's field camera (a tile is
--- 16 units, the tallest roofs about 90): long enough for a roof's shadow to cross the street. The game's own
--- shadows fall south-east, so this one does too. up is for the characters' own shadows, which the renderer
--- draws standing on their feet
+-- 16 units, the tallest roofs about 90). The game's own shadows fall south-east, so this one does too. up is
+-- for the characters' own shadows, which the renderer draws standing on their feet. The length is the slider,
+-- 96 by default, long enough for a roof's shadow to cross the street. The steps and the guard grow with it,
+-- since a longer march reaches farther off screen: at 96 it reaches about 60 DS pixels right and 100 up, so
+-- 64 is enough there. Longer shadows cost more on phones, since the guard band renders more
+local sun_length = melon.options.sun_length
+local sun_reach = math.floor(sun_length * 2 / 3 + 0.5)
 local sun_options = {
     direction = { -0.50, 0.83, 0.26 },
     up = { 0.0006, 0.607, 0.794 },
-    length = 96,
-    steps = 64,
+    length = sun_length,
+    steps = math.min(128, math.max(16, sun_reach)),
     bias = 1,
     softness = 1.5,
     color = 0x33384F,
-    -- Roofs up to 64 DS pixels past the top and right edges still cast, so shadows don't grow in while walking
-    guard = 64,
+    -- Roofs this far past the top and right edges still cast (64 DS pixels at the default length), so
+    -- shadows don't grow in while walking
+    guard = math.min(128, sun_reach),
 }
 
 -- A speech bubble's tail is the game's UI drawn in 3D, right in front of the camera (about 65 units away,

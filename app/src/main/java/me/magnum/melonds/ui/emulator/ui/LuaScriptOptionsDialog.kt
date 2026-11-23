@@ -9,7 +9,9 @@ import androidx.compose.ui.unit.dp
 import me.magnum.melonds.R
 import me.magnum.melonds.domain.model.emulator.LuaLayoutChoice
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
+import me.magnum.melonds.domain.model.emulator.sectionHeadingBefore
 import me.magnum.melonds.ui.common.component.LuaScriptOptionControl
+import me.magnum.melonds.ui.common.component.LuaScriptOptionSectionHeading
 import me.magnum.melonds.ui.common.component.dialog.BaseDialog
 import me.magnum.melonds.ui.common.component.dialog.DialogButton
 
@@ -40,7 +42,10 @@ fun LuaScriptOptionsDialog(
         onDismiss = onDismiss,
         content = {
             Column {
-                state.options.forEach { option ->
+                state.options.forEachIndexed { index, option ->
+                    state.options.sectionHeadingBefore(index)?.let {
+                        LuaScriptOptionSectionHeading(title = it, isFirst = index == 0, horizontalPadding = 24.dp)
+                    }
                     LuaScriptOptionControl(
                         option = option,
                         value = values[option.key] ?: option.resolve(null),

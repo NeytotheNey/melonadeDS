@@ -200,4 +200,56 @@ class LuaScriptHeaderParserTest {
         assertEquals(emptyList<LuaScriptOption>(), header.options)
         assertEquals(2, header.unreadableOptionCount)
     }
+
+    @Test
+    fun optionsTakeTheSectionAboveThem() {
+        val header = parse(
+            """
+            -- option: first type=toggle
+            -- section: Sun shadows
+            -- option: sun type=toggle
+            -- option: sun_length type=number min=0 max=1 step=0.5
+            -- SECTION :  Bloom  
+            -- option: bloom type=choice values=low,high
+            -- option: bloom_layout type=layout
+            """.trimIndent()
+        )
+
+        assertEquals(
+            listOf(null, "Sun shadows", "Sun shadows", "Bloom", "Bloom"),
+            header.options.map { it.section },
+        )
+        assertEquals(0, header.unreadableOptionCount)
+    }
+
+    @Test
+    fun anEmptySectionLineEndsTheSection() {
+        val header = parse("-- section: Bloom\n-- option: a type=toggle\n-- section:\n-- option: b type=toggle\n")
+
+        assertEquals(listOf("Bloom", null), header.options.map { it.section })
+    }
+
+    @Test
+    fun sectionLinesAreNeverTheDescription() {
+        assertEquals("Shows a HUD", parse("-- section: Display\n-- Shows a HUD\n").description)
+        assertNull(parse("-- section: Display\n-- option: a type=toggle\n").description)
+    }
+
+    @Test
+    fun longSectionTitlesAreCut() {
+        val title = "x".repeat(LuaScriptHeaderParser.MAX_LABEL_LENGTH + 10)
+        val section = parse("-- section: $title\n-- option: a type=toggle\n").options.single().section
+
+        assertEquals("x".repeat(LuaScriptHeaderParser.MAX_LABEL_LENGTH - 1) + "\u2026", section)
+    }
+
+    @Test
+    fun sectionLinesDontCountTowardTheOptionLimit() {
+        val lines = (1..16).flatMap { listOf("-- section: S$it", "-- option: o$it type=toggle") }
+        val header = parse(lines.joinToString("\n"))
+
+        assertEquals(16, header.options.size)
+        assertEquals("S16", header.options.last().section)
+        assertEquals(0, header.unreadableOptionCount)
+    }
 }

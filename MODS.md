@@ -21,8 +21,10 @@ Two mods, both set per game in ROM details → Mods tab and stored in `RomConfig
   -- option: hud type=toggle default=true label="Show HUD"
   -- option: mode type=choice values=easy,normal,hard default=normal label="Difficulty"
   -- option: map_layout type=layout label="Layout while the map is open"
+  -- section: Camera
+  -- option: zoom type=number min=1 max=4 step=0.5 default=2 label="Zoom"
   ```
-  At most 16 options; key `[a-z_][a-z0-9_]{0,31}`; label up to 60 chars; choice up to 8 values of up to 24 chars; numbers finite, min < max, at most 1000 steps. `step` defaults to 1; `default` to min, false or the first choice; an off-step default snaps to the nearest step. Unknown attributes or bad lines make the line unreadable, and the tab says how many were skipped. Layout options have no default and store a layout UUID ("Don't change" = none). Stored values are `RomLuaScript.options: Map<String, String>`; a missing or invalid value falls back to the default.
+  `-- section: Title` puts a heading over the options after it, in the pause menu's Options dialog and the Mods tab, until the next section line; an empty `-- section:` ends it. Titles over 60 chars are cut; section lines don't count as options. At most 16 options; key `[a-z_][a-z0-9_]{0,31}`; label up to 60 chars; choice up to 8 values of up to 24 chars; numbers finite, min < max, at most 1000 steps. `step` defaults to 1; `default` to min, false or the first choice; an off-step default snaps to the nearest step. Unknown attributes or bad lines make the line unreadable, and the tab says how many were skipped. Layout options have no default and store a layout UUID ("Don't change" = none). Stored values are `RomLuaScript.options: Map<String, String>`; a missing or invalid value falls back to the default.
 - Pause menu → Mods lists every script loaded this session with its description, error or "Switched off", plus scripts that couldn't be read (with the reason, can't be switched on). Switching off/on is for this session only and never changes the ROM config; on means a fresh state and `on_load`. "Options…" saves to the ROM config and restarts the script with the new values (its savestate slots are kept).
 - Saved data: the Mods tab shows "Saved data: N KB" with Clear (ignored for the running game).
 

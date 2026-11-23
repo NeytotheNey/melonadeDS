@@ -45,6 +45,7 @@ import me.magnum.melonds.common.contracts.DirectoryPickerContract
 import me.magnum.melonds.domain.model.emulator.LuaLayoutChoice
 import me.magnum.melonds.domain.model.emulator.LuaScriptHeader
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
+import me.magnum.melonds.domain.model.emulator.sectionHeadingBefore
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.layout.WidescreenAspect
 import me.magnum.melonds.domain.model.rom.config.RomLuaScript
@@ -52,6 +53,7 @@ import me.magnum.melonds.domain.model.rom.config.RomModsConfig
 import me.magnum.melonds.ui.common.MelonPreviewSet
 import me.magnum.melonds.ui.common.layoutDisplayName
 import me.magnum.melonds.ui.common.component.LuaScriptOptionControl
+import me.magnum.melonds.ui.common.component.LuaScriptOptionSectionHeading
 import me.magnum.melonds.ui.common.component.text.CaptionText
 import me.magnum.melonds.ui.common.preference.ActionLauncherItem
 import me.magnum.melonds.ui.common.preference.SingleChoiceItem
@@ -358,7 +360,10 @@ private fun LuaScriptOptionsSection(
     }
 
     if (isExpanded) {
-        header.options.forEach { option ->
+        header.options.forEachIndexed { index, option ->
+            header.options.sectionHeadingBefore(index)?.let {
+                LuaScriptOptionSectionHeading(title = it, isFirst = index == 0, modifier = Modifier.padding(start = 16.dp))
+            }
             LuaScriptOptionControl(
                 option = option,
                 value = option.resolve(script.options[option.key]),
