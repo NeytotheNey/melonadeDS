@@ -460,6 +460,8 @@ void MelonInstance::updateRenderView()
             glRenderer.SetViewWidth(renderViewWidth);
             glRenderer.SetViewMargin(renderViewMargin);
         }
+        // Every frame, as it only clamps
+        glRenderer.SetViewShift(debugViewShiftX, debugViewShiftY);
         // Also when only the guard changed, as the same render then crops differently
         noteRenderView(renderViewGuard);
     }
@@ -1250,6 +1252,7 @@ void MelonInstance::updateRenderer()
             // Every time, since the renderer may be a new one at 256, and first so a new renderer's targets are only sized once
             glRenderer.SetViewWidth(renderViewWidth);
             glRenderer.SetViewMargin(renderViewMargin);
+            glRenderer.SetViewShift(debugViewShiftX, debugViewShiftY);
             glRenderer.SetRenderSettings(glRenderSettings.betterPolygons, glRenderSettings.scale);
             // The scale can resolve the view differently
             noteRenderView(renderViewGuard);

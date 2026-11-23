@@ -65,6 +65,13 @@ public:
     void setFrontendSun(const melonDS::SunShadows& sun) { frontendSun = sun; }
     // The guard band that goes with it (melon.screen.sun's guard, the desktop's --sun-guard), in DS pixels; emulator thread, between frames
     void setFrontendSunGuard(int guard) { frontendSunGuard = std::clamp(guard, 0, WideMelon::MaxMargin); }
+    // Debug (the desktop's --wide-shift): the OpenGL renderer's view shift (GLRenderer::SetViewShift), which the core clamps to the render
+    // view; emulator thread, between frames
+    void setDebugViewShift(int x, int y)
+    {
+        debugViewShiftX = x;
+        debugViewShiftY = y;
+    }
     // The texture hashes the OpenGL renderer leaves out while no script hides any (the desktop's --hide-textures); emulator thread, between
     // frames
     void setFrontendHiddenTextures(std::vector<u32> hashes) { frontendHiddenTextures = std::move(hashes); }
@@ -255,6 +262,9 @@ private:
     int renderViewMargin;
     // The guard band in it, sunGuard as far as it fits
     int renderViewGuard = 0;
+    // setDebugViewShift(), emulator thread only
+    int debugViewShiftX = 0;
+    int debugViewShiftY = 0;
     // The width and margin setWideView() asked for (packWideView), from any thread, picked up by the emulator thread before the next frame; one
     // value so a frame never gets the new width with the old margin
     std::atomic<u32> requestedWideView;

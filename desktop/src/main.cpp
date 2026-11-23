@@ -130,6 +130,8 @@ struct Options
     int Scale = 4;
     int WideWidth = 256;
     int WideMargin = 0;        // WideMelon camera stage 2: 3D rows above and below the top screen
+    int WideShiftX = 0;        // --wide-shift: the OpenGL view shift (MelonInstance::setDebugViewShift)
+    int WideShiftY = 0;
     // both off: in this core the x86-64 JIT runs slower than the interpreter, with or without
     // fast memory (see README), where the app runs the ARM64 one with fast memory
     bool Jit = false;
@@ -247,6 +249,8 @@ void Usage()
         "  --scale N                   internal resolution for gl/compute, 1-16 (default 4)\n"
         "  --wide W                    WideMelon top screen width, even, 256-768 (default 256, off)\n"
         "  --wide-margin M             with --wide, M more 3D rows above and below the top screen (0-128)\n"
+        "  --wide-shift X,Y            debug, OpenGL: shift the native 256x192 X columns right and Y rows down in the\n"
+        "                              rendered view (within --wide and --wide-margin); the frame isn't cropped for it\n"
         "  --better-polygons           OpenGL: better polygon splitting\n"
         "  --precise-depth             3D depth at full precision, not the DS's 0x200 steps (GPU::PreciseDepth)\n"
         "  --no-high-res-coords        Compute: native-resolution vertex coordinates\n"
@@ -609,6 +613,17 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             }
         }
         else if (arg == "--wide-margin") opts.WideMargin = std::clamp(atoi(next().c_str()), 0, 128);
+        else if (arg == "--wide-shift")
+        {
+            std::string spec = next();
+            if (sscanf(spec.c_str(), "%d,%d", &opts.WideShiftX, &opts.WideShiftY) != 2)
+            {
+                fprintf(stderr, "--wide-shift needs X,Y\n");
+                return false;
+            }
+            opts.WideShiftX = std::clamp(opts.WideShiftX, -256, 256);
+            opts.WideShiftY = std::clamp(opts.WideShiftY, -128, 128);
+        }
         else if (arg == "--better-polygons") opts.BetterPolygons = true;
         else if (arg == "--precise-depth") setting("video_precise_depth", picojson::value(true));
         else if (arg == "--no-high-res-coords") opts.HighResCoordinates = false;
@@ -2190,6 +2205,7 @@ int main(int argc, char** argv)
             instance.setFrontendSun({true, opts.Sun->Direction, opts.Sun->Up});
         // with the guard band that goes with it, which the core only renders while that sun is on
         instance.setFrontendSunGuard(opts.SunGuard);
+        instance.setDebugViewShift(opts.WideShiftX, opts.WideShiftY);
         instance.setFrontendHiddenTextures(opts.HiddenTextures);
         instance.setFrontendLightTextures(opts.LightTextures);
         instance.setFrontendUiTextures(opts.UiTextures);

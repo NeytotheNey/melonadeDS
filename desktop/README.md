@@ -66,6 +66,7 @@ main ones:
 | `--scale N` | internal resolution (default 4) |
 | `--wide W` | WideMelon top screen width (256 = off) |
 | `--wide-margin M` | with `--wide`, M more 3D rows above and below the top screen (camera stage 2, 0-128) |
+| `--wide-shift X,Y` | debug, OpenGL only: the core's view shift (`GLRenderer::SetViewShift`), the native 256 x 192 moved X columns right and Y rows down inside the `--wide` / `--wide-margin` view, so it starts at column (W-256)/2+X and row M+Y of the top half (clamped to the view). The frame isn't cropped for it, so check it with `--screenshot` or `--depth-raw` |
 | `--dither`, `--hires-capture`, `--filter2d`, `--smooth30`, `--better-polygons`, `--precise-depth` | the app's renderer settings (the ones the settings screens have are overrides of their settings) |
 | `--filter NAME` | the [screen filter](#screen-filters) for the run (`video_filtering`): `none`, `linear`, `xbr2`, `hq2x`, `hq4x`, `quilez`, `lcd`, `scanlines`, `scale2x`, `fxaa`, `sharp`, `mmpx`, the app's `VideoFiltering` names in any case; `--linear` is `--filter linear` |
 | `--deband on\|off`, `--ds-colors on\|off`, `--screen-shadow on\|off` | smooth gradients (`video_deband`), the DS screen colors (`video_ds_screen_colors`) and the screen shadow (`video_screen_shadow`) for the run |
