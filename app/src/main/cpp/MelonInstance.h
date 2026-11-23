@@ -73,6 +73,9 @@ public:
     // The texture hashes whose polygons the depth hands over as 2D while no script marks any (the desktop's --ui-textures); emulator
     // thread, between frames
     void setFrontendUiTextures(std::vector<u32> hashes) { frontendUiTextures = std::move(hashes); }
+    // The texture hashes the depth of field focuses on while no script lists any (the desktop's --focus-textures); emulator thread, between
+    // frames
+    void setFrontendFocusTextures(std::vector<u32> hashes) { frontendFocusTextures = std::move(hashes); }
     float getMotionData(MotionQueryType type);
     void touchScreen(u16 x, u16 y);
     void releaseScreen();
@@ -232,6 +235,17 @@ private:
     std::vector<u32> frontendLightTextures;
     // setFrontendUiTextures(), emulator thread only
     std::vector<u32> frontendUiTextures;
+    // setFrontendFocusTextures(), emulator thread only
+    std::vector<u32> frontendFocusTextures;
+    // The depth of field's focus on the focus textures (Frame::depthFocus) as it eases from scene to scene (updateDepthFocus), emulator
+    // thread only: the view distance shown, negative for none, whether it's W-buffered, the scene it last moved for (DepthFocus::Scene), and
+    // the frames in a row without one
+    float focusDistance = -1.0f;
+    bool isFocusWBuffer = false;
+    u32 focusScene = 0;
+    int focusMissingFrames = 0;
+    // A new layout's focus (the renderer's DepthFocus) eased into the state above; returns Frame::depthFocus
+    float updateDepthFocus(const melonDS::DepthCamera& camera);
     // The width and margin of the top screen's 3D view as shown, for the emulator thread: they start at EmulatorConfiguration::wideViewWidth
     // and wideViewMargin and then follow setWideView() (configuration updates don't change them)
     int wideViewWidth;

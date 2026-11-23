@@ -149,7 +149,7 @@ public:
     void Render(GLuint inputTexture, int inputWidth, int inputHeight, int topScreenWidth, int topScreenHeight, bool isBottomScreenWide,
         const std::optional<TiltShift>& tiltShift, int halvesAt1x = 0, int scaleAt1x = 1, int halfScaleAt1x = 1, const Bloom* bloom = nullptr,
         const DepthOfField* depthOfField = nullptr, float focusU = 0.f, float focusV = 0.f, float focusAgeStep = 0.f, const Shade* shade = nullptr,
-        const Sun* sun = nullptr, const SunCamera* sunCamera = nullptr)
+        const Sun* sun = nullptr, const SunCamera* sunCamera = nullptr, const float* depthProjection = nullptr)
     {
         glBindFramebuffer(GL_FRAMEBUFFER, Framebuffer);
         // The quad covers every texel, so the old contents never have to be loaded
@@ -173,8 +173,8 @@ public:
             Program->SetTiltShift(*tiltShift);
         if (bloom)
             Program->SetBloom(*bloom);
-        if (depthOfField)
-            Program->SetDepthOfField(*depthOfField, focusU, focusV, focusAgeStep);
+        if (depthOfField && depthProjection)
+            Program->SetDepthOfField(*depthOfField, focusU, focusV, focusAgeStep, depthProjection);
         if (shade)
             Program->SetShade(*shade);
         if (sun && sunCamera)
@@ -642,9 +642,15 @@ GLuint VideoFilterPipeline::RenderGlow(BloomPasses& passes, PrePass* depthBright
 // the current input blurred by [depthOfField] through [passes]: the focus pass picks this frame's focus from the last one's and the frame's depth
 // texture on unit 1 (nearest, as its values can't be mixed), then the blur reads it on unit 2. Only for a new frame, as a frame drawn again
 // mustn't age a hold; false if a target can't be drawn to
-bool VideoFilterPipeline::RenderDepthOfField(DepthOfFieldPasses& passes, const DepthOfField& depthOfField, const FrameView& frame,
+bool VideoFilterPipeline::RenderDepthOfField(DepthOfFieldPasses& passes, const DepthOfField& scriptDepthOfField, const FrameView& frame,
     bool isBottomScreenWide)
 {
+    // A script's focus depth wins over the frame's focus on the focus textures, and with neither the focus pass looks at the point
+    DepthOfField depthOfField = scriptDepthOfField;
+    if (depthOfField.FocusDepth < 0.f)
+        depthOfField.FocusDepth = frame.DepthFocus;
+    // The projection's depth terms for the Z-buffer's view distances (P10, P11, P14, P15), which the frame has whenever it has depth
+    const float depthProjection[4] = {frame.DepthProjection[10], frame.DepthProjection[11], frame.DepthProjection[14], frame.DepthProjection[15]};
     BeginPasses();
     bool isReady = passes.Focus[0]->PrepareTarget(1, 1) && passes.Focus[1]->PrepareTarget(1, 1)
         && passes.Horizontal->PrepareTarget(InputWidth, InputHeight) && passes.Vertical->PrepareTarget(InputWidth, InputHeight);
@@ -675,7 +681,7 @@ bool VideoFilterPipeline::RenderDepthOfField(DepthOfFieldPasses& passes, const D
     passes.FocusFrameCount++;
     glViewport(0, 0, 1, 1);
     focus.Render(lastFocus.Texture, 1, 1, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, nullptr, &depthOfField,
-        focusU, focusV, focusAgeStep);
+        focusU, focusV, focusAgeStep, nullptr, nullptr, nullptr, depthProjection);
     // Nearest, as the focus's bytes can't be mixed either (its target is made linear)
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, focus.Texture);
@@ -685,9 +691,9 @@ bool VideoFilterPipeline::RenderDepthOfField(DepthOfFieldPasses& passes, const D
 
     glViewport(0, 0, InputWidth, InputHeight);
     passes.Horizontal->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1,
-        1, nullptr, &depthOfField, focusU, focusV);
+        1, nullptr, &depthOfField, focusU, focusV, 0.f, nullptr, nullptr, nullptr, depthProjection);
     passes.Vertical->Render(passes.Horizontal->Texture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide,
-        std::nullopt, 0, 1, 1, nullptr, &depthOfField, focusU, focusV);
+        std::nullopt, 0, 1, 1, nullptr, &depthOfField, focusU, focusV, 0.f, nullptr, nullptr, nullptr, depthProjection);
     InputTexture = passes.Vertical->Texture;
     passes.NextFocus = 1 - passes.NextFocus;
     glActiveTexture(GL_TEXTURE1);

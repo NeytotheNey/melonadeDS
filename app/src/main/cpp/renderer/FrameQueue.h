@@ -21,6 +21,8 @@ using namespace melonDS;
 // 9 frames should allow the emulator to run up 8x speed. This includes 8 frames ready to present, plus one frame currently being rendered to. A
 // frame's textures are only created once it's first rendered to, and normal speed only needs about 3 of them (see FrameQueue::takeFreeFrame)
 constexpr std::size_t FRAME_QUEUE_SIZE = 9;
+// Frame::depthFocus when the frame has none
+constexpr float NO_DEPTH_FOCUS = -1.0f;
 
 // Rows [start, end) of a texture, empty when start >= end
 struct TextureRows {
@@ -71,10 +73,15 @@ struct Frame {
     bool hasDepth = false;
     // The camera that depth was drawn with (melonDS::DepthCamera in GPU3D.h, which says how to rebuild positions with it), set with hasDepth:
     // the projection's 16 floats column-major as GLSL's mat4 takes them, and the viewport's left, top, width and height in DS pixels from the
-    // native top screen's top-left corner. Only to be used while depthCameraValid
+    // native top screen's top-left corner. Only to be used while depthCameraValid, but for the depth of field's view distances, which only
+    // take the projection's depth terms and read them whenever the frame has depth (W-buffered scenes need none)
     std::array<float, 16> depthProjection{};
     std::array<float, 4> depthViewport{};
     bool depthCameraValid = false;
+    // The depth of field's focus on the focus textures (melon.gpu.focus_textures, the desktop's --focus-textures), set with hasDepth: the
+    // player's depth as this frame's depth texture holds it (0 to 1, as melon.screen.depth_of_field's focus_depth), eased from scene to scene
+    // in view distance and held a while after she's gone (MelonInstance::updateDepthFocus), or NO_DEPTH_FOCUS
+    float depthFocus = NO_DEPTH_FOCUS;
     GpuFence renderFence{};
     GpuFence presentFence{};
     // Increases every time a frame is pushed for presentation, so the presenter can tell new frames from repeated ones and detect skipped frames

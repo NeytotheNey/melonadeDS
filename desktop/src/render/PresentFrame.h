@@ -39,6 +39,9 @@ struct FrameView
     std::array<float, 16> DepthProjection {};
     std::array<float, 4> DepthViewport {};
     bool DepthCameraValid = false;
+    // the depth of field's focus on the focus textures (Frame::depthFocus): a depth from 0 to 1 as DepthTexture holds it, or negative for
+    // none. DepthProjection's depth terms go with it, valid camera or not
+    float DepthFocus = -1.f;
 
     bool IsValid() const { return Texture != 0; }
     // the top screen's half of the frame in DS pixels (192 plus the margin on both sides), and the whole frame's
@@ -102,10 +105,11 @@ struct Bloom
 
 // DepthOfField.kt: a blur over the DS top screen's 3D that grows with each pixel's depth away from the focus, up to [Radius] DS pixels at
 // [Strength] (0 to 1). The focus is the depth at ([FocusX], [FocusY]) of the top screen's 256 x 192 view, or [FocusDepth] (0 to 1) when it's not
-// negative; depths within [Range] of it stay sharp and the blur is full [Falloff] past that, both in the renderer's depth (0 to 1)
+// negative, or with neither the frame's focus on the focus textures (FrameView::DepthFocus) when it has one; pixels within [Range] of it stay
+// sharp and the blur is full [Falloff] past that, both relative to the focus's view distance (|1 - s / d| for a focus s and a pixel d away)
 struct DepthOfField
 {
-    float Strength = 0, Radius = 4, FocusX = 128, FocusY = 96, FocusDepth = -1, Range = 0.0002f, Falloff = 0.0015f;
+    float Strength = 0, Radius = 4, FocusX = 128, FocusY = 96, FocusDepth = -1, Range = 0.045f, Falloff = 0.33f;
 
     bool operator==(const DepthOfField&) const = default;
 

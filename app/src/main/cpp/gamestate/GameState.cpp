@@ -135,7 +135,33 @@ int GameState::getSceneForScript(melonDS::NDS* nds)
         current = readScene(nds, currentGame);
         scene.store(current, std::memory_order_relaxed);
     }
+    // So a script's effects on the 3D ease back in once the new map shows, not all at once where the captured frame leaves it. The camera's
+    // scene (pollScene) stays the field read's
+    if ((current == Field || current == Text) && isTop3DCovered(nds))
+        return Fade;
     return current;
+}
+
+bool GameState::isTop3DCovered(melonDS::NDS* nds)
+{
+    // Only engine A draws 3D; with B on top there's nothing to tell
+    if (!nds->GPU.ScreenSwap)
+        return false;
+    const melonDS::GPU2D::Unit& unit = nds->GPU.GPU2D_A;
+    melonDS::u32 disp = unit.DispCnt;
+    bool isDisplayingLayers = ((disp >> 16) & 3) == 1;
+    bool shows3D = (disp & (1 << 3)) && (disp & (1 << 8));
+    if (!isDisplayingLayers || !shows3D)
+        return true;
+    // BG3 is an extended BG in modes 3 to 5, BG2 in mode 5; bits 7 and 2 of its BGCNT make it a direct-color bitmap
+    int mode = disp & 7;
+    for (int bg = 2; bg <= 3; bg++)
+    {
+        bool isExtended = bg == 3 ? mode >= 3 && mode <= 5 : mode == 5;
+        if (isExtended && (disp & (1 << (8 + bg))) && (unit.BGCnt[bg] & 0x84) == 0x84)
+            return true;
+    }
+    return false;
 }
 
 int GameState::readScene(melonDS::NDS* nds, const PkNdsFieldGame* currentGame)

@@ -133,8 +133,9 @@ struct LuaDepthOfField
     float focusX = 128.0f;
     float focusY = 96.0f;
     float focusDepth = -1.0f;
-    float range = 0.0002f;
-    float falloff = 0.0015f;
+    // Relative to the focus's distance from the camera, as |1 - focus distance / pixel distance|
+    float range = 0.045f;
+    float falloff = 0.33f;
 
     bool operator==(const LuaDepthOfField&) const = default;
 };
@@ -257,6 +258,9 @@ struct LuaScript
     // melon.gpu.ui_textures(): and for the texture hashes whose polygons the depth hands over as 2D on top (LuaEngine::uiTextures)
     std::vector<melonDS::u32> uiTextures;
     unsigned int uiTexturesOrder = 0;
+    // melon.gpu.focus_textures(): and for the texture hashes whose biggest polygon the depth of field focuses on (LuaEngine::focusTextures)
+    std::vector<melonDS::u32> focusTextures;
+    unsigned int focusTexturesOrder = 0;
     // melon.wide: kept until the script changes it or stops (not a per-call request), and what the app was last told of it
     LuaWideCamera wideCamera;
     LuaWideCamera sentWideCamera;

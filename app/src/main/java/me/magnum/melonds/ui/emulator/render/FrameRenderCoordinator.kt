@@ -154,6 +154,7 @@ class FrameRenderCoordinator {
                 topWingLines: Int,
                 depthTextureId: Int,
                 isDepthCameraValid: Boolean,
+                depthFocus: Float,
                 frameSequence: Long,
             ): Boolean {
                 val renderStart = System.nanoTime()
@@ -174,6 +175,7 @@ class FrameRenderCoordinator {
                     this.depthTextureId = depthTextureId
                     // depthCamera itself was just filled by presentFrame()
                     this.isDepthCameraValid = isDepthCameraValid
+                    this.depthFocus = depthFocus
                     this.frameSequence = frameSequence
                     // Moved once per presented frame, here, so every surface shows the same window
                     this.wideWindow = if (isValidFrame) {

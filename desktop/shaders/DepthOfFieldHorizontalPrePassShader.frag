@@ -47,16 +47,35 @@ highp float decodeFocus(highp vec4 texel) {
     highp float depth = decodeDepth(texel);
     return depth > 0.0 ? depth : -1.0;
 }
-// The depth at p (u and v of the frame), from 0 to 1
-highp float frameDepth(vec2 p) {
-    return decodeDepth(texture2D(depthTex, vec2(p.x, clamp(p.y / topScreenEnd, 0.0, 1.0))));
+uniform highp vec4 depthProjection;
+bool isWBuffered(highp vec4 texel) {
+    return mod(floor(floor(texel.a * 255.0 + 0.5) / 4.0), 2.0) == 1.0;
 }
-// The blur's radius in DS pixels at a depth, 0 in focus and for 2D
-float blurRadius(highp float depth, highp float focus) {
-    if (depth <= 0.0 || focus < 0.0) {
+highp float viewDistance(highp float depth, bool wbuffer) {
+    highp float value = depth * 16777215.0;
+    if (wbuffer) {
+        return value / 4096.0;
+    }
+    highp float ndc = (value - 8388096.0) / 8388608.0;
+    highp float denominator = depthProjection.x - ndc * depthProjection.y;
+    if (denominator == 0.0) {
+        return depth;
+    }
+    return (depthProjection.z - ndc * depthProjection.w) / denominator;
+}
+// The depth texel at p (u and v of the frame), and its depth from 0 to 1
+highp vec4 frameDepthTexel(vec2 p) {
+    return texture2D(depthTex, vec2(p.x, clamp(p.y / topScreenEnd, 0.0, 1.0)));
+}
+highp float frameDepth(vec2 p) {
+    return decodeDepth(frameDepthTexel(p));
+}
+// The blur's radius in DS pixels at a depth, 0 in focus and for 2D; focusDistance is the focus's view distance, not positive for none
+float blurRadius(highp float depth, highp float focusDistance, bool wbuffer) {
+    if (depth <= 0.0 || focusDistance <= 0.0) {
         return 0.0;
     }
-    highp float offset = abs(depth - focus);
+    highp float offset = abs(1.0 - focusDistance / max(viewDistance(depth, wbuffer), 0.001));
     return depthOfField.x * smoothstep(depthOfField.y, depthOfField.y + max(depthOfField.z, 0.0001), offset);
 }
 void main() {
@@ -67,8 +86,12 @@ void main() {
     }
     // Texels per DS pixel; the frame texture is frameLayout.w DS pixels high at any internal resolution
     float scale = texSize.y / frameLayout.w;
+    // Every polygon of a scene shares its W-buffer setting, and every pixel that blurs carries it, as this one does when it blurs
+    highp vec4 depthTexel = frameDepthTexel(uv);
+    bool wbuffer = isWBuffered(depthTexel);
     highp float focus = decodeFocus(texture2D(focusTex, vec2(0.5)));
-    float radius = blurRadius(frameDepth(uv), focus) * scale;
+    highp float focusDistance = focus < 0.0 ? -1.0 : viewDistance(focus, wbuffer);
+    float radius = blurRadius(decodeDepth(depthTexel), focusDistance, wbuffer) * scale;
     if (radius < MIN_BLUR_RADIUS) {
         gl_FragColor = vec4(texture2D(tex, uv).rgb, 1.0);
         return;
@@ -84,8 +107,8 @@ void main() {
         float tapDistance = float(i) * radius / 6.0;
         vec2 before = uv - spacing * float(i);
         vec2 after = uv + spacing * float(i);
-        float beforeWeight = weight * clamp(blurRadius(frameDepth(before), focus) * scale / tapDistance, 0.0, 1.0);
-        float afterWeight = weight * clamp(blurRadius(frameDepth(after), focus) * scale / tapDistance, 0.0, 1.0);
+        float beforeWeight = weight * clamp(blurRadius(frameDepth(before), focusDistance, wbuffer) * scale / tapDistance, 0.0, 1.0);
+        float afterWeight = weight * clamp(blurRadius(frameDepth(after), focusDistance, wbuffer) * scale / tapDistance, 0.0, 1.0);
         color += beforeWeight * sampleScreen(before, band) + afterWeight * sampleScreen(after, band);
         total += beforeWeight + afterWeight;
     }

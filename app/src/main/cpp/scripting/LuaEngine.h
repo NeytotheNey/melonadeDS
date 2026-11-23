@@ -242,6 +242,11 @@ public:
      * Emulator thread only
      */
     const std::vector<melonDS::u32>& uiTextures() const;
+    /**
+     * And for the focus textures (melon.gpu.focus_textures), whose biggest polygon in a scene the depth of field focuses on; empty while
+     * none lists any. Emulator thread only
+     */
+    const std::vector<melonDS::u32>& focusTextures() const;
 
 private:
     // The API files (LuaEngineInternal.h) read the engine's state through the running script's LuaScript::engine
@@ -313,7 +318,8 @@ private:
     static int luaGpuHideTextures(lua_State* L);
     static int luaGpuLightTextures(lua_State* L);
     static int luaGpuUiTextures(lua_State* L);
-    // All three: the script's texture hash list [list] from argument 1 (nil or a table of at most [maxHashes]), stamped with the next of
+    static int luaGpuFocusTextures(lua_State* L);
+    // All four: the script's texture hash list [list] from argument 1 (nil or a table of at most [maxHashes]), stamped with the next of
     // [requests] in [order] when it changes to a non-empty one; [name] is the function's, for errors
     static int setTextureList(lua_State* L, const char* name, size_t maxHashes, std::vector<melonDS::u32> LuaScript::* list,
                               unsigned int LuaScript::* order, unsigned int LuaEngine::* requests);
@@ -333,6 +339,8 @@ private:
     unsigned int lightTextureRequests = 0;
     // And the UI texture lists (LuaScript::uiTexturesOrder)
     unsigned int uiTextureRequests = 0;
+    // And the focus texture lists (LuaScript::focusTexturesOrder)
+    unsigned int focusTextureRequests = 0;
     // Set while on_unload() runs: requests to the app are ignored, and errors are only logged
     bool isUnloading = false;
     // Set while on_frame() or on_frame_end() runs, the only callbacks whose draw calls are recorded

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -51,6 +52,35 @@ const int OUTPUT_NEED_STABLE_FRAMES = 30;
 // The sun's guard band: the frames a lower one has to hold for before the render view shrinks to it (MelonInstance::updateSunGuard), 3 s
 // of the game's time
 const int SUN_GUARD_HOLD_FRAMES = 180;
+// The depth of field's focus on the focus textures (MelonInstance::updateDepthFocus): how far it moves towards a new scene's each scene,
+// and how many frames it holds once none is drawn. Only a few, enough for a door's first frames: Pokemon White's camera starts close up
+// on the door as the player comes out, before she's drawn, where her last distance would blur the whole street
+const float DEPTH_FOCUS_EASE = 0.35f;
+const int DEPTH_FOCUS_HOLD_FRAMES = 8;
+// A depth buffer value's view distance (W-buffered: w in 20.12; Z-buffered: back through the projection's depth rows, [proj] being
+// melonDS::DepthCamera::Proj, column-major, so P10 and P14 are z's terms and P11 and P15 w's), and back. Negative when the projection
+// can't tell (a scene without a camera)
+static double depthDistance(double value, bool wbuffer, const std::array<float, 16>& proj)
+{
+    if (wbuffer)
+        return value / 4096.0;
+    double ndc = (value - 0x7FFE00) / 8388608.0;
+    double denominator = proj[10] - ndc * proj[11];
+    if (std::abs(denominator) < 1e-9)
+        return -1.0;
+    double distance = (proj[14] - ndc * proj[15]) / denominator;
+    return std::isfinite(distance) && distance > 0.0 ? distance : -1.0;
+}
+
+static double distanceDepth(double distance, bool wbuffer, const std::array<float, 16>& proj)
+{
+    if (wbuffer)
+        return distance * 4096.0;
+    double denominator = proj[15] - distance * proj[11];
+    if (std::abs(denominator) < 1e-9)
+        return -1.0;
+    return (proj[14] - distance * proj[10]) / denominator * 8388608.0 + 0x7FFE00;
+}
 
 // MelonInstance::currentConfiguration's atomic access: the NDK's libc++ has no std::atomic<std::shared_ptr> yet, and libstdc++ deprecates
 // these free functions in C++20
@@ -621,6 +651,9 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         // And the ones the depth hands over as 2D
         const std::vector<u32>& ui = luaEngine.uiTextures().empty() ? frontendUiTextures : luaEngine.uiTextures();
         nds->GPU.GetRenderer3D().SetUiTextures(ui.data(), (u32) ui.size());
+        // And the ones the depth of field focuses on
+        const std::vector<u32>& focus = luaEngine.focusTextures().empty() ? frontendFocusTextures : luaEngine.focusTextures();
+        nds->GPU.GetRenderer3D().SetFocusTextures(focus.data(), (u32) focus.size());
     }
 
     bool hasLuaFrameRun = false;
@@ -647,6 +680,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             renderFrame->topWingLines = 0;
             renderFrame->hasDepth = false;
             renderFrame->depthCameraValid = false;
+            renderFrame->depthFocus = NO_DEPTH_FOCUS;
         }
     }
     else
@@ -664,6 +698,9 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             renderFrame->depthProjection = outputLayout.Camera.Proj;
             renderFrame->depthViewport = outputLayout.Camera.Viewport;
             renderFrame->depthCameraValid = renderFrame->hasDepth && outputLayout.Camera.Valid;
+            renderFrame->depthFocus = updateDepthFocus(outputLayout.Camera);
+            if (!renderFrame->hasDepth)
+                renderFrame->depthFocus = NO_DEPTH_FOCUS;
         }
     }
 
@@ -744,6 +781,40 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     }
 
     return nLines;
+}
+
+float MelonInstance::updateDepthFocus(const melonDS::DepthCamera& camera)
+{
+    const melonDS::DepthFocus& focus = camera.Focus;
+    double target = focus.Found ? depthDistance(focus.Depth, focus.WBuffer, camera.Proj) : -1.0;
+    if (target <= 0.0)
+    {
+        // Held for a door's first frames, which don't draw the player yet; longer, the camera may have moved without her
+        focusMissingFrames = std::min(focusMissingFrames + 1, DEPTH_FOCUS_HOLD_FRAMES + 1);
+        if (focusMissingFrames > DEPTH_FOCUS_HOLD_FRAMES)
+            focusDistance = -1.0f;
+    }
+    else
+    {
+        // Eased in view distance, once a scene (a scene skipped as identical comes again with the same Scene); a new one after the hold ran
+        // out, or across a W-buffer change, which goes through another camera, is taken as it is
+        if (focus.Scene != focusScene)
+        {
+            bool snap = focusDistance < 0.0f || focus.WBuffer != isFocusWBuffer;
+            focusDistance = snap ? (float) target : focusDistance + ((float) target - focusDistance) * DEPTH_FOCUS_EASE;
+            isFocusWBuffer = focus.WBuffer;
+            focusScene = focus.Scene;
+        }
+        focusMissingFrames = 0;
+    }
+    if (focusDistance < 0.0f)
+        return NO_DEPTH_FOCUS;
+
+    // As this frame's depth holds it, which a held focus from a scene with another buffer still maps onto
+    double value = distanceDepth(focusDistance, focus.WBuffer, camera.Proj);
+    if (!std::isfinite(value) || value <= 0.0)
+        return NO_DEPTH_FOCUS;
+    return (float) (std::clamp(value, 1.0, 16777214.0) / 16777215.0);
 }
 
 void MelonInstance::applyRewindSettings()

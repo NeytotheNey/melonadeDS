@@ -1,5 +1,6 @@
 package me.magnum.melonds.ui.emulator.render
 
+import me.magnum.melonds.domain.model.render.NO_DEPTH_FOCUS
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_BOTTOM
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_TOP
 
@@ -24,8 +25,10 @@ fun interface FrameRenderCallback {
      * @param topWingLines The DS top screen's lines with 3D wings (held ones included), for the WideMelon camera.
      * @param depthTextureId The top screen half's depth, for a depth of field: GL_RGBA8, the frame's width by its top half's rows, 24-bit values
      * in RGB with the high byte in R and flags in A (see ShaderProgramSource's DEPTH_DECODE_FUNCTION); 0 when the frame has none.
-     * @param isDepthCameraValid Whether the array given to MelonEmulator.presentFrame now holds the camera that depth was drawn with (see
-     * PresentFrameWrapper's DEPTH_CAMERA_* layout).
+     * @param isDepthCameraValid Whether the array given to MelonEmulator.presentFrame now holds a valid camera that depth was drawn with (see
+     * PresentFrameWrapper's DEPTH_CAMERA_* layout); its projection is there whenever [depthTextureId] isn't 0.
+     * @param depthFocus The depth of field's focus on the focus textures (melon.gpu.focus_textures), as a depth from 0 to 1 the way
+     * [depthTextureId] holds it, or [NO_DEPTH_FOCUS] (see PresentFrameWrapper.depthFocus).
      * @param frameSequence Sequence number of the presented emulator frame, increasing by 1 for every frame the emulator produces.
      * @return Whether every surface can draw a frame with screens at 1x, which the emulator only produces while this is true.
      */
@@ -45,6 +48,7 @@ fun interface FrameRenderCallback {
         topWingLines: Int,
         depthTextureId: Int,
         isDepthCameraValid: Boolean,
+        depthFocus: Float,
         frameSequence: Long,
     ): Boolean
 }

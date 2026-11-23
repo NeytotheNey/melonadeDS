@@ -124,6 +124,7 @@ Shader::Shader(GLuint program, GLenum textureFiltering)
     UniformBloomLights = glGetUniformLocation(Program, "bloomLights");
     UniformDepthOfField = glGetUniformLocation(Program, "depthOfField");
     UniformDepthFocus = glGetUniformLocation(Program, "depthFocus");
+    UniformDepthProjection = glGetUniformLocation(Program, "depthProjection");
     UniformDepthTex = glGetUniformLocation(Program, "depthTex");
     UniformFocusTex = glGetUniformLocation(Program, "focusTex");
     UniformShade = glGetUniformLocation(Program, "shade");
@@ -229,12 +230,14 @@ void Shader::SetBloom(const Bloom& bloom) const
         glUniform2f(UniformBloomLights, bloom.LightThreshold, bloom.LightStrength);
 }
 
-void Shader::SetDepthOfField(const DepthOfField& depthOfField, float focusU, float focusV, float focusAgeStep) const
+void Shader::SetDepthOfField(const DepthOfField& depthOfField, float focusU, float focusV, float focusAgeStep, const float* depthProjection) const
 {
     if (UniformDepthOfField >= 0)
         glUniform3f(UniformDepthOfField, depthOfField.AppliedRadius(), depthOfField.Range, depthOfField.Falloff);
     if (UniformDepthFocus >= 0)
         glUniform4f(UniformDepthFocus, depthOfField.FocusDepth, focusU, focusV, focusAgeStep);
+    if (UniformDepthProjection >= 0)
+        glUniform4f(UniformDepthProjection, depthProjection[0], depthProjection[1], depthProjection[2], depthProjection[3]);
     if (UniformDepthTex >= 0)
         glUniform1i(UniformDepthTex, 1);
     if (UniformFocusTex >= 0)

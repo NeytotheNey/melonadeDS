@@ -53,7 +53,8 @@ public:
      */
     int pollScene();
     /**
-     * melon.game.state(): the scene, read now if the last frame didn't, and kept updated for the rest of the game; emulator thread
+     * melon.game.state(): the scene, read now if the last frame didn't, and kept updated for the rest of the game; emulator thread. Unlike
+     * pollScene's, a field or text box whose top screen doesn't show its 3D (isTop3DCovered) is a fade
      */
     int getSceneForScript(melonDS::NDS* nds);
 
@@ -82,6 +83,10 @@ public:
 
 private:
     int readScene(melonDS::NDS* nds, const PkNdsFieldGame* game);
+    // Whether engine A is on top and shows no 3D of its own: its 3D layer is off, the display isn't the layers, or a direct-color bitmap BG
+    // (a captured frame) is up. Gen 5's doors zoom the old map's last frame with the 3D off, then cross-fade it into the new map's 3D, which
+    // the depth hands over as 2D meanwhile, while the field read already says field
+    static bool isTop3DCovered(melonDS::NDS* nds);
 
     // Frames the update keeps running after the last poll; generous, since fast-forward runs several frames per presented one
     static constexpr int kPollFrames = 240;

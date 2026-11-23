@@ -34,9 +34,27 @@ highp float decodeFocus(highp vec4 texel) {
     highp float depth = decodeDepth(texel);
     return depth > 0.0 ? depth : -1.0;
 }
+uniform highp vec4 depthProjection;
+bool isWBuffered(highp vec4 texel) {
+    return mod(floor(floor(texel.a * 255.0 + 0.5) / 4.0), 2.0) == 1.0;
+}
+highp float viewDistance(highp float depth, bool wbuffer) {
+    highp float value = depth * 16777215.0;
+    if (wbuffer) {
+        return value / 4096.0;
+    }
+    highp float ndc = (value - 8388096.0) / 8388608.0;
+    highp float denominator = depthProjection.x - ndc * depthProjection.y;
+    if (denominator == 0.0) {
+        return depth;
+    }
+    return (depthProjection.z - ndc * depthProjection.w) / denominator;
+}
 highp float depthAt(vec2 p) {
     return decodeDepth(texture2D(depthTex, p));
 }
+// Whether the 3D nearer3D() found is W-buffered, which all of a scene's is
+bool nearestWBuffered = false;
 bool is3D(highp float depth) {
     return depth > 0.0 && depth < 1.0;
 }
@@ -46,10 +64,12 @@ vec2 dsPixel() {
 }
 // The nearer of nearest and the depth at p if that's 3D, so a negative nearest means none yet
 highp float nearer3D(highp float nearest, vec2 p) {
-    highp float depth = depthAt(p);
+    highp vec4 texel = texture2D(depthTex, p);
+    highp float depth = decodeDepth(texel);
     if (!is3D(depth)) {
         return nearest;
     }
+    nearestWBuffered = isWBuffered(texel);
     return nearest < 0.0 ? depth : min(nearest, depth);
 }
 // The nearest of nearest and the 3D at the four points ringPixels DS pixels from the focus point, negative for none
@@ -116,5 +136,7 @@ void main() {
     // Still within a hold's time: something nearer at the point than the sharp range keeps the last focus, and anything else is taken
     // as it is, but the hold's time keeps running
     age = min(age + depthFocus.w, HOLD_LIMIT);
-    gl_FragColor = encodeFocus(nearest < lastFocus - depthOfField.y ? lastFocus : nearest, age);
+    highp float lastDistance = viewDistance(lastFocus, nearestWBuffered);
+    highp float nearestDistance = max(viewDistance(nearest, nearestWBuffered), 0.001);
+    gl_FragColor = encodeFocus(lastDistance / nearestDistance - 1.0 > depthOfField.y ? lastFocus : nearest, age);
 }

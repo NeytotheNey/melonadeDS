@@ -19,6 +19,9 @@ const val DEPTH_CAMERA_PROJECTION = 0
 const val DEPTH_CAMERA_VIEWPORT = 16
 const val DEPTH_CAMERA_SIZE = 20
 
+// PresentFrameWrapper.depthFocus when the frame has none; must match NO_DEPTH_FOCUS in FrameQueue.h
+const val NO_DEPTH_FOCUS = -1f
+
 data class PresentFrameWrapper(
     var isValidFrame: Boolean = false,
     var textureId: Int = 0,
@@ -46,10 +49,14 @@ data class PresentFrameWrapper(
     var halfScaleAt1x: Int = 1,
     // The top screen half's depth for a depth of field (GL_RGBA8, textureWidth by the top half's rows, see FrameRenderCallback), or 0 for none
     var depthTextureId: Int = 0,
-    // The camera that depth was drawn with (the DEPTH_CAMERA_* layout), written by presentFrame() before each frame is presented. Only to be
-    // read while isDepthCameraValid: off for a W-buffered or orthographic scene, one where the camera covers under half of it, or no depth
+    // The camera that depth was drawn with (the DEPTH_CAMERA_* layout), written by presentFrame() before each frame with depth is presented.
+    // Only to be read while isDepthCameraValid (off for a W-buffered or orthographic scene, one where the camera covers under half of it, or
+    // no depth), but for the depth of field's view distances, which only take the projection's depth terms and read them whenever there's depth
     val depthCamera: FloatArray = FloatArray(DEPTH_CAMERA_SIZE),
     var isDepthCameraValid: Boolean = false,
+    // The depth of field's focus on the focus textures (melon.gpu.focus_textures): the player's depth as depthTextureId holds it (0 to 1, as a
+    // script's focus_depth), eased from scene to scene and held a while after she's gone, or NO_DEPTH_FOCUS
+    var depthFocus: Float = NO_DEPTH_FOCUS,
     // Emulator frame sequence number, 0 when the frame is invalid
     var frameSequence: Long = 0,
     // The WideMelon camera's window of the top-slot screen for this presentation, or null to draw it without one

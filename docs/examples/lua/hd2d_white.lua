@@ -45,14 +45,24 @@ local LIGHT_TEXTURES = { 0x84D7B868 }
 local vignette_options = { size = 0.6 }
 -- The far end of a street, past about 0.0005 behind the player's depth; the player and the roofs nearer the camera stay clear
 local haze_options = { color = 0xDCE6F0, start = 0.9968, falloff = 0.0008 }
--- Focused on the player, who's at the screen's center in the field. White's field is Z-buffered, and
--- everything on screen is within about 0.002 of the player's depth, so the range and falloff are small
+-- Focused on the player wherever she is on screen, through her sprite sheet's texture (FOCUS_TEXTURES
+-- below). Indoors the camera looks ahead of her and stops at the room's edge, so she isn't at the center.
+-- Without her on screen it's the screen's center, where she stands in the field. The range and falloff
+-- are relative to her distance from the camera (the defaults), so they suit the Z-buffered field and the
+-- W-buffered rooms alike
 local dof_options = {
     radius = melon.options.dof_radius,
     focus_x = 128,
     focus_y = 96,
-    range = 0.0002,
-    falloff = 0.0015,
+    range = 0.045,
+    falloff = 0.33,
+}
+
+-- The player's sprite sheet, the only 32 x 1024 character texture, by content hash from the desktop's
+-- --list-textures. The same walking, running, at night, after a state load and indoors
+local FOCUS_TEXTURES = {
+    0xA762276B, -- White, the female player
+    -- The male player's hash isn't known yet
 }
 
 -- Shadows from a sun in the north-west, 45 degrees up, in the view space of White's field camera (a tile is
@@ -118,7 +128,8 @@ local message_frames = 0
 local wrong_game_frames = WRONG_GAME_FRAMES
 
 local function set_targets(state)
-    -- A fade is a door or a map change: keep what the scene had, so it doesn't flicker on every door
+    -- A fade is a door or a map change, through black or a cross-fade from the old map's last frame: keep
+    -- what the scene had, so it doesn't flicker on every door
     if state == "fade" then
         return
     end
@@ -180,9 +191,13 @@ function on_frame()
 
     -- Called every frame: only frames where a value changes cost an event
     melon.screen.sun(current.sun, sun_options)
-    melon.gpu.hide_textures(current.sun > 0 and GAME_SHADOW_TEXTURES or NO_TEXTURES)
+    -- The game's own shadows go while the sun is on, and through a fade while it's wanted: a door's
+    -- cross-fade shows the new map before the sun comes back
+    local hides_game_shadows = current.sun > 0 or (state == "fade" and is_automatic and melon.options.sun > 0)
+    melon.gpu.hide_textures(hides_game_shadows and GAME_SHADOW_TEXTURES or NO_TEXTURES)
     melon.gpu.light_textures(LIGHT_TEXTURES)
     melon.gpu.ui_textures(UI_TEXTURES)
+    melon.gpu.focus_textures(FOCUS_TEXTURES)
     melon.screen.shade(current.shade, shade_options)
     melon.screen.depth_of_field(current.dof, dof_options)
     melon.screen.haze(current.haze, haze_options)

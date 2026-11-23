@@ -49,7 +49,7 @@ public:
     // the depth of field's radius at its strength, range and falloff, its focus point as [focusU] and [focusV] of the depth texture (read when
     // it has no focus depth), whether this frame ages a held focus ([focusAgeStep], 0 or 1), and the depth texture on unit 1 and the picked
     // focus on unit 2
-    void SetDepthOfField(const DepthOfField& depthOfField, float focusU, float focusV, float focusAgeStep) const;
+    void SetDepthOfField(const DepthOfField& depthOfField, float focusU, float focusV, float focusAgeStep, const float* depthProjection) const;
     // the shading's strength, radius, range and tint, and for its last pass the frame's depth texture on unit 1 and the blurred depth on
     // unit 2
     void SetShade(const Shade& shade) const;
@@ -67,7 +67,7 @@ private:
     GLint UniformTiltShift = -1, UniformTiltShiftBoost = -1;
     GLint UniformBloom = -1, UniformVignette = -1, UniformGlowTex = -1;
     GLint UniformHaze = -1, UniformHazeColor = -1, UniformHazeDepthTex = -1, UniformBloomLights = -1;
-    GLint UniformDepthOfField = -1, UniformDepthFocus = -1, UniformDepthTex = -1, UniformFocusTex = -1;
+    GLint UniformDepthOfField = -1, UniformDepthFocus = -1, UniformDepthProjection = -1, UniformDepthTex = -1, UniformFocusTex = -1;
     GLint UniformShade = -1, UniformShadeColor = -1, UniformShadeDepthTex = -1, UniformShadeBlurTex = -1;
     GLint UniformSun = -1, UniformSunDirection = -1, UniformSunSoftness = -1, UniformSunColor = -1, UniformSunProjection = -1;
     GLint UniformSunInverse = -1, UniformSunViewport = -1, UniformSunDepthTex = -1, UniformSunMaskTex = -1, UniformSunNear = -1;

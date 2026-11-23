@@ -126,6 +126,7 @@ FrameView FrameView::Of(const Frame& frame)
     view.DepthProjection = frame.depthProjection;
     view.DepthViewport = frame.depthViewport;
     view.DepthCameraValid = frame.depthCameraValid;
+    view.DepthFocus = frame.hasDepth ? frame.depthFocus : -1.f;
     return view;
 }
 

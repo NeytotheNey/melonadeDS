@@ -50,10 +50,12 @@ class Shader(
     // strength
     private val uniformBloomLights: Int
     // Only declared by the depth of field pre-passes (see ShaderProgramSource.depthOfFieldPrePassShader and DepthOfFieldFocusShader): its radius,
-    // range and falloff, its focus point (the focus pass), the frame's depth texture on unit 1 and the picked focus on unit 2 (the blur passes).
+    // range and falloff, its focus point (the focus pass), the frame's projection's depth terms (ShaderProgramSource's DEPTH_DISTANCE_FUNCTIONS),
+    // the frame's depth texture on unit 1 and the picked focus on unit 2 (the blur passes).
     // The bloom's 3D-only bright pass declares the depth texture too, also on unit 1
     private val uniformDepthOfField: Int
     private val uniformDepthFocus: Int
+    private val uniformDepthProjection: Int
     private val uniformDepthTex: Int
     private val uniformFocusTex: Int
     // Only declared by the shading's pre-passes (see ShaderProgramSource.ShadeDownsamplePrePassShader and the ones after it): its strength,
@@ -101,6 +103,7 @@ class Shader(
         uniformBloomLights = GLES30.glGetUniformLocation(programId, "bloomLights")
         uniformDepthOfField = GLES30.glGetUniformLocation(programId, "depthOfField")
         uniformDepthFocus = GLES30.glGetUniformLocation(programId, "depthFocus")
+        uniformDepthProjection = GLES30.glGetUniformLocation(programId, "depthProjection")
         uniformDepthTex = GLES30.glGetUniformLocation(programId, "depthTex")
         uniformFocusTex = GLES30.glGetUniformLocation(programId, "focusTex")
         uniformShade = GLES30.glGetUniformLocation(programId, "shade")
@@ -236,16 +239,20 @@ class Shader(
     }
 
     /**
-     * Sets the depth of field's radius at its strength, range and falloff, its focus point as [focusU] and [focusV] of the depth texture (read
-     * when it has no focus depth), whether this frame ages a held focus ([focusAgeStep], 0 or 1), and that the depth texture is on unit 1 and
-     * the picked focus on unit 2; call after [use].
+     * Sets the depth of field's radius at its strength, range and falloff, the frame's fixed [focusDepth] (negative for none) and its focus
+     * point as [focusU] and [focusV] of the depth texture (read when there's no focus depth), whether this frame ages a held focus
+     * ([focusAgeStep], 0 or 1), the frame's projection's [depthProjection] terms (P10, P11, P14 and P15), and that the depth texture is on
+     * unit 1 and the picked focus on unit 2; call after [use].
      */
-    fun setDepthOfField(depthOfField: DepthOfField, focusU: Float, focusV: Float, focusAgeStep: Float) {
+    fun setDepthOfField(depthOfField: DepthOfField, focusDepth: Float, focusU: Float, focusV: Float, focusAgeStep: Float, depthProjection: FloatArray) {
         if (uniformDepthOfField != INVALID_UNIFORM) {
             GLES30.glUniform3f(uniformDepthOfField, depthOfField.appliedRadius, depthOfField.range, depthOfField.falloff)
         }
         if (uniformDepthFocus != INVALID_UNIFORM) {
-            GLES30.glUniform4f(uniformDepthFocus, depthOfField.focusDepth, focusU, focusV, focusAgeStep)
+            GLES30.glUniform4f(uniformDepthFocus, focusDepth, focusU, focusV, focusAgeStep)
+        }
+        if (uniformDepthProjection != INVALID_UNIFORM) {
+            GLES30.glUniform4f(uniformDepthProjection, depthProjection[0], depthProjection[1], depthProjection[2], depthProjection[3])
         }
         if (uniformDepthTex != INVALID_UNIFORM) {
             GLES30.glUniform1i(uniformDepthTex, 1)

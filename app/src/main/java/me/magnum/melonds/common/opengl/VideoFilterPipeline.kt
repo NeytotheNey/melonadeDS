@@ -685,6 +685,14 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         val topScreenWidth = frame.topScreenWidth.coerceAtLeast(1)
         val focusU = (depthOfField.focusX + (topScreenWidth - SCREEN_WIDTH) / 2f) / topScreenWidth
         val focusV = (depthOfField.focusY + frame.topScreenMargin) / frame.topScreenHeight
+        // A script's focus depth wins over the frame's focus on the focus textures, and with neither the focus pass looks at the point
+        passes.focusDepth = if (depthOfField.focusDepth >= 0f) depthOfField.focusDepth else frame.depthFocus
+        // The projection's depth terms for the Z-buffer's view distances, which presentFrame() writes whenever the frame has depth
+        val camera = frame.depthCamera
+        passes.depthProjection[0] = camera[DEPTH_CAMERA_PROJECTION + 10]
+        passes.depthProjection[1] = camera[DEPTH_CAMERA_PROJECTION + 11]
+        passes.depthProjection[2] = camera[DEPTH_CAMERA_PROJECTION + 14]
+        passes.depthProjection[3] = camera[DEPTH_CAMERA_PROJECTION + 15]
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, frame.depthTextureId)
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
@@ -695,11 +703,11 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         GLES30.glViewport(0, 0, outputWidth, outputHeight)
         passes.horizontal.render(
             inputTexture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null,
-            depthOfField = depthOfField, focusU = focusU, focusV = focusV,
+            depthOfField = depthOfField, depthOfFieldPasses = passes, focusU = focusU, focusV = focusV,
         )
         passes.vertical.render(
             passes.horizontal.texture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null,
-            depthOfField = depthOfField, focusU = focusU, focusV = focusV,
+            depthOfField = depthOfField, depthOfFieldPasses = passes, focusU = focusU, focusV = focusV,
         )
         inputTexture = passes.vertical.texture
         passes.swapFocus()
@@ -723,7 +731,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         GLES30.glViewport(0, 0, 1, 1)
         focus.render(
             passes.lastFocus.texture, 1, 1, topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null,
-            depthOfField = depthOfField, focusU = focusU, focusV = focusV, focusAgeStep = focusAgeStep,
+            depthOfField = depthOfField, depthOfFieldPasses = passes, focusU = focusU, focusV = focusV, focusAgeStep = focusAgeStep,
         )
         // Nearest, as the focus's bytes can't be mixed either
         GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
@@ -1166,6 +1174,9 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         // Whether both focus targets have to be cleared before the next one is drawn: they hold nothing yet when built, and what they hold
         // is from before the depth of field stopped (or a new session started)
         var isFocusStale = true
+        // This frame's fixed focus depth (negative for none) and its projection's depth terms (Shader.setDepthOfField), set before its passes
+        var focusDepth = -1f
+        val depthProjection = FloatArray(4)
 
         val nextFocus get() = if (isNextFocusA) focusA else focusB
         val lastFocus get() = if (isNextFocusA) focusB else focusA
@@ -1265,6 +1276,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             halfScaleAt1x: Int = 1,
             bloom: Bloom? = null,
             depthOfField: DepthOfField? = null,
+            depthOfFieldPasses: DepthOfFieldPasses? = null,
             focusU: Float = 0f,
             focusV: Float = 0f,
             focusAgeStep: Float = 0f,
@@ -1295,8 +1307,8 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             if (bloom != null) {
                 shader.setBloom(bloom)
             }
-            if (depthOfField != null) {
-                shader.setDepthOfField(depthOfField, focusU, focusV, focusAgeStep)
+            if (depthOfField != null && depthOfFieldPasses != null) {
+                shader.setDepthOfField(depthOfField, depthOfFieldPasses.focusDepth, focusU, focusV, focusAgeStep, depthOfFieldPasses.depthProjection)
             }
             if (shade != null) {
                 shader.setShade(shade)

@@ -1076,6 +1076,28 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                 "    return depth > 0.0 ? depth : -1.0;\n" +
                 "}\n"
 
+        // The depth of field's view distances (needs DEPTH_DECODE_FUNCTION first). depthProjection is the frame's projection's depth terms,
+        // P10, P11, P14 and P15 of PresentFrameWrapper.depthCamera's column-major projection (Shader.setDepthOfField). isWBuffered() is a depth
+        // texel's flag 4, which every 3D pixel of a W-buffered scene has. viewDistance() is how far a depth from 0 to 1 (decodeDepth()'s) is
+        // in front of the camera: W-buffered it's w itself in 20.12, and Z-buffered its NDC z (the core's z/w * 2^23 + 0x7FFE00 inverted) back
+        // through those terms. A frame without a projection (a scene with no camera) gets the depth itself, which keeps the order
+        private const val DEPTH_DISTANCE_FUNCTIONS = "uniform highp vec4 depthProjection;\n" +
+                "bool isWBuffered(highp vec4 texel) {\n" +
+                "    return mod(floor(floor(texel.a * 255.0 + 0.5) / 4.0), 2.0) == 1.0;\n" +
+                "}\n" +
+                "highp float viewDistance(highp float depth, bool wbuffer) {\n" +
+                "    highp float value = depth * 16777215.0;\n" +
+                "    if (wbuffer) {\n" +
+                "        return value / 4096.0;\n" +
+                "    }\n" +
+                "    highp float ndc = (value - 8388096.0) / 8388608.0;\n" +
+                "    highp float denominator = depthProjection.x - ndc * depthProjection.y;\n" +
+                "    if (denominator == 0.0) {\n" +
+                "        return depth;\n" +
+                "    }\n" +
+                "    return (depthProjection.z - ndc * depthProjection.w) / denominator;\n" +
+                "}\n"
+
         // Black, for the texels of a bloom target outside the DS top screen, which never glow
         private const val BLOOM_BLACK = "vec4(0.0, 0.0, 0.0, 1.0)"
 
@@ -1297,13 +1319,15 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
 
         // The depth of field's focus for a frame, into a 1 x 1 target that the blur passes read (focusTex): its depth in RGB as the depth
         // texture has it (0 for none) and in A how long a hold has lasted. tex (unit 0) is the last frame's, so the focus can hold, and
-        // depthTex (unit 1) the frame's depth. depthFocus.x is a fixed focus depth, or negative to look at depthFocus.yz (u and v of depthTex),
-        // and depthFocus.w is 1 on the frames that age a hold (every other one). Without a fixed depth the focus is, in order:
+        // depthTex (unit 1) the frame's depth. depthFocus.x is a fixed focus depth (a script's focus_depth, or else the frame's own focus on the
+        // focus textures, PresentFrameWrapper.depthFocus), or negative to look at depthFocus.yz (u and v of depthTex), and depthFocus.w is 1 on
+        // the frames that age a hold (every other one). Without a fixed depth the focus is, in order:
         // - The nearest flat 3D at and up to 18 DS pixels above the point: a depth that's the same 3 DS pixels lower is a quad facing the camera,
         //   as Pokemon White's characters are, where the floor, walls and roofs all change depth from row to row. That's the player standing at
         //   the point, so whatever covers her (a pillar, a roof) never takes the focus.
         // - With none, the last frame's focus, held while the nearest 3D around the point is nearer than it by more than the sharp range
-        //   (depthOfField.y): the player is behind something. It holds up to HOLD_LIMIT aging frames (about 8.5 s) since the last flat 3D.
+        //   (depthOfField.y, relative to its distance as the blur's is): the player is behind something. It holds up to HOLD_LIMIT aging frames
+        //   (about 8.5 s) since the last flat 3D.
         // - Otherwise the nearest 3D at the point and the four points 3 DS pixels around it, or 6 if none of those is 3D. The nearest, as
         //   White's player walking sideways shows the floor between her legs at the point every other step, which is farther than the sharp
         //   range. With no 3D there, none, which also ends a hold (a map change goes through a frame with no 3D)
@@ -1333,9 +1357,13 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "" +
                     DEPTH_DECODE_FUNCTION +
                     FOCUS_DECODE_FUNCTION +
+                    DEPTH_DISTANCE_FUNCTIONS +
                     "highp float depthAt(vec2 p) {\n" +
                     "    return decodeDepth(texture2D(depthTex, p));\n" +
                     "}\n" +
+                    "" +
+                    "// Whether the 3D nearer3D() found is W-buffered, which all of a scene's is\n" +
+                    "bool nearestWBuffered = false;\n" +
                     "" +
                     "bool is3D(highp float depth) {\n" +
                     "    return depth > 0.0 && depth < 1.0;\n" +
@@ -1348,10 +1376,12 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "" +
                     "// The nearer of nearest and the depth at p if that's 3D, so a negative nearest means none yet\n" +
                     "highp float nearer3D(highp float nearest, vec2 p) {\n" +
-                    "    highp float depth = depthAt(p);\n" +
+                    "    highp vec4 texel = texture2D(depthTex, p);\n" +
+                    "    highp float depth = decodeDepth(texel);\n" +
                     "    if (!is3D(depth)) {\n" +
                     "        return nearest;\n" +
                     "    }\n" +
+                    "    nearestWBuffered = isWBuffered(texel);\n" +
                     "    return nearest < 0.0 ? depth : min(nearest, depth);\n" +
                     "}\n" +
                     "" +
@@ -1423,7 +1453,9 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    // Still within a hold's time: something nearer at the point than the sharp range keeps the last focus, and anything else is taken\n" +
                     "    // as it is, but the hold's time keeps running\n" +
                     "    age = min(age + depthFocus.w, HOLD_LIMIT);\n" +
-                    "    gl_FragColor = encodeFocus(nearest < lastFocus - depthOfField.y ? lastFocus : nearest, age);\n" +
+                    "    highp float lastDistance = viewDistance(lastFocus, nearestWBuffered);\n" +
+                    "    highp float nearestDistance = max(viewDistance(nearest, nearestWBuffered), 0.001);\n" +
+                    "    gl_FragColor = encodeFocus(lastDistance / nearestDistance - 1.0 > depthOfField.y ? lastFocus : nearest, age);\n" +
                     "}"
         )
 
@@ -1431,8 +1463,10 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // from the focus, up to depthOfField.x DS pixels. depthTex (unit 1, nearest) is the frame's top screen half's depth from the compositor
         // (PresentFrameWrapper.depthTextureId, read with DEPTH_DECODE_FUNCTION): 0 for 2D drawn over the 3D, which stays sharp, 1 where what's
         // behind the 3D shows, which blurs as the farthest depth. depthOfField.yz are the sharp range around the focus and the falloff past it,
-        // in depth from 0 to 1. focusTex (unit 2) is the focus DepthOfFieldFocusShader picked for this frame; with none, nothing blurs. A tap only
-        // counts as much as its own blur reaches it, so a sharp texel never spreads over a blurred one. 13 Gaussian taps like the tilt-shift's
+        // relative to the focus's view distance: a pixel d away from the camera is |1 - s / d| from a focus s away, a thin lens's circle of
+        // confusion, which on a Z-buffer is the raw depth's difference times s, so the same values suit a W-buffered room and the Z-buffered
+        // field. focusTex (unit 2) is the focus DepthOfFieldFocusShader picked for this frame; with none, nothing blurs. A tap only counts as
+        // much as its own blur reaches it, so a sharp texel never spreads over a blurred one. 13 Gaussian taps like the tilt-shift's
         private fun depthOfFieldPrePassShader(direction: String): ShaderProgramSource {
             return ShaderProgramSource(
                 TextureFiltering.LINEAR,
@@ -1451,17 +1485,21 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                         "" +
                         DEPTH_DECODE_FUNCTION +
                         FOCUS_DECODE_FUNCTION +
-                        "// The depth at p (u and v of the frame), from 0 to 1\n" +
+                        DEPTH_DISTANCE_FUNCTIONS +
+                        "// The depth texel at p (u and v of the frame), and its depth from 0 to 1\n" +
+                        "highp vec4 frameDepthTexel(vec2 p) {\n" +
+                        "    return texture2D(depthTex, vec2(p.x, clamp(p.y / topScreenEnd, 0.0, 1.0)));\n" +
+                        "}\n" +
                         "highp float frameDepth(vec2 p) {\n" +
-                        "    return decodeDepth(texture2D(depthTex, vec2(p.x, clamp(p.y / topScreenEnd, 0.0, 1.0))));\n" +
+                        "    return decodeDepth(frameDepthTexel(p));\n" +
                         "}\n" +
                         "" +
-                        "// The blur's radius in DS pixels at a depth, 0 in focus and for 2D\n" +
-                        "float blurRadius(highp float depth, highp float focus) {\n" +
-                        "    if (depth <= 0.0 || focus < 0.0) {\n" +
+                        "// The blur's radius in DS pixels at a depth, 0 in focus and for 2D; focusDistance is the focus's view distance, not positive for none\n" +
+                        "float blurRadius(highp float depth, highp float focusDistance, bool wbuffer) {\n" +
+                        "    if (depth <= 0.0 || focusDistance <= 0.0) {\n" +
                         "        return 0.0;\n" +
                         "    }\n" +
-                        "    highp float offset = abs(depth - focus);\n" +
+                        "    highp float offset = abs(1.0 - focusDistance / max(viewDistance(depth, wbuffer), 0.001));\n" +
                         "    return depthOfField.x * smoothstep(depthOfField.y, depthOfField.y + max(depthOfField.z, 0.0001), offset);\n" +
                         "}\n" +
                         "" +
@@ -1474,8 +1512,12 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                         "" +
                         "    // Texels per DS pixel; the frame texture is frameLayout.w DS pixels high at any internal resolution\n" +
                         "    float scale = texSize.y / frameLayout.w;\n" +
+                        "    // Every polygon of a scene shares its W-buffer setting, and every pixel that blurs carries it, as this one does when it blurs\n" +
+                        "    highp vec4 depthTexel = frameDepthTexel(uv);\n" +
+                        "    bool wbuffer = isWBuffered(depthTexel);\n" +
                         "    highp float focus = decodeFocus(texture2D(focusTex, vec2(0.5)));\n" +
-                        "    float radius = blurRadius(frameDepth(uv), focus) * scale;\n" +
+                        "    highp float focusDistance = focus < 0.0 ? -1.0 : viewDistance(focus, wbuffer);\n" +
+                        "    float radius = blurRadius(decodeDepth(depthTexel), focusDistance, wbuffer) * scale;\n" +
                         "    if (radius < MIN_BLUR_RADIUS) {\n" +
                         "        gl_FragColor = vec4(texture2D(tex, uv).rgb, 1.0);\n" +
                         "        return;\n" +
@@ -1492,8 +1534,8 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                         "        float tapDistance = float(i) * radius / 6.0;\n" +
                         "        vec2 before = uv - spacing * float(i);\n" +
                         "        vec2 after = uv + spacing * float(i);\n" +
-                        "        float beforeWeight = weight * clamp(blurRadius(frameDepth(before), focus) * scale / tapDistance, 0.0, 1.0);\n" +
-                        "        float afterWeight = weight * clamp(blurRadius(frameDepth(after), focus) * scale / tapDistance, 0.0, 1.0);\n" +
+                        "        float beforeWeight = weight * clamp(blurRadius(frameDepth(before), focusDistance, wbuffer) * scale / tapDistance, 0.0, 1.0);\n" +
+                        "        float afterWeight = weight * clamp(blurRadius(frameDepth(after), focusDistance, wbuffer) * scale / tapDistance, 0.0, 1.0);\n" +
                         "        color += beforeWeight * sampleScreen(before, band) + afterWeight * sampleScreen(after, band);\n" +
                         "        total += beforeWeight + afterWeight;\n" +
                         "    }\n" +

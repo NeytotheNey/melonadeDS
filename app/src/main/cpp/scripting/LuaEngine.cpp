@@ -574,6 +574,7 @@ int LuaEngine::setupScript(lua_State* L)
         { "hide_textures", luaGpuHideTextures },
         { "light_textures", luaGpuLightTextures },
         { "ui_textures", luaGpuUiTextures },
+        { "focus_textures", luaGpuFocusTextures },
         { nullptr, nullptr },
     };
     static const luaL_Reg emuFunctions[] = {
@@ -753,10 +754,11 @@ void LuaEngine::closeScript(LuaScript& script)
                 off.nearLimit);
         script.sentSun = off;
     }
-    // A reloaded script starts hiding, lighting and marking nothing
+    // A reloaded script starts hiding, lighting, marking and focusing on nothing
     script.hiddenTextures.clear();
     script.lightTextures.clear();
     script.uiTextures.clear();
+    script.focusTextures.clear();
     // The same for the camera: a reloaded script starts asking for nothing
     script.wideCamera = LuaWideCamera();
     if (script.sentWideCamera != LuaWideCamera())
@@ -1292,11 +1294,18 @@ int LuaEngine::luaGpuUiTextures(lua_State* L)
                           &LuaEngine::uiTextureRequests);
 }
 
+int LuaEngine::luaGpuFocusTextures(lua_State* L)
+{
+    return setTextureList(L, "focus_textures", melonDS::MaxFocusTextures, &LuaScript::focusTextures, &LuaScript::focusTexturesOrder,
+                          &LuaEngine::focusTextureRequests);
+}
+
 int LuaEngine::setTextureList(lua_State* L, const char* name, size_t maxHashes, std::vector<melonDS::u32> LuaScript::* list,
                               unsigned int LuaScript::* order, unsigned int LuaEngine::* requests)
 {
     LuaScript& script = getScript(L);
-    std::array<melonDS::u32, std::max({melonDS::MaxHiddenTextures, melonDS::MaxLightTextures, melonDS::MaxUiTextures})> hashes;
+    std::array<melonDS::u32, std::max({melonDS::MaxHiddenTextures, melonDS::MaxLightTextures, melonDS::MaxUiTextures,
+                                       melonDS::MaxFocusTextures})> hashes;
     maxHashes = std::min(maxHashes, hashes.size());
     size_t count = 0;
     // nil or {} lists nothing
@@ -1353,6 +1362,11 @@ const std::vector<melonDS::u32>& LuaEngine::lightTextures() const
 const std::vector<melonDS::u32>& LuaEngine::uiTextures() const
 {
     return newestTextureList(&LuaScript::uiTextures, &LuaScript::uiTexturesOrder);
+}
+
+const std::vector<melonDS::u32>& LuaEngine::focusTextures() const
+{
+    return newestTextureList(&LuaScript::focusTextures, &LuaScript::focusTexturesOrder);
 }
 
 bool LuaEngine::wantsDepth() const
