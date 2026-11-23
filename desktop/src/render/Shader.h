@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "PlatformOGL.h"
+#include "renderer/SunGuard.h"
 #include "render/ShaderLibrary.h"
 
 namespace Frontend
@@ -38,8 +39,9 @@ public:
     void SetTopScreenWidth(int width) const;
     // the top screen's half in DS pixels (192 plus the WideMelon camera's margin on both sides), as frameLayout's v coordinates and rows
     void SetTopScreenHeight(int height) const;
-    // the sun shadows' guard band in DS pixels (FrameView::TopGuard): the vignette goes over the top screen as shown, without it
-    void SetTopScreenGuard(int guard) const;
+    // the sun shadows' guard band in DS pixels (FrameView::TopGuard): left, right, top and bottom, so the native screens' columns are found
+    // where they are and the vignette goes over the top screen as shown, without it
+    void SetTopScreenGuard(const MelonDSAndroid::FrameGuard& guard) const;
     void SetBottomScreenWide(bool isBottomScreenWide) const;
     void SetTiltShift(const TiltShift& tiltShift) const;
     // the bloom's strength, threshold and radius, the vignette's strength and size, the haze's strength, start, falloff and color, the lights'

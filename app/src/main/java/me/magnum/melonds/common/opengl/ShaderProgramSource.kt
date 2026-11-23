@@ -69,17 +69,23 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
         // of the gap between them (0.5 without the WideMelon camera's margin), w the frame's height in DS pixels (FRAME_TEXTURE_HEIGHT without it)
         private const val FRAME_LAYOUT_UNIFORM = "uniform vec4 frameLayout;\n"
 
-        // screenColumns(p) is the u range a wide frame lets the non-wide screen sample; needs texSize and topScreenWidth declared first, and
-        // declares frameLayout
+        // The sun shadows' guard band in DS pixels (Shader.setTopScreenGuard): left, right, top and bottom. The native screens' columns are
+        // (left - right) / 2 right of the frame's middle, and the top screen's native rows (top - bottom) / 2 below its half's middle
+        private const val TOP_SCREEN_GUARD_UNIFORM = "uniform vec4 topScreenGuard;\n"
+
+        // screenColumns(p) is the u range a wide frame lets the non-wide screen sample, its native columns; needs texSize and topScreenWidth
+        // declared first, and declares frameLayout and topScreenGuard
         private const val SCREEN_COLUMN_RANGE_FUNCTIONS = "uniform float bottomScreenWide;\n" +
                 FRAME_LAYOUT_UNIFORM +
+                TOP_SCREEN_GUARD_UNIFORM +
                 "vec2 screenColumns(vec2 p) {\n" +
                 "    if ((p.y < frameLayout.z) == (bottomScreenWide < 0.5) || topScreenWidth <= ${SCREEN_WIDTH}.0) {\n" +
                 "        return vec2(-1.0, 2.0);\n" +
                 "    }\n" +
                 "    float halfWidth = 0.5 * ${SCREEN_WIDTH}.0 / topScreenWidth;\n" +
                 "    float halfTexel = 0.5 / texSize.x;\n" +
-                "    return vec2(0.5 - halfWidth + halfTexel, 0.5 + halfWidth - halfTexel);\n" +
+                "    float middle = 0.5 + 0.5 * (topScreenGuard.x - topScreenGuard.y) / topScreenWidth;\n" +
+                "    return vec2(middle - halfWidth + halfTexel, middle + halfWidth - halfTexel);\n" +
                 "}\n"
 
         // Samples p unchanged when there's nothing to clamp, since any math on it can cost precision on GPUs that sample a plain varying exactly
@@ -978,7 +984,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                         "    if (frameLayout.w == ${FRAME_TEXTURE_HEIGHT}.0) {\n" +
                         "        radius = blurRadius(uv.y / topScreenEnd) * texSize.y / ${FRAME_TEXTURE_HEIGHT}.0;\n" +
                         "    } else {\n" +
-                        "        float margin = (frameLayout.w - ${FRAME_TEXTURE_HEIGHT}.0) * 0.5;\n" +
+                        "        float margin = (frameLayout.w - ${FRAME_TEXTURE_HEIGHT}.0) * 0.5 + 0.5 * (topScreenGuard.z - topScreenGuard.w);\n" +
                         "        float screenY = clamp((uv.y * frameLayout.w - margin) / ${SCREEN_HEIGHT}.0, 0.0, 0.999);\n" +
                         "        radius = blurRadius(screenY) * texSize.y / frameLayout.w;\n" +
                         "    }\n" +
@@ -1266,17 +1272,20 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "#endif\n" +
                     "// The vignette's strength (x) and where it starts (y)\n" +
                     "uniform vec2 vignette;\n" +
-                    "// The sun shadows' guard band in DS pixels: the columns on each side of the top screen that are filtered but not shown\n" +
-                    "uniform float topScreenGuard;\n" +
+                    "// The sun shadows' guard band: the columns on each side of the top screen and rows above and below it that are filtered but\n" +
+                    "// not shown\n" +
+                    TOP_SCREEN_GUARD_UNIFORM +
                     "uniform float bottomScreenWide;\n" +
                     FRAME_LAYOUT_UNIFORM +
                     "#define topScreenEnd frameLayout.x\n" +
                     "" +
                     "// The DS top screen's columns (xy) and its SCREEN_HEIGHT rows inside the camera's margin (zw), as u and v coordinates\n" +
                     "vec4 topScreenRect() {\n" +
-                    "    float halfWidth = bottomScreenWide > 0.5 && topScreenWidth > ${SCREEN_WIDTH}.0 ? 0.5 * ${SCREEN_WIDTH}.0 / topScreenWidth : 0.5;\n" +
-                    "    float margin = (topScreenEnd * frameLayout.w - ${SCREEN_HEIGHT}.0) * 0.5;\n" +
-                    "    return vec4(0.5 - halfWidth, 0.5 + halfWidth, margin / frameLayout.w, (margin + ${SCREEN_HEIGHT}.0) / frameLayout.w);\n" +
+                    "    bool isNarrow = bottomScreenWide > 0.5 && topScreenWidth > ${SCREEN_WIDTH}.0;\n" +
+                    "    float halfWidth = isNarrow ? 0.5 * ${SCREEN_WIDTH}.0 / topScreenWidth : 0.5;\n" +
+                    "    float middle = isNarrow ? 0.5 + 0.5 * (topScreenGuard.x - topScreenGuard.y) / topScreenWidth : 0.5;\n" +
+                    "    float margin = (topScreenEnd * frameLayout.w - ${SCREEN_HEIGHT}.0) * 0.5 + 0.5 * (topScreenGuard.z - topScreenGuard.w);\n" +
+                    "    return vec4(middle - halfWidth, middle + halfWidth, margin / frameLayout.w, (margin + ${SCREEN_HEIGHT}.0) / frameLayout.w);\n" +
                     "}\n" +
                     "" +
                     "void main() {\n" +
@@ -1306,8 +1315,7 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "    // The vignette goes over the top screen as it's shown, without the guard band's columns (its rows are the 192 already)\n" +
                     "    vec4 shown = rect;\n" +
                     "    if (!(bottomScreenWide > 0.5 && topScreenWidth > ${SCREEN_WIDTH}.0)) {\n" +
-                    "        float guardU = topScreenGuard / topScreenWidth;\n" +
-                    "        shown.xy += vec2(guardU, -guardU);\n" +
+                    "        shown.xy += vec2(topScreenGuard.x / topScreenWidth, -(topScreenGuard.y / topScreenWidth));\n" +
                     "    }\n" +
                     "    vec2 offset = (uv - 0.5 * (shown.xz + shown.yw)) * dsPixels;\n" +
                     "    vec2 halfSize = 0.5 * (shown.yw - shown.xz) * dsPixels;\n" +

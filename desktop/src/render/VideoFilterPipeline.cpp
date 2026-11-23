@@ -91,13 +91,14 @@ struct VideoFilterPipeline::SunCamera
     std::array<float, 4> Viewport {};
 
     // [frame]'s depth camera, with its viewport moved into DS pixels of the depth texture's top half (the WideMelon wings and margin come
-    // before the native view's 0); false if it can't be used: a viewport with no size or a projection with no inverse
+    // before the native view's 0, FrameView::NativeLeft and NativeTop); false if it can't be used: a viewport with no size or a projection
+    // with no inverse
     bool Set(const FrameView& frame)
     {
         Projection = frame.DepthProjection;
         Viewport = frame.DepthViewport;
-        Viewport[0] += (frame.TopWidth - 256) / 2.f;
-        Viewport[1] += (float)frame.TopMargin;
+        Viewport[0] += (float)frame.NativeLeft();
+        Viewport[1] += (float)frame.NativeTop();
         return Viewport[2] > 0.f && Viewport[3] > 0.f && InvertMatrix(Projection, Inverse);
     }
 };
@@ -113,8 +114,6 @@ public:
     const int Scale;
     const bool NativeResolutionOnly;
     GLuint Texture = 0;
-    // the frame's sun guard band (FrameView::TopGuard) for the next Render, which only the bloom's combine pass reads (its vignette)
-    int TopScreenGuard = 0;
 
     // the target texture at [width] x [height], made again on a new size; whether its framebuffer can be drawn to
     bool PrepareTarget(int width, int height)
@@ -146,7 +145,7 @@ public:
     }
 
     // the input through this pass's shader into the target; the caller binds the quad and sets the viewport and blending
-    void Render(GLuint inputTexture, int inputWidth, int inputHeight, int topScreenWidth, int topScreenHeight, bool isBottomScreenWide,
+    void Render(GLuint inputTexture, int inputWidth, int inputHeight, int topScreenWidth, const PassFrame& frame, bool isBottomScreenWide,
         const std::optional<TiltShift>& tiltShift, int halvesAt1x = 0, int scaleAt1x = 1, int halfScaleAt1x = 1, const Bloom* bloom = nullptr,
         const DepthOfField* depthOfField = nullptr, float focusU = 0.f, float focusV = 0.f, float focusAgeStep = 0.f, const Shade* shade = nullptr,
         const Sun* sun = nullptr, const SunCamera* sunCamera = nullptr, const float* depthProjection = nullptr)
@@ -166,8 +165,8 @@ public:
         glUniform1i(Program->UniformTex, 0);
         Program->SetTextureSize(inputWidth, inputHeight);
         Program->SetTopScreenWidth(topScreenWidth);
-        Program->SetTopScreenHeight(topScreenHeight);
-        Program->SetTopScreenGuard(TopScreenGuard);
+        Program->SetTopScreenHeight(frame.TopScreenHeight);
+        Program->SetTopScreenGuard(frame.Guard);
         Program->SetBottomScreenWide(isBottomScreenWide);
         if (tiltShift)
             Program->SetTiltShift(*tiltShift);
@@ -386,8 +385,8 @@ GLuint VideoFilterPipeline::ExpandHalvesAt1x(const FrameView& frame)
     if (isReady)
     {
         glViewport(0, 0, width, height);
-        pass->Render(frame.Texture, width, height, frame.TopWidth, frame.TopScreenHeight(), false, std::nullopt, frame.HalvesAt1x, frame.Scale,
-            frame.HalfScale);
+        pass->Render(frame.Texture, width, height, frame.TopWidth, PassFrame {frame.TopScreenHeight(), frame.TopGuard}, false, std::nullopt,
+            frame.HalvesAt1x, frame.Scale, frame.HalfScale);
     }
     RestoreState();
 
@@ -478,7 +477,7 @@ const FilterOutput& VideoFilterPipeline::RenderPrePasses(const FrameView& frame,
     InputTexture = frameTextureId;
     InputWidth = width;
     InputHeight = height;
-    InputTopScreenHeight = frame.TopScreenHeight();
+    InputFrame = {frame.TopScreenHeight(), frame.TopGuard};
     IsStateSaved = false;
     bool isComplete = true;
     if (runsDeband)
@@ -549,7 +548,7 @@ bool VideoFilterPipeline::RenderPass(PrePass& pass, int topScreenWidth, bool isB
     if (!pass.PrepareTarget(outputWidth, outputHeight))
         return false;
     glViewport(0, 0, outputWidth, outputHeight);
-    pass.Render(InputTexture, InputWidth, InputHeight, topScreenWidth, InputTopScreenHeight, isBottomScreenWide, tiltShift);
+    pass.Render(InputTexture, InputWidth, InputHeight, topScreenWidth, InputFrame, isBottomScreenWide, tiltShift);
     InputTexture = pass.Texture;
     InputWidth = outputWidth;
     InputHeight = outputHeight;
@@ -602,9 +601,8 @@ void VideoFilterPipeline::RenderBloom(BloomPasses* passes, PrePass* depthBright,
     if (hasHaze)
         BindDepthTexture(GL_TEXTURE2, frame.DepthTexture);
     glViewport(0, 0, InputWidth, InputHeight);
-    // The vignette darkens towards the corners of the top screen as it's shown, so a guard band doesn't move it
-    combine->TopScreenGuard = frame.TopGuard;
-    combine->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
+    // The vignette darkens towards the corners of the top screen as it's shown, so a guard band doesn't move it (InputFrame has it)
+    combine->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputFrame, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
     if (glowTexture)
         UnbindTexture(GL_TEXTURE1);
     if (hasHaze)
@@ -631,11 +629,11 @@ GLuint VideoFilterPipeline::RenderGlow(BloomPasses& passes, PrePass* depthBright
     glViewport(0, 0, width, height);
     if (depthBright)
         BindDepthTexture(GL_TEXTURE1, frame.DepthTexture);
-    bright.Render(InputTexture, InputWidth, InputHeight, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
+    bright.Render(InputTexture, InputWidth, InputHeight, width, InputFrame, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
     if (depthBright)
         UnbindTexture(GL_TEXTURE1);
-    passes.Horizontal->Render(bright.Texture, width, height, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
-    passes.Vertical->Render(passes.Horizontal->Texture, width, height, width, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
+    passes.Horizontal->Render(bright.Texture, width, height, width, InputFrame, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
+    passes.Vertical->Render(passes.Horizontal->Texture, width, height, width, InputFrame, isBottomScreenWide, std::nullopt, 0, 1, 1, &bloom);
     return passes.Vertical->Texture;
 }
 
@@ -665,10 +663,10 @@ bool VideoFilterPipeline::RenderDepthOfField(DepthOfFieldPasses& passes, const D
     }
 
     // the focus point in the depth texture, which is the top screen's half of the frame: the wings come before the 256 view's x 0, and the
-    // margin before its y 0
+    // margin before its y 0 (FrameView::NativeLeft and NativeTop, which a guard band can make more on one side)
     int topWidth = std::max(frame.TopWidth, 1);
-    float focusU = (depthOfField.FocusX + (topWidth - 256) / 2.f) / topWidth;
-    float focusV = (depthOfField.FocusY + frame.TopMargin) / frame.TopScreenHeight();
+    float focusU = (depthOfField.FocusX + (float)frame.NativeLeft()) / topWidth;
+    float focusV = (depthOfField.FocusY + frame.NativeTop()) / frame.TopScreenHeight();
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, frame.DepthTexture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -680,7 +678,7 @@ bool VideoFilterPipeline::RenderDepthOfField(DepthOfFieldPasses& passes, const D
     float focusAgeStep = passes.FocusFrameCount % 2 == 0 ? 1.f : 0.f;
     passes.FocusFrameCount++;
     glViewport(0, 0, 1, 1);
-    focus.Render(lastFocus.Texture, 1, 1, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1, nullptr, &depthOfField,
+    focus.Render(lastFocus.Texture, 1, 1, frame.TopWidth, InputFrame, isBottomScreenWide, std::nullopt, 0, 1, 1, nullptr, &depthOfField,
         focusU, focusV, focusAgeStep, nullptr, nullptr, nullptr, depthProjection);
     // Nearest, as the focus's bytes can't be mixed either (its target is made linear)
     glActiveTexture(GL_TEXTURE2);
@@ -690,9 +688,9 @@ bool VideoFilterPipeline::RenderDepthOfField(DepthOfFieldPasses& passes, const D
     glActiveTexture(GL_TEXTURE0);
 
     glViewport(0, 0, InputWidth, InputHeight);
-    passes.Horizontal->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1,
+    passes.Horizontal->Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputFrame, isBottomScreenWide, std::nullopt, 0, 1,
         1, nullptr, &depthOfField, focusU, focusV, 0.f, nullptr, nullptr, nullptr, depthProjection);
-    passes.Vertical->Render(passes.Horizontal->Texture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide,
+    passes.Vertical->Render(passes.Horizontal->Texture, InputWidth, InputHeight, frame.TopWidth, InputFrame, isBottomScreenWide,
         std::nullopt, 0, 1, 1, nullptr, &depthOfField, focusU, focusV, 0.f, nullptr, nullptr, nullptr, depthProjection);
     InputTexture = passes.Vertical->Texture;
     passes.NextFocus = 1 - passes.NextFocus;
@@ -761,18 +759,18 @@ void VideoFilterPipeline::RenderShade(ShadePasses& passes, const Shade& shade, c
     }
 
     glViewport(0, 0, dsWidth, dsHeight);
-    passes.Downsample->Render(frame.DepthTexture, depthWidth, depthHeight, dsWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+    passes.Downsample->Render(frame.DepthTexture, depthWidth, depthHeight, dsWidth, InputFrame, isBottomScreenWide, std::nullopt, 0, 1, 1,
         nullptr, nullptr, 0.f, 0.f, 0.f, &shade);
-    passes.Horizontal->Render(passes.Downsample->Texture, dsWidth, dsHeight, dsWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1,
+    passes.Horizontal->Render(passes.Downsample->Texture, dsWidth, dsHeight, dsWidth, InputFrame, isBottomScreenWide, std::nullopt, 0, 1,
         1, nullptr, nullptr, 0.f, 0.f, 0.f, &shade);
-    passes.Vertical->Render(passes.Horizontal->Texture, dsWidth, dsHeight, dsWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+    passes.Vertical->Render(passes.Horizontal->Texture, dsWidth, dsHeight, dsWidth, InputFrame, isBottomScreenWide, std::nullopt, 0, 1, 1,
         nullptr, nullptr, 0.f, 0.f, 0.f, &shade);
 
     BindDepthTexture(GL_TEXTURE1, frame.DepthTexture);
     // Nearest too, as its bytes are a depth that can't be mixed
     BindDepthTexture(GL_TEXTURE2, passes.Vertical->Texture);
     glViewport(0, 0, InputWidth, InputHeight);
-    apply.Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+    apply.Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputFrame, isBottomScreenWide, std::nullopt, 0, 1, 1,
         lightsApply ? lights : nullptr, nullptr, 0.f, 0.f, 0.f, &shade);
     UnbindTexture(GL_TEXTURE1);
     UnbindTexture(GL_TEXTURE2);
@@ -852,14 +850,14 @@ void VideoFilterPipeline::RenderSun(SunPasses& passes, const Sun& sun, const Fra
     }
 
     glViewport(0, 0, dsWidth, dsHeight);
-    passes.March->Render(frame.DepthTexture, depthWidth, depthHeight, dsWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+    passes.March->Render(frame.DepthTexture, depthWidth, depthHeight, dsWidth, InputFrame, isBottomScreenWide, std::nullopt, 0, 1, 1,
         nullptr, nullptr, 0.f, 0.f, 0.f, nullptr, &sun, &camera);
     GLuint shadowTexture = passes.March->Texture;
     if (hasSoftness)
     {
-        passes.Horizontal->Render(shadowTexture, dsWidth, dsHeight, dsWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+        passes.Horizontal->Render(shadowTexture, dsWidth, dsHeight, dsWidth, InputFrame, isBottomScreenWide, std::nullopt, 0, 1, 1,
             nullptr, nullptr, 0.f, 0.f, 0.f, nullptr, &sun, &camera);
-        passes.Vertical->Render(passes.Horizontal->Texture, dsWidth, dsHeight, dsWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0,
+        passes.Vertical->Render(passes.Horizontal->Texture, dsWidth, dsHeight, dsWidth, InputFrame, isBottomScreenWide, std::nullopt, 0,
             1, 1, nullptr, nullptr, 0.f, 0.f, 0.f, nullptr, &sun, &camera);
         shadowTexture = passes.Vertical->Texture;
     }
@@ -868,7 +866,7 @@ void VideoFilterPipeline::RenderSun(SunPasses& passes, const Sun& sun, const Fra
     // Nearest too, as its RGB is a depth that can't be mixed
     BindDepthTexture(GL_TEXTURE2, shadowTexture);
     glViewport(0, 0, InputWidth, InputHeight);
-    apply.Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputTopScreenHeight, isBottomScreenWide, std::nullopt, 0, 1, 1,
+    apply.Render(InputTexture, InputWidth, InputHeight, frame.TopWidth, InputFrame, isBottomScreenWide, std::nullopt, 0, 1, 1,
         lightsApply ? lights : nullptr, nullptr, 0.f, 0.f, 0.f, nullptr, &sun, &camera);
     UnbindTexture(GL_TEXTURE1);
     UnbindTexture(GL_TEXTURE2);

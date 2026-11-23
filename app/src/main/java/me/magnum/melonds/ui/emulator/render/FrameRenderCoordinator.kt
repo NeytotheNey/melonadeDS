@@ -6,6 +6,7 @@ import android.os.Message
 import android.util.Log
 import me.magnum.melonds.MelonDSAndroidInterface
 import me.magnum.melonds.MelonEmulator
+import me.magnum.melonds.domain.model.render.FrameGuard
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import me.magnum.melonds.impl.diagnostics.DisplayPerformanceCapture
 import me.magnum.melonds.impl.diagnostics.LogTags
@@ -145,7 +146,10 @@ class FrameRenderCoordinator {
                 frameTextureHeight: Int,
                 topScreenWidth: Int,
                 topScreenMargin: Int,
-                topScreenGuard: Int,
+                topScreenGuardLeft: Int,
+                topScreenGuardRight: Int,
+                topScreenGuardTop: Int,
+                topScreenGuardBottom: Int,
                 overlayTextureId: Int,
                 overlayScreens: Int,
                 halvesAt1x: Int,
@@ -166,7 +170,12 @@ class FrameRenderCoordinator {
                     this.textureHeight = frameTextureHeight
                     this.topScreenWidth = topScreenWidth
                     this.topScreenMargin = topScreenMargin
-                    this.topScreenGuard = topScreenGuard
+                    // A new one only when it changed, as this runs every frame
+                    val guard = this.topScreenGuard
+                    if (guard.left != topScreenGuardLeft || guard.right != topScreenGuardRight || guard.top != topScreenGuardTop ||
+                        guard.bottom != topScreenGuardBottom) {
+                        this.topScreenGuard = FrameGuard(topScreenGuardLeft, topScreenGuardRight, topScreenGuardTop, topScreenGuardBottom)
+                    }
                     this.overlayTextureId = overlayTextureId
                     this.overlayScreens = overlayScreens
                     this.halvesAt1x = halvesAt1x
@@ -179,7 +188,7 @@ class FrameRenderCoordinator {
                     this.frameSequence = frameSequence
                     // Moved once per presented frame, here, so every surface shows the same window
                     this.wideWindow = if (isValidFrame) {
-                        wideCameraController?.onFrame(renderStart, topScreenWidth, topScreenMargin, topWingLines, topScreenGuard)
+                        wideCameraController?.onFrame(renderStart, topScreenWidth, topScreenMargin, topWingLines, this.topScreenGuard)
                     } else {
                         null
                     }

@@ -402,53 +402,88 @@ void MelonInstance::updateSunGuard()
     // Compute and Software have no guard band, and their render view drops it at once
     if (currentRenderer != Renderer::OpenGl)
     {
-        sunGuard = 0;
-        pendingSunGuard = 0;
-        pendingSunGuardFrames = 0;
+        sunGuard = {};
+        pendingSunGuard = {};
+        pendingSunGuardFrames = {};
         return;
     }
     // The newest script's sun request, or else the frontend's, and only while that sun is on; the scripts' last word on it is the previous
     // frame's, as for the sun itself
     std::optional<int> scriptGuard = luaEngine.sunGuard();
-    int wanted = scriptGuard ? *scriptGuard : (frontendSun.On ? frontendSunGuard : 0);
-    if (wanted >= sunGuard)
+    int guard = scriptGuard ? *scriptGuard : (frontendSun.On ? frontendSunGuard : 0);
+    // The sides that sun's march can leave the shown screen through, all four until a scene had a camera
+    SunGuardSides sides;
+    if (guard > 0 && hasSunCamera && !isSunGuardOnAllSides)
     {
-        sunGuard = wanted;
-        pendingSunGuard = wanted;
-        pendingSunGuardFrames = 0;
-        return;
+        SunShadows sun = luaEngine.sunShadows();
+        int shownWidth = WideMelon::SanitizeWidth(wideViewWidth);
+        int shownMargin = WideMelon::SanitizeMargin(wideViewMargin, shownWidth);
+        sides = pickSunGuardSides(sun.On ? sun.Direction : frontendSun.Direction, sunCameraProjection, sunCameraViewport, shownWidth, shownMargin);
     }
-    if (wanted != pendingSunGuard)
+    const FrameGuard wanted { sides.left ? guard : 0, sides.right ? guard : 0, sides.top ? guard : 0, sides.bottom ? guard : 0 };
+
+    // Each side on its own
+    static constexpr int FrameGuard::* SIDES[] = { &FrameGuard::left, &FrameGuard::right, &FrameGuard::top, &FrameGuard::bottom };
+    for (int i = 0; i < 4; i++)
     {
-        pendingSunGuard = wanted;
-        pendingSunGuardFrames = 0;
+        int FrameGuard::* side = SIDES[i];
+        if (wanted.*side >= sunGuard.*side)
+        {
+            sunGuard.*side = wanted.*side;
+            pendingSunGuard.*side = wanted.*side;
+            pendingSunGuardFrames[i] = 0;
+            continue;
+        }
+        if (wanted.*side != pendingSunGuard.*side)
+        {
+            pendingSunGuard.*side = wanted.*side;
+            pendingSunGuardFrames[i] = 0;
+        }
+        if (++pendingSunGuardFrames[i] >= SUN_GUARD_HOLD_FRAMES)
+            sunGuard.*side = wanted.*side;
     }
-    if (++pendingSunGuardFrames >= SUN_GUARD_HOLD_FRAMES)
-        sunGuard = wanted;
 }
 
 void MelonInstance::updateRenderView()
 {
     // Without a guard band the renderer gets the shown view exactly as it was asked for. With one, the band goes around the sanitized shown
-    // view as far as WideMelon's widest and tallest view takes it, so the band shrinks rather than the shown view
+    // view, by way of a view with the larger of the drawn one's and the new one's columns and rows on each side when some grow while others
+    // shrink, so the targets always match a view that was asked for (sunGuardStep). The drawn one is the view the polygons the renderer draws
+    // next were built for, which its targets cover until the game builds geometry for the new view: a frame or two later (a 30 fps game
+    // builds it every other frame), or much later in a scene it doesn't redraw. The geometry being built now has the view it was started
+    // with, which the targets take on once it's drawn
+    int shownWidth = WideMelon::SanitizeWidth(wideViewWidth);
+    int shownMargin = WideMelon::SanitizeMargin(wideViewMargin, shownWidth);
+    SunGuardView next = sunGuardView(shownWidth, shownMargin, sunGuard);
+    SunGuardView view = next;
+    if (currentRenderer == Renderer::OpenGl && (next.guard != FrameGuard {} || renderViewGuard != FrameGuard {}))
+    {
+        const GPU3D& gpu3d = nds->GPU.GPU3D;
+        SunGuardView drawn { gpu3d.RenderViewWidth, gpu3d.RenderViewMargin, gpu3d.RenderViewShiftX - debugViewShiftX,
+                             gpu3d.RenderViewShiftY - debugViewShiftY, {} };
+        SunGuardView building { gpu3d.GetViewWidth(), gpu3d.GetViewMargin(), gpu3d.GetViewShiftX() - debugViewShiftX,
+                                gpu3d.GetViewShiftY() - debugViewShiftY, {} };
+        view = sunGuardStep(drawn, building, next);
+    }
     int width = wideViewWidth;
     int margin = wideViewMargin;
-    int guard = 0;
-    if (sunGuard > 0)
+    if (view.guard != FrameGuard {})
     {
-        int shownWidth = WideMelon::SanitizeWidth(wideViewWidth);
-        int shownMargin = WideMelon::SanitizeMargin(wideViewMargin, shownWidth);
-        guard = std::max(std::min({sunGuard, (WideMelon::MaxWidth - shownWidth) / 2, WideMelon::MaxMargin - shownMargin}), 0);
-        if (guard > 0)
-        {
-            width = shownWidth + 2 * guard;
-            margin = shownMargin + guard;
-        }
+        width = view.width;
+        margin = view.margin;
+    }
+    // Debug: a line for each change of the band
+    if (view.guard != renderViewGuard)
+    {
+        LOG_INFO(LOG_TAG_DEBUG, "SUNGUARD %d %d %d %d: view %d margin %d shift %d,%d (shown %d margin %d)", view.guard.left, view.guard.right,
+                 view.guard.top, view.guard.bottom, width, margin, view.shiftX, view.shiftY, shownWidth, shownMargin);
     }
     bool isViewChanged = width != renderViewWidth || margin != renderViewMargin;
     renderViewWidth = width;
     renderViewMargin = margin;
-    renderViewGuard = guard;
+    renderViewShiftX = view.shiftX;
+    renderViewShiftY = view.shiftY;
+    renderViewGuard = view.guard;
     // Only the existing GL or Compute renderer needs telling, since updateRenderer() applies the view to one that's about to be set up again
     if (isRenderConfigurationDirty)
         return;
@@ -461,7 +496,7 @@ void MelonInstance::updateRenderView()
             glRenderer.SetViewMargin(renderViewMargin);
         }
         // Every frame, as it only clamps
-        glRenderer.SetViewShift(debugViewShiftX, debugViewShiftY);
+        glRenderer.SetViewShift(renderViewShiftX + debugViewShiftX, renderViewShiftY + debugViewShiftY);
         // Also when only the guard changed, as the same render then crops differently
         noteRenderView(renderViewGuard);
     }
@@ -473,15 +508,16 @@ void MelonInstance::updateRenderView()
     }
 }
 
-void MelonInstance::noteRenderView(int guard)
+void MelonInstance::noteRenderView(const FrameGuard& guard)
 {
     auto& glRenderer = static_cast<GLRenderer&>(nds->GPU.GetRenderer3D());
-    RenderViewNote note { glRenderer.GetViewWidth(), glRenderer.GetViewMargin(), guard };
+    RenderViewNote note { glRenderer.GetViewWidth(), glRenderer.GetViewMargin(), glRenderer.GetViewShiftX(), glRenderer.GetViewShiftY(), guard };
     int size = (int) renderViewNotes.size();
     if (renderViewNoteCount > 0)
     {
         const RenderViewNote& newest = renderViewNotes[(renderViewNoteNext + size - 1) % size];
-        if (newest.width == note.width && newest.margin == note.margin && newest.guard == note.guard)
+        if (newest.width == note.width && newest.margin == note.margin && newest.shiftX == note.shiftX && newest.shiftY == note.shiftY
+            && newest.guard == note.guard)
             return;
     }
     renderViewNotes[renderViewNoteNext] = note;
@@ -489,21 +525,21 @@ void MelonInstance::noteRenderView(int guard)
     renderViewNoteCount = std::min(renderViewNoteCount + 1, size);
 }
 
-int MelonInstance::getFrameGuard(int width, int margin) const
+FrameGuard MelonInstance::getFrameGuard(int width, int margin, int shiftX, int shiftY) const
 {
-    // A size no noted view has (the renderer fell back to another) has none
-    int guard = 0;
+    // A view no note has (the renderer fell back to another) gets the least guard its shift needs
+    const FrameGuard* noted = nullptr;
     int size = (int) renderViewNotes.size();
     for (int i = 1; i <= renderViewNoteCount; i++)
     {
         const RenderViewNote& note = renderViewNotes[(renderViewNoteNext + size - i) % size];
-        if (note.width == width && note.margin == margin)
+        if (note.width == width && note.margin == margin && note.shiftX == shiftX && note.shiftY == shiftY)
         {
-            guard = note.guard;
+            noted = &note.guard;
             break;
         }
     }
-    return std::clamp(guard, 0, std::max(std::min((width - WideMelon::NativeWidth) / 2, margin), 0));
+    return frameGuardFor(width, margin, shiftX, shiftY, noted);
 }
 
 u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
@@ -556,7 +592,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     // The WideMelon camera's rows above and below the top screen's 192, in DS pixels (always 0 on Software)
     int topScreenMargin = 0;
     // The sun's guard band in both of those (OpenGL only)
-    int topScreenGuard = 0;
+    FrameGuard topScreenGuard {};
     if (currentRenderer == Renderer::OpenGl)
     {
         auto& glRenderer = static_cast<GLRenderer &>(nds->GPU.GetRenderer3D());
@@ -569,7 +605,7 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         // Lags like the width, along with the compositor's layout
         topScreenMargin = glRenderer.GetOutputMargin();
         // And so the guard band in them is the one that view was asked with
-        topScreenGuard = getFrameGuard(topScreenWidth, topScreenMargin);
+        topScreenGuard = getFrameGuard(topScreenWidth, topScreenMargin, glRenderer.GetOutputShiftX(), glRenderer.GetOutputShiftY());
         screenWidth = topScreenWidth * scale;
         frameHeight = (192 + 2 * topScreenMargin + 2 + 192) * scale;
     }
@@ -703,6 +739,13 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             renderFrame->depthFocus = updateDepthFocus(outputLayout.Camera);
             if (!renderFrame->hasDepth)
                 renderFrame->depthFocus = NO_DEPTH_FOCUS;
+            // The sun guard band's sides go by the last scene with a camera, as one without (a W-buffered menu, say) tells nothing
+            if (renderFrame->depthCameraValid)
+            {
+                sunCameraProjection = outputLayout.Camera.Proj;
+                sunCameraViewport = outputLayout.Camera.Viewport;
+                hasSunCamera = true;
+            }
         }
     }
 
@@ -1252,7 +1295,7 @@ void MelonInstance::updateRenderer()
             // Every time, since the renderer may be a new one at 256, and first so a new renderer's targets are only sized once
             glRenderer.SetViewWidth(renderViewWidth);
             glRenderer.SetViewMargin(renderViewMargin);
-            glRenderer.SetViewShift(debugViewShiftX, debugViewShiftY);
+            glRenderer.SetViewShift(renderViewShiftX + debugViewShiftX, renderViewShiftY + debugViewShiftY);
             glRenderer.SetRenderSettings(glRenderSettings.betterPolygons, glRenderSettings.scale);
             // The scale can resolve the view differently
             noteRenderView(renderViewGuard);

@@ -34,10 +34,11 @@ data class PresentFrameWrapper(
     // of the texture is then topScreenHeight rows, with its DS line y at row y + topScreenMargin, then the SCREEN_GAP rows and the bottom
     // screen's SCREEN_HEIGHT; 0 is the old FRAME_TEXTURE_HEIGHT layout
     var topScreenMargin: Int = 0,
-    // The sun shadows' guard band (melon.screen.sun's guard) in DS pixels, included in both of the above: that many columns on each side and
-    // rows above and below of the top screen's half are drawn and filtered, so the sun's march finds casters just off screen, but not shown.
-    // The shown top screen is shownTopScreenWidth wide with shownTopScreenMargin margin rows, centered in its half; 0 for none
-    var topScreenGuard: Int = 0,
+    // The sun shadows' guard band (melon.screen.sun's guard) in DS pixels, included in both of the above: that many columns on the left and
+    // right and rows above and below of the top screen's half are drawn and filtered, so the sun's march finds casters just off screen, but
+    // not shown. The shown top screen is shownTopScreenWidth wide with shownTopScreenMargin margin rows, with the native screen in its middle
+    // at nativeLeft and nativeTop (and the bottom screen's columns under it); FrameGuard.NONE for none
+    var topScreenGuard: FrameGuard = FrameGuard.NONE,
     // Lua drawing overlay texture (2x, premultiplied) and the OVERLAY_SCREEN_* bits saying which screens use it
     var overlayTextureId: Int = 0,
     var overlayScreens: Int = 0,
@@ -66,6 +67,9 @@ data class PresentFrameWrapper(
     val topScreenHeight get() = SCREEN_HEIGHT + 2 * topScreenMargin
     val frameHeight get() = topScreenHeight + SCREEN_GAP + SCREEN_HEIGHT
     // The top screen's width and margin rows as shown: the guard band left out
-    val shownTopScreenWidth get() = topScreenWidth - 2 * topScreenGuard
-    val shownTopScreenMargin get() = topScreenMargin - topScreenGuard
+    val shownTopScreenWidth get() = topScreenGuard.shownWidth(topScreenWidth)
+    val shownTopScreenMargin get() = topScreenGuard.shownMargin(topScreenMargin)
+    // The frame's columns left of the native screens and the top screen half's rows above DS line 0, in DS pixels
+    val nativeLeft get() = topScreenGuard.nativeLeft(topScreenWidth)
+    val nativeTop get() = topScreenGuard.nativeTop(topScreenMargin)
 }

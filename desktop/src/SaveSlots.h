@@ -43,8 +43,10 @@ public:
 
     // the slot's screenshot from a frame read back at the internal resolution (Presenter::ReadFrame: RGBA rows, the top screen
     // [topWidth] DS pixels wide with [topMargin] rows above and below it, the bottom one 194 rows below the top screen's start), scaled
-    // down to 256x384 with the top screen's middle 256 columns, as the app's screenshot leaves the WideMelon sides and margins out
-    bool WriteScreenshot(int slot, const std::vector<melonDS::u8>& frame, int width, int height, int topWidth, int topMargin) const;
+    // down to 256x384 with the native screens' 256 columns from [nativeLeft] and the top one's 192 rows from [nativeTop] (FrameView's), as
+    // the app's screenshot leaves the WideMelon sides and margins and the sun's guard band out; false for a frame or a place that doesn't fit
+    bool WriteScreenshot(int slot, const std::vector<melonDS::u8>& frame, int width, int height, int topWidth, int topMargin, int nativeLeft,
+        int nativeTop) const;
     void DeleteScreenshot(int slot) const;
     // the slot's state to the recycle bin, and its screenshot deleted
     bool Delete(int slot) const;

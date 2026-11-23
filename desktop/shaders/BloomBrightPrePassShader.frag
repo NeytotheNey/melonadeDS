@@ -12,13 +12,15 @@ uniform vec3 bloom;
 #define bottomScreenStart frameLayout.y
 uniform float bottomScreenWide;
 uniform vec4 frameLayout;
+uniform vec4 topScreenGuard;
 vec2 screenColumns(vec2 p) {
     if ((p.y < frameLayout.z) == (bottomScreenWide < 0.5) || topScreenWidth <= 256.0) {
         return vec2(-1.0, 2.0);
     }
     float halfWidth = 0.5 * 256.0 / topScreenWidth;
     float halfTexel = 0.5 / texSize.x;
-    return vec2(0.5 - halfWidth + halfTexel, 0.5 + halfWidth - halfTexel);
+    float middle = 0.5 + 0.5 * (topScreenGuard.x - topScreenGuard.y) / topScreenWidth;
+    return vec2(middle - halfWidth + halfTexel, middle + halfWidth - halfTexel);
 }
 // Range of v (xy) and u (zw) coordinates (texel centers) of the screen that contains p
 vec4 screenBand(vec2 p) {

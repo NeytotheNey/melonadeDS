@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "layout/LayoutModel.h"
+#include "renderer/SunGuard.h"
 
 namespace Frontend
 {
@@ -45,11 +46,16 @@ struct ScreensDrawing
 // getScreensDrawing: both screens from a [frameWidth]-wide frame. The screen in the layout's top rect gets the whole half (grown or
 // letterboxed for a wide frame), the other its middle 256 columns. [topScreenRect] is the rect the DS top screen is drawn in (the layout's
 // bottom one when [areScreensSwapped]); [frameMargin] the WideMelon camera's rows above and below the top screen, which only its window shows.
-// [frameGuard] is the sun's guard band (FrameView::TopGuard), included in [frameWidth] and [frameMargin]: its columns on each side of both
-// halves and its rows above and below the top screen are never shown, so the screens are placed as from a frame without it, the shown one,
-// with their columns and rows moved in by the guard
+// [frameGuard] is the sun's guard band (FrameView::TopGuard), included in [frameWidth] and [frameMargin]: its columns on the left and right of
+// both halves and its rows above and below the top screen are never shown, so the screens are placed as from a frame without it, the shown
+// one, with their columns moved in by the left guard and the top screen's rows down by the top one (the native screens, the bottom one too,
+// are in the middle of the shown frame)
 ScreensDrawing GetScreensDrawing(const IntRect* topScreenRect, const IntRect* bottomScreenRect, int frameWidth, bool isWideLayout,
-    bool areScreensSwapped, float surfaceWidth, int frameMargin, int frameGuard = 0);
+    bool areScreensSwapped, float surfaceWidth, int frameMargin, const MelonDSAndroid::FrameGuard& frameGuard = {});
+
+// FrameGuard.coercedTo: [guard] kept within a frame [frameWidth] wide with [frameMargin] rows (MelonInstance does already), so a bad one can't
+// turn the shown frame inside out: the same guard on every side to the least room any side has, otherwise each axis to its own room
+MelonDSAndroid::FrameGuard CoercedFrameGuard(const MelonDSAndroid::FrameGuard& guard, int frameWidth, int frameMargin);
 
 // DefaultLayoutBuilder's screens for a [width] x [height] surface with no insets (a window has none): both screens stacked and as big as
 // they fit (portrait), the top screen at two thirds of the width with the bottom one beside it at the top (landscape), or one screen

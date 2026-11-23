@@ -33,9 +33,11 @@ private:
     // Draws the Lua overlay over the screenshot (see renderOverlay()), or 0 if it couldn't be built
     GLuint overlayRenderShader = 0;
     GLuint overlayTextureUniformLocation;
-    // Frame::topScreenWidth and topScreenMargin that the vertex buffer's UVs crop for
+    // Frame::topScreenWidth, topScreenMargin, nativeLeft() and nativeTop() that the vertex buffer's UVs crop for
     int vertexBufferTopScreenWidth = 256;
     int vertexBufferTopScreenMargin = 0;
+    int vertexBufferNativeLeft = 0;
+    int vertexBufferNativeTop = 0;
     // Where startScreenshotReadback() reads the image to, and the fence that signals once it's there (null while none is pending)
     GLuint pixelPackBuffer = 0;
     GLsync readbackFence = nullptr;
@@ -47,8 +49,8 @@ private:
     bool setupShaders();
     void setupVertexBuffers();
     // Fills the bound vertex buffer with the quads for a frame whose top screen is [topScreenWidth] wide with [topScreenMargin] rows above and
-    // below it (in DS pixels), which the screenshot leaves out
-    void fillVertexBuffer(int topScreenWidth, int topScreenMargin);
+    // below it (in DS pixels), which the screenshot leaves out, with the native screens at column [nativeLeft] and the top one at row [nativeTop]
+    void fillVertexBuffer(int topScreenWidth, int topScreenMargin, int nativeLeft, int nativeTop);
     void setupOverlayShader();
     // Renders the screenshot, reading the GL renderers' image into screenshotBuffer, or queueing it into pixelPackBuffer if [intoPixelBuffer]
     void drawScreenshot(GPU* gpu, Renderer renderer, Frame* renderFrame, const LuaOverlay* overlay, bool intoPixelBuffer);

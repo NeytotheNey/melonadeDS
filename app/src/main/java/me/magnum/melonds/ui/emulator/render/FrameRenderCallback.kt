@@ -13,8 +13,11 @@ fun interface FrameRenderCallback {
      * @param topScreenWidth Width of the top screen in DS pixels, more than SCREEN_WIDTH when widescreen widens its 3D view.
      * @param topScreenMargin The WideMelon camera's rows above and below the top screen's SCREEN_HEIGHT, in DS pixels (see
      * PresentFrameWrapper.topScreenMargin).
-     * @param topScreenGuard The sun shadows' guard band in DS pixels, included in [topScreenWidth] and [topScreenMargin]: columns on each side
-     * and rows above and below that are drawn and filtered but not shown (see PresentFrameWrapper.topScreenGuard); 0 for none.
+     * @param topScreenGuardLeft The sun shadows' guard band in DS pixels, included in [topScreenWidth] and [topScreenMargin]: columns on the left
+     * that are drawn and filtered but not shown (see PresentFrameWrapper.topScreenGuard); 0 for none.
+     * @param topScreenGuardRight The same on the right.
+     * @param topScreenGuardTop The same in rows above the top screen.
+     * @param topScreenGuardBottom The same in rows below it.
      * @param overlayTextureId This queue slot's Lua drawing texture at 2x, or 0 if the slot never had drawings.
      * @param overlayScreens Which screens have Lua drawings in this frame, as [OVERLAY_SCREEN_TOP] and [OVERLAY_SCREEN_BOTTOM] bits.
      * @param halvesAt1x Which screens the compositor drew at 1x (debug.melonade.comp1x), as the same bits: such a screen's image is in the first
@@ -39,7 +42,10 @@ fun interface FrameRenderCallback {
         frameTextureHeight: Int,
         topScreenWidth: Int,
         topScreenMargin: Int,
-        topScreenGuard: Int,
+        topScreenGuardLeft: Int,
+        topScreenGuardRight: Int,
+        topScreenGuardTop: Int,
+        topScreenGuardBottom: Int,
         overlayTextureId: Int,
         overlayScreens: Int,
         halvesAt1x: Int,

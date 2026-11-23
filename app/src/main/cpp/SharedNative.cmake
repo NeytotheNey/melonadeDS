@@ -42,6 +42,7 @@ add_library(
         "${MELONADE_SHARED_DIR}/renderer/FrameQueue.cpp"
         "${MELONADE_SHARED_DIR}/renderer/FramePacing.cpp"
         "${MELONADE_SHARED_DIR}/renderer/ScreenshotRenderer.cpp"
+        "${MELONADE_SHARED_DIR}/renderer/SunGuard.cpp"
         "${MELONADE_SHARED_DIR}/retroachievements/RetroAchievementsManager.cpp"
         "${MELONADE_SHARED_DIR}/scripting/LuaDraw.cpp"
         "${MELONADE_SHARED_DIR}/scripting/LuaDrawApi.cpp"

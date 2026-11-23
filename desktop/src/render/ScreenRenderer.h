@@ -71,7 +71,8 @@ class Shader;
 
 // where a layout's [screens] (not AsPlaced) are drawn for a frame [frameTopWidth] DS pixels wide with [frameMargin] rows above and below its
 // top screen, [frameGuard] of each of them the sun's guard band that isn't shown, on a surface [surfaceWidth] wide (getScreensDrawing)
-ScreensDrawing DrawingFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, int frameGuard, float surfaceWidth);
+ScreensDrawing DrawingFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, const MelonDSAndroid::FrameGuard& frameGuard,
+    float surfaceWidth);
 
 // where the screens end up, in the surface's pixels (W 0 for one not drawn): the top screen's picture, and the bottom screen's middle 256
 // columns (where touches go); the places as they are for AsPlaced
@@ -79,7 +80,8 @@ struct ScreenRects
 {
     Rect Top, Bottom;
 };
-ScreenRects RectsFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, int frameGuard, float surfaceWidth);
+ScreenRects RectsFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, const MelonDSAndroid::FrameGuard& frameGuard,
+    float surfaceWidth);
 
 // RuntimeRendererConfiguration.kt without the internal resolution: the video filter (video_filtering), deband (video_deband), the DS screen
 // colors (video_ds_screen_colors, Pokefan531's color profile) and the screen shadow (video_screen_shadow)
@@ -182,7 +184,7 @@ private:
     // the frame shape the quads were built for (the last valid frame's), and the screens' places
     int FrameTopScreenWidth = 256;
     int FrameTopScreenMargin = 0;
-    int FrameTopScreenGuard = 0;
+    MelonDSAndroid::FrameGuard FrameTopScreenGuard {};
     SurfaceScreens Screens;
     float Width = 0, Height = 0;
     // AreScreensSwapped as it was when the quads were built, given to the filters so they keep the same screen's sides (the desktop's own
