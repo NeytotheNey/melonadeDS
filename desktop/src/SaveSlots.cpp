@@ -114,17 +114,20 @@ std::vector<SaveSlots::Slot> SaveSlots::List() const
     return slots;
 }
 
-bool SaveSlots::WriteScreenshot(int slot, const std::vector<u8>& frame, int width, int height, int topWidth, int topMargin) const
+bool SaveSlots::WriteScreenshot(int slot, const std::vector<u8>& frame, int width, int height, int topWidth, int topMargin, int nativeLeft,
+    int nativeTop) const
 {
     if (Rom.empty() || topWidth < 256 || width <= 0 || width % topWidth != 0)
+        return false;
+    if (nativeLeft < 0 || nativeLeft > topWidth - 256 || nativeTop < 0 || nativeTop > 2 * topMargin)
         return false;
     int scale = width / topWidth;
     int rows = (386 + 2 * topMargin) * scale;
     if (height < rows || frame.size() < (size_t)width * height * 4)
         return false;
     // where each screen's 256 x 192 starts in the frame, in its pixels
-    int topX = (topWidth - 256) / 2 * scale, topY = topMargin * scale;
-    int bottomX = (topWidth - 256) / 2 * scale, bottomY = (194 + 2 * topMargin) * scale;
+    int topX = nativeLeft * scale, topY = nativeTop * scale;
+    int bottomX = nativeLeft * scale, bottomY = (194 + 2 * topMargin) * scale;
     std::vector<u8> shot((size_t)kShotW * kShotH * 4);
     for (int y = 0; y < kShotH; y++)
     {

@@ -5,6 +5,7 @@ import me.magnum.melonds.domain.model.SCREEN_GAP
 import me.magnum.melonds.domain.model.SCREEN_HEIGHT
 import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.DepthOfField
+import me.magnum.melonds.domain.model.render.FrameGuard
 import me.magnum.melonds.domain.model.render.Shade
 import me.magnum.melonds.domain.model.render.Sun
 import me.magnum.melonds.domain.model.render.TiltShift
@@ -31,7 +32,8 @@ class Shader(
     private val uniformFrameLayout: Int
     // Only declared by the filters that keep their samples off the parts beside a screen's middle (see ShaderProgramSource.screenColumns)
     private val uniformBottomScreenWide: Int
-    // Only declared by the bloom's combine pass (its vignette): the sun shadows' guard band in DS pixels (PresentFrameWrapper.topScreenGuard)
+    // Declared by the filters that keep their samples off the parts beside a screen's middle and by the bloom's combine pass (its vignette): the
+    // sun shadows' guard band in DS pixels (PresentFrameWrapper.topScreenGuard), which says where the native screens are
     private val uniformTopScreenGuard: Int
     // Only declared by the tilt-shift pre-passes (see ShaderProgramSource.tiltShiftPrePassShader)
     private val uniformTiltShift: Int
@@ -173,12 +175,12 @@ class Shader(
     }
 
     /**
-     * Sets the sun shadows' guard band in DS pixels (PresentFrameWrapper.topScreenGuard), so the vignette goes over the top screen as it's
-     * shown, without it; call after [use].
+     * Sets the sun shadows' guard band in DS pixels (PresentFrameWrapper.topScreenGuard): left, right, top and bottom, so the native screens'
+     * columns are found where they are and the vignette goes over the top screen as it's shown, without it; call after [use].
      */
-    fun setTopScreenGuard(guard: Int) {
+    fun setTopScreenGuard(guard: FrameGuard) {
         if (uniformTopScreenGuard != INVALID_UNIFORM) {
-            GLES30.glUniform1f(uniformTopScreenGuard, guard.toFloat())
+            GLES30.glUniform4f(uniformTopScreenGuard, guard.left.toFloat(), guard.right.toFloat(), guard.top.toFloat(), guard.bottom.toFloat())
         }
     }
 

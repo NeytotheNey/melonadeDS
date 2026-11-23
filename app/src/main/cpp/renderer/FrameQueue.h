@@ -14,6 +14,7 @@
 #include "OpenGLContext.h"
 #endif
 #include "GpuFence.h"
+#include "SunGuard.h"
 #include "types.h"
 
 using namespace melonDS;
@@ -43,11 +44,12 @@ struct Frame {
     // texture is then 192 + 2 * topScreenMargin rows tall, with its DS line y at row y + topScreenMargin, followed by the 2 row gap and the
     // bottom screen's 192 rows; 0 is the old 386 row layout. Software is always 0
     u32 topScreenMargin = 0;
-    // The sun shadows' guard band (melon.screen.sun's guard) in DS pixels, included in both of the above: that many columns on each side and
-    // rows above and below are drawn and filtered, so the march finds casters just off screen, but not shown. The shown top screen is
-    // topScreenWidth - 2 * topScreenGuard wide with topScreenMargin - topScreenGuard margin rows, centered in the top screen's half. It's this
-    // frame's, as the render size lags the request; 0 for none (always on Compute and Software)
-    u32 topScreenGuard = 0;
+    // The sun shadows' guard band (melon.screen.sun's guard) in DS pixels, included in both of the above: that many columns on the left and
+    // right and rows above and below are drawn and filtered, so the march finds casters just off screen, but not shown. The shown top screen
+    // is topScreenWidth - left - right wide with topScreenMargin - (top + bottom) / 2 margin rows, the native 256 x 192 in its middle at
+    // nativeLeft() and nativeTop(), where the bottom screen's 256 columns are too. It's this frame's, as the render size lags the request;
+    // none on Compute and Software
+    MelonDSAndroid::FrameGuard topScreenGuard{};
     // Lua drawings for this frame (scripting/LuaDraw.h) in the frame texture's layout at 2x and premultiplied, created once a frame has drawings and
     // kept when the frame is reused
     GLuint overlayTexture{};
@@ -92,6 +94,13 @@ struct Frame {
     // The queue's count of frames handed out for rendering as of when this one last became free, which tells how long its textures have gone
     // unused; only accessed while holding the queue lock
     u64 freeSinceRenderCount{};
+
+    // The shown top screen's width and margin rows (the guard band left out), and the columns and rows of the top screen's half before
+    // native column 0 and DS line 0, in DS pixels
+    int shownTopScreenWidth() const { return (int) topScreenWidth - topScreenGuard.left - topScreenGuard.right; }
+    int shownTopScreenMargin() const { return (int) topScreenMargin - (topScreenGuard.top + topScreenGuard.bottom) / 2; }
+    int nativeLeft() const { return topScreenGuard.left + (shownTopScreenWidth() - 256) / 2; }
+    int nativeTop() const { return topScreenGuard.top + shownTopScreenMargin(); }
 };
 
 class FrameQueue

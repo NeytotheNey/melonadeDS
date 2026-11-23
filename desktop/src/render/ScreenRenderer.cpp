@@ -113,14 +113,16 @@ void GetBackgroundCoords(BackgroundMode mode, int backgroundWidth, int backgroun
 
 }
 
-ScreensDrawing DrawingFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, int frameGuard, float surfaceWidth)
+ScreensDrawing DrawingFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, const MelonDSAndroid::FrameGuard& frameGuard,
+    float surfaceWidth)
 {
     const IntRect* top = screens.Top ? &screens.Top->Rect : nullptr;
     const IntRect* bottom = screens.Bottom ? &screens.Bottom->Rect : nullptr;
     return GetScreensDrawing(top, bottom, frameTopWidth, screens.IsWideLayout, screens.AreScreensSwapped, surfaceWidth, frameMargin, frameGuard);
 }
 
-ScreenRects RectsFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, int frameGuard, float surfaceWidth)
+ScreenRects RectsFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, const MelonDSAndroid::FrameGuard& frameGuard,
+    float surfaceWidth)
 {
     if (screens.AsPlaced)
         return {screens.Top ? screens.PlacedTop : Rect(), screens.Bottom ? screens.PlacedBottom : Rect()};
@@ -262,7 +264,7 @@ void ScreenRenderer::UpdateScreenCoordinates()
     FrameTextureLayout layout(FrameTopScreenMargin);
     int frameWidth = std::max(FrameTopScreenWidth, SCREEN_WIDTH);
     // The sun's guard band is rendered and filtered but cut off here (Frame::topScreenGuard, which MelonInstance keeps within the frame)
-    int guard = FrameTopScreenGuard;
+    const MelonDSAndroid::FrameGuard& guard = FrameTopScreenGuard;
 
     // Each screen's quad: where it's drawn, the columns and rows of its half it shows, and the size its middle 256 columns and 192 rows are
     // shown at (the output cap's need). The app's layouts go through getScreensDrawing; the desktop's own placements are drawn where they
@@ -280,17 +282,20 @@ void ScreenRenderer::UpdateScreenCoordinates()
         if (Screens.Top && Screens.PlacedTop.W > 0 && Screens.PlacedTop.H > 0)
         {
             const Rect& r = Screens.PlacedTop;
-            int shownWidth = frameWidth - 2 * guard;
-            int shownRows = layout.TopScreenRows - 2 * guard;
-            float guardU = guard / (float)frameWidth;
-            top = ScreenQuad {r, guardU, 1.f - guardU, (float)guard, (float)(layout.TopScreenRows - guard), r.W * SCREEN_WIDTH / shownWidth,
-                r.H * SCREEN_HEIGHT / shownRows};
+            int shownWidth = frameWidth - guard.left - guard.right;
+            int shownRows = layout.TopScreenRows - guard.top - guard.bottom;
+            top = ScreenQuad {r, guard.left / (float)frameWidth, 1.f - guard.right / (float)frameWidth, (float)guard.top,
+                (float)(layout.TopScreenRows - guard.bottom), r.W * SCREEN_WIDTH / shownWidth, r.H * SCREEN_HEIGHT / shownRows};
         }
         if (Screens.Bottom && Screens.PlacedBottom.W > 0 && Screens.PlacedBottom.H > 0)
         {
             const Rect& r = Screens.PlacedBottom;
-            float leftU = (frameWidth - SCREEN_WIDTH) / (2.f * frameWidth);
-            bottom = ScreenQuad {r, leftU, 1.f - leftU, 0.f, (float)SCREEN_HEIGHT, r.W, r.H};
+            // Its 256 columns are under the top screen's native ones, in the middle of the shown ones; the right edge as the left one's
+            // distance from it, so a centred screen gets 1 - left
+            int nativeLeft = guard.left + (frameWidth - guard.left - guard.right - SCREEN_WIDTH) / 2;
+            float leftU = nativeLeft / (float)frameWidth;
+            float rightU = 1.f - (frameWidth - nativeLeft - SCREEN_WIDTH) / (float)frameWidth;
+            bottom = ScreenQuad {r, leftU, rightU, 0.f, (float)SCREEN_HEIGHT, r.W, r.H};
         }
     }
     else
@@ -584,6 +589,7 @@ void ScreenRenderer::UseScreenShader(const Shader& shader, GLuint textureId, int
     shader.SetTopScreenWidth(frame.TopWidth);
     shader.SetTopScreenHeight(frame.TopScreenHeight());
     shader.SetBottomScreenWide(IsBottomScreenWideInQuads);
+    shader.SetTopScreenGuard(frame.TopGuard);
     shader.SetHalvesAt1x(frame.HalvesAt1x, frame.Scale, frame.HalfScale);
 }
 

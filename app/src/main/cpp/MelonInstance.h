@@ -63,8 +63,22 @@ public:
     // The characters' sun shadows the OpenGL renderer draws while no script asks for its own (the desktop's --sun); emulator thread, between
     // frames
     void setFrontendSun(const melonDS::SunShadows& sun) { frontendSun = sun; }
-    // The guard band that goes with it (melon.screen.sun's guard, the desktop's --sun-guard), in DS pixels; emulator thread, between frames
-    void setFrontendSunGuard(int guard) { frontendSunGuard = std::clamp(guard, 0, WideMelon::MaxMargin); }
+    // The guard band that goes with it (melon.screen.sun's guard, the desktop's --sun-guard), in DS pixels, and whether any sun's band goes on
+    // all four sides rather than the ones its march can leave the screen through (the desktop's --sun-guard-sides all); emulator thread,
+    // between frames
+    void setFrontendSunGuard(int guard, bool allSides = false)
+    {
+        frontendSunGuard = std::clamp(guard, 0, WideMelon::MaxMargin);
+        isSunGuardOnAllSides = allSides;
+    }
+    // Debug (the desktop's --wide-shift): a view shift (GLRenderer::SetViewShift) on top of the guard band's, which the core clamps to the
+    // render view; the frame is then cropped to the most of it that's centred on the native screen (frameGuardFor). Emulator thread, between
+    // frames
+    void setDebugViewShift(int x, int y)
+    {
+        debugViewShiftX = x;
+        debugViewShiftY = y;
+    }
     // The texture hashes the OpenGL renderer leaves out while no script hides any (the desktop's --hide-textures); emulator thread, between
     // frames
     void setFrontendHiddenTextures(std::vector<u32> hashes) { frontendHiddenTextures = std::move(hashes); }
@@ -177,10 +191,10 @@ private:
     void updateRenderView();
     // After the OpenGL renderer was given a view or render settings: notes the view it resolved them to with the guard it was asked for, for
     // getFrameGuard()
-    void noteRenderView(int guard);
-    // The guard band included in a frame the OpenGL renderer draws [width] wide with [margin] rows (its output, which lags the view), the one
-    // the newest noted view with that size was asked for, kept to what that size has room for
-    int getFrameGuard(int width, int margin) const;
+    void noteRenderView(const FrameGuard& guard);
+    // The guard band included in a frame the OpenGL renderer draws [width] wide with [margin] rows and the shift [shiftX], [shiftY] (its
+    // output, which lags the view): the one the newest noted view with that size and shift was asked for (frameGuardFor)
+    FrameGuard getFrameGuard(int width, int margin, int shiftX, int shiftY) const;
 
 private:
     int instanceId;
@@ -212,19 +226,28 @@ private:
     melonDS::SunShadows frontendSun {};
     // setFrontendSunGuard(), emulator thread only
     int frontendSunGuard = 0;
-    // The sun's guard band in DS pixels the render view is widened by (updateSunGuard), emulator thread only: a higher request is taken at
-    // once, a lower one once it held for SUN_GUARD_HOLD_FRAMES frames (pendingSunGuard, pendingSunGuardFrames), so a sun fading out during
-    // a text box or a script reload doesn't resize the render. Always 0 off OpenGL
-    int sunGuard = 0;
-    int pendingSunGuard = 0;
-    int pendingSunGuardFrames = 0;
+    bool isSunGuardOnAllSides = false;
+    // The sun's guard band in DS pixels the render view is widened by on each side (updateSunGuard), emulator thread only: the sides the
+    // sun's march can leave the shown screen through, picked with the last valid depth camera (sunCamera), or all four until there is one.
+    // Each side takes a higher request at once and a lower one once it held for SUN_GUARD_HOLD_FRAMES frames (pendingSunGuard,
+    // pendingSunGuardFrames), so a sun fading out during a text box or a script reload, or a camera turning the sun to another side, doesn't
+    // resize the render back and forth. Always none off OpenGL
+    FrameGuard sunGuard {};
+    FrameGuard pendingSunGuard {};
+    std::array<int, 4> pendingSunGuardFrames {};
+    // The last valid depth camera a frame came with (OutputLayout::Camera), for the guard band's sides; emulator thread only
+    std::array<float, 16> sunCameraProjection {};
+    std::array<float, 4> sunCameraViewport {};
+    bool hasSunCamera = false;
     // The views the OpenGL renderer resolved, newest at renderViewNotes[(renderViewNoteNext - 1) % size], with the guard each was asked for
     // (noteRenderView), so a frame drawn at an older one crops by its guard; emulator thread only, cleared with a new renderer
     struct RenderViewNote
     {
         int width;
         int margin;
-        int guard;
+        int shiftX;
+        int shiftY;
+        FrameGuard guard;
     };
     std::array<RenderViewNote, 16> renderViewNotes {};
     int renderViewNoteCount = 0;
@@ -253,8 +276,14 @@ private:
     // The view the GL or Compute renderer is told to draw (updateRenderView): the shown one, widened by the sun's guard band on OpenGL
     int renderViewWidth;
     int renderViewMargin;
-    // The guard band in it, sunGuard as far as it fits
-    int renderViewGuard = 0;
+    // The shift of that view, and the guard band in it, sunGuard as far as it fits (sunGuardView, then sunGuardStep from the drawn view); the
+    // shift without the debug one
+    int renderViewShiftX = 0;
+    int renderViewShiftY = 0;
+    FrameGuard renderViewGuard {};
+    // setDebugViewShift(), emulator thread only
+    int debugViewShiftX = 0;
+    int debugViewShiftY = 0;
     // The width and margin setWideView() asked for (packWideView), from any thread, picked up by the emulator thread before the next frame; one
     // value so a frame never gets the new width with the old margin
     std::atomic<u32> requestedWideView;

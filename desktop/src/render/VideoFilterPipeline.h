@@ -66,6 +66,13 @@ public:
         const std::optional<Sun>& sun, bool foldDeband = false);
 
 private:
+    // what the passes' shaders take of the frame: its top screen half's rows (FrameView::TopScreenHeight) and its sun guard band
+    // (FrameView::TopGuard), which says where the native screens are
+    struct PassFrame
+    {
+        int TopScreenHeight = 0;
+        MelonDSAndroid::FrameGuard Guard;
+    };
     class PrePass;
     struct TiltShiftPasses;
     struct BloomPasses;
@@ -187,7 +194,7 @@ private:
     // the next pass's input while RenderPrePasses runs, and whether the state above is saved yet
     GLuint InputTexture = 0;
     int InputWidth = 0, InputHeight = 0;
-    int InputTopScreenHeight = 0;
+    PassFrame InputFrame;
     bool IsStateSaved = false;
 };
 

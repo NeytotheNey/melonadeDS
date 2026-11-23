@@ -96,8 +96,9 @@ void ScreenshotRenderer::drawScreenshot(GPU* gpu, Renderer renderer, Frame* rend
 
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        if (renderFrame->topScreenWidth != vertexBufferTopScreenWidth || renderFrame->topScreenMargin != vertexBufferTopScreenMargin)
-            fillVertexBuffer(renderFrame->topScreenWidth, renderFrame->topScreenMargin);
+        if (renderFrame->topScreenWidth != vertexBufferTopScreenWidth || renderFrame->topScreenMargin != vertexBufferTopScreenMargin
+            || renderFrame->nativeLeft() != vertexBufferNativeLeft || renderFrame->nativeTop() != vertexBufferNativeTop)
+            fillVertexBuffer(renderFrame->topScreenWidth, renderFrame->topScreenMargin, renderFrame->nativeLeft(), renderFrame->nativeTop());
         glEnableVertexAttribArray(posAttribLocation);
         glEnableVertexAttribArray(texCoordAttribLocation);
         glVertexAttribPointer(posAttribLocation, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
@@ -143,7 +144,7 @@ void ScreenshotRenderer::drawScreenshot(GPU* gpu, Renderer renderer, Frame* rend
 void ScreenshotRenderer::copyHalvesAt1x(Frame* renderFrame)
 {
     // The screenshot is at 1x, so such a screen's image is copied over what the quads drew from the old frames in the rest of its rows: its middle
-    // 256 columns, from the first row of its rows. The frame's rows go down from the top screen's first one, as the screenshot's do. A screen drawn
+    // 256 columns (Frame::nativeLeft), from the first row of its rows. The frame's rows go down from the top screen's first one, as the screenshot's do. A screen drawn
     // with filtered 2D at the filter map's scale (halfScaleAt1x) is scaled down to 1x on the way, nearest
     if (!frameReadBuffer)
         glGenFramebuffers(1, &frameReadBuffer);
@@ -152,15 +153,16 @@ void ScreenshotRenderer::copyHalvesAt1x(Frame* renderFrame)
     glReadBuffer(GL_COLOR_ATTACHMENT0);
 
     int halfScale = std::max(renderFrame->halfScaleAt1x, 1);
-    int left = ((int) renderFrame->topScreenWidth - 256) / 2 * halfScale;
-    // With the WideMelon camera's margin the top screen's half is taller, and its native rows start margin rows into its image
+    int left = renderFrame->nativeLeft() * halfScale;
+    // With the WideMelon camera's margin the top screen's half is taller, and its native rows start Frame::nativeTop rows into its image
     int margin = (int) renderFrame->topScreenMargin;
+    int nativeTop = renderFrame->nativeTop();
     for (int screen = 0; screen < 2; screen++)
     {
         if (!(renderFrame->halvesAt1x & (1 << screen)))
             continue;
 
-        int sourceRow = screen == 0 ? margin * halfScale : (192 + 2 * margin + 2) * renderFrame->scaleAt1x;
+        int sourceRow = screen == 0 ? nativeTop * halfScale : (192 + 2 * margin + 2) * renderFrame->scaleAt1x;
         glBlitFramebuffer(left, sourceRow, left + 256 * halfScale, sourceRow + 192 * halfScale, 0, screen * 192, 256, screen * 192 + 192, GL_COLOR_BUFFER_BIT,
                           GL_NEAREST);
     }
@@ -468,26 +470,26 @@ void ScreenshotRenderer::setupVertexBuffers()
 
     glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    fillVertexBuffer(256, 0);
+    fillVertexBuffer(256, 0, 0, 0);
 }
 
-void ScreenshotRenderer::fillVertexBuffer(int topScreenWidth, int topScreenMargin)
+void ScreenshotRenderer::fillVertexBuffer(int topScreenWidth, int topScreenMargin, int nativeLeft, int nativeTop)
 {
     float margin = 1.0f / 192.0f;
-    // Both screens take the center 256 columns of the frame: all of a 256 wide top screen, or the middle of a wider one, which is also where the
-    // bottom screen is
-    float left = (topScreenWidth - 256) / (2.0f * topScreenWidth);
-    float right = 1.0f - left;
+    // Both screens take the native 256 columns of the frame: all of a 256 wide top screen, or nativeLeft columns into a wider one, which is
+    // also where the bottom screen is. The right edge as the left one's distance from it, so a centred screen gets 1 - left as before
+    float left = nativeLeft / (float) topScreenWidth;
+    float right = 1.0f - (topScreenWidth - nativeLeft - 256) / (float) topScreenWidth;
     // The rows of each screen: the old 386 row layout's without the WideMelon camera's margin (kept exactly), otherwise the top screen's native
-    // 192 rows in the middle of its taller half (the margin rows are left out), and the bottom screen's after the gap
+    // 192 rows nativeTop rows into its taller half (the margin rows are left out), and the bottom screen's after the gap
     float topScreenTopV = 0.0f;
     float topScreenBottomV = 0.5f - margin;
     float bottomScreenTopV = 0.5f + margin;
     if (topScreenMargin > 0)
     {
         float frameRows = (float) (192 + 2 * topScreenMargin + 2 + 192);
-        topScreenTopV = topScreenMargin / frameRows;
-        topScreenBottomV = (topScreenMargin + 192) / frameRows;
+        topScreenTopV = nativeTop / frameRows;
+        topScreenBottomV = (nativeTop + 192) / frameRows;
         bottomScreenTopV = (192 + 2 * topScreenMargin + 2) / frameRows;
     }
     // Image is vertically flipped
@@ -513,6 +515,8 @@ void ScreenshotRenderer::fillVertexBuffer(int topScreenWidth, int topScreenMargi
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     vertexBufferTopScreenWidth = topScreenWidth;
     vertexBufferTopScreenMargin = topScreenMargin;
+    vertexBufferNativeLeft = nativeLeft;
+    vertexBufferNativeTop = nativeTop;
 }
 
 void ScreenshotRenderer::notifyScreenshotReady()

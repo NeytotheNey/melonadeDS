@@ -187,10 +187,10 @@ void Shader::SetTopScreenHeight(int height) const
     }
 }
 
-void Shader::SetTopScreenGuard(int guard) const
+void Shader::SetTopScreenGuard(const MelonDSAndroid::FrameGuard& guard) const
 {
     if (UniformTopScreenGuard >= 0)
-        glUniform1f(UniformTopScreenGuard, (float)guard);
+        glUniform4f(UniformTopScreenGuard, (float)guard.left, (float)guard.right, (float)guard.top, (float)guard.bottom);
 }
 
 void Shader::SetBottomScreenWide(bool isBottomScreenWide) const

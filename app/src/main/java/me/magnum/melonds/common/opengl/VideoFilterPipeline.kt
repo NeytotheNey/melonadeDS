@@ -3,9 +3,9 @@ package me.magnum.melonds.common.opengl
 import android.opengl.GLES30
 import android.opengl.Matrix
 import android.util.Log
-import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.render.Bloom
 import me.magnum.melonds.domain.model.render.DepthOfField
+import me.magnum.melonds.domain.model.render.FrameGuard
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
 import me.magnum.melonds.domain.model.render.DEPTH_CAMERA_PROJECTION
 import me.magnum.melonds.domain.model.render.DEPTH_CAMERA_VIEWPORT
@@ -239,7 +239,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             GLES30.glViewport(0, 0, width, height)
             pass.render(
                 frame.textureId, width, height, frame.topScreenWidth, frame.topScreenHeight, false, null, frame.halvesAt1x, frame.scaleAt1x,
-                frame.halfScaleAt1x,
+                frame.halfScaleAt1x, topScreenGuard = frame.topScreenGuard,
             )
         }
         restoreState()
@@ -331,8 +331,10 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
     private var inputTexture = 0
     private var inputWidth = 0
     private var inputHeight = 0
-    // The frame's top screen half height in DS pixels (PresentFrameWrapper.topScreenHeight), for the passes' shaders
+    // The frame's top screen half height in DS pixels (PresentFrameWrapper.topScreenHeight) and its guard band (topScreenGuard, which says where
+    // the native screens are), for the passes' shaders
     private var inputTopScreenHeight = 0
+    private var inputTopScreenGuard = FrameGuard.NONE
     private var isStateSaved = false
 
     /**
@@ -438,6 +440,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         inputWidth = width
         inputHeight = height
         inputTopScreenHeight = frame.topScreenHeight
+        inputTopScreenGuard = frame.topScreenGuard
         isStateSaved = false
         var isComplete = true
         if (runsDeband) {
@@ -518,7 +521,8 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             return false
         }
         GLES30.glViewport(0, 0, outputWidth, outputHeight)
-        pass.render(inputTexture, inputWidth, inputHeight, topScreenWidth, inputTopScreenHeight, isBottomScreenWide, tiltShift)
+        pass.render(inputTexture, inputWidth, inputHeight, topScreenWidth, inputTopScreenHeight, isBottomScreenWide, tiltShift,
+            topScreenGuard = inputTopScreenGuard)
         inputTexture = pass.texture
         inputWidth = outputWidth
         inputHeight = outputHeight
@@ -581,7 +585,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         // The vignette darkens towards the corners of the top screen as it's shown, so a guard band doesn't move it
         combine.render(
             inputTexture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom,
-            topScreenGuard = frame.topScreenGuard,
+                topScreenGuard = inputTopScreenGuard,
         )
         if (glowTexture != 0) {
             unbindTexture(GLES30.GL_TEXTURE1)
@@ -611,12 +615,15 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         if (depthBright != null) {
             bindDepthTexture(GLES30.GL_TEXTURE1, frame.depthTextureId)
         }
-        bright.render(inputTexture, inputWidth, inputHeight, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
+        bright.render(inputTexture, inputWidth, inputHeight, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom,
+            topScreenGuard = inputTopScreenGuard)
         if (depthBright != null) {
             unbindTexture(GLES30.GL_TEXTURE1)
         }
-        passes.horizontal.render(bright.texture, width, height, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
-        passes.vertical.render(passes.horizontal.texture, width, height, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom)
+        passes.horizontal.render(bright.texture, width, height, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom,
+            topScreenGuard = inputTopScreenGuard)
+        passes.vertical.render(passes.horizontal.texture, width, height, width, inputTopScreenHeight, isBottomScreenWide, null, bloom = bloom,
+            topScreenGuard = inputTopScreenGuard)
         return passes.vertical.texture
     }
 
@@ -681,10 +688,10 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         }
 
         // The focus point in the depth texture, which is the top screen's half of the frame: the wings come before the 256 view's x 0, and the
-        // margin before its y 0
+        // margin before its y 0 (PresentFrameWrapper.nativeLeft and nativeTop, which a guard band can make more on one side)
         val topScreenWidth = frame.topScreenWidth.coerceAtLeast(1)
-        val focusU = (depthOfField.focusX + (topScreenWidth - SCREEN_WIDTH) / 2f) / topScreenWidth
-        val focusV = (depthOfField.focusY + frame.topScreenMargin) / frame.topScreenHeight
+        val focusU = (depthOfField.focusX + frame.nativeLeft) / topScreenWidth
+        val focusV = (depthOfField.focusY + frame.nativeTop) / frame.topScreenHeight
         // A script's focus depth wins over the frame's focus on the focus textures, and with neither the focus pass looks at the point
         passes.focusDepth = if (depthOfField.focusDepth >= 0f) depthOfField.focusDepth else frame.depthFocus
         // The projection's depth terms for the Z-buffer's view distances, which presentFrame() writes whenever the frame has depth
@@ -703,11 +710,11 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         GLES30.glViewport(0, 0, outputWidth, outputHeight)
         passes.horizontal.render(
             inputTexture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null,
-            depthOfField = depthOfField, depthOfFieldPasses = passes, focusU = focusU, focusV = focusV,
+            depthOfField = depthOfField, depthOfFieldPasses = passes, focusU = focusU, focusV = focusV, topScreenGuard = inputTopScreenGuard,
         )
         passes.vertical.render(
             passes.horizontal.texture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null,
-            depthOfField = depthOfField, depthOfFieldPasses = passes, focusU = focusU, focusV = focusV,
+            depthOfField = depthOfField, depthOfFieldPasses = passes, focusU = focusU, focusV = focusV, topScreenGuard = inputTopScreenGuard,
         )
         inputTexture = passes.vertical.texture
         passes.swapFocus()
@@ -732,6 +739,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         focus.render(
             passes.lastFocus.texture, 1, 1, topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null,
             depthOfField = depthOfField, depthOfFieldPasses = passes, focusU = focusU, focusV = focusV, focusAgeStep = focusAgeStep,
+                topScreenGuard = inputTopScreenGuard,
         )
         // Nearest, as the focus's bytes can't be mixed either
         GLES30.glActiveTexture(GLES30.GL_TEXTURE2)
@@ -795,16 +803,19 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         }
 
         GLES30.glViewport(0, 0, dsWidth, dsHeight)
-        passes.downsample.render(frame.depthTextureId, depthWidth, depthHeight, dsWidth, inputTopScreenHeight, isBottomScreenWide, null, shade = shade)
-        passes.horizontal.render(passes.downsample.texture, dsWidth, dsHeight, dsWidth, inputTopScreenHeight, isBottomScreenWide, null, shade = shade)
-        passes.vertical.render(passes.horizontal.texture, dsWidth, dsHeight, dsWidth, inputTopScreenHeight, isBottomScreenWide, null, shade = shade)
+        passes.downsample.render(frame.depthTextureId, depthWidth, depthHeight, dsWidth, inputTopScreenHeight, isBottomScreenWide, null, shade = shade,
+            topScreenGuard = inputTopScreenGuard)
+        passes.horizontal.render(passes.downsample.texture, dsWidth, dsHeight, dsWidth, inputTopScreenHeight, isBottomScreenWide, null, shade = shade,
+            topScreenGuard = inputTopScreenGuard)
+        passes.vertical.render(passes.horizontal.texture, dsWidth, dsHeight, dsWidth, inputTopScreenHeight, isBottomScreenWide, null, shade = shade,
+            topScreenGuard = inputTopScreenGuard)
 
         bindDepthTexture(GLES30.GL_TEXTURE1, frame.depthTextureId)
         // Nearest too, as its bytes are a depth that can't be mixed
         bindDepthTexture(GLES30.GL_TEXTURE2, passes.vertical.texture)
         GLES30.glViewport(0, 0, inputWidth, inputHeight)
         apply.render(inputTexture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null,
-            bloom = if (lightsApply != null) lights else null, shade = shade)
+            bloom = if (lightsApply != null) lights else null, shade = shade, topScreenGuard = inputTopScreenGuard)
         unbindTexture(GLES30.GL_TEXTURE1)
         unbindTexture(GLES30.GL_TEXTURE2)
         inputTexture = apply.texture
@@ -879,13 +890,13 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
 
         GLES30.glViewport(0, 0, dsWidth, dsHeight)
         passes.march.render(frame.depthTextureId, depthWidth, depthHeight, dsWidth, inputTopScreenHeight, isBottomScreenWide, null, sun = sun,
-            sunCamera = sunCamera)
+            sunCamera = sunCamera, topScreenGuard = inputTopScreenGuard)
         var shadowTexture = passes.march.texture
         if (hasSoftness) {
             passes.horizontal.render(shadowTexture, dsWidth, dsHeight, dsWidth, inputTopScreenHeight, isBottomScreenWide, null, sun = sun,
-                sunCamera = sunCamera)
+                sunCamera = sunCamera, topScreenGuard = inputTopScreenGuard)
             passes.vertical.render(passes.horizontal.texture, dsWidth, dsHeight, dsWidth, inputTopScreenHeight, isBottomScreenWide, null,
-                sun = sun, sunCamera = sunCamera)
+                sun = sun, sunCamera = sunCamera, topScreenGuard = inputTopScreenGuard)
             shadowTexture = passes.vertical.texture
         }
 
@@ -894,7 +905,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
         bindDepthTexture(GLES30.GL_TEXTURE2, shadowTexture)
         GLES30.glViewport(0, 0, inputWidth, inputHeight)
         apply.render(inputTexture, inputWidth, inputHeight, frame.topScreenWidth, inputTopScreenHeight, isBottomScreenWide, null,
-            bloom = if (lightsApply != null) lights else null, sun = sun, sunCamera = sunCamera)
+            bloom = if (lightsApply != null) lights else null, sun = sun, sunCamera = sunCamera, topScreenGuard = inputTopScreenGuard)
         unbindTexture(GLES30.GL_TEXTURE1)
         unbindTexture(GLES30.GL_TEXTURE2)
         inputTexture = apply.texture
@@ -1203,13 +1214,14 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
 
         /**
          * Takes [frame]'s depth camera, with its viewport moved into DS pixels of the depth texture's top half (the WideMelon wings and margin
-         * come before the native view's 0), and returns false if it can't be used: a viewport with no size or a projection with no inverse.
+         * come before the native view's 0, PresentFrameWrapper.nativeLeft and nativeTop), and returns false if it can't be used: a viewport
+         * with no size or a projection with no inverse.
          */
         fun set(frame: PresentFrameWrapper): Boolean {
             val camera = frame.depthCamera
             camera.copyInto(projection, 0, DEPTH_CAMERA_PROJECTION, DEPTH_CAMERA_PROJECTION + 16)
-            viewport[0] = camera[DEPTH_CAMERA_VIEWPORT] + (frame.topScreenWidth - SCREEN_WIDTH) / 2f
-            viewport[1] = camera[DEPTH_CAMERA_VIEWPORT + 1] + frame.topScreenMargin
+            viewport[0] = camera[DEPTH_CAMERA_VIEWPORT] + frame.nativeLeft
+            viewport[1] = camera[DEPTH_CAMERA_VIEWPORT + 1] + frame.nativeTop
             viewport[2] = camera[DEPTH_CAMERA_VIEWPORT + 2]
             viewport[3] = camera[DEPTH_CAMERA_VIEWPORT + 3]
             return viewport[2] > 0f && viewport[3] > 0f && Matrix.invertM(inverse, 0, projection, 0)
@@ -1283,7 +1295,7 @@ class VideoFilterPipeline(private val filter: VideoFilter, private val colorCorr
             shade: Shade? = null,
             sun: Sun? = null,
             sunCamera: SunCamera? = null,
-            topScreenGuard: Int = 0,
+            topScreenGuard: FrameGuard,
         ) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
             // The quad covers every texel, so the old contents never have to be loaded

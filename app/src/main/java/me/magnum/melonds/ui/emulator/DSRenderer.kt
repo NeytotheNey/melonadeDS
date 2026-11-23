@@ -22,6 +22,7 @@ import me.magnum.melonds.domain.model.camera.WideWindow
 import me.magnum.melonds.domain.model.layout.BackgroundMode
 import me.magnum.melonds.domain.model.layout.OverlayDrawing
 import me.magnum.melonds.domain.model.layout.getScreensDrawing
+import me.magnum.melonds.domain.model.render.FrameGuard
 import me.magnum.melonds.domain.model.render.FrameTextureLayout
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_BOTTOM
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_TOP
@@ -127,7 +128,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     // Top-screen width of the frame the quads were built for; GL thread only
     private var frameTopScreenWidth = SCREEN_WIDTH
     // The sun shadows' guard band of that frame (PresentFrameWrapper.topScreenGuard), which the quads leave out; GL thread only
-    private var frameTopScreenGuard = 0
+    private var frameTopScreenGuard = FrameGuard.NONE
     // The top screen's width as that frame shows it, without the guard band, for where touches go (getScreensDrawing with no guard places the
     // screens the same way); GL thread writes, touch input reads
     @Volatile
@@ -739,6 +740,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         shader.setTopScreenWidth(frame.topScreenWidth)
         shader.setTopScreenHeight(frame.topScreenHeight)
         shader.setBottomScreenWide(isBottomScreenWideInQuads)
+        shader.setTopScreenGuard(frame.topScreenGuard)
         shader.setHalvesAt1x(frame.halvesAt1x, frame.scaleAt1x, frame.halfScaleAt1x)
     }
 

@@ -28,16 +28,19 @@ highp float decodeDepth(highp vec4 texel) {
 #endif
 // The vignette's strength (x) and where it starts (y)
 uniform vec2 vignette;
-// The sun shadows' guard band in DS pixels: the columns on each side of the top screen that are filtered but not shown
-uniform float topScreenGuard;
+// The sun shadows' guard band: the columns on each side of the top screen and rows above and below it that are filtered but
+// not shown
+uniform vec4 topScreenGuard;
 uniform float bottomScreenWide;
 uniform vec4 frameLayout;
 #define topScreenEnd frameLayout.x
 // The DS top screen's columns (xy) and its SCREEN_HEIGHT rows inside the camera's margin (zw), as u and v coordinates
 vec4 topScreenRect() {
-    float halfWidth = bottomScreenWide > 0.5 && topScreenWidth > 256.0 ? 0.5 * 256.0 / topScreenWidth : 0.5;
-    float margin = (topScreenEnd * frameLayout.w - 192.0) * 0.5;
-    return vec4(0.5 - halfWidth, 0.5 + halfWidth, margin / frameLayout.w, (margin + 192.0) / frameLayout.w);
+    bool isNarrow = bottomScreenWide > 0.5 && topScreenWidth > 256.0;
+    float halfWidth = isNarrow ? 0.5 * 256.0 / topScreenWidth : 0.5;
+    float middle = isNarrow ? 0.5 + 0.5 * (topScreenGuard.x - topScreenGuard.y) / topScreenWidth : 0.5;
+    float margin = (topScreenEnd * frameLayout.w - 192.0) * 0.5 + 0.5 * (topScreenGuard.z - topScreenGuard.w);
+    return vec4(middle - halfWidth, middle + halfWidth, margin / frameLayout.w, (margin + 192.0) / frameLayout.w);
 }
 void main() {
     vec3 texel = texture2D(tex, uv).rgb;
@@ -65,8 +68,7 @@ void main() {
     // The vignette goes over the top screen as it's shown, without the guard band's columns (its rows are the 192 already)
     vec4 shown = rect;
     if (!(bottomScreenWide > 0.5 && topScreenWidth > 256.0)) {
-        float guardU = topScreenGuard / topScreenWidth;
-        shown.xy += vec2(guardU, -guardU);
+        shown.xy += vec2(topScreenGuard.x / topScreenWidth, -(topScreenGuard.y / topScreenWidth));
     }
     vec2 offset = (uv - 0.5 * (shown.xz + shown.yw)) * dsPixels;
     vec2 halfSize = 0.5 * (shown.yw - shown.xz) * dsPixels;

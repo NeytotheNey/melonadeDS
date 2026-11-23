@@ -152,28 +152,43 @@ IntRect GetLetterboxedRect(const IntRect& rect, float aspectRatio)
     return BuildCenteredRect(rect.X + rect.W / 2.f, rect.Y + (rect.H - fittedHeight) / 2.f, fittedWidth, fittedHeight);
 }
 
+MelonDSAndroid::FrameGuard CoercedFrameGuard(const MelonDSAndroid::FrameGuard& guard, int frameWidth, int frameMargin)
+{
+    int roomX = std::max(0, frameWidth - DS_SCREEN_WIDTH);
+    int roomY = std::max(0, 2 * frameMargin);
+    if (guard.left == guard.right && guard.left == guard.top && guard.left == guard.bottom)
+    {
+        int all = std::clamp(guard.left, 0, std::min(roomX / 2, roomY / 2));
+        return {all, all, all, all};
+    }
+    int left = std::clamp(guard.left, 0, roomX);
+    int top = std::clamp(guard.top, 0, roomY);
+    return {left, std::clamp(guard.right, 0, roomX - left), top, std::clamp(guard.bottom, 0, roomY - top)};
+}
+
 ScreensDrawing GetScreensDrawing(const IntRect* topScreenRect, const IntRect* bottomScreenRect, int frameWidth, bool isWideLayout,
-    bool areScreensSwapped, float surfaceWidth, int frameMargin, int frameGuard)
+    bool areScreensSwapped, float surfaceWidth, int frameMargin, const MelonDSAndroid::FrameGuard& frameGuard)
 {
     // MelonInstance keeps the guard within the frame already; kept there here too, so a bad one can't turn the shown frame inside out
-    int guard = std::clamp(frameGuard, 0, std::max(0, std::min((frameWidth - DS_SCREEN_WIDTH) / 2, frameMargin)));
-    int shownWidth = frameWidth - 2 * guard;
+    MelonDSAndroid::FrameGuard guard = CoercedFrameGuard(frameGuard, frameWidth, frameMargin);
+    int shownWidth = frameWidth - guard.left - guard.right;
     ScreensDrawing shown = GetShownScreensDrawing(topScreenRect, bottomScreenRect, shownWidth, isWideLayout, areScreensSwapped, surfaceWidth,
-        frameMargin - guard);
-    if (guard == 0)
+        frameMargin - (guard.top + guard.bottom) / 2);
+    if (guard == MelonDSAndroid::FrameGuard {})
         return shown;
 
-    // The shown frame's columns sit guard columns into the frame's, in both halves, and its rows guard rows into the DS top screen's half
+    // The shown frame's columns sit left guard columns into the frame's, in both halves, and its rows top guard rows into the DS top screen's
+    // half
     auto inFrame = [&](std::optional<ScreenDrawing>& screen, float rowOffset)
     {
         if (!screen)
             return;
-        screen->LeftU = (guard + screen->LeftU * shownWidth) / frameWidth;
-        screen->RightU = (guard + screen->RightU * shownWidth) / frameWidth;
+        screen->LeftU = (guard.left + screen->LeftU * shownWidth) / frameWidth;
+        screen->RightU = (guard.left + screen->RightU * shownWidth) / frameWidth;
         screen->TopRow += rowOffset;
         screen->BottomRow += rowOffset;
     };
-    inFrame(shown.Top, (float)guard);
+    inFrame(shown.Top, (float)guard.top);
     inFrame(shown.Bottom, 0.f);
     return shown;
 }

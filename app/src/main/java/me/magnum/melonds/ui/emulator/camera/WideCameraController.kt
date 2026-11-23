@@ -1,12 +1,12 @@
 package me.magnum.melonds.ui.emulator.camera
 
 import me.magnum.melonds.domain.model.Input
-import me.magnum.melonds.domain.model.SCREEN_WIDTH
 import me.magnum.melonds.domain.model.camera.GameScene
 import me.magnum.melonds.domain.model.camera.WideCamera
 import me.magnum.melonds.domain.model.camera.WideCameraInput
 import me.magnum.melonds.domain.model.camera.WideCameraRequest
 import me.magnum.melonds.domain.model.camera.WideWindow
+import me.magnum.melonds.domain.model.render.FrameGuard
 import kotlin.math.abs
 
 /**
@@ -198,14 +198,15 @@ class WideCameraController(
      * or null to draw the frame as without a camera. Render thread.
      *
      * [frameGuard] is the sun shadows' guard band in both (PresentFrameWrapper.topScreenGuard), which is never shown: the camera works on the
-     * shown frame inside it, [frameWidth] less the guard on both sides with [frameMargin] less the guard, so zoomed all the way out it shows
-     * all of that and none of the guard, and the window it returns is of that shown frame (getScreensDrawing moves it in by the guard).
+     * shown frame inside it, [frameWidth] less the left and right guard with [frameMargin] less half the top and bottom one, which has the
+     * native screen in its middle, so zoomed all the way out it shows all of that and none of the guard, and the window it returns is of that
+     * shown frame (getScreensDrawing moves it in by the guard).
      */
-    fun onFrame(nowNanos: Long, frameWidth: Int, frameMargin: Int, topWingLines: Int, frameGuard: Int = 0): WideWindow? {
+    fun onFrame(nowNanos: Long, frameWidth: Int, frameMargin: Int, topWingLines: Int, frameGuard: FrameGuard = FrameGuard.NONE): WideWindow? {
         // MelonInstance keeps the guard within the frame already, as getScreensDrawing does too
-        val guard = frameGuard.coerceIn(0, maxOf(0, minOf((frameWidth - SCREEN_WIDTH) / 2, frameMargin)))
-        val shownWidth = frameWidth - 2 * guard
-        val shownMargin = frameMargin - guard
+        val guard = frameGuard.coercedTo(frameWidth, frameMargin)
+        val shownWidth = guard.shownWidth(frameWidth)
+        val shownMargin = guard.shownMargin(frameMargin)
         var pickedZoom: Float? = null
         var pickedSession = 0
         var neededRenderZoom: Float? = null

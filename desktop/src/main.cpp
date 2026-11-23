@@ -130,6 +130,8 @@ struct Options
     int Scale = 4;
     int WideWidth = 256;
     int WideMargin = 0;        // WideMelon camera stage 2: 3D rows above and below the top screen
+    int WideShiftX = 0;        // --wide-shift: the OpenGL view shift (MelonInstance::setDebugViewShift)
+    int WideShiftY = 0;
     // both off: in this core the x86-64 JIT runs slower than the interpreter, with or without
     // fast memory (see README), where the app runs the ARM64 one with fast memory
     bool Jit = false;
@@ -186,8 +188,10 @@ struct Options
     std::optional<Frontend::Shade> Shade;
     // --sun: the Lua sun shadows' passes the same way, with the frames' depth asked of the core too
     std::optional<Frontend::Sun> Sun;
-    // --sun-guard: --sun's guard band, as melon.screen.sun's guard asks for it (MelonInstance::setFrontendSunGuard); 0 for none
+    // --sun-guard: --sun's guard band, as melon.screen.sun's guard asks for it (MelonInstance::setFrontendSunGuard); 0 for none.
+    // --sun-guard-sides all: any sun's band on all four sides, not only the ones its march can leave the screen through
     int SunGuard = 0;
+    bool SunGuardOnAllSides = false;
     // --lua-script: a Lua script the game runs, as the app's scripts run (LuaEngine), for tests; empty for none
     std::string LuaScriptPath;
     // --output-cap: the windows' output scale need goes to the core (GPU::OutputCap) after each present, as the app's surfaces send theirs
@@ -247,6 +251,8 @@ void Usage()
         "  --scale N                   internal resolution for gl/compute, 1-16 (default 4)\n"
         "  --wide W                    WideMelon top screen width, even, 256-768 (default 256, off)\n"
         "  --wide-margin M             with --wide, M more 3D rows above and below the top screen (0-128)\n"
+        "  --wide-shift X,Y            debug, OpenGL: shift the native 256x192 X columns right and Y rows down in the\n"
+        "                              rendered view (within --wide and --wide-margin); the frame isn't cropped for it\n"
         "  --better-polygons           OpenGL: better polygon splitting\n"
         "  --precise-depth             3D depth at full precision, not the DS's 0x200 steps (GPU::PreciseDepth)\n"
         "  --no-high-res-coords        Compute: native-resolution vertex coordinates\n"
@@ -356,9 +362,11 @@ void Usage()
         "                              (0.50,0.83,0.26) and up (0.0006,0.607,0.794) in view space, and how near the camera\n"
         "                              3D can be and still cast, in units (0-1024, 0: all of it)\n"
         "  --sun-guard G               --sun's guard band, as melon.screen.sun's guard: while the sun is on, OpenGL renders\n"
-        "                              G more DS pixels past each side of the top screen and G more rows above and below\n"
+        "                              G more DS pixels past the sides of the top screen its march can leave through\n"
         "                              (0-128, kept within WideMelon's 768 and 128), which the filters and the sun's march\n"
         "                              take in but the window doesn't show, so casters just off screen still cast\n"
+        "  --sun-guard-sides auto|all  which sides any sun's guard band goes on: the ones its march can leave the screen\n"
+        "                              through, by the last scene's camera (auto, the default), or all four (all)\n"
         "  --lua-script FILE.lua       run a Lua script with the game, as the app runs its scripts, for tests (its sun,\n"
         "                              guard, hidden, light and UI textures reach the core; its screen effects aren't drawn)\n"
         "  --output-cap                send the windows' screen size to the core (GPU::OutputCap), as the app does: the\n"
@@ -609,6 +617,17 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             }
         }
         else if (arg == "--wide-margin") opts.WideMargin = std::clamp(atoi(next().c_str()), 0, 128);
+        else if (arg == "--wide-shift")
+        {
+            std::string spec = next();
+            if (sscanf(spec.c_str(), "%d,%d", &opts.WideShiftX, &opts.WideShiftY) != 2)
+            {
+                fprintf(stderr, "--wide-shift needs X,Y\n");
+                return false;
+            }
+            opts.WideShiftX = std::clamp(opts.WideShiftX, -256, 256);
+            opts.WideShiftY = std::clamp(opts.WideShiftY, -128, 128);
+        }
         else if (arg == "--better-polygons") opts.BetterPolygons = true;
         else if (arg == "--precise-depth") setting("video_precise_depth", picojson::value(true));
         else if (arg == "--no-high-res-coords") opts.HighResCoordinates = false;
@@ -854,6 +873,16 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             opts.Sun = sun.IsOff() ? std::nullopt : std::optional<Frontend::Sun>(sun);
         }
         else if (arg == "--sun-guard") opts.SunGuard = std::clamp(atoi(next().c_str()), 0, 128);
+        else if (arg == "--sun-guard-sides")
+        {
+            std::string sides = next();
+            if (sides != "auto" && sides != "all")
+            {
+                fprintf(stderr, "--sun-guard-sides needs auto or all\n");
+                return false;
+            }
+            opts.SunGuardOnAllSides = sides == "all";
+        }
         else if (arg == "--lua-script") opts.LuaScriptPath = next();
         else if (arg == "--output-cap") opts.OutputCap = true;
         else if (arg == "--vsync") setting("desktop_vsync", picojson::value(true));
@@ -2189,7 +2218,8 @@ int main(int argc, char** argv)
         if (opts.Sun)
             instance.setFrontendSun({true, opts.Sun->Direction, opts.Sun->Up});
         // with the guard band that goes with it, which the core only renders while that sun is on
-        instance.setFrontendSunGuard(opts.SunGuard);
+        instance.setFrontendSunGuard(opts.SunGuard, opts.SunGuardOnAllSides);
+        instance.setDebugViewShift(opts.WideShiftX, opts.WideShiftY);
         instance.setFrontendHiddenTextures(opts.HiddenTextures);
         instance.setFrontendLightTextures(opts.LightTextures);
         instance.setFrontendUiTextures(opts.UiTextures);
@@ -2849,7 +2879,7 @@ int main(int argc, char** argv)
                         view = Frontend::FrameView::Of(*frame);
                         bool read = presenter.ReadFrame(view, pixels, w, h);
                         ReleaseFrame(frame);
-                        if (read && slots.WriteScreenshot(slot, pixels, w, h, view.TopWidth, view.TopMargin))
+                        if (read && slots.WriteScreenshot(slot, pixels, w, h, view.TopWidth, view.TopMargin, view.NativeLeft(), view.NativeTop()))
                             printf("slot %d screenshot: %s\n", slot, Frontend::PathToUtf8(slots.ScreenshotPath(slot)).c_str());
                         else
                             fprintf(stderr, "slot %d: no screenshot\n", slot);
@@ -3217,9 +3247,9 @@ int main(int argc, char** argv)
             const Frontend::FrameView view = Frontend::FrameView::Of(*frame);
             if (cameraShown && view.Sequence != cameraShownSequence)
             {
-                // the top screen's render size and the guard band in it too, as the guard follows the sun's requests
-                fprintf(cameraShown.get(), "{\"seq\":%llu,\"top\":[%d,%d,%d],", (unsigned long long) view.Sequence, view.TopWidth, view.TopMargin,
-                    view.TopGuard);
+                // the top screen's render size and the guard band in it too (left, right, top, bottom), as the guard follows the sun's requests
+                fprintf(cameraShown.get(), "{\"seq\":%llu,\"top\":[%d,%d,%d,%d,%d,%d],", (unsigned long long) view.Sequence, view.TopWidth,
+                    view.TopMargin, view.TopGuard.left, view.TopGuard.right, view.TopGuard.top, view.TopGuard.bottom);
                 PrintDepthCamera(cameraShown.get(), view.DepthTexture != 0, view.DepthCameraValid, view.DepthProjection, view.DepthViewport);
                 fprintf(cameraShown.get(), "}\n");
                 cameraShownSequence = view.Sequence;

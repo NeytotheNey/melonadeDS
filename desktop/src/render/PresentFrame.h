@@ -7,6 +7,7 @@
 #include <optional>
 
 #include "PlatformOGL.h"
+#include "renderer/SunGuard.h"
 #include "types.h"
 
 struct Frame;
@@ -22,9 +23,10 @@ struct FrameView
     int Width = 0, Height = 0;
     // the top screen's width in DS pixels (wider than 256 with WideMelon), and its margin rows above and below (WideMelon camera stage 2)
     int TopWidth = 256, TopMargin = 0;
-    // the sun shadows' guard band (Frame::topScreenGuard), included in both: the DS pixels on each side and rows above and below of the top
-    // screen's half that are rendered and filtered, so the sun's march finds the casters there, but not shown
-    int TopGuard = 0;
+    // the sun shadows' guard band (Frame::topScreenGuard), included in both: the DS pixels on the left and right and rows above and below of
+    // the top screen's half that are rendered and filtered, so the sun's march finds the casters there, but not shown. The native screens
+    // (the bottom one's columns too) are in the middle of the shown part, at NativeLeft() and NativeTop()
+    MelonDSAndroid::FrameGuard TopGuard {};
     // GPU::Comp1x: the halves the compositor drew at 1x (bit 0 the top one), the frame's scale and the scale they were drawn at
     int HalvesAt1x = 0, Scale = 1, HalfScale = 1;
     // the frame queue's sequence, so a frame presented again isn't filtered again (0: none)
@@ -48,8 +50,11 @@ struct FrameView
     int TopScreenHeight() const { return 192 + 2 * TopMargin; }
     int FrameHeight() const { return TopScreenHeight() + 2 + 192; }
     // the top screen's shown width and margin rows: the guard band left out
-    int ShownTopWidth() const { return TopWidth - 2 * TopGuard; }
-    int ShownTopMargin() const { return TopMargin - TopGuard; }
+    int ShownTopWidth() const { return TopWidth - TopGuard.left - TopGuard.right; }
+    int ShownTopMargin() const { return TopMargin - (TopGuard.top + TopGuard.bottom) / 2; }
+    // the frame's columns left of the native screens and the top half's rows above DS line 0
+    int NativeLeft() const { return TopGuard.left + (ShownTopWidth() - 256) / 2; }
+    int NativeTop() const { return TopGuard.top + ShownTopMargin(); }
 
     static FrameView Of(const Frame& frame);
 };

@@ -117,7 +117,7 @@ FrameView FrameView::Of(const Frame& frame)
     view.TopWidth = (int)frame.topScreenWidth;
     view.TopMargin = (int)frame.topScreenMargin;
     // MelonInstance keeps it within the frame's width and margin already
-    view.TopGuard = (int)frame.topScreenGuard;
+    view.TopGuard = frame.topScreenGuard;
     view.HalvesAt1x = frame.halvesAt1x;
     view.Scale = frame.scaleAt1x;
     view.HalfScale = frame.halfScaleAt1x;
