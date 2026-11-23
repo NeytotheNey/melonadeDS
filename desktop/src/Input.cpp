@@ -8,6 +8,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "Settings.h"
 #include "picojson/picojson.h"
 
 namespace fs = std::filesystem;
@@ -374,15 +375,7 @@ void Input::Load(const fs::path& dir, bool hidden)
         std::stringstream text;
         text << in.rdbuf();
         picojson::value root;
-        std::string error;
-        try
-        {
-            error = picojson::parse(root, text.str());
-        }
-        catch (const std::exception& e)
-        {
-            error = e.what();
-        }
+        std::string error = ParseJson(text.str(), root);
         if (!error.empty() || !root.is<picojson::object>())
             fprintf(stderr, "input: %s doesn't parse (%s), using the default bindings\n", File.string().c_str(), error.c_str());
         else if (root.get("devices").is<picojson::object>())

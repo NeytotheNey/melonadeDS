@@ -1148,7 +1148,7 @@ bool MetadataSync::UpdateHashLibrary(bool force)
         if (ok)
         {
             picojson::value v;
-            std::string error = picojson::parse(v, r.BodyText());
+            std::string error = ParseJson(r.BodyText(), v);
             ok = error.empty() && v.is<picojson::object>() && v.contains("Success") && v.get("Success").is<bool>() && v.get("Success").get<bool>()
                 && v.contains("MD5List") && v.get("MD5List").is<picojson::object>();
             if (ok)
@@ -1216,7 +1216,7 @@ MetadataSync::GameResult MetadataSync::GetGame(int64_t gameId, const std::string
         return result;
     }
     picojson::value v;
-    if (!picojson::parse(v, r.BodyText()).empty())
+    if (!ParseJson(r.BodyText(), v).empty())
     {
         result.Type = GameResult::Unexpected;
         return result;

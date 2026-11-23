@@ -1,4 +1,4 @@
-// The Windows file dialog (IFileOpenDialog) for Open ROM, the folder settings and a game's GBA ROM. UI thread; it's modal and blocks until it closes
+// The Windows file dialog (IFileOpenDialog) for Open ROM, the folder settings, a game's GBA ROM and a layout's background image. UI thread; it's modal and blocks until it closes
 #pragma once
 
 #include <optional>
@@ -16,5 +16,7 @@ std::optional<std::string> OpenRomDialog(SDL_Window* parent, const std::string& 
 std::optional<std::string> OpenFolderDialog(SDL_Window* parent, const std::string& startDir);
 // a GBA ROM (.gba), for a game's GBA slot
 std::optional<std::string> OpenGbaRomDialog(SDL_Window* parent, const std::string& startDir);
+// an image or SVG for a layout's background
+std::optional<std::string> OpenImageDialog(SDL_Window* parent);
 
 }

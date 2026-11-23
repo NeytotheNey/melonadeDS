@@ -61,6 +61,8 @@
 #include "MetadataSync.h"
 #include "Secret.h"
 #include "Presenter.h"
+#include "layout/Layouts.h"
+#include "render/Backgrounds.h"
 #include "RomFile.h"
 #include "RunOptions.h"
 #include "SaveSlots.h"
@@ -213,6 +215,10 @@ struct Options
     std::vector<std::pair<std::string, picojson::value>> SettingOverrides;
     std::optional<Frontend::WindowPlace> Window, Window2; // --window, --window2
     bool SaveHiddenPlaces = false;
+    // --layout, --background and --background-mode: the run's layout and background over the game's and the settings', never stored
+    std::string LayoutArg, BackgroundArg;
+    std::optional<Frontend::BackgroundMode> BackgroundMode;
+    std::string ExportLayouts; // --export-layouts FILE: the profile's layouts.json written again to FILE, then quit
 
     std::string OpenScreen;    // --open: a menu screen opened at the start
     std::string UiScriptPath;  // --ui-script
@@ -291,11 +297,17 @@ void Usage()
         "                              gets a fresh temporary one, so it never reads or writes your settings\n"
         "  --setting KEY=VALUE         a setting for this run only, e.g. desktop_fit_bottom=integer (README lists them)\n"
         "  (the options that change a setting, --renderer, --scale, --filter, --linear, --deband, --ds-colors,\n"
-        "  --screen-shadow, --vsync, --no-audio, --layout, --detach and --rom-folder, are for the run only too: none\n"
-        "  of them is written to settings.json)\n"
+        "  --screen-shadow, --vsync, --no-audio, --layout, --background, --detach and --rom-folder, are for the run\n"
+        "  only too: none of them is written to settings.json)\n"
         "\n"
-        "  --layout vertical|horizontal|top|bottom   the screens together in one window (with --detach: the\n"
-        "                              layout for when they're together again)\n"
+        "  --layout NAME|ID            the layout for this run, over the game's and the settings': a layout's name (any\n"
+        "                              case) or id from layouts.json, default (the app's Default), or the desktop's\n"
+        "                              vertical, horizontal, top, bottom; the screens together in one window (with\n"
+        "                              --detach: the layout for when they're together again, and its detached ones)\n"
+        "  --background FILE|NAME      the background for this run, over the layout's: an image or SVG file, a\n"
+        "                              background's name (crimson, pearl-tech, ...) or id, or none\n"
+        "  --background-mode MODE      how it's placed: stretch, fit-center, fit-top, fit-left, fit-bottom, fit-right\n"
+        "  --export-layouts FILE       write the profile's layouts.json again to FILE (the app's format) and quit\n"
         "  --detach                    the screens detached: the top and bottom screens in two windows\n"
         "  --window W,H[,X,Y]          the main window's size in pixels (and desktop position) for this run\n"
         "  --window2 W,H[,X,Y]         the same for the second window when detached\n"
@@ -382,7 +394,8 @@ void Usage()
         "\n"
         "  --open SCREEN               open a menu screen at the start: library (or start), library/details or\n"
         "                              library/settings (the first game's details or game settings, once the scan\n"
-        "                              is done), pause, pause/save, pause/load,\n"
+        "                              is done), pause, pause/save, pause/load, pause/layout, layouts,\n"
+        "                              layout-editor (the layout in use), layout-editor/new, layout-editor/ID,\n"
         "                              settings, settings/video (display, emulation, audio, controls, library),\n"
         "                              input, keyboard (a text field and the on-screen keyboard); with a\n"
         "                              game, once its first frame is shown\n"
@@ -434,7 +447,7 @@ void Usage()
         "      F1 = swap screens, F9 = screens together/detached, F11 = fullscreen of the focused window,\n"
         "      F12 = screenshot, mouse on the bottom screen = touch\n"
         "      fixed: P = pause, Ctrl+R = reset, F5/F6/F7 = software/OpenGL/Compute, F3/F4 = scale down/up,\n"
-        "      F2 = layout, F8 = linear filter on/off, F10 = fit of the focused detached window\n"
+        "      F2 = next layout, F8 = linear filter on/off, F10 = fit of the focused detached window\n"
         "      menus: arrows move, Enter chooses, Esc or Backspace goes back, Delete clears, Q/W switch tabs\n"
         "      controllers: Guide or Select+Start held = pause menu, the right stick moves a touch cursor and the\n"
         "      right trigger taps; face buttons by the pad's layout (Nintendo: east = A, others: south = A)\n");
@@ -670,11 +683,22 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         }
         else if (arg == "--layout")
         {
-            std::string l = next();
-            if (l != "vertical" && l != "horizontal" && l != "top" && l != "bottom") { fprintf(stderr, "unknown layout %s\n", l.c_str()); return false; }
-            setting("desktop_layout", text(l.c_str()));
+            // checked against the layouts once the profile is read
+            opts.LayoutArg = next();
             layoutGiven = true;
         }
+        else if (arg == "--background") opts.BackgroundArg = next();
+        else if (arg == "--background-mode")
+        {
+            std::string mode = next();
+            opts.BackgroundMode = Frontend::ParseBackgroundMode(mode);
+            if (!opts.BackgroundMode)
+            {
+                fprintf(stderr, "unknown background mode %s (stretch, fit-center, fit-top, fit-left, fit-bottom, fit-right)\n", mode.c_str());
+                return false;
+            }
+        }
+        else if (arg == "--export-layouts") opts.ExportLayouts = next();
         else if (arg == "--window-scale") opts.WindowScale = std::clamp(atoi(next().c_str()), 1, 8);
         else if (arg == "--linear") setting("video_filtering", text("linear"));
         else if (arg == "--filter")
@@ -1790,6 +1814,76 @@ int main(int argc, char** argv)
     ApplySettings(opts, settings);
     printf("profile: %s%s\n", Frontend::PathToUtf8(profileDir).c_str(), temporaryProfile ? " (temporary)" : "");
 
+    // the layouts (the built-in ones and the profile's layouts.json, the app's file) and the backgrounds they show
+    Frontend::Layouts layouts;
+    layouts.Load(profileDir);
+    if (!opts.ExportLayouts.empty())
+    {
+        bool written = layouts.Write(Frontend::PathFromUtf8(opts.ExportLayouts));
+        printf("layouts: %s %s\n", written ? "written to" : "couldn't write", opts.ExportLayouts.c_str());
+        return written ? 0 : 1;
+    }
+    Frontend::Backgrounds backgrounds;
+    backgrounds.Load(profileDir);
+    const Frontend::LayoutChoice* runLayout = nullptr;
+    if (!opts.LayoutArg.empty() && !(runLayout = layouts.FindByName(opts.LayoutArg)))
+    {
+        fprintf(stderr, "no layout called %s; there are:\n", opts.LayoutArg.c_str());
+        for (const Frontend::LayoutChoice& c : layouts.All())
+            fprintf(stderr, "  %s  %s%s\n", c.Id().c_str(), c.DisplayName.c_str(), c.Alias.empty() ? "" : (" (" + c.Alias + ")").c_str());
+        return 1;
+    }
+    // its id too, to find it again after layouts.json changes (the layout editor, the list's copy and delete rebuild the list)
+    std::string runLayoutId = runLayout ? runLayout->Id() : "";
+    std::optional<std::string> runBackground;
+    if (!opts.BackgroundArg.empty())
+    {
+        std::string key, error;
+        if (!backgrounds.ResolveArgument(opts.BackgroundArg, key, error))
+        {
+            fprintf(stderr, "--background: %s\n", error.c_str());
+            return 1;
+        }
+        runBackground = key;
+    }
+    // The layout the windows show, as the app picks it (EmulatorViewModel.startObservingLayoutForRom): the run's (--layout), else the game's
+    // own while one runs (RomConfig.LayoutId), else the settings' (input_layout_id, the app's key), else the app's Default. Before a profile
+    // had input_layout_id, the desktop kept its arrangement in desktop_layout, which then still picks it. One that's gone (a game's layout
+    // removed from layouts.json) falls through to the next, as the app's falls back to the global layout. A game's layout from --rom-config
+    // (layout=ID, or layout=global, the global one whatever the game's own is) is the run's like --layout: a pick then stays in the run
+    std::string gameLayoutId, gameConfigKey;
+    std::optional<std::string> gameRunLayoutId;
+    enum class LayoutFrom { Run, Game, Global, Default };
+    auto resolveLayout = [&](LayoutFrom* from) -> const Frontend::LayoutChoice&
+    {
+        LayoutFrom source = LayoutFrom::Default;
+        const Frontend::LayoutChoice* choice = runLayout;
+        if (choice)
+            source = LayoutFrom::Run;
+        // (phase 4: a Lua script's layout request, LuaLayoutChoice, goes here: over the game's and the settings', under the run's, and a
+        // layout the player picks by hand wins over it, as the app's LuaLayoutRequests)
+        bool runsGlobal = false;
+        if (!choice && gameRunLayoutId)
+        {
+            source = LayoutFrom::Run;
+            runsGlobal = gameRunLayoutId->empty() || !(choice = layouts.Find(*gameRunLayoutId));
+        }
+        if (!choice && !runsGlobal && !gameLayoutId.empty() && (choice = layouts.Find(gameLayoutId)))
+            source = LayoutFrom::Game;
+        if (!choice)
+        {
+            LayoutFrom global = runsGlobal ? LayoutFrom::Run : LayoutFrom::Global;
+            std::string id = settings.GetString("input_layout_id", "");
+            if (!id.empty() && (choice = layouts.Find(id)))
+                source = global;
+            else if (id.empty() && settings.Find("desktop_layout") && (choice = layouts.FindByName(settings.GetString("desktop_layout", ""))))
+                source = global;
+        }
+        if (from)
+            *from = source;
+        return choice ? *choice : layouts.Default();
+    };
+
     // the input mapping (input.json), with the controller mappings shipped next to the exe and the profile's own on top
     Frontend::Input input;
     input.Load(profileDir, opts.Hidden);
@@ -1826,6 +1920,15 @@ int main(int argc, char** argv)
     windowOptions.MainOverride = opts.Window;
     windowOptions.SecondOverride = opts.Window2;
     windowOptions.SaveHiddenPlaces = opts.SaveHiddenPlaces;
+    {
+        // the default window's shape: the desktop arrangement's, or both screens stacked (the app's Default in portrait) for the others
+        Frontend::BuiltInLayout shape = resolveLayout(nullptr).BuiltIn;
+        windowOptions.DefaultShape = shape == Frontend::BuiltInLayout::Horizontal ? Frontend::Layout::Horizontal
+            : shape == Frontend::BuiltInLayout::TopOnly ? Frontend::Layout::TopOnly
+            : shape == Frontend::BuiltInLayout::BottomOnly ? Frontend::Layout::BottomOnly : Frontend::Layout::Vertical;
+    }
+    windows.SetLayout(resolveLayout(nullptr));
+    windows.SetBackgroundOverride(runBackground, opts.BackgroundMode);
     SDL_Window* window = windows.CreateMain(settings, windowOptions);
     if (!window)
     {
@@ -1875,6 +1978,7 @@ int main(int argc, char** argv)
     presenter.SetDepthOfField(opts.DepthOfField);
     presenter.SetShade(opts.Shade);
     presenter.SetSun(opts.Sun);
+    presenter.SetBackgrounds(&backgrounds);
 
     std::string cacheDir = opts.CacheDir.empty() ? exeDir + "cache" : opts.CacheDir;
     std::error_code ec;
@@ -2295,6 +2399,41 @@ int main(int argc, char** argv)
         std::lock_guard guard(touchLock);
         touchRect = r;
     };
+    // the windows on the layout resolveLayout picks now
+    auto applyLayout = [&]
+    {
+        windows.SetLayout(resolveLayout(nullptr));
+        refreshTouchRect();
+    };
+    // a layout picked while playing (F2, the pause menu): stored where the one in use came from, so the run's --layout stays the run's
+    // (never written), a game with its own layout gets this one as its own, and otherwise it's the settings' global layout
+    auto pickLayout = [&](const std::string& id)
+    {
+        const Frontend::LayoutChoice* choice = layouts.Find(id);
+        if (!choice)
+            return;
+        LayoutFrom from;
+        resolveLayout(&from);
+        if (from == LayoutFrom::Run && runLayout)
+        {
+            runLayout = choice;
+            runLayoutId = choice->Id();
+        }
+        else if (from == LayoutFrom::Run)
+            gameRunLayoutId = id;
+        else if (from == LayoutFrom::Game)
+        {
+            Frontend::RomConfig config = library.GetConfig(gameConfigKey);
+            config.LayoutId = id;
+            if (!library.SetConfig(gameConfigKey, config))
+                fprintf(stderr, "layout: couldn't store it in the game's settings; it holds for this run\n");
+            gameLayoutId = id;
+        }
+        else
+            settings.Set("input_layout_id", picojson::value(id));
+        printf("layout picked for the %s\n", from == LayoutFrom::Run ? "run" : from == LayoutFrom::Game ? "game" : "settings");
+        applyLayout();
+    };
 
     // Boots [path] (UTF-8): the instance made and its ROM loaded with its save, then the emulator thread started. The command line's
     // game (commandLine) also gets its --gba, --state, --at, --press and --touch. False, with the reason on stderr, when the ROM doesn't load
@@ -2324,6 +2463,9 @@ int main(int argc, char** argv)
         ffToggle = false;
         updateFastForward();
         windows.UpdateTitles("");
+        gameLayoutId.clear();
+        gameRunLayoutId.reset();
+        applyLayout();
         // back to the library: the sync that was held off, or asked for meanwhile
         metadata.GameEnded();
         // with the process's handle count, so a leak over many boots shows
@@ -2391,6 +2533,19 @@ int main(int argc, char** argv)
         }
         printf("game settings: %s%s (by %s); boots as %s (%s)\n", game.Describe().c_str(), opts.RomConfigOverrides.empty() ? "" : " with --rom-config",
             identity.RaHash.empty() ? "path" : identity.RaHash.c_str(), opts.ConsoleType == 1 ? "DSi" : "DS", consoleFrom);
+        // its own layout while it runs (the run's --layout still over it)
+        // the stored one, and --rom-config's for the run apart from it
+        gameLayoutId = stored.LayoutId;
+        gameConfigKey = Frontend::Library::ConfigKey(identity.RaHash, path);
+        gameRunLayoutId.reset();
+        for (const auto& [key, value] : opts.RomConfigOverrides)
+        {
+            if (key == "layout")
+                gameRunLayoutId = game.LayoutId;
+        }
+        if (!gameLayoutId.empty() && !layouts.Find(gameLayoutId))
+            printf("game settings: its layout %s isn't in layouts.json, so the global one shows\n", gameLayoutId.c_str());
+        applyLayout();
 
         // The console, as before the shared code: FreeBIOS and a generated firmware unless --bios says otherwise
         std::unique_ptr<NDSArgs> args;
@@ -2776,6 +2931,49 @@ int main(int argc, char** argv)
                 host.BootRom(*path);
         });
     };
+    host.Layouts = &layouts;
+    host.Backgrounds = &backgrounds;
+    host.LayoutInUse = [&] { return windows.GetLayout().Id(); };
+    host.LayoutSource = [&]() -> std::string
+    {
+        LayoutFrom from;
+        resolveLayout(&from);
+        return from == LayoutFrom::Run ? "run" : from == LayoutFrom::Game ? "game" : "global";
+    };
+    host.PickLayoutInGame = [&](const std::string& id) { pickLayout(id); };
+    // the layout editor's window: together the main one; detached the one asked for, or the focused one
+    host.LayoutEditTarget = [&](int surface)
+    {
+        Frontend::LayoutEditTarget target;
+        target.Detached = windows.IsDetached();
+        target.Surface = !target.Detached ? 0 : surface < 0 ? windows.FocusedSurface() : std::clamp(surface, 0, 1);
+        // the main window shows the top screen unless they're swapped
+        target.TopScreen = (target.Surface == 0) != windows.IsSwapped();
+        windows.SurfaceSize(target.Surface, target.W, target.H);
+        return target;
+    };
+    host.SetLayoutPreview = [&](const std::optional<Frontend::LayoutPreview>& preview)
+    {
+        windows.SetPreview(preview);
+        redraw = true;
+    };
+    host.ShownAsLayout = [&](int surface) { return windows.ShownAsLayout(surface); };
+    host.LayoutsChanged = [&]
+    {
+        // layouts.json changed and the list was made again: the run's layout found again by its id (gone: the next one in line)
+        runLayout = runLayoutId.empty() ? nullptr : layouts.Find(runLayoutId);
+        applyLayout();
+    };
+    host.PickBackgroundFile = [&](std::function<void(const std::optional<std::string>&)> done)
+    {
+        if (opts.Hidden)
+        {
+            done(std::nullopt);
+            return;
+        }
+        // after the frame, as Open ROM: the dialog is modal and the menus can't draw meanwhile
+        messenger->Post([&, done] { done(Frontend::OpenImageDialog(window)); });
+    };
     host.IsDetached = [&] { return windows.IsDetached(); };
     host.SetDetached = [&](bool detached)
     {
@@ -2859,15 +3057,10 @@ int main(int argc, char** argv)
             refreshTouchRect();
             return true;
         }
-        if (key == "desktop_layout")
+        if (key == "input_layout_id")
         {
-            static const char* const kNames[] = {"vertical", "horizontal", "top", "bottom"};
-            for (int i = 0; i < 4; i++)
-            {
-                if (text() == kNames[i])
-                    windows.SetLayout((Frontend::Layout)i);
-            }
-            refreshTouchRect();
+            settings.Set(key, value);
+            applyLayout();
             return true;
         }
         if (key == "desktop_fit_top" || key == "desktop_fit_bottom")
@@ -2989,6 +3182,8 @@ int main(int argc, char** argv)
     int scriptSyncQuiet = 0;
     u32 scriptFrame = 0;
     std::function<void()> scriptRelease;
+    // the left button held by a mouse-down step, for the mouse-move steps of a drag
+    bool scriptMouseHeld = false;
 
     // UI thread: the window as drawn now (the game's newest frame, then the menus' last frame), into [path] (_top/_bottom when detached)
     auto windowShot = [&](const std::string& path)
@@ -3099,7 +3294,23 @@ int main(int argc, char** argv)
             });
             break;
         }
-        case SDLK_F2: windows.NextLayout(); redraw = true; break;
+        case SDLK_F2:
+        {
+            // not while the layout editor is open: it would store a layout choice under it (and change which one its new layout replaces)
+            if (ui.HasScreen("layout-editor"))
+            {
+                ui.Toast("Close the layout editor to pick another layout");
+                break;
+            }
+            // the next layout in the list, stored where the one in use came from
+            const std::vector<Frontend::LayoutChoice>& all = layouts.All();
+            size_t i = 0;
+            while (i < all.size() && all[i].Id() != windows.GetLayout().Id())
+                i++;
+            pickLayout(all[(i + 1) % all.size()].Id());
+            redraw = true;
+            break;
+        }
         case SDLK_F8:
         {
             // linear on and off (from another filter, linear)
@@ -3162,7 +3373,17 @@ int main(int argc, char** argv)
             break;
         }
         case Action::SwapScreens: windows.ToggleSwap(); redraw = true; break;
-        case Action::DetachScreens: windows.SetDetached(!windows.IsDetached()); redraw = true; break;
+        case Action::DetachScreens:
+            // the layout editor edits one window's layout: the windows stay as they are until it's closed
+            if (ui.HasScreen("layout-editor"))
+            {
+                if (down)
+                    ui.Toast("Close the layout editor to put the screens together or apart");
+                break;
+            }
+            windows.SetDetached(!windows.IsDetached());
+            redraw = true;
+            break;
         case Action::Fullscreen: windows.ToggleFullscreen(focusId); redraw = true; break;
         case Action::Screenshot:
         {
@@ -3376,6 +3597,32 @@ int main(int argc, char** argv)
             event.button.x = step.Value;
             event.button.y = (int)step.Number;
             SDL_PushEvent(&event);
+            scriptMouseHeld = down;
+            scriptDelay = 1;
+            break;
+        }
+        case Kind::MouseMove:
+        {
+            // a drag's move: the button held since the last mouse-down
+            SDL_Event motion {};
+            motion.type = SDL_MOUSEMOTION;
+            motion.motion.windowID = SDL_GetWindowID(window);
+            motion.motion.x = step.Value;
+            motion.motion.y = (int)step.Number;
+            motion.motion.state = scriptMouseHeld ? SDL_BUTTON_LMASK : 0;
+            SDL_PushEvent(&motion);
+            scriptDelay = 1;
+            break;
+        }
+        case Kind::Wheel:
+        {
+            SDL_Event wheel {};
+            wheel.type = SDL_MOUSEWHEEL;
+            wheel.wheel.windowID = SDL_GetWindowID(window);
+            wheel.wheel.y = step.Value;
+            wheel.wheel.preciseY = (float)step.Value;
+            wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+            SDL_PushEvent(&wheel);
             scriptDelay = 1;
             break;
         }

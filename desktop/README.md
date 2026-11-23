@@ -34,8 +34,8 @@ which leaves `build-desktop/melonade-desktop.exe` with `SDL2.dll` and `gamecontr
 `build-desktop/release/melonadeDS-<version>/`: the exe, `SDL2.dll`, `gamecontrollerdb.txt` and `licenses/`. The exe is
 a GUI program (no console window); the fonts, the icon and the version info are inside it (`src/resources.rc`; the
 version is the app's `versionName` from `buildSrc/src/main/kotlin/AppConfig.kt`, the icon `src/app.ico`, made from the
-app's launcher icon by `tools/desktop-icon/make_icon.py`), and so are the app's shaders ([Screen filters](#screen-filters)). It needs
-only system DLLs and `SDL2.dll`.
+app's launcher icon by `tools/desktop-icon/make_icon.py`), and so are the app's shaders ([Screen filters](#screen-filters)) and its
+built-in backgrounds ([Layouts and backgrounds](#layouts-and-backgrounds)). It needs only system DLLs and `SDL2.dll`.
 
 `gl/pc_gl_loader.h/.cpp` are generated from `gl/khronos/GLES3/gl32.h` by `gl/gen_gl_loader.py`;
 run it again only if that header changes.
@@ -93,9 +93,13 @@ main ones:
 | `--set Name=Value` | a core debug switch on `GPU`, e.g. `--set LateBlit=0` (`--list-sets`) |
 | `--frames N` | quit after N frames and print frame time stats: the game's frames, plus the UI's while no game frame runs (the start screen, a menu over the paused game), and how many presented frames had a screen at 1x (GPU::Comp1x) |
 | `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window, menus included, when `--frames` or `--ui-script` ends the run; detached, the windows as `F_top.bmp` and `F_bottom.bmp` |
-| `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `pause`, `pause/save`, `pause/load`, `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`), `input`, `keyboard`; with a game, once its first frame is shown |
+| `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `pause`, `pause/save`, `pause/load`, `pause/layout`, `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`), `layouts` (the global layout's list), `layout-editor` (the [layout editor](#layout-editor) on the layout in use), `layout-editor/new`, `layout-editor/ID` (a custom layout by its id), `input`, `keyboard`; with a game, once its first frame is shown |
+| `--layout NAME\|ID` | the [layout](#layouts-and-backgrounds) for the run, over the game's own and the settings' (never stored): a layout's name in any case or its id from `layouts.json`, `default` (the app's Default), or the desktop's `vertical`, `horizontal`, `top`, `bottom`; an unknown one lists them and quits. It also means the screens together, unless `--detach` is given too (then it's the layout for when they're together again, and its detached windows' layouts) |
+| `--background FILE\|NAME` | the background for the run, over the layout's: an image (PNG, JPEG, BMP, GIF) or SVG file, a background's name (`crimson`, `pearl-tech`, `Pearl Tech`, or a user background's name from `backgrounds.json`) or id, or `none` |
+| `--background-mode MODE` | how it's placed for the run: `stretch`, `fit-center`, `fit-top`, `fit-left`, `fit-bottom`, `fit-right` (the app's `BackgroundMode`, `FIT_CENTER` style too) |
+| `--export-layouts FILE` | write the profile's `layouts.json` again to FILE, as the desktop saves it (the app's format, unknown fields kept), and quit; for round-trip checks |
 | `--rom-folder DIR` | a folder for the game library, repeated for more; for the run only, in place of the saved `rom_search_dirs`, never written |
-| `--rom-config KEY=VALUE` | over the booted game's own settings for this run, never stored: `console=default\|ds\|dsi`, `gba-slot=default\|none\|gba-rom\|rumble-pak\|memory-expansion`, `gba-rom=FILE.gba`, `name=TEXT`; repeat it for more |
+| `--rom-config KEY=VALUE` | over the booted game's own settings for this run, never stored: `console=default\|ds\|dsi`, `gba-slot=default\|none\|gba-rom\|rumble-pak\|memory-expansion`, `gba-rom=FILE.gba`, `name=TEXT`, `layout=ID\|global` (like `--layout`, a layout picked while it holds stays in the run); repeat it for more |
 | `--pretend-title-art`, `--pretend-wide-tiles N` | every game counts as having title-screen art, so the Mosaic view makes one in six of them wide by ROM hash, as the app does; `--pretend-wide-tiles N` makes one in N of the games with title art (downloaded, or pretended) wide by path instead, for a test library of copies of a few ROMs |
 | `--no-sync` | no network at all for the run: the [metadata sync](#metadata-and-art) makes no requests (the art on disk still shows, and the ROMs' hashes are still computed) |
 | `--sync-now` | scan the library and sync at the start, without the library screen (with `--open settings/library`, say), with RetroAchievements' hash library fetched whatever its age |
@@ -126,7 +130,7 @@ Keys and buttons are the input mapping's ([Input](#input)); by default the keybo
 A = Y, Q = L, W = R, Enter = Start, Right Shift (or Backspace) = Select, Esc = the pause menu, Tab (hold) or \` (on/off) =
 fast forward, Ctrl+S / Ctrl+L = quick save / load (slot 0), F1 = swap screens, F9 = screens together/detached, F11 (or
 Alt+Enter) = fullscreen of the focused window, F12 = screenshot, and the mouse on the bottom screen touches. These stay fixed:
-P = pause, Ctrl+R = reset, F5/F6/F7 = software/OpenGL/Compute, F3/F4 = scale down/up, F2 = layout, F8 = the linear filter on and off,
+P = pause, Ctrl+R = reset, F5/F6/F7 = software/OpenGL/Compute, F3/F4 = scale down/up, F2 = the next layout, F8 = the linear filter on and off,
 F10 = fit of the focused detached window. Keys and controllers work whichever window has the focus.
 
 ### Settings
@@ -138,8 +142,9 @@ runs never read or change the real one, visible or not. Keys the app has use its
 desktop-only ones start with `desktop_`. Keys the desktop doesn't know are kept.
 
 Options that set a setting (`--renderer`, `--scale`, `--filter`, `--linear`, `--deband`, `--ds-colors`, `--screen-shadow`, `--vsync`,
-`--no-audio`, `--layout`, `--detach`, `--rom-folder`, `--setting`) apply to that run only and are never written; a hotkey that changes one of
-them during that run changes it for the run only too. Hotkeys change and save the others. `--layout`
+`--no-audio`, `--detach`, `--rom-folder`, `--setting`) apply to that run only and are never written; a hotkey that changes one of
+them during that run changes it for the run only too. Hotkeys change and save the others. `--layout` and `--background` are the run's
+too: a layout picked while one is given (F2, the pause menu) changes the run's, and nothing is stored. `--layout`
 also means the screens together for that run, unless `--detach` is given too.
 
 | Key | Values | |
@@ -161,7 +166,9 @@ also means the screens together for that run, unless `--detach` is given too.
 | `mute_fast_forward_audio` | `true`, `false` | (default on, as in the app) |
 | `desktop_rumble` | `true`, `false` | controllers rumble when the game does |
 | `desktop_vsync` | `true`, `false` | the main window waits for vsync (`--vsync`) |
-| `desktop_layout` | `vertical`, `horizontal`, `top`, `bottom` | the screens together, F2 |
+| `input_layout_id` | a layout's id | the global [layout](#layouts-and-backgrounds) (the app's key; default the app's Default, `00000000-0000-0000-0000-000000000000`); F2 and the pause menu change it when the one in use is the global one. Before it's set, an older profile's `desktop_layout` (`vertical`, `horizontal`, `top`, `bottom`, which the desktop no longer writes) still picks that arrangement |
+| (`layouts.json`, `backgrounds.json`) | | the custom layouts and the user's backgrounds, the app's files, next to `settings.json`, see [Layouts and backgrounds](#layouts-and-backgrounds) |
+| `layout_editor_snap_to_grid`, `layout_editor_grid_size` | `true`, `false`; `SMALL`, `MEDIUM`, `LARGE` | the [layout editor](#layout-editor)'s snapping and its grid (16, 32 or 48 reference pixels), the app's keys and values (default off, `MEDIUM`) |
 | `desktop_screens` | `together`, `detached` | F9 |
 | `desktop_swap_screens` | `true`, `false` | F1 |
 | `desktop_fit_top`, `desktop_fit_bottom` | `aspect`, `integer`, `stretch` | each screen's fit when detached, F10 |
@@ -201,14 +208,17 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
   boots. Display name (the on-screen keyboard; X goes back to the banner's title), Boot system (Default, which follows Settings >
   Emulation > Console, DS or DSi; locked to DSi for a DSiWare title, as the app does) and GBA slot (None by default as in the app, GBA
   ROM with its file through the Windows file dialog and its save next to it as `--gba` does, Rumble Pak, Memory expansion; the file is
-  kept while another slot is chosen), then Reset to defaults. They're kept by the ROM's RetroAchievements hash, so they survive the
+  kept while another slot is chosen), Layout (the game's own, the app's `layoutId`, or "Use global layout", its default; the list as
+  in Settings), then Reset to defaults. They're kept by the ROM's RetroAchievements hash, so they survive the
   file being moved or renamed and every copy of the game shares them (by path for a ROM rc_hash refuses). The app's
-  microphone source, controller layout, widescreen and mods are listed as "Coming later" (phases 6, 3 and 4), and its Motion Paks are
+  microphone source, widescreen and mods are listed as "Coming later" (phases 6, 3 and 4), and its Motion Paks are
   left out until the desktop reads a controller's gyro. Changes are stored at once and apply the next time the game starts, from the
   library or the command line. The command line beats them: `--rom-config` for the run, then `--console` and `--gba`.
   `--open library/settings` opens the first game's.
 - **Pause menu** (the Pause binding: Esc, Guide, or Select + Start held; over the last frame, dimmed): Resume, Save state, Load state,
-  Detached screens, Swap screens, Settings, Reset, Quit to library, Quit.
+  Detached screens, Swap screens, Layout (the list of layouts, the one in use marked; a pick is stored where that one came from: the
+  game's own layout, the run's `--layout`, or the global one, and a line over the list says which), Edit layout (the [layout
+  editor](#layout-editor) on the layout in use; "New layout from this one" for a built-in one), Settings, Reset, Quit to library, Quit.
 - **Save state / Load state**: the app's nine slots next to the ROM (`<rom>.ml0`, the quick slot, to
   `.ml8`, so states move between phone and PC), saved and loaded through `MelonInstance` on the
   emulator thread. Loading a state takes its save into memory only (`SaveManager::SyncFromState`), so
@@ -218,7 +228,7 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
   game is paused on, since the app's `ScreenshotRenderer` only takes one as the next frame runs. Saving over a used slot asks
   first, and X (Delete) on a used slot deletes it, once asked, to the recycle bin with its screenshot.
 - **Settings**: six tabs (L / R): Video (renderer, internal resolution, the renderer settings, the screen filter in the app's list and
-  order, smooth gradients, DS screen colors, screen shadow, JIT), Display (screens together or detached, layout, swap, each detached
+  order, smooth gradients, DS screen colors, screen shadow, JIT), Display (screens together or detached, the global layout's list, swap, each detached
   screen's fit, the bottom window's title bar and on-top, fullscreen mode, vsync, theme), Emulation (console, custom BIOS and its folders through the Windows folder picker, boot screen, fast-forward
   speed), Audio (on/off, volume, latency, mute while fast forwarding), Controls (the input setup, rumble) and Library (the ROM folders:
   A changes one through the folder picker, X removes it, then Add a ROM folder and Rescan the library). A change is saved at
@@ -243,6 +253,8 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
 | `pad NAME` | a controller button pressed and released, as SDL names it (`pad start`, `pad guide`, `pad b`); with `--virtual-pad`, on that pad |
 | `pad-down NAME`, `pad-up NAME`, `key-down NAME`, `key-up NAME` | a button or key held over the next steps, or let go (combos, holds); `key-repeat NAME` sends a repeated KEYDOWN, as a held key does |
 | `mouse-down X Y`, `mouse-up X Y` | the pointer moved to X,Y of the main window and the left button pressed there or let go (a `wait` between the two holds it: a long press) |
+| `mouse-move X Y` | the pointer moved to X,Y of the main window, the left button still held after a `mouse-down` (a drag: several of them, then `mouse-up`) |
+| `wheel N` | the mouse wheel turned N notches where the pointer is (positive: away from you) |
 | `axis NAME VALUE` | a stick or trigger of the `--virtual-pad` (`axis rightx 20000`, `axis righttrigger 32767`) |
 | `wait N` | N passes of the frame loop (UI frames while a menu is up) |
 | `sleep MS` | MS milliseconds of real time, the game running on unless it's held |
@@ -323,7 +335,7 @@ file's size and time, what was read, the icon as 32x32 RGBA, the whole ROM's `cr
 `play_history` table (last played, by path, so it outlives rescans and covers games started from the command line) and, since schema
 version 2, a `rom_config` table: each game's own settings by its `game` key, the ROM's RetroAchievements hash (or its path when rc_hash
 refuses it), one row per field that differs from the default under the app's `RomConfigDto` names and values (`runtimeConsoleType` =
-`DS`/`DSi`, `customName`, `gbaSlotConfig.type` = `GbaRom`/`RumblePak`/`MemoryExpansion`, `gbaSlotConfig.gbaRomPath`; rows with other
+`DS`/`DSi`, `customName`, `gbaSlotConfig.type` = `GbaRom`/`RumblePak`/`MemoryExpansion`, `gbaSlotConfig.gbaRomPath`, `layoutId`; rows with other
 keys are left alone). A game booted from outside the library is read for its hash before it boots.
 Schema version 3 adds the metadata sync's tables (see below). The version is `PRAGMA user_version`; a new version is a new entry in
 `LibraryDb.cpp`'s migrations, run once when the file opens, so an older `library.db` gets the new tables the first time this build opens it.
@@ -443,11 +455,11 @@ fill, the filtered fill, the ratio, underruns and overflows once a second.
 The screens are drawn the way the app's `DSRenderer` draws them, through ports of its code in `src/render/`: `ScreenRenderer` (the
 screen quads, the screen shadow, deband in the screen shader where that's cheaper than the pre-pass, GPU::Comp1x's 1x shader and the
 output cap's need; one per window, as the app has one per surface), `VideoFilterPipeline` (the filter's pre-passes in order at their
-scale, deband as a pre-pass, the 1x expand pass, the Lua bloom, vignette and tilt-shift passes) and `Shader` (the app's `Shader` and `ShaderFactory`). The
+scale, deband as a pre-pass, the 1x expand pass, the Lua shading, sun shadows, depth of field, haze, bloom, vignette and tilt-shift passes) and `Shader` (the app's `Shader` and `ShaderFactory`). The
 filters are the app's twelve (`VideoFiltering`; the settings list leaves out Scanlines as the app's does), with smooth gradients
-(deband), the DS screen colors (Pokefan531's color profile) and the screen shadow. `Presenter` still places the screens with the four
-layouts and the fits; the app's layouts, backgrounds and layout editor come next. `--window-shot` shows the filtered screens,
-`--screenshot` the raw frame as before.
+(deband), the DS screen colors (Pokefan531's color profile) and the screen shadow. Where the screens go, and the background under them, come
+from the [layouts](#layouts-and-backgrounds). `--window-shot` shows the filtered screens with their background, `--screenshot` the raw frame
+as before.
 
 The shaders aren't copied by hand. `shaders/` holds what `ShaderProgramSource.kt` and `VideoFilterShaderProvider.kt` give: a `.vert`
 and a `.frag` for every shader (the tilt-shift and bloom ones built on each `get()` too), and `shaders.json` with each shader's texture filtering
@@ -467,6 +479,169 @@ plain `precision highp float;`, the branch phones take. NVIDIA's ES driver doesn
 at 16-bit mediump there, and 2xBR, whose color compares need highp, drew as no filter at all. Deband folds into the screen shader
 whenever the app's would (its `debug.melonade.debandfold` default); the desktop has no switch for it.
 
+### Layouts and backgrounds
+
+The screens are placed by the app's layouts (`src/layout/`, ports of `domain/model/layout`, `impl/dtos/layout`, `DefaultLayoutProvider.kt`,
+`UILayoutProvider.kt`, `ScreensDrawing.kt` and `WideTopScreen.kt`) and drawn as `DSRenderer` draws them (`src/render/ScreenRenderer.cpp`):
+each screen at its rect with its opacity, the bottom one over the top one when the layout puts it on top, a wide layout's top screen
+letterboxed (or a normal layout's grown for WideMelon), the swap putting the DS top screen in the layout's bottom rect, and the layout's
+background under them, then the screen shadows. The Lua effects (`--bloom`, `--haze`, `--shade`, `--sun`, `--dof`, `--tilt-shift`) are
+pre-passes over the frame's DS top screen half before it's placed, as the app's, so they go wherever that screen goes (the swap, a
+detached window, any layout) with its opacity, and never touch the background or the bottom screen; a layout that leaves the top screen out
+still runs them. Every layout places the screens for the shown frame, without the sun's guard band (`--sun-guard`), and leaves the band out.
+
+**The list** (Settings > Display > Layout, a game's settings, the pause menu, F2, `--layout`), as the app's: its **Default** layout, built
+for each window size (the app's `DefaultLayoutBuilder`: both screens stacked as big as they fit in a window taller than wide, the top screen
+at two thirds of the width with the bottom one beside it at the top in a wider one), then the desktop's own four arrangements, **Top over
+bottom**, **Side by side**, **Top screen only** and **Bottom screen only** (the test frontend's, placed exactly as before: the screens as big as
+they fit at their shape, WideMelon's width and its camera margin rows included, on fractional pixels, with no background; ids are `nameUUIDFromBytes` of
+`melonade-desktop-layout:<vertical|horizontal|top|bottom>`, so they keep theirs everywhere, and they're never written to `layouts.json`),
+then the custom layouts from `layouts.json` in the profile folder in the file's order (an unnamed one is "Unnamed layout", numbered when there
+are several, as the app's `LuaLayoutChoice`). Which one shows: the run's `--layout`, else the game's own (`RomConfig.layoutId`; one that's no
+longer in the file falls back; `--rom-config layout=` stands in for it for the run), else the global one (`input_layout_id`), else the Default; a Lua script's layout request (phase 4) will go
+between the run's and the game's, as the app's `LuaLayoutRequests`. A fresh profile gets the app's Default, which in the default window
+(two screens tall) is the same as Top over bottom; scripted runs that relied on the old default in a window wider than tall (`--window
+1280,720`, `--wide`) pass `--layout vertical` to keep it.
+
+**layouts.json** is the app's file (`InternalLayoutsRepository`, `SettingsBackupFormat.LAYOUTS_FILE`, a list of `LayoutConfigurationDto`), so
+the one from the phone's settings backup (`app/layouts.json`) can be copied into the profile folder and one written here loads on the phone.
+Everything in it is kept, the on-screen buttons the desktop never draws included, and so is any field this build doesn't know: each object
+keeps them and writes them back. The desktop writes it the way the app's settings backup has it (keys sorted, floats as Kotlin prints them),
+so the two phone files in `perf_logs/2026-11-07-filter2d` come out byte for byte the same through `--export-layouts`. As the app does, an old
+layout's top-level `wideAspect` moves into its variants that have screens placed. A layout the app couldn't read either (a required field
+missing) is left out of the list and written back as it was; a file that doesn't parse at all is never written over. Reading is capped (1000
+layouts, 1000 variants, 256 components, 32 MB, nesting depth 64). The desktop's one addition is a layout's `detached` pair (`{"top": [...],
+"bottom": [...]}`, variant entries like `layoutVariants`, each with the window's one screen), which the app's Gson DTOs skip as an unknown
+field (checked with the app's own compiled `LayoutConfigurationDto` and Gson 2.14: it reads such a file, and a save on the phone drops the
+pair). The [layout editor](#layout-editor) and the list's rename, copy and delete write it, each change at once, through a `.tmp` file that
+replaces it in one step; a file that didn't parse is never written over (the editor says so, and saving does nothing).
+
+**Which variant a window gets.** The app keeps a variant per screen size it was edited on and only uses one made for exactly the current
+size and orientation, else its default layout. A window can be any size, so the desktop's rule is:
+
+1. variants made for a second display (the phone's external display or dual screens) are left out;
+2. one made for exactly the window's drawable size and orientation (landscape when wider than tall) is used as it is;
+3. otherwise the closest one of the same orientation (the nearest aspect ratio, then the nearest size, then the first in the file) is scaled
+   to fit the window, keeping its shape, and centered (every rect's edges rounded, so screens that touch keep touching); its background stays
+   as it was set, since a background is placed against the whole window;
+4. with none of that orientation, the app's default layout for the window's size, as the app does for a size it has no variant for.
+
+A variant that only sets a background (no components) gets the default layout's screens, as the app's `populateLayoutIfRequired`. A layout's
+`orientation` (the app turns the phone to it) and its buttons' opacity mean nothing on a window.
+
+**Detached windows** each get a one-screen layout by the screen they show (it goes with the screen when they're swapped): the layout's
+`detached.top` or `detached.bottom` variants, picked by the same rule for that window's size (with the screen centered as the app's
+`buildSingleScreenLayout` when there's none of its orientation), with their own background and the screen's place, size and opacity. A
+layout without them shows the screen at the window's fit (`desktop_fit_top`, `desktop_fit_bottom`: keep aspect, integer, stretch, F10) as
+before, with the background the together layout has for that window's size.
+
+**Backgrounds** (`src/render/Backgrounds.cpp`) come by the layout's `backgroundId`: the app's fourteen built-in ones (`app/src/main/assets/
+backgrounds`, embedded in the exe by `EmbedBackgrounds.cmake` from the app's own files, so they can't drift; the app's `BuiltInBackgrounds`
+order, names and ids, so a phone layout with Crimson shows Crimson here) and the user's from `backgrounds.json` in the profile folder (the
+app's file: `id`, `name`, `uri`; the `uri` is a path or a `file:///` URI here, a phone's `content://` ones can't be opened and show nothing),
+or `--background` for a run. They're placed as `DSRenderer.getBackgroundCoords` places them in the six modes (stretch; fit center, top, left,
+bottom, right: the image as big as it fits, centered or against that edge), made when the background, its mode or (for an SVG) the window's
+size changes, on a worker thread of the decode's own (an SVG takes 0.1 to 0.3 s at 1080p with nanosvg and up to a second at 4K, which the
+app spends on its GL thread): meanwhile the frames go on, a resized window keeps the one it had, placed for its new size, an SVG made for a size
+the window has already left is made again, and a window shot waits for it. Nothing else ever waits for a decode: one that's no longer wanted
+(the background changed, the app quits) is told to stop and let go of. A PNG, JPEG, BMP or GIF is decoded with stb_image (a private copy without the library art's
+4096-pixel cap; up to 16384 a side and 48 megapixels), shrunk by halves as the app's `BitmapFactory` `inSampleSize` does for the window, and
+premultiplied as Android uploads a bitmap, so transparent parts show black as in the app. A user's file is read on the decode's worker too
+(at most 256 MB, an SVG at most 16 MB) and taken as an image by its PNG, JPEG, GIF or BMP signature before anything else; an SVG's bytes are
+kept for the re-rasterizing, an image's aren't (it's placed again for a new size, not decoded again), and a background that couldn't be shown
+isn't tried again until it's picked again. A relative path in `backgrounds.json` is in the profile folder; `file:` URIs may have `localhost`
+or a UNC host (`file://server/share/x`). WebP and HEIF, which the phone also reads, aren't.
+
+**SVG backgrounds** are rasterized with nanosvg (`third_party/nanosvg`) at the size the app's `SvgRasterSize` gives (the fit modes the
+largest bitmap of the SVG's shape that fits the window, the stretch mode the window's size; the built-in ones have no shape of their own, so
+they're drawn for the window's size with its pixels as their units, in every mode). nanosvg reads a subset of SVG that the built-in
+backgrounds go past, so `src/render/SvgBackground.cpp` rewrites the document before it parses it, leaving the library as released: `<use>`
+becomes a copy of what it refers to, a nested `<svg>` a group with its viewBox's transform, a shape filled with a `<pattern>` is drawn as the
+pattern's tile repeated over it, each tile clipped to its cell as SVG clips it (the layers above and below drawn separately and composited),
+gradients in bounding-box units on rects, circles and ellipses become user-space ones with the box as their transform (nanosvg takes their
+plain-number coordinates as pixels and draws radial ones as circles), and a `fill-opacity` or `stroke-opacity` on a gradient fill goes into
+its stops (nanosvg applies it to plain colors only). Against Edge's renders of the same files at 1280x720 and 600x900, the fourteen differ
+by 1 to 2.5 levels on average (antialiasing and gradient steps). A document that would split into more than 24 layers, need more than 20000
+pattern tiles or parse more than 64 MB in all is given up with a logged error, and a decode that's no longer wanted (the background changed,
+the app quits) stops at its next stage, layer, tile or row. `<text>` isn't drawn (nanosvg has none), so Pearl Tech misses its two small
+decals' words ("MLN-01", "HANDLE WITH CARE").
+
+### Layout editor
+
+A port of the app's layout editor (`ui/layouteditor`) for the screens (`src/ui/LayoutEditor*.cpp`, `src/layout/LayoutEditing.cpp` for
+the geometry and snapping, `src/layout/LayoutEditSession.cpp` for the layout being edited), with the layout management around it.
+
+**Ways in.** The layout lists (Settings > Display > Layout, a game's settings, the pause menu's Layout) start with New layout, which
+starts from the Default as the app's does; a custom layout's options button (Right from its row, or the mouse) has Edit, Rename, Copy
+(asks the copy's name, as the app's) and Delete (asked first: the app deletes at once with an Undo). The built-in layouts have no options,
+as the app's Default has none. The pause menu's Edit layout opens the layout in use; with a built-in one in use it's New layout from this
+one, which starts from what the window shows (the arrangement on whole pixels, placed for a 256-wide frame so WideMelon grows it as it
+does a normal layout; asked again after a swap or a resize, and back after an undone Reset), is saved with those screens even when
+nothing was changed, and once saved takes the built-in's place where that came from (the game's own, the run's or the global one). `--open layout-editor`, `layout-editor/new` and `layout-editor/ID` open it for
+hidden checks (over the pause menu with a game, over the layouts list without). Deleting the global layout puts the Default back in
+`input_layout_id`, as the app falls back; a game whose own layout is gone uses the global one, as before.
+
+**What it shows.** The window being edited shows the layout as it's edited, drawn by the renderer: the game's frame where the screens
+are (paused, as under every menu) with the layout's background, or with no game the background under the app's stand-ins (blue for the
+top screen, red for the bottom, half see-through until picked). The selected screen gets the app's corner handles; a bar at the top has
+the menu button, the layout's name (and "not saved"), which variant is edited and the selected screen's size and place.
+
+**Which variant.** The one made for the window's drawable size, as the app edits the one for the current display. A layout without one
+shows what the window would (another size's variant scaled, or the default layout), and the first change makes a variant for this size
+from it, which the bar says ("the 1080 x 2340 variant scaled; the first change makes one for this size"). Only what's changed is written
+into a variant: its screens, its background, its widescreen ratio; the on-screen buttons, the other variants and layouts and every field
+the desktop doesn't know stay as they were, byte for byte. A window resized while the editor is open goes on with the variant for its new
+size, also under one of its cards. **Detached**, it edits the focused window's one-screen layout (the `detached` pair's `top` or
+`bottom`, by the screen it shows), and the menu's Edit the other window switches; the second window shows the layout itself and the main
+window a copy of it to work on. A layout whose `detached` pair didn't parse (kept in the file as it was) can't be edited detached: the
+editor says so and doesn't open, and editing it together leaves the pair alone.
+
+**Controls.**
+
+| | Mouse | Controller | Keyboard |
+|---|---|---|---|
+| Pick a screen | click it (nothing: let go) | L / R | Tab, Shift+Tab, Q / W |
+| Move | drag it | D-pad: a pixel; left stick: 16 pixels, repeating while held | arrows: a pixel; Shift+arrows: 16 |
+| Resize | drag a corner handle (the opposite corner stays); the wheel | LT / RT: 16 pixels of width, repeating while held | - and +: 16; Shift: 1 |
+| The screen's panel | | A | Enter |
+| Undo | | X | Ctrl+Z |
+| Remove the selected screen | | (its panel) | Delete (undoable; the menu adds it back) |
+| The menu | the menu button | Start (over one of the editor's cards: the card closes) | M |
+| Back | | B: the panel, then the screen, then leave | Esc |
+
+Start never goes back to the game past the editor, and F2 (the next layout) and the detach hotkey (F9) are held off while it's open,
+with a toast, so nothing changes the layout choice or the windows under it.
+
+A held stick or trigger steps at once, then after 400 ms every 50 ms, as the app's repeating buttons. Resizing keeps the screen's aspect
+ratio, guessed from its shape as the app does (4:3, 16:9, a wide variant's own ratio for its top screen, or free). The controls keep the
+screen's corner that's nearest a corner of the window in place; a dragged handle keeps the opposite corner.
+
+**The screen's panel** (the app's item panel, docked on the side away from the screen): size (a pixel a step; width and height when
+free), aspect ratio, the top screen's widescreen ratio (Off, 16:10, 16:9, 20:9, 21:9: the variant's `wideAspect`, the top screen widened
+as the app's Wide chip does), scale (1x, 2x, 3x where they fit, and Fit), opacity (5% steps), above the other screen, center horizontally
+and vertically, swap places with the other screen, remove this screen (the menu adds it back), Done.
+
+**The menu** (the app's): Properties (the name on the on-screen keyboard, and the orientation and buttons' opacity the phone uses),
+Background (the app's built-ins and the user's from `backgrounds.json`, None, the six modes, and Add an image file, which goes into
+`backgrounds.json` with its path; that's the Windows file dialog, after the frame, so it needs a mouse or keyboard and isn't offered in a
+hidden run), Snap to grid and Grid size, Add the top or bottom screen when one was removed, Undo, Edit the other
+window (detached), Revert changes (to the layout as saved last), Reset to default (no variants of its own; detached, no detached pair),
+Save, Save and exit, Exit without saving (asked when there are unsaved changes). A layout without a name asks for one before it's saved,
+with the app's "My Layout". Back with nothing selected leaves, asking first (Save and exit, Exit without saving, Keep editing) when
+something's unsaved.
+
+**Snapping** (`LayoutEditorSnapping.kt`, on with Snap to grid, off by default as in the app): a dragged screen's nearer edge goes to the
+nearest line: the grid every 16, 32 or 48 reference pixels out from the window's middle, the window's edges, the place that centers it,
+and the other screen's edges and middle within 5% of its size; a corner handle snaps the dragged corner the same way. The D-pad never
+snaps (as the app's), and with snapping on the left stick and Shift+arrows step to the next of those lines instead of 16 pixels, so a
+controller can line screens up too.
+
+**Where it differs from the app.** Its changes show at once and can be undone (the app has no undo; its dialogs have OK and Cancel), and
+the list asks before a delete instead of offering an Undo. It has no on-screen buttons to add or place (a PC draws none; the ones in a
+layout stay as they are), no floating menu button to drag (the bar's button stays put), and no folds. Swap places and the editor for the
+detached windows are the desktop's own. The game behind it is paused, as under every menu. The pause menu's edit of a built-in layout
+makes a new one from what it shows, where the app only edits custom layouts.
+
 ### Windows and detached screens
 
 The process is per-monitor DPI aware: window sizes are real pixels on every monitor, and Windows
@@ -481,6 +656,7 @@ its own monitor.
 Detached (F9, `--detach`), the top and bottom screens each get a window, "melonadeDS: top" (the main
 window) and "melonadeDS: bottom". Each has its own size, place, monitor and fullscreen, remembered
 separately (the main window has one place for together and one for detached), and each screen its own
+layout from the layout in use ([Layouts and backgrounds](#layouts-and-backgrounds)) or, without one, its own
 fit: keep aspect (black bars), integer scale (the biggest whole multiple, bars all around), or stretch.
 With `--wide` the top screen's aspect follows the wide width. Swap screens (F1) keeps the windows
 where they are and swaps what they show; the fit goes with the screen. Touch comes from the mouse in
@@ -507,14 +683,17 @@ A scripted check, e.g. comparing renderers on the same frame:
   Platinum's intro, 2400 frames: interpreter 342 fps, JIT with fast memory 175, JIT without 66), so
   the PC build interprets unless `--jit` / `--fastmem` ask for it. The app runs the ARM64 JIT,
   which this doesn't test.
-- The screens are drawn with the app's filters and deband ([Screen filters](#screen-filters)), but not yet with its layouts,
-  backgrounds or frame pacing to the display's vsync. Lua scripts, rewind and
+- The screens are drawn with the app's filters, deband, layouts and backgrounds ([Screen filters](#screen-filters), [Layouts and
+  backgrounds](#layouts-and-backgrounds)), but not yet with its frame pacing to the display's vsync or its on-screen controls (a PC has
+  none to touch). The layout editor edits the screens only, and differs from the app's in the ways [its section](#layout-editor) lists. A window picks or scales a layout's variant by its own rule, SVG backgrounds draw no
+  `<text>`, and WebP or HEIF background images aren't read. The app draws a background with whatever blending the previous frame left on,
+  so a translucent pixel of a background comes out darker on the phone; the desktop draws it opaque. The built-in backgrounds are opaque
+  (or fully transparent), so they look the same. Lua scripts, rewind and
   RetroAchievements are compiled in (shared code) but not set up yet. Pacing is the app's timer
   limiter at the DS's 59.83 Hz instead of the app's 60.
 - DS mode only (no DSi NAND), no multiplayer, Wi-Fi, mic or camera.
 - The library reads banner titles in Windows' display language (English when the banner has none in it); the app reads English.
-- No metadata or art sync yet (phase 2 step C), so the Mosaic has no art and no wide tiles outside tests. The game settings have no
-  microphone, layout, widescreen or mods yet; the app's long press is holding confirm or the mouse for half a second here. They're
+- The game settings have no microphone, widescreen or mods yet; the app's long press is holding confirm or the mouse for half a second here. They're
   kept by RetroAchievements hash, where the app keeps them with each ROM file.
 - A hidden run (`--hidden`) takes no input from real controllers, only `--ui-script`'s and its `--virtual-pad`'s, and never
   opens the file or folder dialog.

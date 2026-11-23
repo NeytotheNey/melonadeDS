@@ -15,18 +15,14 @@
 namespace Frontend
 {
 
-// the screens a window shows, and how: both (vertical or horizontal) or one of them
+// The desktop's own arrangements of the screens (its built-in layouts, and a detached window's one screen): both (vertical or horizontal)
+// or one of them
 enum class Layout { Vertical, Horizontal, TopOnly, BottomOnly, Count };
 
 // how the screens fill the window: as big as they fit at their aspect (black bars on two sides), the biggest whole multiple of their size
 // that fits (bars all around, sharp pixels; the aspect fit when not even 1x fits), or the whole window whatever the aspect
 enum class Fit { Aspect, Integer, Stretch, Count };
 
-// where Draw put each screen, in the window's drawable pixels (W 0 for a screen it didn't draw)
-struct ScreenRects
-{
-    Rect Top, Bottom;
-};
 
 class Presenter
 {
@@ -57,14 +53,24 @@ public:
     // the Lua sun shadows over the top screen (none by default; --sun for tests), drawn on frames that have depth and a depth camera
     void SetSun(const std::optional<Sun>& sun) { CurrentSun = sun; }
 
-    // where [layout]'s screens of [frame] go in a drawable windowW x windowH with [fit], centered. [swap] trades the screens' places: the
-    // bottom screen first (above or left), or the other screen for TopOnly and BottomOnly. Only the frame's top screen size is read
+    // where the desktop's [layout] puts the screens of [frame] in a drawable windowW x windowH with [fit], centered. [swap] trades the
+    // screens' places: the bottom screen first (above or left), or the other screen for TopOnly and BottomOnly. Only the frame's top screen
+    // size is read
     static ScreenRects Place(const FrameView& frame, int windowW, int windowH, Layout layout, Fit fit = Fit::Aspect, bool swap = false);
 
-    // clears the current window's drawable (windowW x windowH) to black and draws [layout]'s screens of [frame] into it where Place puts
-    // them, through [surface]'s ScreenRenderer (0: the main window, 1: the second one); the GL state it needs is set first, since the core
-    // leaves its own behind
-    ScreenRects Draw(const FrameView& frame, int windowW, int windowH, Layout layout, Fit fit = Fit::Aspect, bool swap = false, int surface = 0);
+    // the backgrounds the surfaces read their layouts' from
+    void SetBackgrounds(Backgrounds* backgrounds)
+    {
+        for (ScreenRenderer& surface : Surfaces)
+            surface.SetBackgroundStore(backgrounds);
+    }
+
+    // clears the current window's drawable (windowW x windowH) to black and draws [frame] into it, the background and the screens where
+    // [screens] puts them, through [surface]'s ScreenRenderer (0: the main window, 1: the second one); the GL state it needs is set first,
+    // since the core leaves its own behind
+    // [waitForBackground]: a background still being decoded is waited for (a window shot), instead of showing once it's ready
+    ScreenRects Draw(const FrameView& frame, int windowW, int windowH, const SurfaceScreens& screens, const SurfaceBackground& background,
+        int surface = 0, bool waitForBackground = false);
 
     // over the first [surfaces] windows, as the app's FrameRenderCoordinator asks its surfaces after presenting: whether a screen at 1x can be
     // drawn as it is (GPU::Comp1x), how big the screens are shown (GPU::OutputCap's need) and whether the output is debanded
