@@ -39,7 +39,7 @@ local bloom_options = {
     light_strength = 2,
 }
 
--- White's (and Black's) lit windows, by content hash like BLOB_SHADOW_TEXTURES below. The texture is the
+-- White's (and Black's) lit windows, by content hash like GAME_SHADOW_TEXTURES below. The texture is the
 -- same by day, so it's always on the list; the light color decides whether they glow
 local LIGHT_TEXTURES = { 0x84D7B868 }
 local vignette_options = { size = 0.6 }
@@ -55,11 +55,12 @@ local dof_options = {
     falloff = 0.0015,
 }
 
--- Shadows from a sun in the north-east, 45 degrees up, in the view space of White's field camera (a tile is
--- 16 units, the tallest roofs about 90): long enough for a roof's shadow to cross the street. up is for the
--- characters' own shadows, which the renderer draws standing on their feet
+-- Shadows from a sun in the north-west, 45 degrees up, in the view space of White's field camera (a tile is
+-- 16 units, the tallest roofs about 90): long enough for a roof's shadow to cross the street. The game's own
+-- shadows fall south-east, so this one does too. up is for the characters' own shadows, which the renderer
+-- draws standing on their feet
 local sun_options = {
-    direction = { 0.50, 0.83, 0.26 },
+    direction = { -0.50, 0.83, 0.26 },
     up = { 0.0006, 0.607, 0.794 },
     length = 96,
     steps = 64,
@@ -76,11 +77,24 @@ local sun_options = {
 -- same for every bubble, so the effects take its pixels as 2D, like the box's
 local UI_TEXTURES = { 0xBE2606E4 }
 
--- While the sun shadows are on, the game's own shadows go, or there'd be two under everyone: the dark ovals
--- under the player and the NPCs are all one 16 x 16 four-color texture, drawn translucent (alpha 19,
--- polygon ID 2). Its content hash, from the desktop's --list-textures, stays the same wherever the game
--- loads it in VRAM
-local BLOB_SHADOW_TEXTURES = { 0xC9FDE257 }
+-- While the sun shadows are on, the game's own shadows go, or there'd be two of everything. All are
+-- translucent textures drawn over the ground, by content hash from the desktop's --list-textures, which
+-- stays the same wherever the game loads them in VRAM. Hiding them only lightens the ground they cover
+local GAME_SHADOW_TEXTURES = {
+    -- The dark ovals under the player and the NPCs (16 x 16, four colors, alpha 19, polygon ID 2)
+    0xC9FDE257,
+    -- Buildings, the Pokémon Center, the gym and signs
+    0xB5B35936,
+    -- Railings
+    0x0FE21474,
+    -- Trees, one per season: Spring, Summer, Autumn, Winter
+    0xDF404B5E,
+    0xF2C1055E,
+    0x14620641,
+    0x38B6693C,
+    -- Under the furniture inside the Pokémon Center
+    0xCB6BD3DD,
+}
 local NO_TEXTURES = {}
 
 -- Soft shadows where something stands in front of what's behind it: along walls, inside roof rims, around
@@ -166,7 +180,7 @@ function on_frame()
 
     -- Called every frame: only frames where a value changes cost an event
     melon.screen.sun(current.sun, sun_options)
-    melon.gpu.hide_textures(current.sun > 0 and BLOB_SHADOW_TEXTURES or NO_TEXTURES)
+    melon.gpu.hide_textures(current.sun > 0 and GAME_SHADOW_TEXTURES or NO_TEXTURES)
     melon.gpu.light_textures(LIGHT_TEXTURES)
     melon.gpu.ui_textures(UI_TEXTURES)
     melon.screen.shade(current.shade, shade_options)

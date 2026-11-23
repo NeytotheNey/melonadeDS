@@ -1297,6 +1297,106 @@ bool ReadPath(const fs::path& path, std::vector<u8>& out)
     return (bool)in.read((char*)out.data(), size);
 }
 
+// `name=value` pairs split by spaces, a value quoted ("...") when it holds spaces; empty for a malformed line
+static std::vector<std::pair<std::string, std::string>> LuaOptionAttributes(const std::string& text)
+{
+    std::vector<std::pair<std::string, std::string>> attributes;
+    size_t position = 0;
+    while (true)
+    {
+        position = text.find_first_not_of(" \t", position);
+        if (position == std::string::npos)
+            return attributes;
+        size_t equals = text.find('=', position);
+        if (equals == std::string::npos)
+            return {};
+        std::string name = text.substr(position, equals - position);
+        position = equals + 1;
+        size_t end = text.find_first_of(" \t", position);
+        if (position < text.size() && text[position] == '"')
+        {
+            end = text.find('"', position + 1);
+            if (end == std::string::npos)
+                return {};
+            attributes.emplace_back(name, text.substr(position + 1, end - position - 1));
+            position = end + 1;
+            continue;
+        }
+        attributes.emplace_back(name, text.substr(position, end == std::string::npos ? std::string::npos : end - position));
+        position = end == std::string::npos ? text.size() : end;
+    }
+}
+
+// melon.options as the app gives a script it has no saved values for: each `-- option:` line of the header's leading comment block at
+// its default (a number's min, a choice's first value, a toggle off and a layout "Don't change" when there's none), typed as the app
+// types it (LuaScriptOption.toNativeValue); the app's header parser (LuaScriptHeaderParser.kt) is Kotlin, so this is a small copy of it
+// that doesn't check ranges or steps, as --lua-script is for tests
+static std::vector<MelonDSAndroid::LuaOptionValue> LuaOptionDefaults(const std::string& source)
+{
+    constexpr size_t READ_LIMIT = 8 * 1024;
+    constexpr size_t MAX_OPTIONS = 16;
+    std::vector<MelonDSAndroid::LuaOptionValue> options;
+    size_t position = 0;
+    while (position < std::min(source.size(), READ_LIMIT) && options.size() < MAX_OPTIONS)
+    {
+        size_t end = source.find('\n', position);
+        std::string line = source.substr(position, end == std::string::npos ? std::string::npos : end - position);
+        position = end == std::string::npos ? source.size() : end + 1;
+        size_t first = line.find_first_not_of(" \t\r");
+        if (first == std::string::npos)
+            continue;
+        // Code: the leading comment block is over
+        if (line.compare(first, 2, "--") != 0)
+            break;
+        size_t text = line.find_first_not_of("- \t", first);
+        if (text == std::string::npos || line.compare(text, 7, "option:") != 0)
+            continue;
+        std::string rest = line.substr(text + 7);
+        rest.erase(rest.find_last_not_of(" \t\r") + 1);
+        size_t keyStart = rest.find_first_not_of(" \t");
+        if (keyStart == std::string::npos)
+            continue;
+        size_t keyEnd = std::min(rest.find_first_of(" \t", keyStart), rest.size());
+        MelonDSAndroid::LuaOptionValue option;
+        option.key = rest.substr(keyStart, keyEnd - keyStart);
+        std::string type, value, min, values;
+        for (const auto& [name, attribute] : LuaOptionAttributes(rest.substr(keyEnd)))
+        {
+            if (name == "type") type = attribute;
+            else if (name == "default") value = attribute;
+            else if (name == "min") min = attribute;
+            else if (name == "values") values = attribute;
+        }
+        if (type == "toggle" || type == "layout")
+        {
+            option.type = type == "toggle" ? MelonDSAndroid::LuaOptionValue::Type::Boolean : MelonDSAndroid::LuaOptionValue::Type::Layout;
+            option.boolean = type == "toggle" && value == "true";
+        }
+        else if (type == "number")
+        {
+            char* parsedEnd = nullptr;
+            std::string number = value.empty() ? min : value;
+            double parsed = strtod(number.c_str(), &parsedEnd);
+            if (number.empty() || *parsedEnd != '\0')
+                continue;
+            // Whole numbers are Lua integers, as in the app
+            bool isWhole = parsed == std::floor(parsed) && std::fabs(parsed) < 9007199254740992.0;
+            option.type = isWhole ? MelonDSAndroid::LuaOptionValue::Type::Integer : MelonDSAndroid::LuaOptionValue::Type::Number;
+            option.integer = isWhole ? (int64_t)parsed : 0;
+            option.number = parsed;
+        }
+        else if (type == "choice")
+        {
+            option.type = MelonDSAndroid::LuaOptionValue::Type::String;
+            option.string = value.empty() ? values.substr(0, values.find(',')) : value;
+        }
+        else
+            continue;
+        options.push_back(std::move(option));
+    }
+    return options;
+}
+
 // the renderer's scale, which drops below --scale when that doesn't fit the GPU's limits; emulator thread
 int ActiveScale(MelonDSAndroid::MelonInstance& emu)
 {
@@ -2347,6 +2447,7 @@ int main(int argc, char** argv)
             MelonDSAndroid::LuaScriptSource source;
             source.name = Frontend::PathToUtf8(Frontend::PathFromUtf8(opts.LuaScriptPath).filename());
             source.source.assign(script.begin(), script.end());
+            source.options = LuaOptionDefaults(source.source);
             instance->setLuaScripts({std::move(source)}, nullptr, true);
             printf("Lua script: %s\n", opts.LuaScriptPath.c_str());
         }
