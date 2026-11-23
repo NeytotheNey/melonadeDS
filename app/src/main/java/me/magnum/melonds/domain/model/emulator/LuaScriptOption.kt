@@ -15,6 +15,11 @@ sealed class LuaScriptOption {
     abstract val label: String
 
     /**
+     * The heading of the `section:` line this option comes after, or null if none
+     */
+    abstract val section: String?
+
+    /**
      * [stored] as canonical text if it's valid for this option (a number is moved onto the slider's steps), otherwise the default.
      */
     abstract fun resolve(stored: String?): String
@@ -24,7 +29,12 @@ sealed class LuaScriptOption {
      */
     abstract fun toNativeValue(value: String): LuaScriptOptionValue
 
-    data class Toggle(override val key: String, override val label: String, val default: Boolean) : LuaScriptOption() {
+    data class Toggle(
+        override val key: String,
+        override val label: String,
+        val default: Boolean,
+        override val section: String? = null,
+    ) : LuaScriptOption() {
         override fun resolve(stored: String?): String {
             return when (stored) {
                 "true" -> "true"
@@ -49,6 +59,7 @@ sealed class LuaScriptOption {
         val step: Double,
         val default: Double,
         val decimals: Int,
+        override val section: String? = null,
     ) : LuaScriptOption() {
 
         /**
@@ -118,7 +129,13 @@ sealed class LuaScriptOption {
         }
     }
 
-    data class Choice(override val key: String, override val label: String, val values: List<String>, val default: String) : LuaScriptOption() {
+    data class Choice(
+        override val key: String,
+        override val label: String,
+        val values: List<String>,
+        val default: String,
+        override val section: String? = null,
+    ) : LuaScriptOption() {
         override fun resolve(stored: String?): String {
             return stored?.takeIf { it in values } ?: default
         }
@@ -131,7 +148,7 @@ sealed class LuaScriptOption {
     /**
      * A layout option whose value is a layout UUID or empty for "Don't change"; existence is checked only when the script asks.
      */
-    data class Layout(override val key: String, override val label: String) : LuaScriptOption() {
+    data class Layout(override val key: String, override val label: String, override val section: String? = null) : LuaScriptOption() {
         override fun resolve(stored: String?): String {
             return getLayoutId(stored)?.toString() ?: DONT_CHANGE
         }
@@ -166,4 +183,13 @@ sealed class LuaScriptOption {
  */
 fun List<LuaScriptOption>.resolveValues(stored: Map<String, String>): Map<String, String> {
     return associate { it.key to it.resolve(stored[it.key]) }
+}
+
+/**
+ * The section heading to show before the option at [index], or null when it's in the same section as the one before it (or in none)
+ */
+fun List<LuaScriptOption>.sectionHeadingBefore(index: Int): String? {
+    val section = getOrNull(index)?.section ?: return null
+    val previousSection = getOrNull(index - 1)?.section
+    return section.takeIf { it != previousSection }
 }

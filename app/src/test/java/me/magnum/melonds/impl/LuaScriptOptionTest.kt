@@ -3,8 +3,10 @@ package me.magnum.melonds.impl
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
 import me.magnum.melonds.domain.model.emulator.LuaScriptOptionType
 import me.magnum.melonds.domain.model.emulator.resolveValues
+import me.magnum.melonds.domain.model.emulator.sectionHeadingBefore
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class LuaScriptOptionTest {
@@ -88,5 +90,21 @@ class LuaScriptOptionTest {
         assertEquals(LuaScriptOptionType.LAYOUT, picked.optionType)
         assertEquals(1L, picked.integer)
         assertEquals(0L, layout.toNativeValue("").integer)
+    }
+
+    @Test
+    fun aHeadingGoesBeforeEachNewSection() {
+        val options = listOf(
+            LuaScriptOption.Toggle("a", "A", default = false),
+            LuaScriptOption.Toggle("b", "B", default = false, section = "Sun"),
+            LuaScriptOption.Toggle("c", "C", default = false, section = "Sun"),
+            LuaScriptOption.Toggle("d", "D", default = false),
+            LuaScriptOption.Toggle("e", "E", default = false, section = "Sun"),
+            LuaScriptOption.Toggle("f", "F", default = false, section = "Bloom"),
+        )
+
+        assertEquals(listOf(null, "Sun", null, null, "Sun", "Bloom"), options.indices.map { options.sectionHeadingBefore(it) })
+        assertEquals("Sun", options.drop(1).sectionHeadingBefore(0))
+        assertNull(options.sectionHeadingBefore(options.size))
     }
 }

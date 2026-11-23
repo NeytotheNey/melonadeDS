@@ -28,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -38,6 +40,26 @@ import me.magnum.melonds.ui.common.ProvideEnabledContentColor
 import me.magnum.melonds.ui.common.layoutDisplayName
 import me.magnum.melonds.ui.common.component.text.CaptionText
 import kotlin.math.roundToInt
+
+/**
+ * A section heading in a list of script options, with less space above it when it's the list's [isFirst] item
+ */
+@Composable
+fun LuaScriptOptionSectionHeading(
+    title: String,
+    isFirst: Boolean,
+    modifier: Modifier = Modifier,
+    horizontalPadding: Dp = 16.dp,
+) {
+    Text(
+        text = title,
+        modifier = modifier
+            .padding(start = horizontalPadding, end = horizontalPadding, top = if (isFirst) 8.dp else 20.dp, bottom = 4.dp)
+            .semantics { heading() },
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
 
 /**
  * Switch, slider or dropdown for one script option, where [value] is the option's canonical text and sliders report only on release
