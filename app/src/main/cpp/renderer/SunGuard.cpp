@@ -66,6 +66,18 @@ SunGuardSides pickSunGuardSides(const std::array<float, 3>& direction, const std
     return sides;
 }
 
+int sunGuardForScale(int guard, int scale)
+{
+    // The largest scale the guard is used whole at
+    static constexpr int FULL_GUARD_SCALE = 4;
+    if (guard <= 0)
+        return 0;
+    if (scale <= FULL_GUARD_SCALE)
+        return guard;
+    const long long scaled = ((long long) guard * FULL_GUARD_SCALE + scale - 1) / scale;
+    return (int) std::min<long long>(roundUpToEven((int) scaled), guard);
+}
+
 SunGuardView sunGuardView(int shownWidth, int shownMargin, const FrameGuard& wanted)
 {
     SunGuardView view { shownWidth, shownMargin, 0, 0, {} };

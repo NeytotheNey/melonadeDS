@@ -41,6 +41,13 @@ struct SunGuardSides
 SunGuardSides pickSunGuardSides(const std::array<float, 3>& direction, const std::array<float, 16>& projection, const std::array<float, 4>& viewport,
                                 int shownWidth, int shownMargin);
 
+/**
+ * The guard band per side to use for a requested [guard] at the OpenGL renderer's internal [scale], as the band's cost grows with the
+ * scale's area: [guard] up to 4x, and above that guard * 4 / scale rounded up to even (never more than [guard]), so the band covers the same
+ * target pixels as at 4x. 0 or less stays 0
+ */
+int sunGuardForScale(int guard, int scale);
+
 // A render view the OpenGL renderer is asked for (GLRenderer::SetViewWidth, SetViewMargin and SetViewShift), with the guard band in it
 struct SunGuardView
 {

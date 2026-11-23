@@ -93,6 +93,27 @@ static void testViews()
     CHECK(sunGuardView(256, 0, { 0, 0, 128, 0 }) == view(258, 64, -1, 64, { 0, 2, 128, 0 }));
 }
 
+static void testScales()
+{
+    // Whole up to 4x
+    CHECK(sunGuardForScale(64, 1) == 64);
+    CHECK(sunGuardForScale(64, 4) == 64);
+    CHECK(sunGuardForScale(33, 4) == 33);
+    CHECK(sunGuardForScale(128, 0) == 128);
+    // Above it, guard * 4 / scale rounded up to even
+    CHECK(sunGuardForScale(64, 8) == 32);
+    CHECK(sunGuardForScale(64, 6) == 44);
+    CHECK(sunGuardForScale(64, 5) == 52);
+    CHECK(sunGuardForScale(128, 8) == 64);
+    CHECK(sunGuardForScale(128, 16) == 32);
+    CHECK(sunGuardForScale(33, 8) == 18);
+    // Never more than asked, and none stays none
+    CHECK(sunGuardForScale(1, 8) == 1);
+    CHECK(sunGuardForScale(3, 5) == 3);
+    CHECK(sunGuardForScale(0, 8) == 0);
+    CHECK(sunGuardForScale(-4, 8) == 0);
+}
+
 static void testSteps()
 {
     SunGuardView leftTop = sunGuardView(256, 0, { 64, 0, 64, 0 });
@@ -146,6 +167,7 @@ int main()
 {
     testSides();
     testViews();
+    testScales();
     testSteps();
     testFrameGuards();
     if (failures == 0)

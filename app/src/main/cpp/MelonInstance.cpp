@@ -411,6 +411,9 @@ void MelonInstance::updateSunGuard()
     // frame's, as for the sun itself
     std::optional<int> scriptGuard = luaEngine.sunGuard();
     int guard = scriptGuard ? *scriptGuard : (frontendSun.On ? frontendSunGuard : 0);
+    // Shrunk above 4x by the renderer's scale, which a settings change sets in updateRenderer(), so the band follows it a frame later and
+    // through the hold below like a guard change
+    guard = sunGuardForScale(guard, static_cast<GLRenderer&>(nds->GPU.GetRenderer3D()).GetScaleFactor());
     // The sides that sun's march can leave the shown screen through, all four until a scene had a camera
     SunGuardSides sides;
     if (guard > 0 && hasSunCamera && !isSunGuardOnAllSides)
