@@ -51,6 +51,8 @@ public:
     // there's something to draw (a screen, a toast or the keyboard), so the window is drawn every frame
     bool Active() const;
     std::string TopId() const;
+    // a screen called [id] is open, anywhere on the stack
+    bool HasScreen(const char* id) const;
 
     // builds the frame's draw data (once per present, before it), and draws it into the main window (current, its drawable bound)
     void BuildFrame();
@@ -63,8 +65,8 @@ public:
     void CloseAll();
     // the library alone (no game), the home screen; [open] as MakeLibraryScreen's
     void ShowStart(LibraryOpen open = LibraryOpen::None);
-    // --open: "library" (or "start"), "library/details", "library/settings", "pause", "pause/save", "pause/load", "settings", "settings/library", "keyboard";
-    // false for a name it doesn't know
+    // --open: "library" (or "start"), "library/details", "library/settings", "pause", "pause/save", "pause/load", "settings", "settings/library", "keyboard",
+    // "layouts", "layout-editor" (the layout in use), "layout-editor/new", "layout-editor/<id>"; false for a name it doesn't know
     bool OpenPath(const std::string& path);
     void OpenPause();
 

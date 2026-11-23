@@ -1,7 +1,9 @@
 // The windows the UI thread presents into: the main window, and with detached screens a second one, so the top and bottom screens each
 // get a window of their own. Each window keeps its own place (size, position, monitor), fullscreen and, when detached, fit, all remembered
-// in the settings. Both windows draw the same frame with the one UI context, made current on each in turn; only the main window waits for
-// vsync, so two vsync waits never halve the frame rate. UI thread only
+// in the settings. What a window shows comes from the layout in use: together, the variant its size gets (layout/LayoutGeometry.h) with
+// its background; detached, each window the layout's one-screen layout for the screen it shows, or that screen at the window's fit with the
+// together layout's background. Both windows draw the same frame with the one UI context, made current on each in turn; only the main
+// window waits for vsync, so two vsync waits never halve the frame rate. UI thread only
 #pragma once
 
 #include <functional>
@@ -11,6 +13,8 @@
 #include <SDL.h>
 
 #include "Presenter.h"
+#include "layout/LayoutEditing.h"
+#include "layout/Layouts.h"
 
 namespace Frontend
 {
@@ -50,8 +54,10 @@ public:
         bool Hidden = false;
         bool VSync = false;
         int WindowScale = 2;
-        // the top screen's size in DS pixels (wider with WideMelon), for the default window sizes
+        // the top screen's size in DS pixels (wider with WideMelon), and the run's layout as the desktop arrangement closest to it, for the
+        // default window sizes
         int TopW = 256, TopH = 192;
+        Layout DefaultShape = Layout::Vertical;
         // --window and --window2: places for this run, never saved
         std::optional<WindowPlace> MainOverride, SecondOverride;
         // a hidden run leaves the saved places alone unless this asks (--save-window-places, for tests); it never applies fullscreen
@@ -68,15 +74,29 @@ public:
 
     SDL_Window* Main() const { return MainWindow; }
     bool IsDetached() const { return SecondWindow != nullptr; }
+    // how many windows draw now, the Presenter surfaces they draw through (the main window is 0, the second one 1)
+    int SurfaceCount() const { return SecondWindow ? 2 : 1; }
     bool IsSwapped() const { return Swap; }
 
     // together <-> detached, saved as desktop_screens
     void SetDetached(bool detached);
     void ToggleSwap();
-    // the together layout (F2), or a given one (the settings)
-    void NextLayout();
-    void SetLayout(Layout layout);
-    Layout GetLayout() const { return TogetherLayout; }
+    // the layout the windows show (the frontend picks it: the run's, the game's or the settings'), and the run's background over its own
+    // (--background, --background-mode)
+    void SetLayout(const LayoutChoice& choice);
+    const LayoutChoice& GetLayout() const { return Choice; }
+    void SetBackgroundOverride(const std::optional<std::string>& key, const std::optional<BackgroundMode>& mode);
+    // the layout editor's layout in the window it edits, over the layout in use and the run's background, until it's taken away (none)
+    void SetPreview(const std::optional<LayoutPreview>& preview);
+    // the window a surface draws (0 the main one, 1 the second one; null when there's none), its drawable size, and the surface of the window
+    // that has the keyboard focus (the main one when neither has)
+    SDL_Window* SurfaceWindow(int surface) const { return surface == 1 ? SecondWindow : surface == 0 ? MainWindow : nullptr; }
+    void SurfaceSize(int surface, int& w, int& h) const;
+    int FocusedSurface() const;
+    // what the layout in use shows in [surface] now, unswapped, as a layout to start a new one from: the desktop's arrangements on whole
+    // pixels, the app's Default for the window's size, a detached window's screen at its fit; none for a custom layout (the editor opens
+    // the layout itself)
+    std::optional<UILayout> ShownAsLayout(int surface) const;
     // the fit of the top or the bottom screen when detached (the settings)
     void SetFit(bool top, Fit fit);
     // the second window's title bar and always-on-top again from desktop_bottom_no_title and desktop_bottom_on_top
@@ -92,15 +112,15 @@ public:
 
     // draws [frame] into each window, calls [afterDraw] (the frame's present fence), then shows them: the second window without waiting,
     // then the main window with its vsync. Leaves the main window current
-    template <typename AfterDraw> void Present(Presenter& presenter, const FrameView& frame, bool linear, AfterDraw afterDraw)
+    template <typename AfterDraw> void Present(Presenter& presenter, const FrameView& frame, AfterDraw afterDraw)
     {
-        DrawAll(presenter, frame, linear);
+        DrawAll(presenter, frame);
         afterDraw();
         SwapAll();
     }
     // --window-shot: [path] for the main window when together, [path]_top.bmp and [path]_bottom.bmp when detached (named for the screen
     // each shows). Each window is drawn again and read from its back buffer before any swap
-    void WindowShot(Presenter& presenter, const FrameView& frame, bool linear, const std::string& path);
+    void WindowShot(Presenter& presenter, const FrameView& frame, const std::string& path);
 
     // the window that shows the bottom screen, and where the bottom screen is in that window's drawable pixels now (for the window's
     // current size, layout, fit and swap, and the shape of the last frame drawn)
@@ -120,13 +140,31 @@ public:
     std::function<void(Presenter& presenter, const Rect& bottom, int w, int h)> BottomOverlay;
 
 private:
-    void DrawAll(Presenter& presenter, const FrameView& frame, bool linear);
+    // what a window shows: its screens' places and its background
+    struct SurfacePlan
+    {
+        SurfaceScreens Screens;
+        SurfaceBackground Background;
+    };
+    // what it was made for, so it's only made again (with the vectors a variant pick copies) when one of these changes
+    struct PlanKey
+    {
+        bool Detached = false, Top = false, Swap = false;
+        int W = -1, H = -1;
+        Fit FitTop = Fit::Aspect, FitBottom = Fit::Aspect;
+        int TopWidth = 0, TopMargin = 0;
+        int Version = -1;
+
+        bool operator==(const PlanKey&) const = default;
+    };
+
+    void DrawAll(Presenter& presenter, const FrameView& frame);
     void SwapAll();
-    // what each window shows: the layout and fit to draw it with
-    Layout MainLayout() const;
-    Fit MainFit() const;
-    Fit SecondFit() const;
     bool MainShowsTop() const { return !Swap; }
+    // the plan for the main window (0) or the second one (1) at a drawable w x h
+    const SurfacePlan& Plan(int surface, int w, int h) const;
+    SurfacePlan MakePlan(bool detached, bool top, int w, int h) const;
+    SurfacePlan MakePreviewPlan(bool detached, bool top) const;
 
     // false when it can't (MELONADE_TEST_NO_SECOND_WINDOW=1 makes it fail, for tests)
     bool OpenSecond();
@@ -152,7 +190,14 @@ private:
     SDL_GLContext Context = nullptr;
     bool IsDetachedMode = false;
     bool Swap = false;
-    Layout TogetherLayout = Layout::Vertical;
+    LayoutChoice Choice;
+    std::optional<std::string> BackgroundKey;
+    std::optional<BackgroundMode> BackgroundModeOverride;
+    std::optional<LayoutPreview> Preview;
+    // goes up when the layout, the background override or the preview changes
+    int Version = 0;
+    mutable PlanKey PlanKeys[2];
+    mutable SurfacePlan Plans[2];
     Fit FitTop = Fit::Aspect, FitBottom = Fit::Aspect;
     WindowPlace MainTogetherPlace, MainDetachedPlace, SecondPlace;
     // what each window's fullscreen is (a hidden run keeps track without applying it)

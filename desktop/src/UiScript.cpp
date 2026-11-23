@@ -62,14 +62,21 @@ bool LoadUiScript(const std::string& path, std::vector<UiStep>& steps)
             step.Type = word == "key-down" ? UiStep::Kind::KeyDown : word == "key-up" ? UiStep::Kind::KeyUp : UiStep::Kind::KeyRepeat;
             step.Arg = rest;
         }
-        else if ((word == "mouse-down" || word == "mouse-up") && !rest.empty())
+        else if ((word == "mouse-down" || word == "mouse-up" || word == "mouse-move") && !rest.empty())
         {
             // mouse-down X Y: the left button at X,Y of the main window, in its points
             int x = 0, y = 0;
-            step.Type = word == "mouse-down" ? UiStep::Kind::MouseDown : UiStep::Kind::MouseUp;
+            step.Type = word == "mouse-down" ? UiStep::Kind::MouseDown : word == "mouse-up" ? UiStep::Kind::MouseUp : UiStep::Kind::MouseMove;
             known = sscanf(rest.c_str(), "%d %d", &x, &y) == 2;
             step.Value = x;
             step.Number = (unsigned)y;
+        }
+        else if (word == "wheel" && !rest.empty())
+        {
+            char* end = nullptr;
+            step.Type = UiStep::Kind::Wheel;
+            step.Value = (int)strtol(rest.c_str(), &end, 10);
+            known = end && *end == 0;
         }
         else if (word == "axis" && !rest.empty())
         {

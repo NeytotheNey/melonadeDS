@@ -1,6 +1,9 @@
 # Shell scripts run under bash, which breaks on CRLF line endings
 *.sh text eol=lf
 
+# The desktop's shader copies are compared with the Kotlin strings, which have LF line endings
+desktop/shaders/** text eol=lf
+
 # Patches must keep their exact bytes, or git apply fails
 *.patch -text
 

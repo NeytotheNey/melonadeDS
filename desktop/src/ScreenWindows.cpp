@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "Settings.h"
+#include "layout/LayoutGeometry.h"
 
 namespace Frontend
 {
@@ -17,17 +18,66 @@ namespace Frontend
 namespace
 {
 
-const char* const kLayoutNames[] = {"vertical", "horizontal", "top", "bottom"};
 const char* const kFitNames[] = {"aspect", "integer", "stretch"};
 
-Layout ParseLayout(const std::string& name)
+// a rect the desktop's placement made, on whole pixels (its edges rounded, so neighbors stay neighbors)
+IntRect Whole(const Rect& r)
 {
-    for (int i = 0; i < (int)Layout::Count; i++)
+    int left = RoundToInt(r.X), top = RoundToInt(r.Y);
+    return {left, top, RoundToInt(r.X + r.W) - left, RoundToInt(r.Y + r.H) - top};
+}
+
+// a layout's component as a screen's place
+std::optional<ScreenPlace> PlaceOf(const LayoutComponent* c)
+{
+    if (!c)
+        return std::nullopt;
+    return ScreenPlace {c->Rect, c->Alpha, c->OnTop};
+}
+
+// a desktop arrangement's screens, drawn where it places them (Top and Bottom, on whole pixels, only say which are shown)
+SurfaceScreens Arranged(const ScreenRects& rects)
+{
+    SurfaceScreens screens;
+    screens.AsPlaced = true;
+    screens.PlacedTop = rects.Top;
+    screens.PlacedBottom = rects.Bottom;
+    if (rects.Top.W > 0 && rects.Top.H > 0)
+        screens.Top = ScreenPlace {Whole(rects.Top)};
+    if (rects.Bottom.W > 0 && rects.Bottom.H > 0)
+        screens.Bottom = ScreenPlace {Whole(rects.Bottom)};
+    return screens;
+}
+
+// the variant of [choice] a together window [w] x [h] gets
+UILayout TogetherLayoutFor(const LayoutChoice& choice, int w, int h)
+{
+    if (choice.BuiltIn == BuiltInLayout::AppDefault)
+        return BuildDefaultLayout(w, h);
+    return PickVariant(choice.Config.Variants, w, h, BuildDefaultLayout).Layout;
+}
+
+bool HasWideVariant(const std::vector<LayoutEntry>& entries)
+{
+    for (const LayoutEntry& e : entries)
     {
-        if (name == kLayoutNames[i])
-            return (Layout)i;
+        if (e.Layout.WideAspect && IsKnownWideAspect(*e.Layout.WideAspect))
+            return true;
     }
-    return Layout::Vertical;
+    return false;
+}
+
+// the desktop arrangement a built-in layout is, or Count for the app's and the custom ones
+Layout ArrangementOf(BuiltInLayout layout)
+{
+    switch (layout)
+    {
+    case BuiltInLayout::Vertical: return Layout::Vertical;
+    case BuiltInLayout::Horizontal: return Layout::Horizontal;
+    case BuiltInLayout::TopOnly: return Layout::TopOnly;
+    case BuiltInLayout::BottomOnly: return Layout::BottomOnly;
+    default: return Layout::Count;
+    }
 }
 
 Fit ParseFit(const std::string& name)
@@ -278,7 +328,6 @@ SDL_Window* ScreenWindows::CreateMain(Settings& settings, const Options& options
     Opts = options;
     IsDetachedMode = settings.GetString("desktop_screens", "together") == "detached";
     Swap = settings.GetBool("desktop_swap_screens", false);
-    TogetherLayout = ParseLayout(settings.GetString("desktop_layout", "vertical"));
     FitTop = ParseFit(settings.GetString("desktop_fit_top", "aspect"));
     FitBottom = ParseFit(settings.GetString("desktop_fit_bottom", "aspect"));
 
@@ -290,8 +339,8 @@ SDL_Window* ScreenWindows::CreateMain(Settings& settings, const Options& options
     if (!Opts.Hidden && SDL_GetDisplayDPI(0, &dpi, nullptr, nullptr) == 0 && dpi > 0)
         scale *= std::max(dpi / 96.f, 1.f);
     auto scaled = [&](int size) { return (int)(size * scale + 0.5f); };
-    int togetherW = TogetherLayout == Layout::Horizontal ? Opts.TopW + 256 : Opts.TopW;
-    int togetherH = TogetherLayout == Layout::Vertical ? 192 + Opts.TopH : Opts.TopH;
+    int togetherW = Opts.DefaultShape == Layout::Horizontal ? Opts.TopW + 256 : Opts.TopW;
+    int togetherH = Opts.DefaultShape == Layout::Vertical ? 192 + Opts.TopH : Opts.TopH;
     MainTogetherPlace = {};
     MainTogetherPlace.W = scaled(togetherW);
     MainTogetherPlace.H = scaled(togetherH);
@@ -371,23 +420,163 @@ void ScreenWindows::Close()
     }
 }
 
-Layout ScreenWindows::MainLayout() const
+ScreenWindows::SurfacePlan ScreenWindows::MakePlan(bool detached, bool top, int w, int h) const
 {
-    if (!IsDetached())
-        return TogetherLayout;
-    return MainShowsTop() ? Layout::TopOnly : Layout::BottomOnly;
+    SurfacePlan plan;
+    Layout arrangement = ArrangementOf(Choice.BuiltIn);
+    if (!detached && arrangement != Layout::Count)
+    {
+        // the desktop's own arrangements, as the test frontend placed them
+        plan.Screens = Arranged(Presenter::Place(Shape, w, h, arrangement, Fit::Aspect, Swap));
+    }
+    else if (!detached)
+    {
+        // the app's: the DS top screen in the layout's top screen rect, or in its bottom one when they're swapped (RuntimeLayoutView)
+        UILayout layout = TogetherLayoutFor(Choice, w, h);
+        plan.Screens.Top = PlaceOf(layout.Main.Find(Swap ? "BOTTOM_SCREEN" : "TOP_SCREEN"));
+        plan.Screens.Bottom = PlaceOf(layout.Main.Find(Swap ? "TOP_SCREEN" : "BOTTOM_SCREEN"));
+        plan.Screens.IsWideLayout = Choice.Config.IsWide();
+        plan.Screens.AreScreensSwapped = Swap;
+        plan.Background = {layout.Main.BackgroundId.value_or(""), layout.Main.GetMode()};
+    }
+    else
+    {
+        // detached: the layout's one-screen layouts for this screen (they go with the screen when swapped), else the screen at the
+        // window's fit with the together layout's background for the window's size
+        const std::vector<LayoutEntry>* entries = Choice.Config.Detached ? &(top ? Choice.Config.Detached->Top : Choice.Config.Detached->Bottom) : nullptr;
+        const char* name = top ? "TOP_SCREEN" : "BOTTOM_SCREEN";
+        if (entries && !entries->empty())
+        {
+            auto single = [&](int dw, int dh)
+            {
+                UILayout l;
+                l.Main.Components = std::vector<LayoutComponent> {BuildSingleScreen(dw, dh, name)};
+                return l;
+            };
+            UILayout layout = PickVariant(*entries, w, h, single).Layout;
+            // its one screen: the window's, or whichever screen it has
+            const LayoutComponent* screen = layout.Main.Find(name);
+            if (!screen && layout.Main.Components)
+            {
+                for (const LayoutComponent& c : *layout.Main.Components)
+                    screen = screen ? screen : (c.IsScreen() ? &c : nullptr);
+            }
+            (top ? plan.Screens.Top : plan.Screens.Bottom) = PlaceOf(screen);
+            plan.Screens.IsWideLayout = HasWideVariant(*entries);
+            plan.Background = {layout.Main.BackgroundId.value_or(""), layout.Main.GetMode()};
+        }
+        else
+        {
+            plan.Screens = Arranged(Presenter::Place(Shape, w, h, top ? Layout::TopOnly : Layout::BottomOnly, top ? FitTop : FitBottom));
+            if (arrangement == Layout::Count)
+            {
+                UILayout layout = TogetherLayoutFor(Choice, w, h);
+                plan.Background = {layout.Main.BackgroundId.value_or(""), layout.Main.GetMode()};
+            }
+        }
+    }
+    // the run's background over the layout's
+    if (BackgroundKey)
+        plan.Background.Key = *BackgroundKey;
+    if (BackgroundModeOverride)
+        plan.Background.Mode = *BackgroundModeOverride;
+    return plan;
 }
 
-Fit ScreenWindows::MainFit() const
+ScreenWindows::SurfacePlan ScreenWindows::MakePreviewPlan(bool detached, bool top) const
 {
-    if (!IsDetached())
-        return Fit::Aspect;
-    return MainShowsTop() ? FitTop : FitBottom;
+    // the editor's layout as it is: the DS top screen in its top screen rect (never swapped), and its background, also without a game
+    SurfacePlan plan;
+    const ScreenLayout& layout = Preview->Layout.Main;
+    if (!detached)
+    {
+        plan.Screens.Top = PlaceOf(layout.Find("TOP_SCREEN"));
+        plan.Screens.Bottom = PlaceOf(layout.Find("BOTTOM_SCREEN"));
+    }
+    else
+    {
+        const LayoutComponent* screen = layout.Find(top ? "TOP_SCREEN" : "BOTTOM_SCREEN");
+        (top ? plan.Screens.Top : plan.Screens.Bottom) = PlaceOf(screen);
+    }
+    plan.Screens.IsWideLayout = Preview->IsWide;
+    plan.Screens.ShowBackgroundWithoutFrame = true;
+    plan.Background = {layout.BackgroundId.value_or(""), layout.GetMode()};
+    return plan;
 }
 
-Fit ScreenWindows::SecondFit() const
+const ScreenWindows::SurfacePlan& ScreenWindows::Plan(int surface, int w, int h) const
 {
-    return MainShowsTop() ? FitBottom : FitTop;
+    int i = std::clamp(surface, 0, 1);
+    bool detached = IsDetached();
+    // the main window shows the top screen unless they're swapped, the second one the other
+    bool top = i == 0 ? MainShowsTop() : !MainShowsTop();
+    PlanKey key {detached, top, Swap, w, h, FitTop, FitBottom, Shape.TopWidth, Shape.TopMargin, Version};
+    if (!(key == PlanKeys[i]))
+    {
+        Plans[i] = Preview && Preview->Surface == i ? MakePreviewPlan(detached, top) : MakePlan(detached, top, w, h);
+        PlanKeys[i] = key;
+    }
+    return Plans[i];
+}
+
+void ScreenWindows::SetPreview(const std::optional<LayoutPreview>& preview)
+{
+    Preview = preview;
+    Version++;
+    MainRects = SecondRects = {};
+}
+
+void ScreenWindows::SurfaceSize(int surface, int& w, int& h) const
+{
+    w = h = 0;
+    if (SDL_Window* window = SurfaceWindow(surface))
+        SDL_GL_GetDrawableSize(window, &w, &h);
+}
+
+int ScreenWindows::FocusedSurface() const
+{
+    SDL_Window* focused = SDL_GetKeyboardFocus();
+    return SecondWindow && focused == SecondWindow ? 1 : 0;
+}
+
+std::optional<UILayout> ScreenWindows::ShownAsLayout(int surface) const
+{
+    int w, h;
+    SurfaceSize(surface, w, h);
+    Layout arrangement = ArrangementOf(Choice.BuiltIn);
+    if (w <= 0 || h <= 0 || Choice.BuiltIn == BuiltInLayout::None)
+        return std::nullopt;
+    UILayout layout;
+    std::vector<LayoutComponent> components;
+    auto add = [&](const Rect& r, const char* name)
+    {
+        if (r.W <= 0 || r.H <= 0)
+            return;
+        LayoutComponent c;
+        c.Rect = Whole(r);
+        c.Component = name;
+        components.push_back(c);
+    };
+    // placed for a plain 256-wide frame: a layout keeps the DS's 4:3 rects (with no wideAspect), and a WideMelon frame grows its top
+    // screen when drawn, as the app's normal layouts do, where the wide frame's shape here would stretch a later 256-wide one
+    FrameView normal;
+    if (!IsDetached())
+    {
+        if (arrangement == Layout::Count)
+            return BuildDefaultLayout(w, h);
+        ScreenRects rects = Presenter::Place(normal, w, h, arrangement, Fit::Aspect, false);
+        add(rects.Top, "TOP_SCREEN");
+        add(rects.Bottom, "BOTTOM_SCREEN");
+    }
+    else
+    {
+        // the window's screen at its fit, as a layout without detached variants shows it
+        bool top = surface == 0 ? MainShowsTop() : !MainShowsTop();
+        ScreenRects rects = Presenter::Place(normal, w, h, top ? Layout::TopOnly : Layout::BottomOnly, top ? FitTop : FitBottom);
+        add(top ? rects.Top : rects.Bottom, top ? "TOP_SCREEN" : "BOTTOM_SCREEN");
+    }
+    layout.Main.Components = std::move(components);
+    return layout;
 }
 
 std::string ScreenWindows::Title(bool main) const
@@ -661,12 +850,13 @@ void ScreenWindows::SetVSync(bool vsync)
     printf("vsync: %s\n", vsync ? "on" : "off");
 }
 
-void ScreenWindows::DrawAll(Presenter& presenter, const FrameView& frame, bool linear)
+void ScreenWindows::DrawAll(Presenter& presenter, const FrameView& frame)
 {
     Shape = frame;
     int w, h;
     SDL_GL_GetDrawableSize(MainWindow, &w, &h);
-    MainRects = presenter.Draw(frame, w, h, MainLayout(), linear, MainFit(), IsDetached() ? false : Swap);
+    const SurfacePlan& main = Plan(0, w, h);
+    MainRects = presenter.Draw(frame, w, h, main.Screens, main.Background, 0);
     if (BottomOverlay && MainRects.Bottom.W > 0)
         BottomOverlay(presenter, MainRects.Bottom, w, h);
     if (MainOverlay)
@@ -675,7 +865,8 @@ void ScreenWindows::DrawAll(Presenter& presenter, const FrameView& frame, bool l
     {
         SDL_GL_MakeCurrent(SecondWindow, Context);
         SDL_GL_GetDrawableSize(SecondWindow, &w, &h);
-        SecondRects = presenter.Draw(frame, w, h, MainShowsTop() ? Layout::BottomOnly : Layout::TopOnly, linear, SecondFit());
+        const SurfacePlan& second = Plan(1, w, h);
+        SecondRects = presenter.Draw(frame, w, h, second.Screens, second.Background, 1);
         if (BottomOverlay && SecondRects.Bottom.W > 0)
             BottomOverlay(presenter, SecondRects.Bottom, w, h);
     }
@@ -694,14 +885,21 @@ void ScreenWindows::SwapAll()
     SDL_GL_SwapWindow(MainWindow);
 }
 
-void ScreenWindows::WindowShot(Presenter& presenter, const FrameView& frame, bool linear, const std::string& path)
+void ScreenWindows::WindowShot(Presenter& presenter, const FrameView& frame, const std::string& path)
 {
-    auto shot = [&](SDL_Window* window, Layout layout, Fit fit, bool swap, const std::string& file)
+    // planned for the frame drawn here, as DrawAll does
+    Shape = frame;
+    auto shot = [&](SDL_Window* window, int surface, const std::string& file)
     {
         SDL_GL_MakeCurrent(window, Context);
         int dw, dh;
         SDL_GL_GetDrawableSize(window, &dw, &dh);
-        ScreenRects rects = presenter.Draw(frame, dw, dh, layout, linear, fit, swap);
+        // errors the core or an earlier draw left behind aren't this one's; the shot's own draw is checked below
+        while (glGetError() != GL_NO_ERROR) {}
+        const SurfacePlan& plan = Plan(surface, dw, dh);
+        ScreenRects rects = presenter.Draw(frame, dw, dh, plan.Screens, plan.Background, surface, true);
+        for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError())
+            fprintf(stderr, "window shot %s: GL error 0x%x drawing the screens\n", file.c_str(), error);
         if (BottomOverlay && rects.Bottom.W > 0)
             BottomOverlay(presenter, rects.Bottom, dw, dh);
         if (window == MainWindow && MainOverlay)
@@ -719,15 +917,15 @@ void ScreenWindows::WindowShot(Presenter& presenter, const FrameView& frame, boo
             fprintf(stderr, "window shot %s failed\n", file.c_str());
     };
     if (!SecondWindow)
-        shot(MainWindow, MainLayout(), MainFit(), Swap, path);
+        shot(MainWindow, 0, path);
     else
     {
         std::string base = path;
         if (base.size() > 4 && _stricmp(base.c_str() + base.size() - 4, ".bmp") == 0)
             base.resize(base.size() - 4);
         bool top = MainShowsTop();
-        shot(MainWindow, MainLayout(), MainFit(), false, base + (top ? "_top.bmp" : "_bottom.bmp"));
-        shot(SecondWindow, top ? Layout::BottomOnly : Layout::TopOnly, SecondFit(), false, base + (top ? "_bottom.bmp" : "_top.bmp"));
+        shot(MainWindow, 0, base + (top ? "_top.bmp" : "_bottom.bmp"));
+        shot(SecondWindow, 1, base + (top ? "_bottom.bmp" : "_top.bmp"));
     }
     SDL_GL_MakeCurrent(MainWindow, Context);
 }
@@ -737,9 +935,8 @@ Rect ScreenWindows::BottomRect() const
     // where DrawAll puts it now
     int w, h;
     SDL_GL_GetDrawableSize(BottomWindow(), &w, &h);
-    if (!IsDetached())
-        return Presenter::Place(Shape, w, h, TogetherLayout, Fit::Aspect, Swap).Bottom;
-    return Presenter::Place(Shape, w, h, Layout::BottomOnly, FitBottom).Bottom;
+    const SurfacePlan& plan = Plan(BottomWindow() == MainWindow ? 0 : 1, w, h);
+    return RectsFor(plan.Screens, Shape.TopWidth, Shape.TopMargin, (float)w).Bottom;
 }
 
 void ScreenWindows::SetDetached(bool detached)
@@ -787,12 +984,21 @@ void ScreenWindows::ToggleSwap()
     printf("swap screens: %s\n", Swap ? "on" : "off");
 }
 
-void ScreenWindows::SetLayout(Layout layout)
+void ScreenWindows::SetLayout(const LayoutChoice& choice)
 {
-    TogetherLayout = (Layout)std::clamp((int)layout, 0, (int)Layout::Count - 1);
-    Store->Set("desktop_layout", picojson::value(std::string(kLayoutNames[(int)TogetherLayout])));
-    MainRects = {};
-    printf("layout: %s\n", kLayoutNames[(int)TogetherLayout]);
+    bool changed = !Choice.Config.Id || *Choice.Config.Id != choice.Id();
+    Choice = choice;
+    Version++;
+    MainRects = SecondRects = {};
+    if (changed)
+        printf("layout: %s (%s)\n", Choice.DisplayName.c_str(), Choice.Id().c_str());
+}
+
+void ScreenWindows::SetBackgroundOverride(const std::optional<std::string>& key, const std::optional<BackgroundMode>& mode)
+{
+    BackgroundKey = key;
+    BackgroundModeOverride = mode;
+    Version++;
 }
 
 void ScreenWindows::SetFit(bool top, Fit fit)
@@ -815,13 +1021,6 @@ void ScreenWindows::ApplySecondStyle()
     }
     SDL_SetWindowAlwaysOnTop(SecondWindow, onTop ? SDL_TRUE : SDL_FALSE);
     printf("second window: %s, %s\n", noTitle ? "no title bar" : "title bar", onTop ? "on top" : "not on top");
-}
-
-void ScreenWindows::NextLayout()
-{
-    TogetherLayout = (Layout)(((int)TogetherLayout + 1) % (int)Layout::Count);
-    Store->Set("desktop_layout", picojson::value(std::string(kLayoutNames[(int)TogetherLayout])));
-    printf("layout: %s\n", kLayoutNames[(int)TogetherLayout]);
 }
 
 void ScreenWindows::CycleFit(Uint32 windowId)

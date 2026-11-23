@@ -16,98 +16,9 @@ namespace Frontend
 namespace
 {
 
-// the frame textures hold the top screen in rows 0-191 and the bottom one in 194-385 (times the
-// scale), with two rows of padding between them, as the app's DSRenderer reads them. with a
-// vertical margin M (Frame::topScreenMargin) the top half is 192 + 2M rows, all of it shown here
-
-const char* kVS = R"(#version 320 es
-layout(location = 0) in vec2 vPosition;
-layout(location = 1) in vec2 vTexcoord;
-out vec2 fTexcoord;
-void main()
-{
-    fTexcoord = vTexcoord;
-    gl_Position = vec4(vPosition, 0.0, 1.0);
-}
-)";
-
-const char* kFS = R"(#version 320 es
-precision mediump float;
-uniform sampler2D ScreenTex;
-in vec2 fTexcoord;
-out vec4 oColor;
-void main()
-{
-    // the core's frames are BGRA in memory, which the app's and upstream's screen shaders swap too
-    oColor = vec4(texture(ScreenTex, fTexcoord).bgr, 1.0);
-}
-)";
-
-// GPU::Comp1x: kFS for a frame with a half at 1x (OutputLayout). a pixel takes the texel kFS's
-// nearest sample picks: the sampler's own pick, from CoordTex (a texture the frame's width x 1 whose
-// texel x holds x) and CoordYTex (1 x its height, y), sampled with the same varying as kFS declares
-// it, as it is. working it out in the shader isn't exact: where a sample lands on the edge between
-// two texels (a 2:1 window does it at every pixel), floor() and the sampler's fixed point can choose
-// differently, and with filtered 2D the two can differ. a texel in the rows of a half at 1x reads its
-// native pixel in the 1x image at the start of those rows instead, and any other one (the other
-// half, the padding) is sampled as kFS does. a half drawn with filtered 2D at the filter map's scale
-// (OutputLayout::HalfScale) has an image that many times bigger, upscaled by Scale / HalfScale
-const char* kHalvesAt1xFS = R"(#version 320 es
-precision highp float;
-precision highp int;
-uniform sampler2D ScreenTex;
-uniform highp usampler2D CoordXTex;
-uniform highp usampler2D CoordYTex;
-// x: the halves at 1x (bit 0 the top one), y: the frame's scale, z: the scale they were drawn at
-uniform ivec3 uHalvesAt1x;
-// as kFS has it
-in mediump vec2 fTexcoord;
-out vec4 oColor;
-void main()
-{
-    ivec2 size = textureSize(ScreenTex, 0);
-    ivec2 texel = ivec2(int(texture(CoordXTex, fTexcoord).r), int(texture(CoordYTex, fTexcoord).r));
-    int scale = uHalvesAt1x.y;
-    int up = scale / max(uHalvesAt1x.z, 1);
-    int screenHalf = texel.y >= 194 * scale ? 1 : 0;
-    int row = texel.y - screenHalf * 194 * scale;
-    vec4 color;
-    if (row < 192 * scale && (uHalvesAt1x.x & (1 << screenHalf)) != 0)
-        color = texelFetch(ScreenTex, ivec2(min(texel.x / up, size.x / up - 1), screenHalf * 194 * scale + row / up), 0);
-    else
-        color = texture(ScreenTex, fTexcoord);
-    oColor = vec4(color.bgr, 1.0);
-}
-)";
-
-// GPU::Comp1x: turns a frame with a half at 1x into the full frame, texel for texel, for linear
-// filtering. one triangle over a target the frame's size, so gl_FragCoord is each texel's center
-const char* kExpandVS = R"(#version 320 es
-void main()
-{
-    gl_Position = vec4(float((gl_VertexID & 1) * 4 - 1), float((gl_VertexID >> 1) * 4 - 1), 0.0, 1.0);
-}
-)";
-
-const char* kExpandFS = R"(#version 320 es
-precision highp float;
-precision highp int;
-uniform sampler2D ScreenTex;
-uniform ivec3 uHalvesAt1x;
-out vec4 oColor;
-void main()
-{
-    ivec2 size = textureSize(ScreenTex, 0);
-    ivec2 texel = ivec2(gl_FragCoord.xy);
-    int scale = uHalvesAt1x.y;
-    int up = scale / max(uHalvesAt1x.z, 1);
-    int screenHalf = texel.y >= 194 * scale ? 1 : 0;
-    int row = texel.y - screenHalf * 194 * scale;
-    if (row < 192 * scale && (uHalvesAt1x.x & (1 << screenHalf)) != 0)
-        texel = ivec2(min(texel.x / up, size.x / up - 1), screenHalf * 194 * scale + row / up);
-    oColor = texelFetch(ScreenTex, texel, 0);
-}
-)";
+// the frame textures hold the top screen in rows 0-191 and the bottom one in 194-385 (times the scale), with two rows of padding between
+// them, as the app's DSRenderer reads them. with a vertical margin M (Frame::topScreenMargin) the top half is 192 + 2M rows, all of it shown
+// here. the screens are drawn with the app's shaders (render/ScreenRenderer.cpp)
 
 // the touch cursor: a ring with a dark edge (a filled dot while it touches), on a quad around it; uRect is the quad in NDC
 const char* kCursorVS = R"(#version 320 es
@@ -180,150 +91,21 @@ void Presenter::DrawCursor(float x, float y, float radius, bool pressed, int win
 
 bool Presenter::Init()
 {
-    if (!OpenGL::CompileVertexFragmentProgram(Program, kVS, kFS, "PCScreen", {{"vPosition", 0}, {"vTexcoord", 1}}, {{"oColor", 0}}))
+    // the app's shaders and filter table, embedded from desktop/shaders: without them nothing could be drawn
+    if (!ShaderLibrary::Get())
         return false;
-    TexLoc = glGetUniformLocation(Program, "ScreenTex");
-
     glGenVertexArrays(1, &VertexArray);
-    glGenBuffers(1, &VertexBuffer);
-    glBindVertexArray(VertexArray);
-    glBindBuffer(GL_ARRAY_BUFFER, VertexBuffer);
-    glBufferData(GL_ARRAY_BUFFER, 12 * 4 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
-    glBindVertexArray(0);
-
-    // samplers, so the filter doesn't touch the renderer's own texture parameters
-    glGenSamplers(2, Sampler);
-    for (int i = 0; i < 2; i++)
-    {
-        GLint filter = i ? GL_LINEAR : GL_NEAREST;
-        glSamplerParameteri(Sampler[i], GL_TEXTURE_MIN_FILTER, filter);
-        glSamplerParameteri(Sampler[i], GL_TEXTURE_MAG_FILTER, filter);
-        glSamplerParameteri(Sampler[i], GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glSamplerParameteri(Sampler[i], GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    }
-
     glGenFramebuffers(1, &ReadFB);
     return true;
 }
 
 void Presenter::Free()
 {
-    glDeleteProgram(Program);
+    for (ScreenRenderer& surface : Surfaces)
+        surface.Release();
     glDeleteProgram(CursorProgram);
-    glDeleteProgram(HalvesAt1xProgram);
-    glDeleteProgram(ExpandProgram);
-    glDeleteTextures(1, &ExpandTexture);
-    glDeleteTextures(2, CoordTex);
-    glDeleteFramebuffers(1, &ExpandFB);
     glDeleteVertexArrays(1, &VertexArray);
-    glDeleteBuffers(1, &VertexBuffer);
-    glDeleteSamplers(2, Sampler);
     glDeleteFramebuffers(1, &ReadFB);
-}
-
-bool Presenter::PrepareHalvesAt1x()
-{
-    if (HalvesAt1xProgram || HalvesAt1xFailed)
-        return HalvesAt1xProgram != 0;
-
-    if (!OpenGL::CompileVertexFragmentProgram(HalvesAt1xProgram, kVS, kHalvesAt1xFS, "PCScreenHalvesAt1x",
-            {{"vPosition", 0}, {"vTexcoord", 1}}, {{"oColor", 0}})
-        || !OpenGL::CompileVertexFragmentProgram(ExpandProgram, kExpandVS, kExpandFS, "PCExpandHalvesAt1x", {}, {{"oColor", 0}}))
-    {
-        fprintf(stderr, "the 1x screen programs didn't build\n");
-        glDeleteProgram(HalvesAt1xProgram);
-        HalvesAt1xProgram = 0;
-        HalvesAt1xFailed = true;
-        return false;
-    }
-    HalvesAt1xTexLoc = glGetUniformLocation(HalvesAt1xProgram, "ScreenTex");
-    HalvesAt1xLoc = glGetUniformLocation(HalvesAt1xProgram, "uHalvesAt1x");
-    glUseProgram(HalvesAt1xProgram);
-    glUniform1i(glGetUniformLocation(HalvesAt1xProgram, "CoordXTex"), 1);
-    glUniform1i(glGetUniformLocation(HalvesAt1xProgram, "CoordYTex"), 2);
-    glGenTextures(2, CoordTex);
-    ExpandTexLoc = glGetUniformLocation(ExpandProgram, "ScreenTex");
-    ExpandHalvesLoc = glGetUniformLocation(ExpandProgram, "uHalvesAt1x");
-    glGenFramebuffers(1, &ExpandFB);
-    return true;
-}
-
-GLuint Presenter::ExpandHalvesAt1x(const FrameView& frame)
-{
-    GLuint texture = frame.Texture;
-    GLint width = 0, height = 0;
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
-    if (width <= 0 || height <= 0)
-        return texture;
-
-    if (width != ExpandW || height != ExpandH)
-    {
-        if (!ExpandTexture)
-            glGenTextures(1, &ExpandTexture);
-        glBindTexture(GL_TEXTURE_2D, ExpandTexture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glBindFramebuffer(GL_FRAMEBUFFER, ExpandFB);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ExpandTexture, 0);
-        ExpandW = width;
-        ExpandH = height;
-    }
-
-    glBindFramebuffer(GL_FRAMEBUFFER, ExpandFB);
-    glViewport(0, 0, width, height);
-    glUseProgram(ExpandProgram);
-    glUniform1i(ExpandTexLoc, 0);
-    glUniform3i(ExpandHalvesLoc, frame.HalvesAt1x, frame.Scale, frame.HalfScale);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glBindSampler(0, Sampler[0]);
-    glBindVertexArray(VertexArray);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
-    glBindVertexArray(0);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    return ExpandTexture;
-}
-
-void Presenter::BindCoordTextures(GLuint texture)
-{
-    GLint width = 0, height = 0;
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
-    if (width != CoordW || height != CoordH)
-    {
-        std::vector<u16> coords((size_t)std::max(width, height));
-        for (size_t i = 0; i < coords.size(); i++)
-            coords[i] = (u16)i;
-        for (int axis = 0; axis < 2; axis++)
-        {
-            glBindTexture(GL_TEXTURE_2D, CoordTex[axis]);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_R16UI, axis == 0 ? width : 1, axis == 0 ? 1 : height, 0, GL_RED_INTEGER,
-                         GL_UNSIGNED_SHORT, coords.data());
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-        }
-        CoordW = width;
-        CoordH = height;
-    }
-    for (int axis = 0; axis < 2; axis++)
-    {
-        glActiveTexture(GL_TEXTURE1 + axis);
-        glBindSampler(1 + axis, 0);
-        glBindTexture(GL_TEXTURE_2D, CoordTex[axis]);
-    }
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, texture);
 }
 
 FrameView FrameView::Of(const Frame& frame)
@@ -337,6 +119,7 @@ FrameView FrameView::Of(const Frame& frame)
     view.HalvesAt1x = frame.halvesAt1x;
     view.Scale = frame.scaleAt1x;
     view.HalfScale = frame.halfScaleAt1x;
+    view.Sequence = frame.sequence;
     return view;
 }
 
@@ -416,7 +199,8 @@ ScreenRects Presenter::Place(const FrameView& frame, int windowW, int windowH, L
     return {Top, Bottom};
 }
 
-ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, Layout layout, bool linear, Fit fit, bool swap)
+ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, const SurfaceScreens& screens, const SurfaceBackground& background,
+    int surface, bool waitForBackground)
 {
     // the core leaves its own state behind, so all of what's drawn here is set first
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -429,76 +213,40 @@ ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, La
     // draw buffer 0 only, as the app's frontend leaves the others: the core's passes must set their own
     // masks (the GPU 2D shadow's StackTex is draw buffer 1, which the OpenGL 3D renderer leaves masked)
     glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    // the screen shaders set their textures' filtering, as the app does, so no sampler object may stand in front of it (the 1x shader's
+    // coordinates are on units 1 and 2)
+    for (GLuint unit = 0; unit < 3; unit++)
+        glBindSampler(unit, 0);
     glViewport(0, 0, windowW, windowH);
     glClearColor(0, 0, 0, 1);
-    glClear(GL_COLOR_BUFFER_BIT);
 
-    if (!frame.Texture)
-        return {};
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, frame.Texture);
-    // camera stage 2: the top half's margin rows, shown above and below it
-    int margin = frame.TopMargin;
-    float rows = 386.f + 2.f * margin;
-    float topBottomV = (192.f + 2.f * margin) / rows, bottomTopV = (194.f + 2.f * margin) / rows;
-
-    float topW = (float)frame.TopWidth, botW = 256.f;
-    ScreenRects rects = Place(frame, windowW, windowH, layout, fit, swap);
-    const Rect& Top = rects.Top;
-    const Rect& Bottom = rects.Bottom;
-
-    // the bottom screen sits in the middle 256 columns of a wider output, between black bars
-    float botU0 = 0.5f - 0.5f * botW / topW, botU1 = 0.5f + 0.5f * botW / topW;
-    float verts[12 * 4];
-    int count = 0;
-    auto quad = [&](const Rect& r, float u0, float u1, float v0, float v1)
-    {
-        if (r.W <= 0)
-            return;
-        // window pixels (y down) to clip space (y up)
-        float l = r.X / windowW * 2 - 1, rr = (r.X + r.W) / windowW * 2 - 1;
-        float t = 1 - r.Y / windowH * 2, b = 1 - (r.Y + r.H) / windowH * 2;
-        float q[6][4] = {
-            {l, t, u0, v0}, {rr, t, u1, v0}, {l, b, u0, v1},
-            {rr, t, u1, v0}, {rr, b, u1, v1}, {l, b, u0, v1},
-        };
-        memcpy(&verts[count * 4], q, sizeof(q));
-        count += 6;
-    };
-    quad(Top, 0, 1, 0, topBottomV);
-    quad(Bottom, botU0, botU1, bottomTopV, 1);
-    // GPU::Comp1x: a frame with a half at 1x is drawn nearest straight from the 1x image, and expanded
-    // into the full frame first for linear filtering (the core only draws such frames without it, but
-    // the last one can be drawn again after F8)
-    bool halvesAt1x = frame.HalvesAt1x != 0 && PrepareHalvesAt1x();
-    if (halvesAt1x && !linear)
-    {
-        BindCoordTextures(frame.Texture);
-        glBindSampler(0, Sampler[0]);
-        glUseProgram(HalvesAt1xProgram);
-        glUniform1i(HalvesAt1xTexLoc, 0);
-        glUniform3i(HalvesAt1xLoc, frame.HalvesAt1x, frame.Scale, frame.HalfScale);
-    }
-    else
-    {
-        if (halvesAt1x)
-        {
-            GLuint expanded = ExpandHalvesAt1x(frame);
-            glViewport(0, 0, windowW, windowH);
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, expanded);
-        }
-        glBindSampler(0, Sampler[linear ? 1 : 0]);
-        glUseProgram(Program);
-        glUniform1i(TexLoc, 0);
-    }
-    glBindVertexArray(VertexArray);
-    glBindBuffer(GL_ARRAY_BUFFER, VertexBuffer);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, count * 4 * sizeof(float), verts);
-    glDrawArrays(GL_TRIANGLES, 0, count);
-    glBindVertexArray(0);
-    glBindSampler(0, 0);
+    ScreenRenderer& renderer = Surfaces[std::clamp(surface, 0, SURFACE_COUNT - 1)];
+    renderer.UpdateRendererConfiguration(Config);
+    renderer.SetBackground(background);
+    renderer.SetBackgroundWithoutFrame(screens.ShowBackgroundWithoutFrame);
+    ScreenRects rects;
+    if (frame.IsValid() || screens.ShowBackgroundWithoutFrame)
+        renderer.UpdateScreenAreas(screens, windowW, windowH);
+    if (frame.IsValid())
+        rects = RectsFor(screens, frame.TopWidth, frame.TopMargin, (float)windowW);
+    renderer.DrawFrame(frame, CurrentTiltShift, waitForBackground);
     return rects;
+}
+
+bool Presenter::CanDrawHalvesAt1x(int surfaces) const
+{
+    bool can = true;
+    for (int i = 0; i < std::min(surfaces, SURFACE_COUNT); i++)
+        can = can && Surfaces[i].CanDrawHalvesAt1x(CurrentTiltShift.has_value());
+    return can;
+}
+
+int Presenter::OutputScaleNeed(int surfaces) const
+{
+    int need = 0;
+    for (int i = 0; i < std::min(surfaces, SURFACE_COUNT); i++)
+        need = std::max(need, Surfaces[i].OutputScaleNeed());
+    return need;
 }
 
 bool Presenter::ReadFrame(const FrameView& frame, std::vector<u8>& pixels, int& width, int& height)

@@ -1,0 +1,99 @@
+Screen filter shaders
+
+melonadeDS for PC draws its screens with the Android app's shaders (app/src/main/java/me/magnum/melonds/common/opengl/ShaderProgramSource.kt),
+embedded in the exe. These notices are the ones that file's comments carry, and the app lists the same in its open source licenses
+(app/config/libraries/shader-*.json).
+
+
+2xBR shader (the "2xBR" filter)
+-------------------------------
+
+Hyllian's 2xBR Shader
+
+Copyright (C) 2011 Hyllian/Jararaca - sergiogdb@gmail.com
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+
+
+HQ2X and HQ4X shaders (the "HQ2X" and "HQ4X" filters)
+------------------------------------------------------
+
+2xGLSLHqFilter shader and 4xGLSLHqFilter shader
+
+Copyright (C) 2005 guest(r) - guest.r@gmail.com
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+
+
+MMPX shader (the "MMPX" filter)
+-------------------------------
+
+MMPX
+by Morgan McGuire and Mara Gagiu
+https://casual-effects.com/research/McGuire2021PixelArt/
+License: MIT
+
+Copyright 2020 Morgan McGuire & Mara Gagiu
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+adapted for glsl by hunterk
+
+
+Public domain shaders
+---------------------
+
+LCD shader (the "LCD" filter). Author: Gigaherz. License: Public domain
+Scanlines shader (the "Scanlines" filter). Author: Themaister. This code is hereby placed in the public domain.
+sharp-shimmerless (the "Sharp (no shimmer)" filter). Author: zadpos (Woohyun Kang). License: Public domain
+DS screen colors: Pokefan531's nds-color profile, from hunterk's Color Mangler (public domain)
+
+
+Written for melonadeDS from published algorithms
+------------------------------------------------
+
+Quilez filter: based on "Improved texture interpolation" by Iñigo Quílez
+(http://www.iquilezles.org/www/articles/texture/texture.htm)
+Scale2x filter: Scale2x (also known as EPX) by Andrea Mazzoleni (https://www.scale2x.it/algorithm)
+FXAA filter: FXAA by Timothy Lottes (NVIDIA), the original simple version
+Smooth gradients (deband): after mpv's deband (itself based on flash3kyuu), with the "Hash without Sine" function by Dave Hoskins (MIT)
