@@ -1030,6 +1030,1042 @@ class ShaderProgramSource private constructor(val textureFiltering: TextureFilte
                     "}"
         )
 
+        // The bloom's values (Shader.setBloom): strength (x), threshold (y) and radius in DS pixels (z)
+        private const val BLOOM_UNIFORM = "uniform vec3 bloom;\n"
+
+        // A texel of the frame's depth texture (PresentFrameWrapper.depthTextureId, the compositor's kCompositorDepthFS) as a depth from 0 to 1:
+        // the DS's 24-bit depth in RGB, high byte in R, so 0 is 2D drawn over the 3D and 1 is where what's behind the 3D shows. A holds the
+        // compositor's flags (1 for 2D, 2 for behind the 3D, 4 for a W-buffered 3D pixel, 8 for 3D drawn under another camera than
+        // PresentFrameWrapper.depthCamera, 16 for a pixel in a character's shadow, which the renderer draws, 32 for one a light texture drew,
+        // melon.gpu.light_textures), which the sun shadows and bloom's lights read. The
+        // two ends are exact and every other depth stays below 1, however the GPU divides, so a test like depth < 1.0 tells real 3D from what's
+        // behind it
+        private const val DEPTH_DECODE_FUNCTION = "highp float decodeDepth(highp vec4 texel) {\n" +
+                "    highp vec3 bytes = floor(texel.rgb * 255.0 + 0.5);\n" +
+                "    highp float value = bytes.r * 65536.0 + bytes.g * 256.0 + bytes.b;\n" +
+                "    if (value >= 16777215.0) {\n" +
+                "        return 1.0;\n" +
+                "    }\n" +
+                "    // The largest float below 1\n" +
+                "    return min(value / 16777215.0, 0.99999994);\n" +
+                "}\n"
+
+        // The same texel's 24-bit depth as a whole number (depthValue), which highp floats hold exactly up to 2^24, so depths can be averaged
+        // as differences from one of them without losing steps; isValue3D() is decodeDepth()'s test for real 3D, depth > 0 and < 1. encodeDepth()
+        // is the inverse of depthValue(), the value rounded to a whole number from 0 to 16777215 as RGB, exact since it only divides by powers
+        // of 2. For the shading's passes, whose targets hold depths the same way
+        private const val DEPTH_VALUE_FUNCTIONS = "highp float depthValue(highp vec4 texel) {\n" +
+                "    highp vec3 bytes = floor(texel.rgb * 255.0 + 0.5);\n" +
+                "    return bytes.r * 65536.0 + bytes.g * 256.0 + bytes.b;\n" +
+                "}\n" +
+                "bool isValue3D(highp float value) {\n" +
+                "    return value > 0.0 && value < 16777215.0;\n" +
+                "}\n" +
+                "highp vec3 encodeDepth(highp float value) {\n" +
+                "    value = clamp(floor(value + 0.5), 0.0, 16777215.0);\n" +
+                "    highp float high = floor(value / 65536.0);\n" +
+                "    highp float middle = floor((value - high * 65536.0) / 256.0);\n" +
+                "    highp float low = value - high * 65536.0 - middle * 256.0;\n" +
+                "    return vec3(high, middle, low) / 255.0;\n" +
+                "}\n"
+
+        // The depth of field's focus as DepthOfFieldFocusShader stores it (needs DEPTH_DECODE_FUNCTION first): its depth in RGB as the depth
+        // texture has it, all 0 for none, which decodes to negative
+        private const val FOCUS_DECODE_FUNCTION = "highp float decodeFocus(highp vec4 texel) {\n" +
+                "    highp float depth = decodeDepth(texel);\n" +
+                "    return depth > 0.0 ? depth : -1.0;\n" +
+                "}\n"
+
+        // The depth of field's view distances (needs DEPTH_DECODE_FUNCTION first). depthProjection is the frame's projection's depth terms,
+        // P10, P11, P14 and P15 of PresentFrameWrapper.depthCamera's column-major projection (Shader.setDepthOfField). isWBuffered() is a depth
+        // texel's flag 4, which every 3D pixel of a W-buffered scene has. viewDistance() is how far a depth from 0 to 1 (decodeDepth()'s) is
+        // in front of the camera: W-buffered it's w itself in 20.12, and Z-buffered its NDC z (the core's z/w * 2^23 + 0x7FFE00 inverted) back
+        // through those terms. A frame without a projection (a scene with no camera) gets the depth itself, which keeps the order
+        private const val DEPTH_DISTANCE_FUNCTIONS = "uniform highp vec4 depthProjection;\n" +
+                "bool isWBuffered(highp vec4 texel) {\n" +
+                "    return mod(floor(floor(texel.a * 255.0 + 0.5) / 4.0), 2.0) == 1.0;\n" +
+                "}\n" +
+                "highp float viewDistance(highp float depth, bool wbuffer) {\n" +
+                "    highp float value = depth * 16777215.0;\n" +
+                "    if (wbuffer) {\n" +
+                "        return value / 4096.0;\n" +
+                "    }\n" +
+                "    highp float ndc = (value - 8388096.0) / 8388608.0;\n" +
+                "    highp float denominator = depthProjection.x - ndc * depthProjection.y;\n" +
+                "    if (denominator == 0.0) {\n" +
+                "        return depth;\n" +
+                "    }\n" +
+                "    return (depthProjection.z - ndc * depthProjection.w) / denominator;\n" +
+                "}\n"
+
+        // Black, for the texels of a bloom target outside the DS top screen, which never glow
+        private const val BLOOM_BLACK = "vec4(0.0, 0.0, 0.0, 1.0)"
+
+        // The first bloom pass, at DS-native resolution (VideoFilterPipeline makes its target topScreenWidth x frameLayout.w): each texel is the
+        // average of the input texels it covers (four bilinear taps, exact at 2x and 4x), then only what's brighter than the threshold is kept,
+        // easing in over a soft knee so the glow has no hard edge. Only the DS top screen; the rest is black. With ONLY_3D defined
+        // (VideoFilterPipeline, for bloom's only_3d) each tap counts only where the frame's depth (depthTex, unit 1, nearest, read with
+        // DEPTH_DECODE_FUNCTION) is 3D, still averaged over all four so the glow fades at the 3D's edges. With LIGHTS defined (bloom's
+        // lights) a tap whose depth texel is 3D with flag 32 (a light texture, melon.gpu.light_textures) leaves the luma average and glows on
+        // its own instead: by its brightest channel over the same soft knee at bloomLights.x, times bloomLights.y, a quarter for each tap
+        val BloomBrightPrePassShader get() = ShaderProgramSource(
+            TextureFiltering.LINEAR,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    SCREEN_UNIFORMS +
+                    "varying vec2 uv;\n" +
+                    BLOOM_UNIFORM +
+                    screenBandFunctions("texture2D") +
+                    "" +
+                    "const vec3 BLOOM_LUMA = vec3(0.299, 0.587, 0.114);\n" +
+                    "// Half the soft knee's width, as a luma: the glow eases in from threshold - BLOOM_KNEE to threshold + BLOOM_KNEE\n" +
+                    "const float BLOOM_KNEE = 0.1;\n" +
+                    "" +
+                    "#ifdef LIGHTS\n" +
+                    "uniform highp sampler2D depthTex;\n" +
+                    "// The lights' threshold, as a brightest channel (x), and strength (y)\n" +
+                    "uniform vec2 bloomLights;\n" +
+                    DEPTH_DECODE_FUNCTION +
+                    "// sampleScreen(p, band) for the luma average (black where the depth isn't 3D with ONLY_3D), or black for a light, whose own\n" +
+                    "// glow by its brightest channel goes into lights instead\n" +
+                    "vec3 sampleTap(vec2 p, vec4 band, inout vec3 lights) {\n" +
+                    "    vec2 q = vec2(clamp(p.x, band.z, band.w), clamp(p.y, band.x, band.y));\n" +
+                    "    highp vec4 depthTexel = texture2D(depthTex, vec2(q.x, clamp(q.y / topScreenEnd, 0.0, 1.0)));\n" +
+                    "    highp float depth = decodeDepth(depthTexel);\n" +
+                    "    bool is3D = depth > 0.0 && depth < 1.0;\n" +
+                    "    float flags = floor(depthTexel.a * 255.0 + 0.5);\n" +
+                    "    if (is3D && mod(floor(flags / 32.0), 2.0) == 1.0) {\n" +
+                    "        vec3 light = texture2D(tex, q).bgr;\n" +
+                    "        float peak = max(light.r, max(light.g, light.b));\n" +
+                    "        float knee = clamp(peak - bloomLights.x + BLOOM_KNEE, 0.0, 2.0 * BLOOM_KNEE);\n" +
+                    "        knee = knee * knee / (4.0 * BLOOM_KNEE);\n" +
+                    "        lights += light * (max(knee, peak - bloomLights.x) / max(peak, 0.0001));\n" +
+                    "        return vec3(0.0);\n" +
+                    "    }\n" +
+                    "#ifdef ONLY_3D\n" +
+                    "    return is3D ? texture2D(tex, q).bgr : vec3(0.0);\n" +
+                    "#else\n" +
+                    "    return sampleScreen(p, band);\n" +
+                    "#endif\n" +
+                    "}\n" +
+                    "#elif defined(ONLY_3D)\n" +
+                    "uniform highp sampler2D depthTex;\n" +
+                    DEPTH_DECODE_FUNCTION +
+                    "// sampleScreen(p, band) where the frame's depth at that texel is 3D, black for 2D over the 3D and for what's behind it\n" +
+                    "vec3 sampleTap(vec2 p, vec4 band) {\n" +
+                    "    vec2 q = vec2(clamp(p.x, band.z, band.w), clamp(p.y, band.x, band.y));\n" +
+                    "    highp float depth = decodeDepth(texture2D(depthTex, vec2(q.x, clamp(q.y / topScreenEnd, 0.0, 1.0))));\n" +
+                    "    return depth > 0.0 && depth < 1.0 ? texture2D(tex, q).bgr : vec3(0.0);\n" +
+                    "}\n" +
+                    "#else\n" +
+                    "vec3 sampleTap(vec2 p, vec4 band) {\n" +
+                    "    return sampleScreen(p, band);\n" +
+                    "}\n" +
+                    "#endif\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    vec4 band = screenBand(uv);\n" +
+                    "    // The gap, the DS bottom screen, and the sides beside the top screen when only the bottom one is wide\n" +
+                    "    if (uv.y >= topScreenEnd || (band.z >= 0.0 && (uv.x < band.z || uv.x > band.w))) {\n" +
+                    "        gl_FragColor = $BLOOM_BLACK;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "" +
+                    "    // A quarter of this pass's texel, which is one DS pixel\n" +
+                    "    vec2 tap = 0.25 / vec2(topScreenWidth, frameLayout.w);\n" +
+                    "#ifdef LIGHTS\n" +
+                    "    vec3 lights = vec3(0.0);\n" +
+                    "    vec3 color = 0.25 * (\n" +
+                    "        sampleTap(uv - tap, band, lights) + sampleTap(uv + tap, band, lights) +\n" +
+                    "        sampleTap(uv + vec2(tap.x, -tap.y), band, lights) + sampleTap(uv + vec2(-tap.x, tap.y), band, lights));\n" +
+                    "#else\n" +
+                    "    vec3 color = 0.25 * (\n" +
+                    "        sampleTap(uv - tap, band) + sampleTap(uv + tap, band) +\n" +
+                    "        sampleTap(uv + vec2(tap.x, -tap.y), band) + sampleTap(uv + vec2(-tap.x, tap.y), band));\n" +
+                    "#endif\n" +
+                    "    float luma = dot(color, BLOOM_LUMA);\n" +
+                    "    float knee = clamp(luma - bloom.y + BLOOM_KNEE, 0.0, 2.0 * BLOOM_KNEE);\n" +
+                    "    knee = knee * knee / (4.0 * BLOOM_KNEE);\n" +
+                    "    float weight = max(knee, luma - bloom.y) / max(luma, 0.0001);\n" +
+                    "    // Swap back to the frame texture's channel order, since sampleScreen() reads the BGR texels as RGB\n" +
+                    "#ifdef LIGHTS\n" +
+                    "    gl_FragColor = vec4((color * weight + 0.25 * bloomLights.y * lights).bgr, 1.0);\n" +
+                    "#else\n" +
+                    "    gl_FragColor = vec4((color * weight).bgr, 1.0);\n" +
+                    "#endif\n" +
+                    "}"
+        )
+
+        // One direction of the bloom's blur, at DS-native resolution like the bright pass: a Gaussian whose sigma is half the radius, from 9
+        // bilinear samples a quarter of the radius apart (at most 2 texels, what bilinear filtering can bridge), kept inside the DS top screen
+        private fun bloomBlurPrePassShader(direction: String): ShaderProgramSource {
+            return ShaderProgramSource(
+                TextureFiltering.LINEAR,
+                PRE_PASS_VERT_SHADER,
+                PRECISION_HEADER +
+                        SCREEN_UNIFORMS +
+                        "varying vec2 uv;\n" +
+                        BLOOM_UNIFORM +
+                        screenBandFunctions("texture2D") +
+                        "" +
+                        "const vec2 BLUR_DIRECTION = $direction;\n" +
+                        "// A Gaussian whose sigma is 2 samples at offsets of 0 to 4 samples, adding up to 1\n" +
+                        "const float WEIGHT_0 = 0.204162;\n" +
+                        "const float WEIGHT_1 = 0.180174;\n" +
+                        "const float WEIGHT_2 = 0.123832;\n" +
+                        "const float WEIGHT_3 = 0.066282;\n" +
+                        "const float WEIGHT_4 = 0.027631;\n" +
+                        "" +
+                        "void main() {\n" +
+                        "    // Only the DS top screen has a glow\n" +
+                        "    if (uv.y >= topScreenEnd) {\n" +
+                        "        gl_FragColor = $BLOOM_BLACK;\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "" +
+                        "    // This pass's texels are DS pixels\n" +
+                        "    vec4 band = screenBand(uv);\n" +
+                        "    vec2 spacing = BLUR_DIRECTION * bloom.z / 4.0 / texSize;\n" +
+                        "    vec3 color = WEIGHT_0 * sampleScreen(uv, band);\n" +
+                        "    color += WEIGHT_1 * (sampleScreen(uv - spacing, band) + sampleScreen(uv + spacing, band));\n" +
+                        "    color += WEIGHT_2 * (sampleScreen(uv - spacing * 2.0, band) + sampleScreen(uv + spacing * 2.0, band));\n" +
+                        "    color += WEIGHT_3 * (sampleScreen(uv - spacing * 3.0, band) + sampleScreen(uv + spacing * 3.0, band));\n" +
+                        "    color += WEIGHT_4 * (sampleScreen(uv - spacing * 4.0, band) + sampleScreen(uv + spacing * 4.0, band));\n" +
+                        "    // Swap back to the frame texture's channel order, since sampleScreen() reads the BGR texels as RGB\n" +
+                        "    gl_FragColor = vec4(color.bgr, 1.0);\n" +
+                        "}"
+            )
+        }
+
+        // Built when a script first asks for a glow (see VideoFilterPipeline), which runs them after the bright pass in this order
+        val BloomBlurHorizontalPrePassShader get() = bloomBlurPrePassShader("vec2(1.0, 0.0)")
+        val BloomBlurVerticalPrePassShader get() = bloomBlurPrePassShader("vec2(0.0, 1.0)")
+
+        // The bloom's last pass, at the input's resolution: the blurred glow on unit 1 (glowTex, DS-native, sampled linear) added at the bloom's
+        // strength, then the vignette, a smooth darkening from vignette.y of the half-diagonal out to the corners, where it's vignette.x. Both
+        // on the DS top screen only, its SCREEN_HEIGHT rows inside the WideMelon camera's margin for the vignette. With NO_GLOW defined
+        // (VideoFilterPipeline) there's no glow to read, for the haze or the vignette without it. With HAZE defined, 3D pixels first mix towards
+        // hazeColor (RGB) at up to haze.x, easing in from depth haze.y over haze.z, with the frame's depth on unit 2 (hazeDepthTex, nearest,
+        // read with DEPTH_DECODE_FUNCTION)
+        val BloomCombinePrePassShader get() = ShaderProgramSource(
+            TextureFiltering.LINEAR,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    SCREEN_UNIFORMS +
+                    "varying vec2 uv;\n" +
+                    "#ifndef NO_GLOW\n" +
+                    "uniform sampler2D glowTex;\n" +
+                    BLOOM_UNIFORM +
+                    "#endif\n" +
+                    "#ifdef HAZE\n" +
+                    "uniform highp sampler2D hazeDepthTex;\n" +
+                    "// The haze's strength (x), and where it starts (y) and how far it eases in (z) in raw depth\n" +
+                    "uniform highp vec3 haze;\n" +
+                    "uniform vec3 hazeColor;\n" +
+                    DEPTH_DECODE_FUNCTION +
+                    "#endif\n" +
+                    "// The vignette's strength (x) and where it starts (y)\n" +
+                    "uniform vec2 vignette;\n" +
+                    "// The sun shadows' guard band in DS pixels: the columns on each side of the top screen that are filtered but not shown\n" +
+                    "uniform float topScreenGuard;\n" +
+                    "uniform float bottomScreenWide;\n" +
+                    FRAME_LAYOUT_UNIFORM +
+                    "#define topScreenEnd frameLayout.x\n" +
+                    "" +
+                    "// The DS top screen's columns (xy) and its SCREEN_HEIGHT rows inside the camera's margin (zw), as u and v coordinates\n" +
+                    "vec4 topScreenRect() {\n" +
+                    "    float halfWidth = bottomScreenWide > 0.5 && topScreenWidth > ${SCREEN_WIDTH}.0 ? 0.5 * ${SCREEN_WIDTH}.0 / topScreenWidth : 0.5;\n" +
+                    "    float margin = (topScreenEnd * frameLayout.w - ${SCREEN_HEIGHT}.0) * 0.5;\n" +
+                    "    return vec4(0.5 - halfWidth, 0.5 + halfWidth, margin / frameLayout.w, (margin + ${SCREEN_HEIGHT}.0) / frameLayout.w);\n" +
+                    "}\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    vec3 texel = texture2D(tex, uv).rgb;\n" +
+                    "    // The gap and the DS bottom screen stay as they are\n" +
+                    "    if (uv.y >= topScreenEnd) {\n" +
+                    "        gl_FragColor = vec4(texel, 1.0);\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "" +
+                    "    vec3 color = texel.bgr;\n" +
+                    "    vec4 rect = topScreenRect();\n" +
+                    "    // Both in DS pixels, so the darkening is round on the screen whatever its width\n" +
+                    "    vec2 dsPixels = vec2(topScreenWidth, frameLayout.w);\n" +
+                    "#ifdef HAZE\n" +
+                    "    highp float depth = decodeDepth(texture2D(hazeDepthTex, vec2(uv.x, clamp(uv.y / topScreenEnd, 0.0, 1.0))));\n" +
+                    "    if (depth > 0.0 && depth < 1.0) {\n" +
+                    "        color = mix(color, hazeColor, haze.x * smoothstep(haze.y, haze.y + max(haze.z, 0.000001), depth));\n" +
+                    "    }\n" +
+                    "#endif\n" +
+                    "#ifndef NO_GLOW\n" +
+                    "    // Kept on the glow's texel centers inside the top screen, so the black around it doesn't darken its edges\n" +
+                    "    vec2 glowHalfTexel = 0.5 / dsPixels;\n" +
+                    "    vec2 glowUv = clamp(uv, vec2(rect.x, 0.0) + glowHalfTexel, vec2(rect.y, topScreenEnd) - glowHalfTexel);\n" +
+                    "    color += bloom.x * texture2D(glowTex, glowUv).bgr;\n" +
+                    "#endif\n" +
+                    "    // The vignette goes over the top screen as it's shown, without the guard band's columns (its rows are the 192 already)\n" +
+                    "    vec4 shown = rect;\n" +
+                    "    if (!(bottomScreenWide > 0.5 && topScreenWidth > ${SCREEN_WIDTH}.0)) {\n" +
+                    "        float guardU = topScreenGuard / topScreenWidth;\n" +
+                    "        shown.xy += vec2(guardU, -guardU);\n" +
+                    "    }\n" +
+                    "    vec2 offset = (uv - 0.5 * (shown.xz + shown.yw)) * dsPixels;\n" +
+                    "    vec2 halfSize = 0.5 * (shown.yw - shown.xz) * dsPixels;\n" +
+                    "    float t = clamp((length(offset) / length(halfSize) - vignette.y) / max(1.0 - vignette.y, 0.001), 0.0, 1.0);\n" +
+                    "    color *= 1.0 - vignette.x * t * t * (3.0 - 2.0 * t);\n" +
+                    "    gl_FragColor = vec4(clamp(color, 0.0, 1.0).bgr, 1.0);\n" +
+                    "}"
+        )
+
+        // The depth of field's focus for a frame, into a 1 x 1 target that the blur passes read (focusTex): its depth in RGB as the depth
+        // texture has it (0 for none) and in A how long a hold has lasted. tex (unit 0) is the last frame's, so the focus can hold, and
+        // depthTex (unit 1) the frame's depth. depthFocus.x is a fixed focus depth (a script's focus_depth, or else the frame's own focus on the
+        // focus textures, PresentFrameWrapper.depthFocus), or negative to look at depthFocus.yz (u and v of depthTex), and depthFocus.w is 1 on
+        // the frames that age a hold (every other one). Without a fixed depth the focus is, in order:
+        // - The nearest flat 3D at and up to 18 DS pixels above the point: a depth that's the same 3 DS pixels lower is a quad facing the camera,
+        //   as Pokemon White's characters are, where the floor, walls and roofs all change depth from row to row. That's the player standing at
+        //   the point, so whatever covers her (a pillar, a roof) never takes the focus.
+        // - With none, the last frame's focus, held while the nearest 3D around the point is nearer than it by more than the sharp range
+        //   (depthOfField.y, relative to its distance as the blur's is): the player is behind something. It holds up to HOLD_LIMIT aging frames
+        //   (about 8.5 s) since the last flat 3D.
+        // - Otherwise the nearest 3D at the point and the four points 3 DS pixels around it, or 6 if none of those is 3D. The nearest, as
+        //   White's player walking sideways shows the floor between her legs at the point every other step, which is farther than the sharp
+        //   range. With no 3D there, none, which also ends a hold (a map change goes through a frame with no 3D)
+        val DepthOfFieldFocusShader get() = ShaderProgramSource(
+            TextureFiltering.NEAREST,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    "varying vec2 uv;\n" +
+                    "uniform highp sampler2D tex;\n" +
+                    "uniform float topScreenWidth;\n" +
+                    FRAME_LAYOUT_UNIFORM +
+                    "uniform vec3 depthOfField;\n" +
+                    "uniform vec4 depthFocus;\n" +
+                    "uniform highp sampler2D depthTex;\n" +
+                    "" +
+                    "// How far around the focus point the fallback looks, in DS pixels: the near ring first, and the far one only if the near one\n" +
+                    "// finds no 3D\n" +
+                    "const float FOCUS_NEAR = 3.0;\n" +
+                    "const float FOCUS_FAR = 6.0;\n" +
+                    "// The flat 3D search: rows every FLAT_STEP DS pixels from the point up FLAT_ROWS - 1 steps, in three columns FLAT_STEP apart,\n" +
+                    "// each against the depth FLAT_STEP lower. Two depths count as the same within a few of the DS's 24-bit steps, where White's\n" +
+                    "// floor changes by hundreds over 3 pixels\n" +
+                    "const float FLAT_STEP = 3.0;\n" +
+                    "const int FLAT_ROWS = 7;\n" +
+                    "const highp float FLAT_TOLERANCE = 2.5 / 16777215.0;\n" +
+                    "const float HOLD_LIMIT = 255.0;\n" +
+                    "" +
+                    DEPTH_DECODE_FUNCTION +
+                    FOCUS_DECODE_FUNCTION +
+                    DEPTH_DISTANCE_FUNCTIONS +
+                    "highp float depthAt(vec2 p) {\n" +
+                    "    return decodeDepth(texture2D(depthTex, p));\n" +
+                    "}\n" +
+                    "" +
+                    "// Whether the 3D nearer3D() found is W-buffered, which all of a scene's is\n" +
+                    "bool nearestWBuffered = false;\n" +
+                    "" +
+                    "bool is3D(highp float depth) {\n" +
+                    "    return depth > 0.0 && depth < 1.0;\n" +
+                    "}\n" +
+                    "" +
+                    "// One DS pixel as u and v of depthTex, which is the top screen's half of the frame\n" +
+                    "vec2 dsPixel() {\n" +
+                    "    return 1.0 / vec2(topScreenWidth, frameLayout.x * frameLayout.w);\n" +
+                    "}\n" +
+                    "" +
+                    "// The nearer of nearest and the depth at p if that's 3D, so a negative nearest means none yet\n" +
+                    "highp float nearer3D(highp float nearest, vec2 p) {\n" +
+                    "    highp vec4 texel = texture2D(depthTex, p);\n" +
+                    "    highp float depth = decodeDepth(texel);\n" +
+                    "    if (!is3D(depth)) {\n" +
+                    "        return nearest;\n" +
+                    "    }\n" +
+                    "    nearestWBuffered = isWBuffered(texel);\n" +
+                    "    return nearest < 0.0 ? depth : min(nearest, depth);\n" +
+                    "}\n" +
+                    "" +
+                    "// The nearest of nearest and the 3D at the four points ringPixels DS pixels from the focus point, negative for none\n" +
+                    "highp float nearestOnRing(highp float nearest, float ringPixels) {\n" +
+                    "    vec2 ringStep = ringPixels * dsPixel();\n" +
+                    "    nearest = nearer3D(nearest, depthFocus.yz + vec2(ringStep.x, 0.0));\n" +
+                    "    nearest = nearer3D(nearest, depthFocus.yz - vec2(ringStep.x, 0.0));\n" +
+                    "    nearest = nearer3D(nearest, depthFocus.yz + vec2(0.0, ringStep.y));\n" +
+                    "    return nearer3D(nearest, depthFocus.yz - vec2(0.0, ringStep.y));\n" +
+                    "}\n" +
+                    "" +
+                    "// The nearest flat 3D at and above the focus point (see above), negative for none\n" +
+                    "highp float nearestFlat() {\n" +
+                    "    vec2 flatStep = FLAT_STEP * dsPixel();\n" +
+                    "    highp float nearest = -1.0;\n" +
+                    "    for (int row = 0; row < FLAT_ROWS; row++) {\n" +
+                    "        for (int column = -1; column <= 1; column++) {\n" +
+                    "            vec2 p = depthFocus.yz + vec2(float(column) * flatStep.x, -float(row) * flatStep.y);\n" +
+                    "            // Above the depth texture's top, clamping would read its top row for both and call it flat\n" +
+                    "            if (p.y < 0.0) {\n" +
+                    "                continue;\n" +
+                    "            }\n" +
+                    "            highp float depth = depthAt(p);\n" +
+                    "            highp float below = depthAt(p + vec2(0.0, flatStep.y));\n" +
+                    "            if (is3D(depth) && is3D(below) && abs(depth - below) <= FLAT_TOLERANCE) {\n" +
+                    "                nearest = nearest < 0.0 ? depth : min(nearest, depth);\n" +
+                    "            }\n" +
+                    "        }\n" +
+                    "    }\n" +
+                    "    return nearest;\n" +
+                    "}\n" +
+                    "" +
+                    "// The focus as stored: the depth's 24 bits in RGB, high byte in R, all 0 for none (a real depth keeps at least 1), and the hold's\n" +
+                    "// age in A\n" +
+                    "vec4 encodeFocus(highp float depth, float age) {\n" +
+                    "    if (depth < 0.0) {\n" +
+                    "        return vec4(0.0, 0.0, 0.0, age / 255.0);\n" +
+                    "    }\n" +
+                    "    highp float value = clamp(floor(depth * 16777215.0 + 0.5), 1.0, 16777215.0);\n" +
+                    "    highp float high = floor(value / 65536.0);\n" +
+                    "    highp float middle = floor((value - high * 65536.0) / 256.0);\n" +
+                    "    highp float low = value - high * 65536.0 - middle * 256.0;\n" +
+                    "    return vec4(vec3(high, middle, low) / 255.0, age / 255.0);\n" +
+                    "}\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    if (depthFocus.x >= 0.0) {\n" +
+                    "        gl_FragColor = encodeFocus(depthFocus.x, HOLD_LIMIT);\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    highp float flatDepth = nearestFlat();\n" +
+                    "    if (flatDepth >= 0.0) {\n" +
+                    "        gl_FragColor = encodeFocus(flatDepth, 0.0);\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "" +
+                    "    highp float nearest = nearestOnRing(nearer3D(-1.0, depthFocus.yz), FOCUS_NEAR);\n" +
+                    "    if (nearest < 0.0) {\n" +
+                    "        nearest = nearestOnRing(-1.0, FOCUS_FAR);\n" +
+                    "    }\n" +
+                    "    highp vec4 last = texture2D(tex, vec2(0.5));\n" +
+                    "    highp float lastFocus = decodeFocus(last);\n" +
+                    "    float age = floor(last.a * 255.0 + 0.5);\n" +
+                    "    if (nearest < 0.0 || lastFocus < 0.0 || age >= HOLD_LIMIT) {\n" +
+                    "        gl_FragColor = encodeFocus(nearest, HOLD_LIMIT);\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    // Still within a hold's time: something nearer at the point than the sharp range keeps the last focus, and anything else is taken\n" +
+                    "    // as it is, but the hold's time keeps running\n" +
+                    "    age = min(age + depthFocus.w, HOLD_LIMIT);\n" +
+                    "    highp float lastDistance = viewDistance(lastFocus, nearestWBuffered);\n" +
+                    "    highp float nearestDistance = max(viewDistance(nearest, nearestWBuffered), 0.001);\n" +
+                    "    gl_FragColor = encodeFocus(lastDistance / nearestDistance - 1.0 > depthOfField.y ? lastFocus : nearest, age);\n" +
+                    "}"
+        )
+
+        // One direction of the depth of field's blur, over the DS top screen like the tilt-shift's: each texel's radius follows how far its depth is
+        // from the focus, up to depthOfField.x DS pixels. depthTex (unit 1, nearest) is the frame's top screen half's depth from the compositor
+        // (PresentFrameWrapper.depthTextureId, read with DEPTH_DECODE_FUNCTION): 0 for 2D drawn over the 3D, which stays sharp, 1 where what's
+        // behind the 3D shows, which blurs as the farthest depth. depthOfField.yz are the sharp range around the focus and the falloff past it,
+        // relative to the focus's view distance: a pixel d away from the camera is |1 - s / d| from a focus s away, a thin lens's circle of
+        // confusion, which on a Z-buffer is the raw depth's difference times s, so the same values suit a W-buffered room and the Z-buffered
+        // field. focusTex (unit 2) is the focus DepthOfFieldFocusShader picked for this frame; with none, nothing blurs. A tap only counts as
+        // much as its own blur reaches it, so a sharp texel never spreads over a blurred one. 13 Gaussian taps like the tilt-shift's
+        private fun depthOfFieldPrePassShader(direction: String): ShaderProgramSource {
+            return ShaderProgramSource(
+                TextureFiltering.LINEAR,
+                PRE_PASS_VERT_SHADER,
+                PRECISION_HEADER +
+                        SCREEN_UNIFORMS +
+                        "varying vec2 uv;\n" +
+                        "uniform vec3 depthOfField;\n" +
+                        "uniform highp sampler2D depthTex;\n" +
+                        "uniform highp sampler2D focusTex;\n" +
+                        screenBandFunctions("texture2D") +
+                        "" +
+                        "const vec2 BLUR_DIRECTION = $direction;\n" +
+                        "// Below this many texels the blur can't be seen, so the texel skips it\n" +
+                        "const float MIN_BLUR_RADIUS = 0.1;\n" +
+                        "" +
+                        DEPTH_DECODE_FUNCTION +
+                        FOCUS_DECODE_FUNCTION +
+                        DEPTH_DISTANCE_FUNCTIONS +
+                        "// The depth texel at p (u and v of the frame), and its depth from 0 to 1\n" +
+                        "highp vec4 frameDepthTexel(vec2 p) {\n" +
+                        "    return texture2D(depthTex, vec2(p.x, clamp(p.y / topScreenEnd, 0.0, 1.0)));\n" +
+                        "}\n" +
+                        "highp float frameDepth(vec2 p) {\n" +
+                        "    return decodeDepth(frameDepthTexel(p));\n" +
+                        "}\n" +
+                        "" +
+                        "// The blur's radius in DS pixels at a depth, 0 in focus and for 2D; focusDistance is the focus's view distance, not positive for none\n" +
+                        "float blurRadius(highp float depth, highp float focusDistance, bool wbuffer) {\n" +
+                        "    if (depth <= 0.0 || focusDistance <= 0.0) {\n" +
+                        "        return 0.0;\n" +
+                        "    }\n" +
+                        "    highp float offset = abs(1.0 - focusDistance / max(viewDistance(depth, wbuffer), 0.001));\n" +
+                        "    return depthOfField.x * smoothstep(depthOfField.y, depthOfField.y + max(depthOfField.z, 0.0001), offset);\n" +
+                        "}\n" +
+                        "" +
+                        "void main() {\n" +
+                        "    // The gap and the DS bottom screen stay as they are\n" +
+                        "    if (uv.y >= topScreenEnd) {\n" +
+                        "        gl_FragColor = vec4(texture2D(tex, uv).rgb, 1.0);\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "" +
+                        "    // Texels per DS pixel; the frame texture is frameLayout.w DS pixels high at any internal resolution\n" +
+                        "    float scale = texSize.y / frameLayout.w;\n" +
+                        "    // Every polygon of a scene shares its W-buffer setting, and every pixel that blurs carries it, as this one does when it blurs\n" +
+                        "    highp vec4 depthTexel = frameDepthTexel(uv);\n" +
+                        "    bool wbuffer = isWBuffered(depthTexel);\n" +
+                        "    highp float focus = decodeFocus(texture2D(focusTex, vec2(0.5)));\n" +
+                        "    highp float focusDistance = focus < 0.0 ? -1.0 : viewDistance(focus, wbuffer);\n" +
+                        "    float radius = blurRadius(decodeDepth(depthTexel), focusDistance, wbuffer) * scale;\n" +
+                        "    if (radius < MIN_BLUR_RADIUS) {\n" +
+                        "        gl_FragColor = vec4(texture2D(tex, uv).rgb, 1.0);\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "" +
+                        "    vec4 band = screenBand(uv);\n" +
+                        "    vec2 spacing = BLUR_DIRECTION * radius / 6.0 / texSize;\n" +
+                        "    vec3 color = sampleScreen(uv, band);\n" +
+                        "    float total = 1.0;\n" +
+                        "    for (int i = 1; i <= 6; i++) {\n" +
+                        "        // A Gaussian whose sigma is the radius / 2.5, as the tilt-shift's\n" +
+                        "        float x = float(i) * 2.5 / 6.0;\n" +
+                        "        float weight = exp(-0.5 * x * x);\n" +
+                        "        float tapDistance = float(i) * radius / 6.0;\n" +
+                        "        vec2 before = uv - spacing * float(i);\n" +
+                        "        vec2 after = uv + spacing * float(i);\n" +
+                        "        float beforeWeight = weight * clamp(blurRadius(frameDepth(before), focusDistance, wbuffer) * scale / tapDistance, 0.0, 1.0);\n" +
+                        "        float afterWeight = weight * clamp(blurRadius(frameDepth(after), focusDistance, wbuffer) * scale / tapDistance, 0.0, 1.0);\n" +
+                        "        color += beforeWeight * sampleScreen(before, band) + afterWeight * sampleScreen(after, band);\n" +
+                        "        total += beforeWeight + afterWeight;\n" +
+                        "    }\n" +
+                        "    // Swap back to the frame texture's channel order, since sampleScreen() reads the BGR texels as RGB\n" +
+                        "    gl_FragColor = vec4((color / total).bgr, 1.0);\n" +
+                        "}"
+            )
+        }
+
+        // Built when a script first asks for a depth of field (see VideoFilterPipeline), which runs them in this order
+        val DepthOfFieldHorizontalPrePassShader get() = depthOfFieldPrePassShader("vec2(1.0, 0.0)")
+        val DepthOfFieldVerticalPrePassShader get() = depthOfFieldPrePassShader("vec2(0.0, 1.0)")
+
+        // The shading's values (Shader.setShade): its strength (x), the depth blur's radius in DS pixels (y) and its range in raw depth (z)
+        private const val SHADE_UNIFORM = "uniform highp vec3 shade;\n"
+
+        // The shading's first pass, at DS resolution (VideoFilterPipeline makes its target topScreenWidth x the top screen's half's rows, the
+        // depth texture's size over the internal scale). tex (unit 0) is the frame's depth texture (PresentFrameWrapper.depthTextureId); each
+        // target texel takes the four depth texels at the quarter points of its DS pixel's footprint and averages the ones that are 3D. Out: that
+        // mean as encodeDepth() has it in RGB, and the fraction of the four that were 3D in A, all 0 for none
+        val ShadeDownsamplePrePassShader get() = ShaderProgramSource(
+            TextureFiltering.NEAREST,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    "varying vec2 uv;\n" +
+                    "uniform highp sampler2D tex;\n" +
+                    "uniform vec2 texSize;\n" +
+                    "uniform float topScreenWidth;\n" +
+                    FRAME_LAYOUT_UNIFORM +
+                    DEPTH_VALUE_FUNCTIONS +
+                    "" +
+                    "// Counts the depth texel at p (in DS pixels) if it's 3D, with scale depth texels per DS pixel, as a difference from the first 3D\n" +
+                    "// one (ref) so the sum stays exact\n" +
+                    "void addTap(vec2 p, vec2 scale, inout highp float ref, inout highp float sum, inout float count) {\n" +
+                    "    highp vec2 texel = min(floor(p * scale), texSize - 1.0) + 0.5;\n" +
+                    "    highp float value = depthValue(texture2D(tex, texel / texSize));\n" +
+                    "    if (!isValue3D(value)) {\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    if (count == 0.0) {\n" +
+                    "        ref = value;\n" +
+                    "    }\n" +
+                    "    sum += value - ref;\n" +
+                    "    count += 1.0;\n" +
+                    "}\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    // The top screen's half in DS pixels and the depth texels per DS pixel, both whole numbers, so the taps land inside texels\n" +
+                    "    vec2 dsSize = floor(vec2(topScreenWidth, frameLayout.x * frameLayout.w) + 0.5);\n" +
+                    "    vec2 scale = max(floor(texSize / dsSize + 0.5), 1.0);\n" +
+                    "    vec2 dsPixel = floor(uv * dsSize);\n" +
+                    "    highp float ref = 0.0;\n" +
+                    "    highp float sum = 0.0;\n" +
+                    "    float count = 0.0;\n" +
+                    "    addTap(dsPixel + vec2(0.25, 0.25), scale, ref, sum, count);\n" +
+                    "    addTap(dsPixel + vec2(0.75, 0.25), scale, ref, sum, count);\n" +
+                    "    addTap(dsPixel + vec2(0.25, 0.75), scale, ref, sum, count);\n" +
+                    "    addTap(dsPixel + vec2(0.75, 0.75), scale, ref, sum, count);\n" +
+                    "    if (count == 0.0) {\n" +
+                    "        gl_FragColor = vec4(0.0);\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    gl_FragColor = vec4(encodeDepth(ref + sum / count), count / 4.0);\n" +
+                    "}"
+        )
+
+        // One direction of the shading's depth blur, at DS resolution like the first pass, whose output (or the horizontal pass's) is tex (unit
+        // 0, nearest): a Gaussian whose sigma is half the radius, with shade.y taps on each side (at most SHADE_MAX_RADIUS, the Lua API's
+        // largest), as a normalized convolution. Each tap counts by its kernel weight times its A, so only 3D counts, and a tap outside the
+        // target not at all. Out: the weighted mean depth as encodeDepth() has it in RGB, and in A the taps' weights over the kernel's, all 0
+        // with none
+        private fun shadeBlurPrePassShader(direction: String): ShaderProgramSource {
+            return ShaderProgramSource(
+                TextureFiltering.NEAREST,
+                PRE_PASS_VERT_SHADER,
+                PRECISION_HEADER +
+                        "varying vec2 uv;\n" +
+                        "uniform highp sampler2D tex;\n" +
+                        "uniform vec2 texSize;\n" +
+                        SHADE_UNIFORM +
+                        DEPTH_VALUE_FUNCTIONS +
+                        "" +
+                        "const vec2 BLUR_DIRECTION = $direction;\n" +
+                        "const int SHADE_MAX_RADIUS = 16;\n" +
+                        "" +
+                        "// Counts the texel at p by kernel times its A, as a difference from the first counted one (ref) so the sum keeps its precision\n" +
+                        "void addTap(vec2 p, float kernel, inout highp float ref, inout highp float sum, inout float weights) {\n" +
+                        "    // Clamping would read the edge texel again\n" +
+                        "    if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) {\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "    highp vec4 texel = texture2D(tex, p);\n" +
+                        "    float weight = kernel * texel.a;\n" +
+                        "    if (weight <= 0.0) {\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "    highp float value = depthValue(texel);\n" +
+                        "    if (weights == 0.0) {\n" +
+                        "        ref = value;\n" +
+                        "    }\n" +
+                        "    sum += weight * (value - ref);\n" +
+                        "    weights += weight;\n" +
+                        "}\n" +
+                        "" +
+                        "void main() {\n" +
+                        "    vec2 tapStep = BLUR_DIRECTION / texSize;\n" +
+                        "    float sigma = max(0.5 * shade.y, 0.5);\n" +
+                        "    highp float ref = 0.0;\n" +
+                        "    highp float sum = 0.0;\n" +
+                        "    float weights = 0.0;\n" +
+                        "    float kernels = 1.0;\n" +
+                        "    addTap(uv, 1.0, ref, sum, weights);\n" +
+                        "    for (int i = 1; i <= SHADE_MAX_RADIUS; i++) {\n" +
+                        "        float x = float(i);\n" +
+                        "        if (x > shade.y) {\n" +
+                        "            break;\n" +
+                        "        }\n" +
+                        "        float kernel = exp(-0.5 * (x / sigma) * (x / sigma));\n" +
+                        "        addTap(uv - tapStep * x, kernel, ref, sum, weights);\n" +
+                        "        addTap(uv + tapStep * x, kernel, ref, sum, weights);\n" +
+                        "        kernels += 2.0 * kernel;\n" +
+                        "    }\n" +
+                        "    if (weights <= 0.0) {\n" +
+                        "        gl_FragColor = vec4(0.0);\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "    gl_FragColor = vec4(encodeDepth(ref + sum / weights), weights / kernels);\n" +
+                        "}"
+            )
+        }
+
+        // Built when a script first asks for shading (see VideoFilterPipeline), which runs them after the downsample pass in this order
+        val ShadeBlurHorizontalPrePassShader get() = shadeBlurPrePassShader("vec2(1.0, 0.0)")
+        val ShadeBlurVerticalPrePassShader get() = shadeBlurPrePassShader("vec2(0.0, 1.0)")
+
+        // With LIGHTS defined (bloom's lights, VideoFilterPipeline), whether a pixel is a light that's on, which the shading and the sun
+        // shadows leave as it is, as it gives off its own light: its depth texel has flag 32 (melon.gpu.light_textures) and its color's
+        // brightest channel is at least the bloom's light threshold (bloomLights.x, Shader.setBloom)
+        private const val LIGHT_EMISSIVE_FUNCTION = "#ifdef LIGHTS\n" +
+                "uniform vec2 bloomLights;\n" +
+                "bool isLitLight(highp vec4 depthTexel, vec3 color) {\n" +
+                "    float flags = floor(depthTexel.a * 255.0 + 0.5);\n" +
+                "    return mod(floor(flags / 32.0), 2.0) == 1.0 && max(color.r, max(color.g, color.b)) >= bloomLights.x;\n" +
+                "}\n" +
+                "#endif\n"
+
+        // The shading's last pass, at the input's resolution: unsharp masking of the depth (Luft, Colditz and Deussen 2006). A 3D pixel's own
+        // depth, from the frame's depth texture (shadeDepthTex, unit 1, nearest), is compared with the blurred depth around it (shadeBlurTex,
+        // unit 2, nearest, the vertical blur's target at DS resolution), read bilinearly by hand: its four nearest texels by their bilinear
+        // weights times their A. Comparing with the pixel's own depth at full resolution keeps the shading's edges as sharp as the depth, with
+        // no halo at any scale. A pixel farther than its neighborhood is mixed towards itself times shadeColor (RGB) by shade.x, fully once
+        // it's shade.z farther in raw depth, faded out where the blur covered less than all of the neighborhood (next to 2D or the screen's
+        // edge), down to nothing at half. 2D over the 3D, what's behind the 3D, a pixel with no 3D around it, the gap and the DS bottom
+        // screen stay as they are, and so does a light that's on with LIGHTS defined (LIGHT_EMISSIVE_FUNCTION)
+        val ShadeApplyPrePassShader get() = ShaderProgramSource(
+            TextureFiltering.NEAREST,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    "varying vec2 uv;\n" +
+                    "uniform sampler2D tex;\n" +
+                    "uniform float topScreenWidth;\n" +
+                    "uniform highp sampler2D shadeDepthTex;\n" +
+                    "uniform highp sampler2D shadeBlurTex;\n" +
+                    SHADE_UNIFORM +
+                    "uniform vec3 shadeColor;\n" +
+                    FRAME_LAYOUT_UNIFORM +
+                    "#define topScreenEnd frameLayout.x\n" +
+                    DEPTH_VALUE_FUNCTIONS +
+                    LIGHT_EMISSIVE_FUNCTION +
+                    "" +
+                    "// Counts the blurred depth's texel p (clamped onto its target of dsSize texels) by bilinear times its A, as a difference from\n" +
+                    "// the pixel's own depth\n" +
+                    "void addTap(vec2 p, vec2 dsSize, float bilinear, highp float depth, inout highp float sum, inout float weights) {\n" +
+                    "    highp vec4 texel = texture2D(shadeBlurTex, (clamp(p, vec2(0.0), dsSize - 1.0) + 0.5) / dsSize);\n" +
+                    "    float weight = bilinear * texel.a;\n" +
+                    "    if (weight <= 0.0) {\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    sum += weight * (depthValue(texel) - depth);\n" +
+                    "    weights += weight;\n" +
+                    "}\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    vec4 texel = texture2D(tex, uv);\n" +
+                    "    // The gap and the DS bottom screen stay as they are\n" +
+                    "    if (uv.y >= topScreenEnd) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    vec2 depthUv = vec2(uv.x, clamp(uv.y / topScreenEnd, 0.0, 1.0));\n" +
+                    "    highp vec4 depthTexel = texture2D(shadeDepthTex, depthUv);\n" +
+                    "    highp float depth = depthValue(depthTexel);\n" +
+                    "    if (!isValue3D(depth)) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "#ifdef LIGHTS\n" +
+                    "    // The frame texture's texels are BGR, which doesn't change the brightest channel\n" +
+                    "    if (isLitLight(depthTexel, texel.rgb)) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "#endif\n" +
+                    "" +
+                    "    vec2 dsSize = floor(vec2(topScreenWidth, topScreenEnd * frameLayout.w) + 0.5);\n" +
+                    "    vec2 p = depthUv * dsSize - 0.5;\n" +
+                    "    vec2 base = floor(p);\n" +
+                    "    vec2 f = p - base;\n" +
+                    "    highp float sum = 0.0;\n" +
+                    "    float weights = 0.0;\n" +
+                    "    addTap(base, dsSize, (1.0 - f.x) * (1.0 - f.y), depth, sum, weights);\n" +
+                    "    addTap(base + vec2(1.0, 0.0), dsSize, f.x * (1.0 - f.y), depth, sum, weights);\n" +
+                    "    addTap(base + vec2(0.0, 1.0), dsSize, (1.0 - f.x) * f.y, depth, sum, weights);\n" +
+                    "    addTap(base + vec2(1.0, 1.0), dsSize, f.x * f.y, depth, sum, weights);\n" +
+                    "    if (weights <= 0.0) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "" +
+                    "    // How much farther this pixel is than the blurred depth around it, in the depth's 24-bit steps\n" +
+                    "    highp float farther = -sum / weights;\n" +
+                    "    // weights is the blur's coverage, as the bilinear weights add up to 1. Next to 2D or the screen's edge only the 3D on one\n" +
+                    "    // side counts, which reads as farther wherever the depth slopes, so the shading fades out from full coverage to half\n" +
+                    "    float coverage = clamp(2.0 * weights - 1.0, 0.0, 1.0);\n" +
+                    "    float darkening = shade.x * coverage * clamp(farther / max(shade.z * 16777215.0, 1.0), 0.0, 1.0);\n" +
+                    "    // The frame texture's texels are BGR\n" +
+                    "    vec3 color = texel.bgr;\n" +
+                    "    gl_FragColor = vec4(mix(color, color * shadeColor, darkening).bgr, texel.a);\n" +
+                    "}"
+        )
+
+        // The sun shadows' camera and values (Shader.setSun): sun is the strength (x), the march's length in view-space units (y), its steps
+        // (z) and its bias in units (w). sunInverse is the inverse of the depth camera's projection (PresentFrameWrapper.depthCamera), and
+        // sunViewport its viewport's left, top, width and height in DS pixels of the depth texture's top half, so with the WideMelon wings and
+        // margin before the native view's 0
+        private const val SUN_UNIFORMS = "uniform highp vec4 sun;\n" +
+                "uniform highp mat4 sunInverse;\n" +
+                "uniform highp vec4 sunViewport;\n"
+
+        // A depth texel's flags byte (DEPTH_DECODE_FUNCTION's A) has [bit] (1, 2, 4, 8 or 16). sunNdc() is a point's NDC from where it is in
+        // DS pixels of the depth's top half and its 24-bit Z-buffer depth (the core's z/w * 2^23 + 0x7FFE00 inverted), sunViewDistance() how
+        // far in front of the camera it is in view space, and sunScreen() a clip position back in DS pixels. Needs SUN_UNIFORMS first
+        private const val SUN_CAMERA_FUNCTIONS = "bool hasFlag(highp vec4 texel, float bit) {\n" +
+                "    float flags = floor(texel.a * 255.0 + 0.5);\n" +
+                "    return mod(floor(flags / bit), 2.0) == 1.0;\n" +
+                "}\n" +
+                "highp vec4 sunNdc(highp vec2 p, highp float value) {\n" +
+                "    return vec4((p.x - sunViewport.x) * 2.0 / sunViewport.z - 1.0, 1.0 - (p.y - sunViewport.y) * 2.0 / sunViewport.w,\n" +
+                "        (value - 8388096.0) / 8388608.0, 1.0);\n" +
+                "}\n" +
+                "highp float sunViewDistance(highp vec2 p, highp float value) {\n" +
+                "    highp vec4 view = sunInverse * sunNdc(p, value);\n" +
+                "    return -view.z / view.w;\n" +
+                "}\n" +
+                "highp vec2 sunScreen(highp vec4 clip) {\n" +
+                "    highp vec2 ndc = clip.xy / clip.w;\n" +
+                "    return vec2(sunViewport.x + (ndc.x + 1.0) * 0.5 * sunViewport.z, sunViewport.y + (1.0 - ndc.y) * 0.5 * sunViewport.w);\n" +
+                "}\n" +
+                "// How far apart two depths of one surface can be, in view-space units, at [dist] and [pixels] DS pixels apart: about what\n" +
+                "// a surface 16 degrees off the line of sight changes by over a DS pixel of White's camera, plus a pixel's worth for the DS's\n" +
+                "// rounding\n" +
+                "highp float sunSurfaceTolerance(highp float dist, float pixels) {\n" +
+                "    return 0.0125 * dist * (pixels + 1.0);\n" +
+                "}\n"
+
+        // The sun shadows' march, at DS resolution (VideoFilterPipeline makes its target topScreenWidth x the top screen's half's rows, the
+        // depth texture's size over the internal scale). tex (unit 0, nearest) is the frame's depth texture (PresentFrameWrapper.depthTextureId).
+        // Each target texel takes the depth texel in the middle of its DS pixel, rebuilds its view-space position, and steps sun.z times over
+        // sun.y units towards sunDirection; it's in shadow where the depth at a step is nearer than the step by more than sun.w units. A step
+        // that lands on 2D, on 3D drawn under another camera (flag 8, White's characters, which would cast shadows tilted towards the camera),
+        // on nothing, off the depth or behind the camera finds no shadow there. The shadow fades out over SUN_EDGE_FADE DS pixels before the
+        // edge the march leaves the depth through, where what would cast it is off screen. 3D nearer the camera than sunNear units (when it's
+        // over 0) casts nothing either. Out: the texel's depth as encodeDepth() has it in RGB and the shadow (0 to 1) in A, all 0 where it
+        // isn't 3D
+        val SunMarchPrePassShader get() = ShaderProgramSource(
+            TextureFiltering.NEAREST,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    "varying vec2 uv;\n" +
+                    "uniform highp sampler2D tex;\n" +
+                    "uniform vec2 texSize;\n" +
+                    "uniform float topScreenWidth;\n" +
+                    "uniform highp vec3 sunDirection;\n" +
+                    "uniform highp mat4 sunProjection;\n" +
+                    "uniform highp float sunNear;\n" +
+                    FRAME_LAYOUT_UNIFORM +
+                    SUN_UNIFORMS +
+                    DEPTH_VALUE_FUNCTIONS +
+                    SUN_CAMERA_FUNCTIONS +
+                    "" +
+                    "const int SUN_MAX_STEPS = 128;\n" +
+                    "const float SUN_EDGE_FADE = 32.0;\n" +
+                    "" +
+                    "// Whether depth texel t shades a step dist units in front of the camera: it's 3D, not under another camera, nearer than\n" +
+                    "// dist - bias, and not nearer the camera than sunNear when that's over 0, which keeps what a game draws right in front of\n" +
+                    "// the camera (Pokemon White's speech bubble tails) from casting across the scene\n" +
+                    "bool isOccluder(highp vec2 t, highp vec2 scale, highp float dist) {\n" +
+                    "    highp vec4 depth = texture2D(tex, (t + 0.5) / texSize);\n" +
+                    "    highp float value = depthValue(depth);\n" +
+                    "    if (!isValue3D(value) || hasFlag(depth, 8.0)) {\n" +
+                    "        return false;\n" +
+                    "    }\n" +
+                    "    highp float occluderDistance = sunViewDistance((t + 0.5) / scale, value);\n" +
+                    "    return occluderDistance < dist - sun.w && (sunNear <= 0.0 || occluderDistance >= sunNear);\n" +
+                    "}\n" +
+                    "" +
+                    "// How far from p (DS pixels) along dir the march leaves the dsSize rect\n" +
+                    "highp float exitDistance(highp vec2 p, highp vec2 dir, highp vec2 dsSize) {\n" +
+                    "    highp vec2 room = vec2(dir.x > 0.0 ? dsSize.x - p.x : p.x, dir.y > 0.0 ? dsSize.y - p.y : p.y);\n" +
+                    "    highp vec2 along = abs(dir);\n" +
+                    "    highp float exit = 1.0e9;\n" +
+                    "    if (along.x > 1.0e-6) {\n" +
+                    "        exit = min(exit, room.x / along.x);\n" +
+                    "    }\n" +
+                    "    if (along.y > 1.0e-6) {\n" +
+                    "        exit = min(exit, room.y / along.y);\n" +
+                    "    }\n" +
+                    "    return exit;\n" +
+                    "}\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    // The top screen's half in DS pixels and the depth texels per DS pixel, both whole numbers\n" +
+                    "    highp vec2 dsSize = floor(vec2(topScreenWidth, frameLayout.x * frameLayout.w) + 0.5);\n" +
+                    "    highp vec2 scale = max(floor(texSize / dsSize + 0.5), 1.0);\n" +
+                    "    highp vec2 texel = min(floor((floor(uv * dsSize) + 0.5) * scale), texSize - 1.0);\n" +
+                    "    highp vec4 depth = texture2D(tex, (texel + 0.5) / texSize);\n" +
+                    "    highp float value = depthValue(depth);\n" +
+                    "    // A W-buffered pixel's depth isn't z/w (its scene has no camera, so this pass doesn't run then)\n" +
+                    "    if (!isValue3D(value) || hasFlag(depth, 4.0)) {\n" +
+                    "        gl_FragColor = vec4(0.0);\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "" +
+                    "    highp vec2 p = (texel + 0.5) / scale;\n" +
+                    "    highp vec4 view = sunInverse * sunNdc(p, value);\n" +
+                    "    highp vec3 origin = view.xyz / view.w;\n" +
+                    "    // The steps are evenly spaced in view space, so they are in clip space too\n" +
+                    "    highp vec3 stride = sunDirection * (sun.y / sun.z);\n" +
+                    "    highp vec4 clipOrigin = sunProjection * vec4(origin, 1.0);\n" +
+                    "    highp vec4 clipStep = sunProjection * vec4(stride, 0.0);\n" +
+                    "    float shadow = 0.0;\n" +
+                    "    for (int i = 1; i <= SUN_MAX_STEPS; i++) {\n" +
+                    "        float n = float(i);\n" +
+                    "        highp vec4 clip = clipOrigin + clipStep * n;\n" +
+                    "        highp float dist = -(origin.z + stride.z * n);\n" +
+                    "        // A line leaves the screen or passes the camera only once, so no later step can find a shadow either\n" +
+                    "        if (n > sun.z || dist <= 1.0 || clip.w <= 0.0) {\n" +
+                    "            break;\n" +
+                    "        }\n" +
+                    "        highp vec2 q = sunScreen(clip);\n" +
+                    "        if (q.x < 0.0 || q.y < 0.0 || q.x >= dsSize.x || q.y >= dsSize.y) {\n" +
+                    "            break;\n" +
+                    "        }\n" +
+                    "        if (isOccluder(min(floor(q * scale), texSize - 1.0), scale, dist)) {\n" +
+                    "            shadow = 1.0;\n" +
+                    "            break;\n" +
+                    "        }\n" +
+                    "    }\n" +
+                    "" +
+                    "    // The fade, over SUN_EDGE_FADE or the march's own length on screen if that's shorter, so a march that stays on screen\n" +
+                    "    // doesn't fade\n" +
+                    "    highp vec4 clipFirst = clipOrigin + clipStep;\n" +
+                    "    highp vec2 first = clipFirst.w > 0.0 ? sunScreen(clipFirst) - p : vec2(0.0);\n" +
+                    "    highp vec4 clipEnd = clipOrigin + clipStep * sun.z;\n" +
+                    "    highp float onScreen = clipEnd.w > 0.0 ? length(sunScreen(clipEnd) - p) : 1.0e9;\n" +
+                    "    highp float fade = 1.0;\n" +
+                    "    if (length(first) > 1.0e-6) {\n" +
+                    "        highp float fadeLength = clamp(onScreen, 1.0, SUN_EDGE_FADE);\n" +
+                    "        fade = clamp(exitDistance(p, normalize(first), dsSize) / fadeLength, 0.0, 1.0);\n" +
+                    "    }\n" +
+                    "    gl_FragColor = vec4(encodeDepth(value), shadow * fade);\n" +
+                    "}"
+        )
+
+        // One direction of the sun shadows' softening blur, at DS resolution like the march, whose output (or the horizontal pass's) is tex
+        // (unit 0, nearest): a Gaussian whose sigma is half of sunSoftness, with that many taps on each side (at most SUN_MAX_SOFTNESS, the Lua
+        // API's largest), over A. Only taps that are 3D and on the same surface as this texel count (their view distances within
+        // sunSurfaceTolerance), as a normalized convolution, so a lit roof doesn't take the shadow of the ground below it. Out: this texel's
+        // RGB and the blurred shadow in A
+        private fun sunBlurPrePassShader(direction: String): ShaderProgramSource {
+            return ShaderProgramSource(
+                TextureFiltering.NEAREST,
+                PRE_PASS_VERT_SHADER,
+                PRECISION_HEADER +
+                        "varying vec2 uv;\n" +
+                        "uniform highp sampler2D tex;\n" +
+                        "uniform vec2 texSize;\n" +
+                        "uniform float sunSoftness;\n" +
+                        SUN_UNIFORMS +
+                        DEPTH_VALUE_FUNCTIONS +
+                        SUN_CAMERA_FUNCTIONS +
+                        "" +
+                        "const vec2 BLUR_DIRECTION = $direction;\n" +
+                        "const int SUN_MAX_SOFTNESS = 8;\n" +
+                        "" +
+                        "// Counts the texel x taps away by kernel, if it's 3D and within the tolerance of dist\n" +
+                        "void addTap(float x, float kernel, highp float dist, inout float sum, inout float weights) {\n" +
+                        "    highp vec2 p = floor(uv * texSize) + 0.5 + BLUR_DIRECTION * x;\n" +
+                        "    // Clamping would read the edge texel again\n" +
+                        "    if (p.x < 0.0 || p.y < 0.0 || p.x > texSize.x || p.y > texSize.y) {\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "    highp vec4 texel = texture2D(tex, p / texSize);\n" +
+                        "    highp float value = depthValue(texel);\n" +
+                        "    if (!isValue3D(value)) {\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "    highp float apart = abs(sunViewDistance(p, value) - dist);\n" +
+                        "    float weight = kernel * clamp(1.0 - apart / sunSurfaceTolerance(dist, abs(x)), 0.0, 1.0);\n" +
+                        "    sum += weight * texel.a;\n" +
+                        "    weights += weight;\n" +
+                        "}\n" +
+                        "" +
+                        "void main() {\n" +
+                        "    highp vec4 center = texture2D(tex, uv);\n" +
+                        "    highp float value = depthValue(center);\n" +
+                        "    if (!isValue3D(value)) {\n" +
+                        "        gl_FragColor = center;\n" +
+                        "        return;\n" +
+                        "    }\n" +
+                        "    highp float dist = sunViewDistance(floor(uv * texSize) + 0.5, value);\n" +
+                        "    float sigma = max(0.5 * sunSoftness, 0.5);\n" +
+                        "    float sum = center.a;\n" +
+                        "    float weights = 1.0;\n" +
+                        "    for (int i = 1; i <= SUN_MAX_SOFTNESS; i++) {\n" +
+                        "        float x = float(i);\n" +
+                        "        if (x > sunSoftness) {\n" +
+                        "            break;\n" +
+                        "        }\n" +
+                        "        float kernel = exp(-0.5 * (x / sigma) * (x / sigma));\n" +
+                        "        addTap(-x, kernel, dist, sum, weights);\n" +
+                        "        addTap(x, kernel, dist, sum, weights);\n" +
+                        "    }\n" +
+                        "    gl_FragColor = vec4(center.rgb, sum / weights);\n" +
+                        "}"
+            )
+        }
+
+        // Built when a script first asks for sun shadows with some softness (see VideoFilterPipeline), which runs them after the march
+        val SunBlurHorizontalPrePassShader get() = sunBlurPrePassShader("vec2(1.0, 0.0)")
+        val SunBlurVerticalPrePassShader get() = sunBlurPrePassShader("vec2(0.0, 1.0)")
+
+        // The sun shadows' last pass, at the input's resolution. A 3D pixel's own depth, from the frame's depth texture (sunDepthTex, unit 1,
+        // nearest), picks which of the four nearest DS-resolution shadow texels (sunMaskTex, unit 2, nearest: the march's or the blur's
+        // target) it takes: by their bilinear weights times how close their depth is to its own (within sunSurfaceTolerance), or the closest
+        // one's if none is close. So the shadow's edges follow the full-resolution depth at any scale, with no halo where a DS pixel straddles
+        // an edge. A pixel with flag 16 (in a character's shadow, which the renderer marks) is in shadow too. The shadow mixes the pixel towards
+        // itself times sunColor (RGB) by sun.x. 2D over the 3D, what's behind the 3D, the gap and the DS bottom screen stay as they are, and so
+        // does a light that's on with LIGHTS defined (LIGHT_EMISSIVE_FUNCTION)
+        val SunApplyPrePassShader get() = ShaderProgramSource(
+            TextureFiltering.NEAREST,
+            PRE_PASS_VERT_SHADER,
+            PRECISION_HEADER +
+                    "varying vec2 uv;\n" +
+                    "uniform sampler2D tex;\n" +
+                    "uniform float topScreenWidth;\n" +
+                    "uniform highp sampler2D sunDepthTex;\n" +
+                    "uniform highp sampler2D sunMaskTex;\n" +
+                    "uniform vec3 sunColor;\n" +
+                    FRAME_LAYOUT_UNIFORM +
+                    "#define topScreenEnd frameLayout.x\n" +
+                    SUN_UNIFORMS +
+                    DEPTH_VALUE_FUNCTIONS +
+                    SUN_CAMERA_FUNCTIONS +
+                    LIGHT_EMISSIVE_FUNCTION +
+                    "" +
+                    "// Counts the shadow texel t (clamped onto its target of dsSize texels) by bilinear times how near its depth is to dist, and\n" +
+                    "// keeps the nearest one's shadow in closest (x the shadow, y how far apart)\n" +
+                    "void addTap(highp vec2 t, highp vec2 p, highp vec2 dsSize, float bilinear, highp float dist, inout float sum,\n" +
+                    "        inout float weights, inout highp vec2 closest) {\n" +
+                    "    t = clamp(t, vec2(0.0), dsSize - 1.0);\n" +
+                    "    highp vec4 texel = texture2D(sunMaskTex, (t + 0.5) / dsSize);\n" +
+                    "    highp float value = depthValue(texel);\n" +
+                    "    if (!isValue3D(value)) {\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    highp float apart = abs(sunViewDistance(t + 0.5, value) - dist);\n" +
+                    "    float weight = bilinear * clamp(1.0 - apart / sunSurfaceTolerance(dist, length(t + 0.5 - p)), 0.0, 1.0);\n" +
+                    "    sum += weight * texel.a;\n" +
+                    "    weights += weight;\n" +
+                    "    if (apart < closest.y) {\n" +
+                    "        closest = vec2(texel.a, apart);\n" +
+                    "    }\n" +
+                    "}\n" +
+                    "" +
+                    "void main() {\n" +
+                    "    vec4 texel = texture2D(tex, uv);\n" +
+                    "    // The gap and the DS bottom screen stay as they are\n" +
+                    "    if (uv.y >= topScreenEnd) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "    vec2 depthUv = vec2(uv.x, clamp(uv.y / topScreenEnd, 0.0, 1.0));\n" +
+                    "    highp vec4 depth = texture2D(sunDepthTex, depthUv);\n" +
+                    "    highp float value = depthValue(depth);\n" +
+                    "    if (!isValue3D(value)) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "#ifdef LIGHTS\n" +
+                    "    // The frame texture's texels are BGR, which doesn't change the brightest channel\n" +
+                    "    if (isLitLight(depth, texel.rgb)) {\n" +
+                    "        gl_FragColor = texel;\n" +
+                    "        return;\n" +
+                    "    }\n" +
+                    "#endif\n" +
+                    "" +
+                    "    float shadow = 1.0;\n" +
+                    "    if (!hasFlag(depth, 16.0)) {\n" +
+                    "        highp vec2 dsSize = floor(vec2(topScreenWidth, topScreenEnd * frameLayout.w) + 0.5);\n" +
+                    "        highp vec2 p = depthUv * dsSize;\n" +
+                    "        highp float dist = sunViewDistance(p, value);\n" +
+                    "        highp vec2 base = floor(p - 0.5);\n" +
+                    "        vec2 f = p - 0.5 - base;\n" +
+                    "        float sum = 0.0;\n" +
+                    "        float weights = 0.0;\n" +
+                    "        highp vec2 closest = vec2(0.0, 1.0e9);\n" +
+                    "        addTap(base, p, dsSize, (1.0 - f.x) * (1.0 - f.y), dist, sum, weights, closest);\n" +
+                    "        addTap(base + vec2(1.0, 0.0), p, dsSize, f.x * (1.0 - f.y), dist, sum, weights, closest);\n" +
+                    "        addTap(base + vec2(0.0, 1.0), p, dsSize, (1.0 - f.x) * f.y, dist, sum, weights, closest);\n" +
+                    "        addTap(base + vec2(1.0, 1.0), p, dsSize, f.x * f.y, dist, sum, weights, closest);\n" +
+                    "        shadow = weights > 0.001 ? sum / weights : closest.x;\n" +
+                    "    }\n" +
+                    "" +
+                    "    // The frame texture's texels are BGR\n" +
+                    "    vec3 color = texel.bgr;\n" +
+                    "    gl_FragColor = vec4(mix(color, color * sunColor, sun.x * shadow).bgr, texel.a);\n" +
+                    "}"
+        )
+
         // sharp-shimmerless
         // Author: zadpos (Woohyun Kang)
         // License: Public domain

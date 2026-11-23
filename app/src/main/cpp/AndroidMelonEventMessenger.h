@@ -26,6 +26,12 @@ public:
     void onLuaStorageSaved() override;
     void onLuaSetLayout(int scriptId, const std::string& optionKey) override;
     void onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation, float contrast, float color) override;
+    void onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize, bool onlyThreeD, float haze,
+        int hazeColor, float hazeStart, float hazeFalloff, bool lights, float lightThreshold, float lightStrength) override;
+    void onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth, float range, float falloff) override;
+    void onLuaShade(int scriptId, float strength, float radius, float range, int color) override;
+    void onLuaSun(int scriptId, float strength, const std::array<float, 3>& direction, const std::array<float, 3>& up, float length, int steps,
+        float bias, float softness, int color, float nearLimit) override;
     void onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY) override;
     void onLuaStateLoaded() override;
 
@@ -53,6 +59,10 @@ private:
     static constexpr int EVENT_LUA_STATE_LOADED = 306;
     static constexpr int EVENT_LUA_TILT_SHIFT = 307;
     static constexpr int EVENT_LUA_WIDE_CAMERA = 308;
+    static constexpr int EVENT_LUA_BLOOM = 309;
+    static constexpr int EVENT_LUA_DEPTH_OF_FIELD = 310;
+    static constexpr int EVENT_LUA_SHADE = 311;
+    static constexpr int EVENT_LUA_SUN = 312;
 };
 
 #endif // ANDROIDMELONEVENTMESSENGER_H

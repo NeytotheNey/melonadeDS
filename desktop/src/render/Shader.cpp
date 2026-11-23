@@ -1,5 +1,7 @@
 #include "render/Shader.h"
 
+#include <array>
+#include <cmath>
 #include <cstdio>
 
 #include "render/PresentFrame.h"
@@ -108,10 +110,37 @@ Shader::Shader(GLuint program, GLenum textureFiltering)
     UniformTex = glGetUniformLocation(Program, "tex");
     UniformTexSize = glGetUniformLocation(Program, "texSize");
     UniformTopScreenWidth = glGetUniformLocation(Program, "topScreenWidth");
+    UniformTopScreenGuard = glGetUniformLocation(Program, "topScreenGuard");
     UniformFrameLayout = glGetUniformLocation(Program, "frameLayout");
     UniformBottomScreenWide = glGetUniformLocation(Program, "bottomScreenWide");
     UniformTiltShift = glGetUniformLocation(Program, "tiltShift");
     UniformTiltShiftBoost = glGetUniformLocation(Program, "tiltShiftBoost");
+    UniformBloom = glGetUniformLocation(Program, "bloom");
+    UniformVignette = glGetUniformLocation(Program, "vignette");
+    UniformGlowTex = glGetUniformLocation(Program, "glowTex");
+    UniformHaze = glGetUniformLocation(Program, "haze");
+    UniformHazeColor = glGetUniformLocation(Program, "hazeColor");
+    UniformHazeDepthTex = glGetUniformLocation(Program, "hazeDepthTex");
+    UniformBloomLights = glGetUniformLocation(Program, "bloomLights");
+    UniformDepthOfField = glGetUniformLocation(Program, "depthOfField");
+    UniformDepthFocus = glGetUniformLocation(Program, "depthFocus");
+    UniformDepthProjection = glGetUniformLocation(Program, "depthProjection");
+    UniformDepthTex = glGetUniformLocation(Program, "depthTex");
+    UniformFocusTex = glGetUniformLocation(Program, "focusTex");
+    UniformShade = glGetUniformLocation(Program, "shade");
+    UniformShadeColor = glGetUniformLocation(Program, "shadeColor");
+    UniformShadeDepthTex = glGetUniformLocation(Program, "shadeDepthTex");
+    UniformShadeBlurTex = glGetUniformLocation(Program, "shadeBlurTex");
+    UniformSun = glGetUniformLocation(Program, "sun");
+    UniformSunDirection = glGetUniformLocation(Program, "sunDirection");
+    UniformSunSoftness = glGetUniformLocation(Program, "sunSoftness");
+    UniformSunColor = glGetUniformLocation(Program, "sunColor");
+    UniformSunProjection = glGetUniformLocation(Program, "sunProjection");
+    UniformSunNear = glGetUniformLocation(Program, "sunNear");
+    UniformSunInverse = glGetUniformLocation(Program, "sunInverse");
+    UniformSunViewport = glGetUniformLocation(Program, "sunViewport");
+    UniformSunDepthTex = glGetUniformLocation(Program, "sunDepthTex");
+    UniformSunMaskTex = glGetUniformLocation(Program, "sunMaskTex");
     UniformHalvesAt1x = glGetUniformLocation(Program, "halvesAt1x");
     UniformCoordXTex = glGetUniformLocation(Program, "coordXTex");
     UniformCoordYTex = glGetUniformLocation(Program, "coordYTex");
@@ -158,6 +187,12 @@ void Shader::SetTopScreenHeight(int height) const
     }
 }
 
+void Shader::SetTopScreenGuard(int guard) const
+{
+    if (UniformTopScreenGuard >= 0)
+        glUniform1f(UniformTopScreenGuard, (float)guard);
+}
+
 void Shader::SetBottomScreenWide(bool isBottomScreenWide) const
 {
     if (UniformBottomScreenWide >= 0)
@@ -170,6 +205,90 @@ void Shader::SetTiltShift(const TiltShift& tiltShift) const
         glUniform4f(UniformTiltShift, tiltShift.BandTop(), tiltShift.BandBottom(), tiltShift.TopRadius(), tiltShift.BottomRadius());
     if (UniformTiltShiftBoost >= 0)
         glUniform2f(UniformTiltShiftBoost, tiltShift.AppliedSaturation(), tiltShift.AppliedContrast());
+}
+
+void Shader::SetBloom(const Bloom& bloom) const
+{
+    if (UniformBloom >= 0)
+        glUniform3f(UniformBloom, bloom.Strength, bloom.Threshold, bloom.Radius);
+    if (UniformVignette >= 0)
+        glUniform2f(UniformVignette, bloom.Vignette, bloom.VignetteSize);
+    if (UniformGlowTex >= 0)
+        glUniform1i(UniformGlowTex, 1);
+    if (UniformDepthTex >= 0)
+        glUniform1i(UniformDepthTex, 1);
+    if (UniformHaze >= 0)
+        glUniform3f(UniformHaze, bloom.Haze, bloom.HazeStart, bloom.HazeFalloff);
+    if (UniformHazeColor >= 0)
+    {
+        melonDS::u32 color = bloom.HazeColor;
+        glUniform3f(UniformHazeColor, ((color >> 16) & 0xFF) / 255.f, ((color >> 8) & 0xFF) / 255.f, (color & 0xFF) / 255.f);
+    }
+    if (UniformHazeDepthTex >= 0)
+        glUniform1i(UniformHazeDepthTex, 2);
+    if (UniformBloomLights >= 0)
+        glUniform2f(UniformBloomLights, bloom.LightThreshold, bloom.LightStrength);
+}
+
+void Shader::SetDepthOfField(const DepthOfField& depthOfField, float focusU, float focusV, float focusAgeStep, const float* depthProjection) const
+{
+    if (UniformDepthOfField >= 0)
+        glUniform3f(UniformDepthOfField, depthOfField.AppliedRadius(), depthOfField.Range, depthOfField.Falloff);
+    if (UniformDepthFocus >= 0)
+        glUniform4f(UniformDepthFocus, depthOfField.FocusDepth, focusU, focusV, focusAgeStep);
+    if (UniformDepthProjection >= 0)
+        glUniform4f(UniformDepthProjection, depthProjection[0], depthProjection[1], depthProjection[2], depthProjection[3]);
+    if (UniformDepthTex >= 0)
+        glUniform1i(UniformDepthTex, 1);
+    if (UniformFocusTex >= 0)
+        glUniform1i(UniformFocusTex, 2);
+}
+
+void Shader::SetShade(const Shade& shade) const
+{
+    if (UniformShade >= 0)
+        glUniform3f(UniformShade, shade.Strength, shade.Radius, shade.Range);
+    if (UniformShadeColor >= 0)
+    {
+        melonDS::u32 color = shade.Color;
+        glUniform3f(UniformShadeColor, ((color >> 16) & 0xFF) / 255.f, ((color >> 8) & 0xFF) / 255.f, (color & 0xFF) / 255.f);
+    }
+    if (UniformShadeDepthTex >= 0)
+        glUniform1i(UniformShadeDepthTex, 1);
+    if (UniformShadeBlurTex >= 0)
+        glUniform1i(UniformShadeBlurTex, 2);
+}
+
+void Shader::SetSun(const Sun& sun, const float* projection, const float* inverse, const float* viewport) const
+{
+    if (UniformSun >= 0)
+        glUniform4f(UniformSun, sun.Strength, sun.Length, (float)sun.Steps, sun.Bias);
+    if (UniformSunDirection >= 0)
+    {
+        const std::array<float, 3>& d = sun.Direction;
+        float length = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        float scale = length > 0.f ? 1.f / length : 0.f;
+        glUniform3f(UniformSunDirection, d[0] * scale, d[1] * scale, d[2] * scale);
+    }
+    if (UniformSunSoftness >= 0)
+        glUniform1f(UniformSunSoftness, sun.Softness);
+    if (UniformSunColor >= 0)
+    {
+        melonDS::u32 color = sun.Color;
+        glUniform3f(UniformSunColor, ((color >> 16) & 0xFF) / 255.f, ((color >> 8) & 0xFF) / 255.f, (color & 0xFF) / 255.f);
+    }
+    if (UniformSunProjection >= 0)
+        glUniformMatrix4fv(UniformSunProjection, 1, GL_FALSE, projection);
+    if (UniformSunNear >= 0)
+        glUniform1f(UniformSunNear, sun.Near);
+    if (UniformSunInverse >= 0)
+        glUniformMatrix4fv(UniformSunInverse, 1, GL_FALSE, inverse);
+    if (UniformSunViewport >= 0)
+        glUniform4f(UniformSunViewport, viewport[0], viewport[1], viewport[2], viewport[3]);
+    if (UniformSunDepthTex >= 0)
+        glUniform1i(UniformSunDepthTex, 1);
+    if (UniformSunMaskTex >= 0)
+        glUniform1i(UniformSunMaskTex, 2);
 }
 
 void Shader::SetHalvesAt1x(int halvesAt1x, int scale, int halfScale) const

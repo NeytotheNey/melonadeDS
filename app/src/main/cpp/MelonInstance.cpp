@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -48,6 +49,38 @@ const int REWIND_BUFFER_SIZE = 1024 * 1024 * 20; // Use 20MB per savestate
 const int REWIND_SCREENSHOT_SIZE = 256 * 384 * 4;
 // GPU::OutputCap: the frames a new need from the frontend has to hold for before the renderer gets it (MelonInstance::runFrame)
 const int OUTPUT_NEED_STABLE_FRAMES = 30;
+// The sun's guard band: the frames a lower one has to hold for before the render view shrinks to it (MelonInstance::updateSunGuard), 3 s
+// of the game's time
+const int SUN_GUARD_HOLD_FRAMES = 180;
+// The depth of field's focus on the focus textures (MelonInstance::updateDepthFocus): how far it moves towards a new scene's each scene,
+// and how many frames it holds once none is drawn. Only a few, enough for a door's first frames: Pokemon White's camera starts close up
+// on the door as the player comes out, before she's drawn, where her last distance would blur the whole street
+const float DEPTH_FOCUS_EASE = 0.35f;
+const int DEPTH_FOCUS_HOLD_FRAMES = 8;
+// A depth buffer value's view distance (W-buffered: w in 20.12; Z-buffered: back through the projection's depth rows, [proj] being
+// melonDS::DepthCamera::Proj, column-major, so P10 and P14 are z's terms and P11 and P15 w's), and back. Negative when the projection
+// can't tell (a scene without a camera)
+static double depthDistance(double value, bool wbuffer, const std::array<float, 16>& proj)
+{
+    if (wbuffer)
+        return value / 4096.0;
+    double ndc = (value - 0x7FFE00) / 8388608.0;
+    double denominator = proj[10] - ndc * proj[11];
+    if (std::abs(denominator) < 1e-9)
+        return -1.0;
+    double distance = (proj[14] - ndc * proj[15]) / denominator;
+    return std::isfinite(distance) && distance > 0.0 ? distance : -1.0;
+}
+
+static double distanceDepth(double distance, bool wbuffer, const std::array<float, 16>& proj)
+{
+    if (wbuffer)
+        return distance * 4096.0;
+    double denominator = proj[15] - distance * proj[11];
+    if (std::abs(denominator) < 1e-9)
+        return -1.0;
+    return (proj[14] - distance * proj[10]) / denominator * 8388608.0 + 0x7FFE00;
+}
 
 // MelonInstance::currentConfiguration's atomic access: the NDK's libc++ has no std::atomic<std::shared_ptr> yet, and libstdc++ deprecates
 // these free functions in C++20
@@ -94,6 +127,8 @@ MelonInstance::MelonInstance(int instanceId, std::shared_ptr<EmulatorConfigurati
     wideViewWidth = configuration->wideViewWidth;
     wideViewMargin = configuration->wideViewMargin;
     requestedWideView = packWideView(wideViewWidth, wideViewMargin);
+    renderViewWidth = wideViewWidth;
+    renderViewMargin = wideViewMargin;
 
     net->RegisterInstance(instanceId);
 
@@ -362,30 +397,120 @@ void MelonInstance::reset()
         DebugLog::logGameStart(*nds, "reset", hasRomCrc32, romCrc32);
 }
 
-u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
+void MelonInstance::updateSunGuard()
 {
-    // A width or margin change only needs the existing GL or Compute renderer told, since updateRenderer() applies them to one that's about to be
-    // set up again
-    u32 requestedView = requestedWideView.load(std::memory_order_relaxed);
-    int requestedWidth = (int) (requestedView & 0xFFFF);
-    int requestedMargin = (int) (requestedView >> 16);
-    if (requestedWidth != wideViewWidth || requestedMargin != wideViewMargin)
+    // Compute and Software have no guard band, and their render view drops it at once
+    if (currentRenderer != Renderer::OpenGl)
     {
-        wideViewWidth = requestedWidth;
-        wideViewMargin = requestedMargin;
-        if (!isRenderConfigurationDirty && currentRenderer == Renderer::OpenGl)
+        sunGuard = 0;
+        pendingSunGuard = 0;
+        pendingSunGuardFrames = 0;
+        return;
+    }
+    // The newest script's sun request, or else the frontend's, and only while that sun is on; the scripts' last word on it is the previous
+    // frame's, as for the sun itself
+    std::optional<int> scriptGuard = luaEngine.sunGuard();
+    int wanted = scriptGuard ? *scriptGuard : (frontendSun.On ? frontendSunGuard : 0);
+    if (wanted >= sunGuard)
+    {
+        sunGuard = wanted;
+        pendingSunGuard = wanted;
+        pendingSunGuardFrames = 0;
+        return;
+    }
+    if (wanted != pendingSunGuard)
+    {
+        pendingSunGuard = wanted;
+        pendingSunGuardFrames = 0;
+    }
+    if (++pendingSunGuardFrames >= SUN_GUARD_HOLD_FRAMES)
+        sunGuard = wanted;
+}
+
+void MelonInstance::updateRenderView()
+{
+    // Without a guard band the renderer gets the shown view exactly as it was asked for. With one, the band goes around the sanitized shown
+    // view as far as WideMelon's widest and tallest view takes it, so the band shrinks rather than the shown view
+    int width = wideViewWidth;
+    int margin = wideViewMargin;
+    int guard = 0;
+    if (sunGuard > 0)
+    {
+        int shownWidth = WideMelon::SanitizeWidth(wideViewWidth);
+        int shownMargin = WideMelon::SanitizeMargin(wideViewMargin, shownWidth);
+        guard = std::max(std::min({sunGuard, (WideMelon::MaxWidth - shownWidth) / 2, WideMelon::MaxMargin - shownMargin}), 0);
+        if (guard > 0)
         {
-            auto& glRenderer = static_cast<GLRenderer&>(nds->GPU.GetRenderer3D());
-            glRenderer.SetViewWidth(wideViewWidth);
-            glRenderer.SetViewMargin(wideViewMargin);
-        }
-        else if (!isRenderConfigurationDirty && currentRenderer == Renderer::Compute)
-        {
-            auto& computeRenderer = static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D());
-            computeRenderer.SetViewWidth(wideViewWidth);
-            computeRenderer.SetViewMargin(wideViewMargin);
+            width = shownWidth + 2 * guard;
+            margin = shownMargin + guard;
         }
     }
+    bool isViewChanged = width != renderViewWidth || margin != renderViewMargin;
+    renderViewWidth = width;
+    renderViewMargin = margin;
+    renderViewGuard = guard;
+    // Only the existing GL or Compute renderer needs telling, since updateRenderer() applies the view to one that's about to be set up again
+    if (isRenderConfigurationDirty)
+        return;
+    if (currentRenderer == Renderer::OpenGl)
+    {
+        auto& glRenderer = static_cast<GLRenderer&>(nds->GPU.GetRenderer3D());
+        if (isViewChanged)
+        {
+            glRenderer.SetViewWidth(renderViewWidth);
+            glRenderer.SetViewMargin(renderViewMargin);
+        }
+        // Also when only the guard changed, as the same render then crops differently
+        noteRenderView(renderViewGuard);
+    }
+    else if (currentRenderer == Renderer::Compute && isViewChanged)
+    {
+        auto& computeRenderer = static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D());
+        computeRenderer.SetViewWidth(renderViewWidth);
+        computeRenderer.SetViewMargin(renderViewMargin);
+    }
+}
+
+void MelonInstance::noteRenderView(int guard)
+{
+    auto& glRenderer = static_cast<GLRenderer&>(nds->GPU.GetRenderer3D());
+    RenderViewNote note { glRenderer.GetViewWidth(), glRenderer.GetViewMargin(), guard };
+    int size = (int) renderViewNotes.size();
+    if (renderViewNoteCount > 0)
+    {
+        const RenderViewNote& newest = renderViewNotes[(renderViewNoteNext + size - 1) % size];
+        if (newest.width == note.width && newest.margin == note.margin && newest.guard == note.guard)
+            return;
+    }
+    renderViewNotes[renderViewNoteNext] = note;
+    renderViewNoteNext = (renderViewNoteNext + 1) % size;
+    renderViewNoteCount = std::min(renderViewNoteCount + 1, size);
+}
+
+int MelonInstance::getFrameGuard(int width, int margin) const
+{
+    // A size no noted view has (the renderer fell back to another) has none
+    int guard = 0;
+    int size = (int) renderViewNotes.size();
+    for (int i = 1; i <= renderViewNoteCount; i++)
+    {
+        const RenderViewNote& note = renderViewNotes[(renderViewNoteNext + size - i) % size];
+        if (note.width == width && note.margin == margin)
+        {
+            guard = note.guard;
+            break;
+        }
+    }
+    return std::clamp(guard, 0, std::max(std::min((width - WideMelon::NativeWidth) / 2, margin), 0));
+}
+
+u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
+{
+    u32 requestedView = requestedWideView.load(std::memory_order_relaxed);
+    wideViewWidth = (int) (requestedView & 0xFFFF);
+    wideViewMargin = (int) (requestedView >> 16);
+    updateSunGuard();
+    updateRenderView();
 
     // Cleared first, so a configuration that arrives during updateRenderer() is applied on the next frame
     if (isRenderConfigurationDirty.exchange(false))
@@ -428,6 +553,8 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     int topScreenWidth = 256;
     // The WideMelon camera's rows above and below the top screen's 192, in DS pixels (always 0 on Software)
     int topScreenMargin = 0;
+    // The sun's guard band in both of those (OpenGL only)
+    int topScreenGuard = 0;
     if (currentRenderer == Renderer::OpenGl)
     {
         auto& glRenderer = static_cast<GLRenderer &>(nds->GPU.GetRenderer3D());
@@ -439,6 +566,8 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
         topScreenWidth = glRenderer.GetOutputWidth();
         // Lags like the width, along with the compositor's layout
         topScreenMargin = glRenderer.GetOutputMargin();
+        // And so the guard band in them is the one that view was asked with
+        topScreenGuard = getFrameGuard(topScreenWidth, topScreenMargin);
         screenWidth = topScreenWidth * scale;
         frameHeight = (192 + 2 * topScreenMargin + 2 + 192) * scale;
     }
@@ -481,6 +610,13 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     frameQueue.validateRenderFrame(renderFrame, screenWidth, frameHeight);
     renderFrame->topScreenWidth = topScreenWidth;
     renderFrame->topScreenMargin = topScreenMargin;
+    renderFrame->topScreenGuard = topScreenGuard;
+    // A depth of field, haze, 3D-only glow, shading or sun shadows (LuaEngine::wantsDepth, or the desktop's --dof) need the top half's depth,
+    // which only OpenGL hands out. The scripts' last word on it is the previous frame's, so it starts a frame late
+    bool isDepthWanted = currentRenderer == Renderer::OpenGl && (isFrontendDepthWanted.load(std::memory_order_relaxed) || luaEngine.wantsDepth());
+    // The top half's rows of the frame's (192 + 2 * margin + 2 + 192) * scale
+    int depthRows = isDepthWanted ? frameHeight / (386 + 2 * topScreenMargin) * (192 + 2 * topScreenMargin) : 0;
+    frameQueue.validateDepthTexture(renderFrame, depthRows);
 
     [[unlikely]] if (nds->GPU.GetRenderer3D().NeedsShaderCompile())
     {
@@ -500,6 +636,24 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     if (isRendererAccelerated)
     {
         nds->GPU.GetRenderer3D().SetOutputTexture(outputBuffer, renderFrame->frameTexture);
+        // 0 when none is wanted, which tells the renderer to keep no depth
+        nds->GPU.GetRenderer3D().SetOutputDepthTexture(outputBuffer, renderFrame->depthTexture);
+        // The characters' sun shadows OpenGL draws into the depth's flags, the newest script's or else the frontend's; the scripts' last word on
+        // them is the previous frame's, as for the depth
+        SunShadows sun = luaEngine.sunShadows();
+        nds->GPU.GetRenderer3D().SetSunShadows(sun.On ? sun : frontendSun);
+        // And the textures it leaves out, the same way
+        const std::vector<u32>& hidden = luaEngine.hiddenTextures().empty() ? frontendHiddenTextures : luaEngine.hiddenTextures();
+        nds->GPU.GetRenderer3D().SetHiddenTextures(hidden.data(), (u32) hidden.size());
+        // And the ones it flags as lights
+        const std::vector<u32>& lights = luaEngine.lightTextures().empty() ? frontendLightTextures : luaEngine.lightTextures();
+        nds->GPU.GetRenderer3D().SetLightTextures(lights.data(), (u32) lights.size());
+        // And the ones the depth hands over as 2D
+        const std::vector<u32>& ui = luaEngine.uiTextures().empty() ? frontendUiTextures : luaEngine.uiTextures();
+        nds->GPU.GetRenderer3D().SetUiTextures(ui.data(), (u32) ui.size());
+        // And the ones the depth of field focuses on
+        const std::vector<u32>& focus = luaEngine.focusTextures().empty() ? frontendFocusTextures : luaEngine.focusTextures();
+        nds->GPU.GetRenderer3D().SetFocusTextures(focus.data(), (u32) focus.size());
     }
 
     bool hasLuaFrameRun = false;
@@ -524,6 +678,9 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             glBindTexture(GL_TEXTURE_2D, 0);
             renderFrame->halvesAt1x = 0;
             renderFrame->topWingLines = 0;
+            renderFrame->hasDepth = false;
+            renderFrame->depthCameraValid = false;
+            renderFrame->depthFocus = NO_DEPTH_FOCUS;
         }
     }
     else
@@ -537,6 +694,13 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
             renderFrame->scaleAt1x = outputLayout.Scale;
             renderFrame->halfScaleAt1x = outputLayout.HalfScale;
             renderFrame->topWingLines = outputLayout.TopWingLines;
+            renderFrame->hasDepth = outputLayout.HasDepth && renderFrame->depthTexture != 0;
+            renderFrame->depthProjection = outputLayout.Camera.Proj;
+            renderFrame->depthViewport = outputLayout.Camera.Viewport;
+            renderFrame->depthCameraValid = renderFrame->hasDepth && outputLayout.Camera.Valid;
+            renderFrame->depthFocus = updateDepthFocus(outputLayout.Camera);
+            if (!renderFrame->hasDepth)
+                renderFrame->depthFocus = NO_DEPTH_FOCUS;
         }
     }
 
@@ -617,6 +781,40 @@ u32 MelonInstance::runFrame(int64_t presentDueTimeNs)
     }
 
     return nLines;
+}
+
+float MelonInstance::updateDepthFocus(const melonDS::DepthCamera& camera)
+{
+    const melonDS::DepthFocus& focus = camera.Focus;
+    double target = focus.Found ? depthDistance(focus.Depth, focus.WBuffer, camera.Proj) : -1.0;
+    if (target <= 0.0)
+    {
+        // Held for a door's first frames, which don't draw the player yet; longer, the camera may have moved without her
+        focusMissingFrames = std::min(focusMissingFrames + 1, DEPTH_FOCUS_HOLD_FRAMES + 1);
+        if (focusMissingFrames > DEPTH_FOCUS_HOLD_FRAMES)
+            focusDistance = -1.0f;
+    }
+    else
+    {
+        // Eased in view distance, once a scene (a scene skipped as identical comes again with the same Scene); a new one after the hold ran
+        // out, or across a W-buffer change, which goes through another camera, is taken as it is
+        if (focus.Scene != focusScene)
+        {
+            bool snap = focusDistance < 0.0f || focus.WBuffer != isFocusWBuffer;
+            focusDistance = snap ? (float) target : focusDistance + ((float) target - focusDistance) * DEPTH_FOCUS_EASE;
+            isFocusWBuffer = focus.WBuffer;
+            focusScene = focus.Scene;
+        }
+        focusMissingFrames = 0;
+    }
+    if (focusDistance < 0.0f)
+        return NO_DEPTH_FOCUS;
+
+    // As this frame's depth holds it, which a held focus from a scene with another buffer still maps onto
+    double value = distanceDepth(focusDistance, focus.WBuffer, camera.Proj);
+    if (!std::isfinite(value) || value <= 0.0)
+        return NO_DEPTH_FOCUS;
+    return (float) (std::clamp(value, 1.0, 16777214.0) / 16777215.0);
 }
 
 void MelonInstance::applyRewindSettings()
@@ -1027,6 +1225,8 @@ void MelonInstance::updateRenderer()
             currentRenderer = newRenderer;
         }
         nds->GPU.SetRenderer3D(std::move(renderer));
+        // An old renderer's views mean nothing to the new one's output
+        renderViewNoteCount = 0;
     }
 
     // The internal resolution the OpenGL and compute renderers are asked for, for the GPU 2D shadow below
@@ -1048,9 +1248,11 @@ void MelonInstance::updateRenderer()
             auto glRenderSettings = static_cast<OpenGlRenderSettings&>(*configuration->renderSettings);
             auto& glRenderer = static_cast<GLRenderer&>(nds->GPU.GetRenderer3D());
             // Every time, since the renderer may be a new one at 256, and first so a new renderer's targets are only sized once
-            glRenderer.SetViewWidth(wideViewWidth);
-            glRenderer.SetViewMargin(wideViewMargin);
+            glRenderer.SetViewWidth(renderViewWidth);
+            glRenderer.SetViewMargin(renderViewMargin);
             glRenderer.SetRenderSettings(glRenderSettings.betterPolygons, glRenderSettings.scale);
+            // The scale can resolve the view differently
+            noteRenderView(renderViewGuard);
             renderScale = glRenderSettings.scale;
             break;
         }
@@ -1058,7 +1260,8 @@ void MelonInstance::updateRenderer()
         {
             auto computeRenderSettings = static_cast<ComputeRenderSettings&>(*configuration->renderSettings);
             auto& computeRenderer = static_cast<ComputeRenderer&>(nds->GPU.GetRenderer3D());
-            // Like OpenGL, every time and first, so that a new renderer's shaders are only compiled once
+            // Like OpenGL, every time and first, so that a new renderer's shaders are only compiled once. The shown view, as Compute has no
+            // guard band (one that's still in the render view goes before the next frame)
             computeRenderer.SetViewWidth(wideViewWidth);
             computeRenderer.SetViewMargin(wideViewMargin);
             computeRenderer.SetRenderSettings(computeRenderSettings.scale,computeRenderSettings.highResCoordinates);
@@ -1139,7 +1342,8 @@ void MelonInstance::updateRenderer()
 
 void MelonInstance::applyShadow2DMode()
 {
-    // From the last frame's scene: polled for a Gen 4 game while the top screen is wide, nothing for any other game
+    // From the last frame's scene: polled for a Gen 4 game while the top screen is wide, nothing for any other game. Wide as shown, as the
+    // sun's guard band widens the render at 256 too
 #ifdef __ANDROID__
     bool isWideBattle = gameState.updateWideBattle(wideViewWidth > 256);
 #else

@@ -34,6 +34,10 @@ import me.magnum.melonds.domain.model.emulator.RomLaunchResult
 import me.magnum.melonds.domain.model.emulator.resolveValues
 import me.magnum.melonds.domain.model.retroachievements.GameAchievementData
 import me.magnum.melonds.domain.model.camera.WideCameraRequest
+import me.magnum.melonds.domain.model.render.Bloom
+import me.magnum.melonds.domain.model.render.DepthOfField
+import me.magnum.melonds.domain.model.render.Shade
+import me.magnum.melonds.domain.model.render.Sun
 import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.domain.model.retroachievements.RAEvent
 import me.magnum.melonds.domain.model.rom.Rom
@@ -183,6 +187,67 @@ class AndroidEmulatorManager(
                 val panY = data.getFloat().takeIf { hasPanY }
                 val request = WideCameraRequest(zoom = zoom, pan = pan, holdNative = holdNative, panY = panY)
                 _emulatorEvents.tryEmit(EmulatorEvent.LuaWideCamera(scriptId, request))
+            }
+            EmulatorEventType.EventLuaBloom -> {
+                val scriptId = data.getInt()
+                val bloom = Bloom(
+                    strength = data.getFloat(),
+                    threshold = data.getFloat(),
+                    radius = data.getFloat(),
+                    vignette = data.getFloat(),
+                    vignetteSize = data.getFloat(),
+                    onlyThreeD = data.getInt() != 0,
+                    haze = data.getFloat(),
+                    hazeColor = data.getInt(),
+                    hazeStart = data.getFloat(),
+                    hazeFalloff = data.getFloat(),
+                    lights = data.getInt() != 0,
+                    lightThreshold = data.getFloat(),
+                    lightStrength = data.getFloat(),
+                )
+                _emulatorEvents.tryEmit(EmulatorEvent.LuaBloom(scriptId, bloom))
+            }
+            EmulatorEventType.EventLuaDepthOfField -> {
+                val scriptId = data.getInt()
+                val depthOfField = DepthOfField(
+                    strength = data.getFloat(),
+                    radius = data.getFloat(),
+                    focusX = data.getFloat(),
+                    focusY = data.getFloat(),
+                    focusDepth = data.getFloat(),
+                    range = data.getFloat(),
+                    falloff = data.getFloat(),
+                )
+                _emulatorEvents.tryEmit(EmulatorEvent.LuaDepthOfField(scriptId, depthOfField))
+            }
+            EmulatorEventType.EventLuaShade -> {
+                val scriptId = data.getInt()
+                val shade = Shade(
+                    strength = data.getFloat(),
+                    radius = data.getFloat(),
+                    range = data.getFloat(),
+                    color = data.getInt(),
+                )
+                _emulatorEvents.tryEmit(EmulatorEvent.LuaShade(scriptId, shade))
+            }
+            EmulatorEventType.EventLuaSun -> {
+                val scriptId = data.getInt()
+                val sun = Sun(
+                    strength = data.getFloat(),
+                    directionX = data.getFloat(),
+                    directionY = data.getFloat(),
+                    directionZ = data.getFloat(),
+                    upX = data.getFloat(),
+                    upY = data.getFloat(),
+                    upZ = data.getFloat(),
+                    length = data.getFloat(),
+                    steps = data.getInt(),
+                    bias = data.getFloat(),
+                    softness = data.getFloat(),
+                    color = data.getInt(),
+                    near = data.getFloat(),
+                )
+                _emulatorEvents.tryEmit(EmulatorEvent.LuaSun(scriptId, sun))
             }
         }
     }

@@ -44,9 +44,12 @@ struct ScreensDrawing
 
 // getScreensDrawing: both screens from a [frameWidth]-wide frame. The screen in the layout's top rect gets the whole half (grown or
 // letterboxed for a wide frame), the other its middle 256 columns. [topScreenRect] is the rect the DS top screen is drawn in (the layout's
-// bottom one when [areScreensSwapped]); [frameMargin] the WideMelon camera's rows above and below the top screen, which only its window shows
+// bottom one when [areScreensSwapped]); [frameMargin] the WideMelon camera's rows above and below the top screen, which only its window shows.
+// [frameGuard] is the sun's guard band (FrameView::TopGuard), included in [frameWidth] and [frameMargin]: its columns on each side of both
+// halves and its rows above and below the top screen are never shown, so the screens are placed as from a frame without it, the shown one,
+// with their columns and rows moved in by the guard
 ScreensDrawing GetScreensDrawing(const IntRect* topScreenRect, const IntRect* bottomScreenRect, int frameWidth, bool isWideLayout,
-    bool areScreensSwapped, float surfaceWidth, int frameMargin);
+    bool areScreensSwapped, float surfaceWidth, int frameMargin, int frameGuard = 0);
 
 // DefaultLayoutBuilder's screens for a [width] x [height] surface with no insets (a window has none): both screens stacked and as big as
 // they fit (portrait), the top screen at two thirds of the width with the bottom one beside it at the top (landscape), or one screen

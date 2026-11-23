@@ -487,7 +487,7 @@ class EmulatorActivity : AppCompatActivity() {
         binding.viewLayoutControls.apply {
             setFrontendInputHandler(frontendInputHandler)
             setSystemInputHandler(melonTouchHandler)
-            setFrameWidthProvider { mainScreenRenderer.frameTopScreenWidth }
+            setFrameWidthProvider { mainScreenRenderer.frameShownTopScreenWidth }
             setWideWindowProvider { mainScreenRenderer.frameWideWindow }
             // A recreated activity's views start unswapped, so put back the shown swap before any Lua event is handled
             if (viewModel.areScreensSwapped) {
@@ -639,6 +639,38 @@ class EmulatorActivity : AppCompatActivity() {
                 viewModel.luaTiltShift.collect {
                     mainScreenRenderer.tiltShift = it
                     presentation?.updateTiltShift(it)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.luaBloom.collect {
+                    mainScreenRenderer.bloom = it
+                    presentation?.updateBloom(it)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.luaDepthOfField.collect {
+                    mainScreenRenderer.depthOfField = it
+                    presentation?.updateDepthOfField(it)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.luaShade.collect {
+                    mainScreenRenderer.shade = it
+                    presentation?.updateShade(it)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.luaSun.collect {
+                    mainScreenRenderer.sun = it
+                    presentation?.updateSun(it)
                 }
             }
         }
@@ -927,6 +959,10 @@ class EmulatorActivity : AppCompatActivity() {
 
                 updateRendererConfiguration(viewModel.runtimeRendererConfiguration.value)
                 updateTiltShift(viewModel.luaTiltShift.value)
+                updateBloom(viewModel.luaBloom.value)
+                updateDepthOfField(viewModel.luaDepthOfField.value)
+                updateShade(viewModel.luaShade.value)
+                updateSun(viewModel.luaSun.value)
                 updateBackground(viewModel.secondaryScreenBackground.value)
                 if (binding.viewLayoutControls.areScreensSwapped()) {
                     swapScreens()

@@ -510,7 +510,7 @@ const ScreenWindows::SurfacePlan& ScreenWindows::Plan(int surface, int w, int h)
     bool detached = IsDetached();
     // the main window shows the top screen unless they're swapped, the second one the other
     bool top = i == 0 ? MainShowsTop() : !MainShowsTop();
-    PlanKey key {detached, top, Swap, w, h, FitTop, FitBottom, Shape.TopWidth, Shape.TopMargin, Version};
+    PlanKey key {detached, top, Swap, w, h, FitTop, FitBottom, Shape.TopWidth, Shape.TopMargin, Shape.TopGuard, Version};
     if (!(key == PlanKeys[i]))
     {
         Plans[i] = Preview && Preview->Surface == i ? MakePreviewPlan(detached, top) : MakePlan(detached, top, w, h);
@@ -936,7 +936,7 @@ Rect ScreenWindows::BottomRect() const
     int w, h;
     SDL_GL_GetDrawableSize(BottomWindow(), &w, &h);
     const SurfacePlan& plan = Plan(BottomWindow() == MainWindow ? 0 : 1, w, h);
-    return RectsFor(plan.Screens, Shape.TopWidth, Shape.TopMargin, (float)w).Bottom;
+    return RectsFor(plan.Screens, Shape.TopWidth, Shape.TopMargin, Shape.TopGuard, (float)w).Bottom;
 }
 
 void ScreenWindows::SetDetached(bool detached)

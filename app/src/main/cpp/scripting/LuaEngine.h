@@ -212,6 +212,41 @@ public:
      * What the scripts drew for the frame [endFrame] was last called for, empty while no script runs
      */
     const LuaOverlay& getOverlay() const { return overlay; }
+    /**
+     * Whether a running script's depth of field, haze, 3D-only glow, glowing lights, shading or sun shadows are on, as the app was last told
+     * (melon.screen.depth_of_field, haze, bloom's only_3d and lights, shade and sun), so the frames should keep their depth; emulator thread
+     * only
+     */
+    bool wantsDepth() const;
+    /**
+     * The sun shadows of the running script that asked for them last (melon.screen.sun), as the app was last told, for the OpenGL renderer to
+     * draw the characters' own; off while none asks. Emulator thread only
+     */
+    melonDS::SunShadows sunShadows() const;
+    /**
+     * The guard band of the same request (melon.screen.sun's guard, in DS pixels), or none while no script's sun is on. Emulator thread only
+     */
+    std::optional<int> sunGuard() const;
+    /**
+     * The texture hashes of the running script that changed its non-empty list last (melon.gpu.hide_textures), for the OpenGL renderer to leave
+     * out; empty while none hides any. Emulator thread only
+     */
+    const std::vector<melonDS::u32>& hiddenTextures() const;
+    /**
+     * The same for the light textures (melon.gpu.light_textures), whose polygons the OpenGL renderer flags in the depth; empty while none
+     * lights any. Emulator thread only
+     */
+    const std::vector<melonDS::u32>& lightTextures() const;
+    /**
+     * And for the UI textures (melon.gpu.ui_textures), whose polygons the depth hands over as 2D on top; empty while none marks any.
+     * Emulator thread only
+     */
+    const std::vector<melonDS::u32>& uiTextures() const;
+    /**
+     * And for the focus textures (melon.gpu.focus_textures), whose biggest polygon in a scene the depth of field focuses on; empty while
+     * none lists any. Emulator thread only
+     */
+    const std::vector<melonDS::u32>& focusTextures() const;
 
 private:
     // The API files (LuaEngineInternal.h) read the engine's state through the running script's LuaScript::engine
@@ -239,6 +274,8 @@ private:
     };
 
     bool loadScript(LuaScript& script);
+    // The running script whose sun shadows are on and were asked for last, or null
+    const LuaScript* findNewestSun() const;
     void reloadScripts();
     void queueScriptSwitch(int id, ScriptSwitch::Action action, std::vector<LuaOptionValue> options = {});
     void applyPendingScriptSwitches();
@@ -271,12 +308,39 @@ private:
     template <std::optional<bool> LuaScript::* request> static int luaSetBoolRequest(lua_State* L);
     static int luaScreenSetLayout(lua_State* L);
     static int luaScreenTiltShift(lua_State* L);
+    static int luaScreenBloom(lua_State* L);
+    static int luaScreenVignette(lua_State* L);
+    static int luaScreenHaze(lua_State* L);
+    static int luaScreenDepthOfField(lua_State* L);
+    static int luaScreenShade(lua_State* L);
+    static int luaScreenSun(lua_State* L);
+    // melon.gpu
+    static int luaGpuHideTextures(lua_State* L);
+    static int luaGpuLightTextures(lua_State* L);
+    static int luaGpuUiTextures(lua_State* L);
+    static int luaGpuFocusTextures(lua_State* L);
+    // All four: the script's texture hash list [list] from argument 1 (nil or a table of at most [maxHashes]), stamped with the next of
+    // [requests] in [order] when it changes to a non-empty one; [name] is the function's, for errors
+    static int setTextureList(lua_State* L, const char* name, size_t maxHashes, std::vector<melonDS::u32> LuaScript::* list,
+                              unsigned int LuaScript::* order, unsigned int LuaEngine::* requests);
+    // The running script's non-empty [list] with the highest [order], or an empty list
+    const std::vector<melonDS::u32>& newestTextureList(std::vector<melonDS::u32> LuaScript::* list, unsigned int LuaScript::* order) const;
 
     std::vector<LuaScriptSource> pendingScripts;
     // Outlives every script's state, which may point into its images
     std::shared_ptr<const LuaFolderContent> folderContent;
     std::vector<std::unique_ptr<LuaScript>> scripts;
     int activeScriptCount = 0;
+    // The sun shadow requests sent so far, which orders them (LuaScript::sentSunOrder)
+    unsigned int sentSunRequests = 0;
+    // The hidden texture lists set so far, which orders them the same way (LuaScript::hiddenTexturesOrder)
+    unsigned int hiddenTextureRequests = 0;
+    // And the light texture lists (LuaScript::lightTexturesOrder)
+    unsigned int lightTextureRequests = 0;
+    // And the UI texture lists (LuaScript::uiTexturesOrder)
+    unsigned int uiTextureRequests = 0;
+    // And the focus texture lists (LuaScript::focusTexturesOrder)
+    unsigned int focusTextureRequests = 0;
     // Set while on_unload() runs: requests to the app are ignored, and errors are only logged
     bool isUnloading = false;
     // Set while on_frame() or on_frame_end() runs, the only callbacks whose draw calls are recorded

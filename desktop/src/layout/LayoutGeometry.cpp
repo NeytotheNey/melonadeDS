@@ -66,6 +66,43 @@ void ScaleComponents(ScreenLayout& layout, float scale, float dx, float dy)
     }
 }
 
+// getScreensDrawing for a frame without a guard band: the shown one
+ScreensDrawing GetShownScreensDrawing(const IntRect* topScreenRect, const IntRect* bottomScreenRect, int frameWidth, bool isWideLayout,
+    bool areScreensSwapped, float surfaceWidth, int frameMargin)
+{
+    const IntRect* wideScreenRect = areScreensSwapped ? bottomScreenRect : topScreenRect;
+    const IntRect* narrowScreenRect = areScreensSwapped ? topScreenRect : bottomScreenRect;
+    // the DS top screen's native rows, which a screen shows without the camera's window
+    float topScreenRows = (float)std::max(frameMargin, 0);
+
+    std::optional<ScreenDrawing> wideScreen, narrowScreen;
+    if (wideScreenRect)
+    {
+        ScreenDrawing d;
+        d.DrawRect = GetWideScreenDrawRect(*wideScreenRect, narrowScreenRect, frameWidth, isWideLayout, surfaceWidth);
+        d.NativeRect = GetNativeScreenRect(d.DrawRect, frameWidth);
+        d.TopRow = areScreensSwapped ? 0.f : topScreenRows;
+        d.BottomRow = d.TopRow + DS_SCREEN_HEIGHT;
+        wideScreen = d;
+    }
+    if (narrowScreenRect)
+    {
+        ScreenDrawing d;
+        d.DrawRect = isWideLayout && areScreensSwapped ? GetLetterboxedRect(*narrowScreenRect, CONSOLE_ASPECT_RATIO) : *narrowScreenRect;
+        d.NativeRect = d.DrawRect;
+        int width = std::max(frameWidth, DS_SCREEN_WIDTH);
+        d.LeftU = (width - DS_SCREEN_WIDTH) / (2.f * width);
+        d.RightU = 1.f - d.LeftU;
+        d.TopRow = areScreensSwapped ? topScreenRows : 0.f;
+        d.BottomRow = d.TopRow + DS_SCREEN_HEIGHT;
+        narrowScreen = d;
+    }
+    ScreensDrawing drawing;
+    drawing.Top = areScreensSwapped ? narrowScreen : wideScreen;
+    drawing.Bottom = areScreensSwapped ? wideScreen : narrowScreen;
+    return drawing;
+}
+
 }
 
 int RoundToInt(float value)
@@ -116,39 +153,29 @@ IntRect GetLetterboxedRect(const IntRect& rect, float aspectRatio)
 }
 
 ScreensDrawing GetScreensDrawing(const IntRect* topScreenRect, const IntRect* bottomScreenRect, int frameWidth, bool isWideLayout,
-    bool areScreensSwapped, float surfaceWidth, int frameMargin)
+    bool areScreensSwapped, float surfaceWidth, int frameMargin, int frameGuard)
 {
-    const IntRect* wideScreenRect = areScreensSwapped ? bottomScreenRect : topScreenRect;
-    const IntRect* narrowScreenRect = areScreensSwapped ? topScreenRect : bottomScreenRect;
-    // the DS top screen's native rows, which a screen shows without the camera's window
-    float topScreenRows = (float)std::max(frameMargin, 0);
+    // MelonInstance keeps the guard within the frame already; kept there here too, so a bad one can't turn the shown frame inside out
+    int guard = std::clamp(frameGuard, 0, std::max(0, std::min((frameWidth - DS_SCREEN_WIDTH) / 2, frameMargin)));
+    int shownWidth = frameWidth - 2 * guard;
+    ScreensDrawing shown = GetShownScreensDrawing(topScreenRect, bottomScreenRect, shownWidth, isWideLayout, areScreensSwapped, surfaceWidth,
+        frameMargin - guard);
+    if (guard == 0)
+        return shown;
 
-    std::optional<ScreenDrawing> wideScreen, narrowScreen;
-    if (wideScreenRect)
+    // The shown frame's columns sit guard columns into the frame's, in both halves, and its rows guard rows into the DS top screen's half
+    auto inFrame = [&](std::optional<ScreenDrawing>& screen, float rowOffset)
     {
-        ScreenDrawing d;
-        d.DrawRect = GetWideScreenDrawRect(*wideScreenRect, narrowScreenRect, frameWidth, isWideLayout, surfaceWidth);
-        d.NativeRect = GetNativeScreenRect(d.DrawRect, frameWidth);
-        d.TopRow = areScreensSwapped ? 0.f : topScreenRows;
-        d.BottomRow = d.TopRow + DS_SCREEN_HEIGHT;
-        wideScreen = d;
-    }
-    if (narrowScreenRect)
-    {
-        ScreenDrawing d;
-        d.DrawRect = isWideLayout && areScreensSwapped ? GetLetterboxedRect(*narrowScreenRect, CONSOLE_ASPECT_RATIO) : *narrowScreenRect;
-        d.NativeRect = d.DrawRect;
-        int width = std::max(frameWidth, DS_SCREEN_WIDTH);
-        d.LeftU = (width - DS_SCREEN_WIDTH) / (2.f * width);
-        d.RightU = 1.f - d.LeftU;
-        d.TopRow = areScreensSwapped ? topScreenRows : 0.f;
-        d.BottomRow = d.TopRow + DS_SCREEN_HEIGHT;
-        narrowScreen = d;
-    }
-    ScreensDrawing drawing;
-    drawing.Top = areScreensSwapped ? narrowScreen : wideScreen;
-    drawing.Bottom = areScreensSwapped ? wideScreen : narrowScreen;
-    return drawing;
+        if (!screen)
+            return;
+        screen->LeftU = (guard + screen->LeftU * shownWidth) / frameWidth;
+        screen->RightU = (guard + screen->RightU * shownWidth) / frameWidth;
+        screen->TopRow += rowOffset;
+        screen->BottomRow += rowOffset;
+    };
+    inFrame(shown.Top, (float)guard);
+    inFrame(shown.Bottom, 0.f);
+    return shown;
 }
 
 std::vector<LayoutComponent> BuildDefaultPortraitScreens(int width, int height)

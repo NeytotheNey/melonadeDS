@@ -6,7 +6,9 @@
 #include <timeapi.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cmath>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -53,6 +55,7 @@
 #include "EmulatorThread.h"
 #include "FileDialog.h"
 #include "Frontend.h"
+#include "ImageFile.h"
 #include "Input.h"
 #include "Library.h"
 #include "MetadataSync.h"
@@ -112,6 +115,15 @@ struct Options
     std::string ScreenshotPath;
     std::string WindowShotPath;
     bool WindowShotLinear = false; // the window shot drawn with linear filtering, whatever --linear says
+    std::string DepthShotPath;     // --depth-shot: the last frame's depth as a PNG, with its stats printed
+    std::string DepthRawPath;      // --depth-raw: the last frame's depth texture as it is, for scripts
+    std::string CameraDumpPath;    // --camera-dump: each 3D scene's projections and viewports, a JSON line per scene
+    std::string CameraShownPath;   // --camera-shown: the depth camera each presented frame came with, a JSON line per frame
+    std::string ListTexturesPath;  // --list-textures: each drawn frame's textures with their content hashes, a line per texture
+    std::vector<u32> HiddenTextures; // --hide-textures: the content hashes the OpenGL renderer leaves out
+    std::vector<u32> LightTextures;  // --light-textures: the content hashes it flags as lights in the depth (flag 32)
+    std::vector<u32> UiTextures;     // --ui-textures: the content hashes whose pixels the depth hands over as 2D (flags 1 and 64)
+    std::vector<u32> FocusTextures;  // --focus-textures: the content hashes whose biggest polygon the depth of field focuses on
     std::string LogPath;
     std::string CacheDir;      // the Compute program cache, next to the exe by default
     RendererType Renderer = RendererType::Compute;
@@ -151,7 +163,9 @@ struct Options
     struct DsiFiles { std::string Bios9, Bios7, Firmware, Nand, DsBios9, DsBios7; } Dsi;
     int ConsoleType = 0;       // console_type: 0 DS, 1 DSi
     float FastForwardSpeed = 0; // fast_forward_speed_multiplier, 0 for unlimited
-    bool FixedTime = false;    // the RTC starts at 2026-01-01 12:00 instead of now
+    bool FixedTime = false;    // the RTC starts at FixedDateTime instead of now
+    // --fixed-time's start: year, month, day, hour, minute, second
+    std::array<int, 6> FixedDateTime = {2026, 1, 1, 12, 0, 0};
     bool VSync = false;
     bool Unthrottled = false;
     bool Audio = true;
@@ -164,6 +178,18 @@ struct Options
     Frontend::RendererConfig Render;
     // --tilt-shift: the Lua tilt-shift's passes over the top screen, for tests until the scripts drive it (phase 4)
     std::optional<Frontend::TiltShift> TiltShift;
+    // --bloom, --bloom-all and --haze: the Lua bloom's, vignette's and haze's passes over the top screen, the same way
+    std::optional<Frontend::Bloom> Bloom;
+    // --dof: the Lua depth of field's passes the same way, with the frames' depth asked of the core (MelonInstance::setDepthWanted)
+    std::optional<Frontend::DepthOfField> DepthOfField;
+    // --shade: the Lua shading's passes the same way, with the frames' depth asked of the core too
+    std::optional<Frontend::Shade> Shade;
+    // --sun: the Lua sun shadows' passes the same way, with the frames' depth asked of the core too
+    std::optional<Frontend::Sun> Sun;
+    // --sun-guard: --sun's guard band, as melon.screen.sun's guard asks for it (MelonInstance::setFrontendSunGuard); 0 for none
+    int SunGuard = 0;
+    // --lua-script: a Lua script the game runs, as the app's scripts run (LuaEngine), for tests; empty for none
+    std::string LuaScriptPath;
     // --output-cap: the windows' output scale need goes to the core (GPU::OutputCap) after each present, as the app's surfaces send theirs
     bool OutputCap = false;
     bool Hidden = false;
@@ -251,7 +277,8 @@ void Usage()
         "  --press F[-L]:KEYS          hold keys (a b x y l r start select up down left right, joined\n"
         "                              by +) over frames F..L (6 frames without L), for scripted runs\n"
         "  --boot-screen               boot through the firmware instead of directly\n"
-        "  --fixed-time                the RTC starts at 2026-01-01 12:00, for runs to compare\n"
+        "  --fixed-time [DATE]         the RTC starts at DATE, YYYY-MM-DD[THH:MM[:SS]] (2000-2099; without it\n"
+        "                              2026-01-01T12:00), for runs to compare\n"
         "  --set NAME=VALUE            a core debug switch, e.g. --set LateBlit=0 (see --list-sets)\n"
         "  --at F:reset|state|save=FILE|scale=N|renderer=R|shot=FILE|key=KEY|NAME=VALUE\n"
         "                              before frame F: a reset, the --state loaded again, a savestate\n"
@@ -296,6 +323,44 @@ void Usage()
         "                              the Lua tilt-shift's passes over the top screen, for tests: the blur's strength\n"
         "                              above and below (0-1), the sharp band's center and width (0-1 of the screen), the\n"
         "                              radius in DS pixels, the color boost and what it follows (0-1)\n"
+        "  --bloom STRENGTH[,THRESHOLD,RADIUS[,VIGNETTE,SIZE]]\n"
+        "                              the Lua bloom's and vignette's passes over the top screen, for tests: the glow's\n"
+        "                              strength (0-2), the luma it starts at (0-1, 0.7) and its radius in DS pixels (0-8,\n"
+        "                              3), the vignette's strength (0-1) and where it starts (0-1 of the half-diagonal, 0.6);\n"
+        "                              only the 3D glows when the frame has its depth (OpenGL), as Lua's only_3d\n"
+        "  --bloom-all                 with --bloom, every bright pixel glows, 2D such as text boxes too (only_3d off)\n"
+        "  --bloom-lights [THRESHOLD[,STRENGTH]]\n"
+        "                              with --bloom, the light textures (--light-textures) glow by their brightest channel\n"
+        "                              from THRESHOLD (0-1, 0.65) at STRENGTH times the rest (0-4, 1), and those that\n"
+        "                              bright stay lit under --shade and --sun, as Lua's lights (OpenGL only)\n"
+        "  --haze STRENGTH[,START,FALLOFF[,RRGGBB]]\n"
+        "                              the Lua haze over the top screen's 3D, for tests (OpenGL only): how far the far 3D\n"
+        "                              goes towards the color (0-1), the depth it starts at and how far past that it's full\n"
+        "                              (0-1, 0.9968 and 0.0008), and the color in hex (DCE6F0)\n"
+        "  --dof STRENGTH,RADIUS[,RANGE,FALLOFF[,FOCUS_X,FOCUS_Y[,FOCUS_DEPTH]]]\n"
+        "                              the Lua depth of field's passes over the top screen, for tests (OpenGL only): its\n"
+        "                              strength (0-1) and radius in DS pixels (0-12), the sharp range around the focus and\n"
+        "                              the falloff past it relative to the focus's distance (0-1, 0.045 and 0.33), the\n"
+        "                              focus point in DS pixels (128,96) or a focus depth (0-1); with --focus-textures and\n"
+        "                              no focus depth, the biggest polygon of those textures\n"
+        "  --shade STRENGTH[,RADIUS,RANGE[,RRGGBB]]\n"
+        "                              the Lua shading over the top screen's 3D, for tests (OpenGL only): how far the most\n"
+        "                              shaded pixels go towards the tint (0-1), the depth blur's radius in DS pixels (1-16,\n"
+        "                              8), how much farther than the blurred depth a pixel is when fully shaded (0-1,\n"
+        "                              0.0008), and the tint in hex (33384F)\n"
+        "  --sun STRENGTH[,LENGTH,STEPS,BIAS[,SOFTNESS[,RRGGBB[,DX,DY,DZ[,UX,UY,UZ[,NEAR]]]]]]\n"
+        "                              the Lua sun shadows over the top screen's 3D, for tests (OpenGL only): how far the\n"
+        "                              shadows go towards the tint (0-1), how far the march reaches in view-space units\n"
+        "                              (1-1024, 96) in how many steps (1-128, 64), the bias in units (0-64, 1), the softness\n"
+        "                              in DS pixels (0-8, 1.5), the tint in hex (33384F), the direction towards the sun\n"
+        "                              (0.50,0.83,0.26) and up (0.0006,0.607,0.794) in view space, and how near the camera\n"
+        "                              3D can be and still cast, in units (0-1024, 0: all of it)\n"
+        "  --sun-guard G               --sun's guard band, as melon.screen.sun's guard: while the sun is on, OpenGL renders\n"
+        "                              G more DS pixels past each side of the top screen and G more rows above and below\n"
+        "                              (0-128, kept within WideMelon's 768 and 128), which the filters and the sun's march\n"
+        "                              take in but the window doesn't show, so casters just off screen still cast\n"
+        "  --lua-script FILE.lua       run a Lua script with the game, as the app runs its scripts, for tests (its sun,\n"
+        "                              guard, hidden, light and UI textures reach the core; its screen effects aren't drawn)\n"
         "  --output-cap                send the windows' screen size to the core (GPU::OutputCap), as the app does: the\n"
         "                              frame is drawn no bigger than the screens are shown\n"
         "  --vsync                     wait for vsync on swap (pacing stays at the DS's 59.83 Hz)\n"
@@ -310,7 +375,18 @@ void Usage()
         "  --window-shot FILE.bmp      save the window as drawn, menus included, when --frames or --ui-script ends\n"
         "                              the run; detached: the windows as FILE_top.bmp and FILE_bottom.bmp\n"
         "  --window-shot-linear        draw the window shot with the linear filter (the run keeps its own)\n"
-        "  --hidden                    no visible window (with --frames); never fullscreen, saves no window places\n"
+        "  --depth-shot FILE.png       save the last frame's top screen depth (OpenGL only) when --frames or --ui-script\n"
+        "                              ends the run, near dark to far light, and print how many depth values it has\n"
+        "  --depth-raw FILE.png        the same frame's depth texture as it is (RGB the 24-bit depth, A the flags)\n"
+        "  --camera-dump FILE          debug: a JSON line per 3D scene with the projection matrices (20.12) and\n"
+        "                              viewports its polygons were built under, how many polygons each, and the pick\n"
+        "  --camera-shown FILE         debug: a JSON line per presented frame with the depth camera it came with\n"
+        "  --list-textures FILE        debug: a line per texture of each frame OpenGL draws, with its content hash\n"
+        "  --hide-textures HASH,...    OpenGL leaves out the polygons of these textures (hex content hashes)\n"
+        "  --light-textures HASH,...   OpenGL flags these textures' pixels as lights in the depth (flag 32)\n"
+        "  --ui-textures HASH,...      the depth hands these textures' pixels over as 2D on top (flags 1 and 64)\n"
+        "  --focus-textures HASH,...   --dof focuses on the biggest polygon of these textures (hex content hashes)\n"
+        "  --hidden                   no visible window (with --frames); never fullscreen, saves no window places\n"
         "  --save-window-places        save the window places with --hidden too (tests)\n"
         "  --log FILE                  core log file (default melonade.log next to the exe)\n"
         "  --cache-dir DIR             Compute program cache directory\n"
@@ -380,9 +456,93 @@ void Usage()
 using Frontend::ApplySet;
 using Frontend::ReadFile;
 
+// [vector] normalized, false if it's too short to have a direction
+bool NormalizeDirection(std::array<float, 3>& vector)
+{
+    float length = std::sqrt(vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2]);
+    if (!(length > 1e-6f) || !std::isfinite(length))
+        return false;
+    for (float& v : vector)
+        v /= length;
+    return true;
+}
+
+// --sun's [count] fields read into [sun] (and [color]), held to what a script could ask for (melon.screen.sun); false if it isn't a whole
+// group of them or a vector has no direction
+// --hide-textures, --light-textures, --ui-textures and --focus-textures: comma-separated hex hashes (0x optional), each 1 to FFFFFFFF, at
+// most [maxHashes]
+bool ParseTextureHashes(const std::string& spec, u32 maxHashes, std::vector<u32>& hashes)
+{
+    hashes.clear();
+    size_t start = 0;
+    while (start <= spec.size())
+    {
+        size_t end = std::min(spec.find(',', start), spec.size());
+        std::string part = spec.substr(start, end - start);
+        char* rest = nullptr;
+        unsigned long long hash = strtoull(part.c_str(), &rest, 16);
+        if (part.empty() || *rest != 0 || hash == 0 || hash > 0xFFFFFFFFull || hashes.size() == maxHashes)
+            return false;
+        hashes.push_back((u32) hash);
+        start = end + 1;
+    }
+    return true;
+}
+
+// --fixed-time's YYYY-MM-DD[THH:MM[:SS]], with the DS RTC's year range (2000-2099) and the month's own days
+bool ParseDateTime(const char* spec, std::array<int, 6>& out)
+{
+    std::array<int, 6> t = {0, 0, 0, 0, 0, 0};
+    int length = 0;
+    int count = sscanf(spec, "%4d-%2d-%2d%n", &t[0], &t[1], &t[2], &length);
+    if (count != 3)
+        return false;
+    if (spec[length] != 0)
+    {
+        int timeLength = 0;
+        count = sscanf(spec + length, "T%2d:%2d%n", &t[3], &t[4], &timeLength);
+        if (count != 2)
+            return false;
+        length += timeLength;
+        if (spec[length] != 0)
+        {
+            timeLength = 0;
+            if (sscanf(spec + length, ":%2d%n", &t[5], &timeLength) != 1)
+                return false;
+            length += timeLength;
+        }
+        if (spec[length] != 0)
+            return false;
+    }
+    static constexpr int MONTH_DAYS[12] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (t[0] < 2000 || t[0] > 2099 || t[1] < 1 || t[1] > 12 || t[2] < 1 || t[2] > MONTH_DAYS[t[1] - 1]
+        || (t[1] == 2 && t[2] == 29 && (t[0] & 3)) || t[3] > 23 || t[4] > 59 || t[5] > 59 || t[3] < 0 || t[4] < 0 || t[5] < 0)
+        return false;
+    out = t;
+    return true;
+}
+
+bool ParseSun(int count, unsigned int color, Frontend::Sun& sun)
+{
+    if (count != 1 && count != 4 && count != 5 && count != 6 && count != 9 && count != 12 && count != 13)
+        return false;
+    if (!NormalizeDirection(sun.Direction) || !NormalizeDirection(sun.Up))
+        return false;
+    sun.Strength = std::clamp(sun.Strength, 0.f, 1.f);
+    sun.Length = std::clamp(sun.Length, 1.f, 1024.f);
+    sun.Steps = std::clamp(sun.Steps, 1, 128);
+    sun.Bias = std::clamp(sun.Bias, 0.f, 64.f);
+    sun.Softness = std::clamp(sun.Softness, 0.f, 8.f);
+    sun.Near = std::clamp(sun.Near, 0.f, 1024.f);
+    sun.Color = color & 0xFFFFFF;
+    return true;
+}
+
 bool ParseArgs(int argc, char** argv, Options& opts)
 {
     bool layoutGiven = false, detachGiven = false;
+    // --bloom's glow and vignette, --bloom-all and --haze each set their part, in any order
+    Frontend::Bloom bloom;
     for (int i = 1; i < argc; i++)
     {
         std::string arg = argv[i];
@@ -489,7 +649,24 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             opts.Presses.push_back(press);
         }
         else if (arg == "--boot-screen") setting("show_bios", picojson::value(true));
-        else if (arg == "--fixed-time") opts.FixedTime = true;
+        else if (arg == "--fixed-time")
+        {
+            opts.FixedTime = true;
+            // the date is optional, so a next argument that doesn't start like one (YYYY-, not the ROM or another option)
+            // is left alone
+            const char* date = i + 1 < argc ? argv[i + 1] : "";
+            bool looksLikeDate = strlen(date) > 4 && date[4] == '-'
+                && std::all_of(date, date + 4, [](char c) { return isdigit((unsigned char) c) != 0; });
+            if (looksLikeDate)
+            {
+                if (!ParseDateTime(argv[i + 1], opts.FixedDateTime))
+                {
+                    fprintf(stderr, "bad --fixed-time %s (YYYY-MM-DD[THH:MM[:SS]], 2000-2099)\n", argv[i + 1]);
+                    return false;
+                }
+                i++;
+            }
+        }
         else if (arg == "--set") opts.Sets.push_back(next());
         else if (arg == "--widedrops") opts.WideDrops = true;
         else if (arg == "--at")
@@ -565,6 +742,119 @@ bool ParseArgs(int argc, char** argv, Options& opts)
                 tilt.Color = std::clamp(color, 0.f, 1.f);
             opts.TiltShift = tilt;
         }
+        else if (arg == "--bloom")
+        {
+            std::string spec = next();
+            Frontend::Bloom given;
+            int count = sscanf(spec.c_str(), "%f,%f,%f,%f,%f", &given.Strength, &given.Threshold, &given.Radius, &given.Vignette,
+                &given.VignetteSize);
+            if (count != 1 && count != 3 && count != 5)
+            {
+                fprintf(stderr, "bad --bloom %s (STRENGTH[,THRESHOLD,RADIUS[,VIGNETTE,SIZE]])\n", spec.c_str());
+                return false;
+            }
+            // held to what a script could ask for (melon.screen.bloom and vignette)
+            bloom.Strength = std::clamp(given.Strength, 0.f, 2.f);
+            bloom.Threshold = std::clamp(given.Threshold, 0.f, 1.f);
+            bloom.Radius = std::clamp(given.Radius, 0.f, 8.f);
+            bloom.Vignette = std::clamp(given.Vignette, 0.f, 1.f);
+            bloom.VignetteSize = std::clamp(given.VignetteSize, 0.f, 1.f);
+        }
+        else if (arg == "--bloom-all") bloom.OnlyThreeD = false;
+        else if (arg == "--bloom-lights")
+        {
+            bloom.Lights = true;
+            // its value is optional, so the next argument is only taken when it's a whole THRESHOLD[,STRENGTH]
+            float threshold = bloom.LightThreshold, strength = bloom.LightStrength;
+            int length = 0;
+            if (i + 1 < argc)
+            {
+                const char* spec = argv[i + 1];
+                int count = sscanf(spec, "%f%n,%f%n", &threshold, &length, &strength, &length);
+                if (count >= 1 && spec[length] == 0)
+                {
+                    i++;
+                    // held to what a script could ask for (melon.screen.bloom's light_threshold and light_strength)
+                    bloom.LightThreshold = std::clamp(threshold, 0.f, 1.f);
+                    if (count == 2)
+                        bloom.LightStrength = std::clamp(strength, 0.f, 4.f);
+                }
+            }
+        }
+        else if (arg == "--haze")
+        {
+            std::string spec = next();
+            Frontend::Bloom given;
+            unsigned int color = given.HazeColor;
+            int count = sscanf(spec.c_str(), "%f,%f,%f,%x", &given.Haze, &given.HazeStart, &given.HazeFalloff, &color);
+            if (count != 1 && count != 3 && count != 4)
+            {
+                fprintf(stderr, "bad --haze %s (STRENGTH[,START,FALLOFF[,RRGGBB]])\n", spec.c_str());
+                return false;
+            }
+            // held to what a script could ask for (melon.screen.haze)
+            bloom.Haze = std::clamp(given.Haze, 0.f, 1.f);
+            bloom.HazeStart = std::clamp(given.HazeStart, 0.f, 1.f);
+            bloom.HazeFalloff = std::clamp(given.HazeFalloff, 0.f, 1.f);
+            bloom.HazeColor = color & 0xFFFFFF;
+        }
+        else if (arg == "--dof")
+        {
+            std::string spec = next();
+            Frontend::DepthOfField dof;
+            int count = sscanf(spec.c_str(), "%f,%f,%f,%f,%f,%f,%f", &dof.Strength, &dof.Radius, &dof.Range, &dof.Falloff, &dof.FocusX, &dof.FocusY,
+                &dof.FocusDepth);
+            if (count != 2 && count != 4 && count != 6 && count != 7)
+            {
+                fprintf(stderr, "bad --dof %s (STRENGTH,RADIUS[,RANGE,FALLOFF[,FOCUS_X,FOCUS_Y[,FOCUS_DEPTH]]])\n", spec.c_str());
+                return false;
+            }
+            // held to what a script could ask for (melon.screen.depth_of_field)
+            dof.Strength = std::clamp(dof.Strength, 0.f, 1.f);
+            dof.Radius = std::clamp(dof.Radius, 0.f, 12.f);
+            dof.Range = std::clamp(dof.Range, 0.f, 1.f);
+            dof.Falloff = std::clamp(dof.Falloff, 0.f, 1.f);
+            dof.FocusX = std::clamp(dof.FocusX, -256.f, 512.f);
+            dof.FocusY = std::clamp(dof.FocusY, -192.f, 384.f);
+            dof.FocusDepth = count == 7 ? std::clamp(dof.FocusDepth, 0.f, 1.f) : -1.f;
+            opts.DepthOfField = dof.IsOff() ? std::nullopt : std::optional<Frontend::DepthOfField>(dof);
+        }
+        else if (arg == "--shade")
+        {
+            std::string spec = next();
+            Frontend::Shade shade;
+            unsigned int color = shade.Color;
+            int count = sscanf(spec.c_str(), "%f,%f,%f,%x", &shade.Strength, &shade.Radius, &shade.Range, &color);
+            if (count != 1 && count != 3 && count != 4)
+            {
+                fprintf(stderr, "bad --shade %s (STRENGTH[,RADIUS,RANGE[,RRGGBB]])\n", spec.c_str());
+                return false;
+            }
+            // held to what a script could ask for (melon.screen.shade)
+            shade.Strength = std::clamp(shade.Strength, 0.f, 1.f);
+            shade.Radius = std::clamp(shade.Radius, 1.f, 16.f);
+            shade.Range = std::clamp(shade.Range, 0.f, 1.f);
+            shade.Color = color & 0xFFFFFF;
+            opts.Shade = shade.IsOff() ? std::nullopt : std::optional<Frontend::Shade>(shade);
+        }
+        else if (arg == "--sun")
+        {
+            std::string spec = next();
+            Frontend::Sun sun;
+            unsigned int color = sun.Color;
+            std::array<float, 3>& d = sun.Direction;
+            std::array<float, 3>& u = sun.Up;
+            int count = sscanf(spec.c_str(), "%f,%f,%d,%f,%f,%x,%f,%f,%f,%f,%f,%f,%f", &sun.Strength, &sun.Length, &sun.Steps, &sun.Bias,
+                &sun.Softness, &color, &d[0], &d[1], &d[2], &u[0], &u[1], &u[2], &sun.Near);
+            if (!ParseSun(count, color, sun))
+            {
+                fprintf(stderr, "bad --sun %s (STRENGTH[,LENGTH,STEPS,BIAS[,SOFTNESS[,RRGGBB[,DX,DY,DZ[,UX,UY,UZ[,NEAR]]]]]])\n", spec.c_str());
+                return false;
+            }
+            opts.Sun = sun.IsOff() ? std::nullopt : std::optional<Frontend::Sun>(sun);
+        }
+        else if (arg == "--sun-guard") opts.SunGuard = std::clamp(atoi(next().c_str()), 0, 128);
+        else if (arg == "--lua-script") opts.LuaScriptPath = next();
         else if (arg == "--output-cap") opts.OutputCap = true;
         else if (arg == "--vsync") setting("desktop_vsync", picojson::value(true));
         else if (arg == "--unthrottled") opts.Unthrottled = true;
@@ -579,6 +869,47 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--screenshot") opts.ScreenshotPath = next();
         else if (arg == "--window-shot") opts.WindowShotPath = next();
         else if (arg == "--window-shot-linear") opts.WindowShotLinear = true;
+        else if (arg == "--depth-shot") opts.DepthShotPath = next();
+        else if (arg == "--depth-raw") opts.DepthRawPath = next();
+        else if (arg == "--camera-dump") opts.CameraDumpPath = next();
+        else if (arg == "--camera-shown") opts.CameraShownPath = next();
+        else if (arg == "--list-textures") opts.ListTexturesPath = next();
+        else if (arg == "--hide-textures")
+        {
+            std::string spec = next();
+            if (!ParseTextureHashes(spec, MaxHiddenTextures, opts.HiddenTextures))
+            {
+                fprintf(stderr, "bad --hide-textures %s (HASH,... in hex, at most %u, none 0)\n", spec.c_str(), MaxHiddenTextures);
+                return false;
+            }
+        }
+        else if (arg == "--light-textures")
+        {
+            std::string spec = next();
+            if (!ParseTextureHashes(spec, MaxLightTextures, opts.LightTextures))
+            {
+                fprintf(stderr, "bad --light-textures %s (HASH,... in hex, at most %u, none 0)\n", spec.c_str(), MaxLightTextures);
+                return false;
+            }
+        }
+        else if (arg == "--ui-textures")
+        {
+            std::string spec = next();
+            if (!ParseTextureHashes(spec, MaxUiTextures, opts.UiTextures))
+            {
+                fprintf(stderr, "bad --ui-textures %s (HASH,... in hex, at most %u, none 0)\n", spec.c_str(), MaxUiTextures);
+                return false;
+            }
+        }
+        else if (arg == "--focus-textures")
+        {
+            std::string spec = next();
+            if (!ParseTextureHashes(spec, MaxFocusTextures, opts.FocusTextures))
+            {
+                fprintf(stderr, "bad --focus-textures %s (HASH,... in hex, at most %u, none 0)\n", spec.c_str(), MaxFocusTextures);
+                return false;
+            }
+        }
         else if (arg == "--hidden") opts.Hidden = true;
         else if (arg == "--gpu-sync") opts.GpuSync = true;
         else if (arg == "--log") opts.LogPath = next();
@@ -617,6 +948,8 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg[0] == '-') { fprintf(stderr, "unknown option %s\n", arg.c_str()); return false; }
         else opts.RomPath = arg;
     }
+    // as the app's LuaBloomRequests, which drops a request for none of them
+    opts.Bloom = bloom.IsOff() ? std::nullopt : std::optional<Frontend::Bloom>(bloom);
     // a --layout is the screens together, unless --detach asks for them detached
     if (layoutGiven && !detachGiven)
         opts.SettingOverrides.emplace_back("desktop_screens", picojson::value(std::string("together")));
@@ -830,6 +1163,7 @@ DebugProperties::Overrides ApplySwitches(const Options& opts, NDS& nds)
             fprintf(stderr, "unknown --set %s (see --list-sets)\n", set.c_str());
     }
     nds.GPU.GPU3D.SetWideDropLogging(opts.WideDrops);
+    nds.GPU.GPU3D.SetCameraLogging(!opts.CameraDumpPath.empty());
     if (opts.LdmDirect >= 0)
         nds.JIT.SetDirectBlockTransfers(opts.LdmDirect == 1);
 
@@ -863,7 +1197,10 @@ void SetDateTime(const Options& opts, NDS& nds)
 {
     // the same start every run, so two runs can be compared byte for byte; otherwise MelonInstance set the PC's time
     if (opts.FixedTime)
-        nds.RTC.SetDateTime(2026, 1, 1, 12, 0, 0);
+    {
+        const std::array<int, 6>& t = opts.FixedDateTime;
+        nds.RTC.SetDateTime(t[0], t[1], t[2], t[3], t[4], t[5]);
+    }
 }
 
 // an empty save file, as the app makes one for a new game, since MelonInstance only loads a ROM with one there
@@ -997,6 +1334,106 @@ bool ReadPath(const fs::path& path, std::vector<u8>& out)
     return (bool)in.read((char*)out.data(), size);
 }
 
+// `name=value` pairs split by spaces, a value quoted ("...") when it holds spaces; empty for a malformed line
+static std::vector<std::pair<std::string, std::string>> LuaOptionAttributes(const std::string& text)
+{
+    std::vector<std::pair<std::string, std::string>> attributes;
+    size_t position = 0;
+    while (true)
+    {
+        position = text.find_first_not_of(" \t", position);
+        if (position == std::string::npos)
+            return attributes;
+        size_t equals = text.find('=', position);
+        if (equals == std::string::npos)
+            return {};
+        std::string name = text.substr(position, equals - position);
+        position = equals + 1;
+        size_t end = text.find_first_of(" \t", position);
+        if (position < text.size() && text[position] == '"')
+        {
+            end = text.find('"', position + 1);
+            if (end == std::string::npos)
+                return {};
+            attributes.emplace_back(name, text.substr(position + 1, end - position - 1));
+            position = end + 1;
+            continue;
+        }
+        attributes.emplace_back(name, text.substr(position, end == std::string::npos ? std::string::npos : end - position));
+        position = end == std::string::npos ? text.size() : end;
+    }
+}
+
+// melon.options as the app gives a script it has no saved values for: each `-- option:` line of the header's leading comment block at
+// its default (a number's min, a choice's first value, a toggle off and a layout "Don't change" when there's none), typed as the app
+// types it (LuaScriptOption.toNativeValue); the app's header parser (LuaScriptHeaderParser.kt) is Kotlin, so this is a small copy of it
+// that doesn't check ranges or steps, as --lua-script is for tests
+static std::vector<MelonDSAndroid::LuaOptionValue> LuaOptionDefaults(const std::string& source)
+{
+    constexpr size_t READ_LIMIT = 8 * 1024;
+    constexpr size_t MAX_OPTIONS = 16;
+    std::vector<MelonDSAndroid::LuaOptionValue> options;
+    size_t position = 0;
+    while (position < std::min(source.size(), READ_LIMIT) && options.size() < MAX_OPTIONS)
+    {
+        size_t end = source.find('\n', position);
+        std::string line = source.substr(position, end == std::string::npos ? std::string::npos : end - position);
+        position = end == std::string::npos ? source.size() : end + 1;
+        size_t first = line.find_first_not_of(" \t\r");
+        if (first == std::string::npos)
+            continue;
+        // Code: the leading comment block is over
+        if (line.compare(first, 2, "--") != 0)
+            break;
+        size_t text = line.find_first_not_of("- \t", first);
+        if (text == std::string::npos || line.compare(text, 7, "option:") != 0)
+            continue;
+        std::string rest = line.substr(text + 7);
+        rest.erase(rest.find_last_not_of(" \t\r") + 1);
+        size_t keyStart = rest.find_first_not_of(" \t");
+        if (keyStart == std::string::npos)
+            continue;
+        size_t keyEnd = std::min(rest.find_first_of(" \t", keyStart), rest.size());
+        MelonDSAndroid::LuaOptionValue option;
+        option.key = rest.substr(keyStart, keyEnd - keyStart);
+        std::string type, value, min, values;
+        for (const auto& [name, attribute] : LuaOptionAttributes(rest.substr(keyEnd)))
+        {
+            if (name == "type") type = attribute;
+            else if (name == "default") value = attribute;
+            else if (name == "min") min = attribute;
+            else if (name == "values") values = attribute;
+        }
+        if (type == "toggle" || type == "layout")
+        {
+            option.type = type == "toggle" ? MelonDSAndroid::LuaOptionValue::Type::Boolean : MelonDSAndroid::LuaOptionValue::Type::Layout;
+            option.boolean = type == "toggle" && value == "true";
+        }
+        else if (type == "number")
+        {
+            char* parsedEnd = nullptr;
+            std::string number = value.empty() ? min : value;
+            double parsed = strtod(number.c_str(), &parsedEnd);
+            if (number.empty() || *parsedEnd != '\0')
+                continue;
+            // Whole numbers are Lua integers, as in the app
+            bool isWhole = parsed == std::floor(parsed) && std::fabs(parsed) < 9007199254740992.0;
+            option.type = isWhole ? MelonDSAndroid::LuaOptionValue::Type::Integer : MelonDSAndroid::LuaOptionValue::Type::Number;
+            option.integer = isWhole ? (int64_t)parsed : 0;
+            option.number = parsed;
+        }
+        else if (type == "choice")
+        {
+            option.type = MelonDSAndroid::LuaOptionValue::Type::String;
+            option.string = value.empty() ? values.substr(0, values.find(',')) : value;
+        }
+        else
+            continue;
+        options.push_back(std::move(option));
+    }
+    return options;
+}
+
 // the renderer's scale, which drops below --scale when that doesn't fit the GPU's limits; emulator thread
 int ActiveScale(MelonDSAndroid::MelonInstance& emu)
 {
@@ -1072,6 +1509,156 @@ void ReleaseFrame(Frame* frame)
     frame->presentFence = createGpuFence(GPU_FENCE_NO_DISPLAY);
     // so the emulator's context sees the fence
     glFlush();
+}
+
+// a frame's depth camera (Frame::depthProjection and the rest, as FrameView has them) as JSON members, for --camera-shown and
+// --depth-raw: whether the frame has depth, whether the camera is valid, the projection's 16 floats column-major and the viewport's
+// left, top, width and height. %.9g gives a float back exactly
+void PrintDepthCamera(FILE* file, bool hasDepth, bool valid, const std::array<float, 16>& proj, const std::array<float, 4>& viewport)
+{
+    fprintf(file, "\"depth\":%d,\"valid\":%d,\"proj\":[", hasDepth ? 1 : 0, valid ? 1 : 0);
+    for (int i = 0; i < 16; i++)
+        fprintf(file, "%s%.9g", i ? "," : "", proj[i]);
+    fprintf(file, "],\"vp\":[%.9g,%.9g,%.9g,%.9g]", viewport[0], viewport[1], viewport[2], viewport[3]);
+}
+
+// --depth-shot: [frame]'s top screen depth (GLCompositor::RenderDepth's 24-bit values and flags) into a grayscale PNG at [path], the 3D
+// from near (dark) to far (light) over the range it covers, 2D on top black and transparent 3D white, and its stats printed: how many
+// distinct depth values the 3D has, and how many of them the old 16-bit depth could tell apart. With [rawPath] (--depth-raw) the texture
+// as it is too, top row first, for scripts; an empty [path] writes only that
+void DepthShot(const Frame& frame, const std::string& path, const std::string& rawPath)
+{
+    if (!frame.hasDepth || !frame.depthTexture)
+    {
+        fprintf(stderr, "--depth-shot: the frame has no depth (OpenGL only, and not on its first frame)\n");
+        return;
+    }
+    const int width = (int) frame.depthWidth, height = (int) frame.depthHeight;
+    std::vector<u8> texels((size_t) width * height * 4);
+    GLuint framebuffer = 0;
+    GLint previous = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous);
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, frame.depthTexture, 0);
+    // into client memory, at the alignment the other readbacks set for themselves (RGBA rows are 4-aligned anyway)
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, texels.data());
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint) previous);
+    glDeleteFramebuffers(1, &framebuffer);
+
+    if (!rawPath.empty())
+    {
+        const bool rawWritten = Frontend::WritePng(Frontend::PathFromUtf8(rawPath), texels, width, height);
+        printf("depth raw: %s%s, %dx%d\n", rawPath.c_str(), rawWritten ? "" : " (not written)", width, height);
+        // the camera this depth came with, for rebuilding positions from it
+        printf("depth camera: {");
+        PrintDepthCamera(stdout, frame.hasDepth, frame.depthCameraValid, frame.depthProjection, frame.depthViewport);
+        printf("}\n");
+    }
+    if (path.empty())
+        return;
+
+    std::vector<u32> depths;
+    u32 count2D = 0, countBehind = 0, countW = 0, countOther = 0, countSun = 0, countLight = 0, countUi = 0, nearest = 0xFFFFFF, farthest = 0;
+    for (size_t i = 0; i < texels.size(); i += 4)
+    {
+        const u8 flags = texels[i + 3];
+        const u32 depth = (u32) texels[i] << 16 | (u32) texels[i + 1] << 8 | texels[i + 2];
+        if (flags & 4)
+            countW++;
+        if (flags & 8)
+            countOther++;
+        if (flags & 16)
+            countSun++;
+        if (flags & 32)
+            countLight++;
+        if (flags & 64)
+            countUi++;
+        if (flags & 1)
+            count2D++;
+        else if (flags & 2)
+            countBehind++;
+        else
+        {
+            depths.push_back(depth);
+            nearest = std::min(nearest, depth);
+            farthest = std::max(farthest, depth);
+        }
+    }
+
+    // the PNG, top row first, as the texture's rows are (the compositor draws its top line into row 0)
+    std::vector<u8> rgba((size_t) width * height * 4);
+    const double span = farthest > nearest ? (double) (farthest - nearest) : 1.0;
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            const u8* texel = &texels[((size_t) y * width + x) * 4];
+            u8* pixel = &rgba[((size_t) y * width + x) * 4];
+            const u32 depth = (u32) texel[0] << 16 | (u32) texel[1] << 8 | texel[2];
+            u8 gray = 0;
+            if (texel[3] & 1)
+                gray = 0;
+            else if (texel[3] & 2)
+                gray = 255;
+            else
+                gray = (u8) (16 + 223 * ((double) (depth - nearest) / span));
+            pixel[0] = pixel[1] = pixel[2] = gray;
+            pixel[3] = 255;
+        }
+    }
+    const bool written = Frontend::WritePng(Frontend::PathFromUtf8(path), rgba, width, height);
+
+    std::sort(depths.begin(), depths.end());
+    const size_t pixels3D = depths.size();
+    depths.erase(std::unique(depths.begin(), depths.end()), depths.end());
+    size_t distinct16 = 0;
+    for (size_t i = 0; i < depths.size(); i++)
+    {
+        if (i == 0 || depths[i] >> 8 != depths[i - 1] >> 8)
+            distinct16++;
+    }
+    printf("depth shot: %s%s, %dx%d; 3D %zu px, depth 0x%06X..0x%06X, %zu distinct values (%zu at 16 bits); 2D %u px, "
+           "transparent 3D %u px, W-buffered %u px, other camera %u px, in its sun shadow %u px, light %u px, UI %u px\n",
+           path.c_str(), written ? "" : " (not written)", width, height, pixels3D, pixels3D ? nearest : 0, farthest, depths.size(),
+           distinct16, count2D, countBehind, countW, countOther, countSun, countLight, countUi);
+}
+
+// --camera-dump: the 3D scene the core latched last (GPU3D::CameraLog), as a JSON line into [file], once per swap: the frame, the
+// scene's polygons, every projection matrix (raw 20.12) and viewport (x0, y0, x1, y1, width, height) they were built under with their
+// polygon counts, the polygons past the table's room, and which of those the core picked for the depth (-1 none) and whether it's valid
+void DumpCameraScene(FILE* file, u32 frame, const GPU3D::CameraLog& log)
+{
+    const int pick = log.Pick.Index == GPU3D::NoSceneCamera ? -1 : (int) log.Pick.Index;
+    fprintf(file, "{\"frame\":%u,\"swap\":%u,\"polys\":%u,\"other\":%u,\"pick\":%d,\"valid\":%d,\"uses\":[", frame, log.Swaps,
+            log.Polygons, log.Other, pick, log.Pick.Valid ? 1 : 0);
+    for (u32 i = 0; i < log.NumCameras; i++)
+    {
+        const GPU3D::CameraCount& use = log.Cameras[i];
+        fprintf(file, "%s{\"polys\":%u,\"vp\":[%u,%u,%u,%u,%u,%u],\"proj\":[", i ? "," : "", use.Polygons, use.Viewport[0],
+                use.Viewport[1], use.Viewport[2], use.Viewport[3], use.Viewport[4], use.Viewport[5]);
+        for (int j = 0; j < 16; j++)
+            fprintf(file, "%s%d", j ? "," : "", use.Proj[j]);
+        fprintf(file, "]}");
+    }
+    fprintf(file, "]}\n");
+}
+
+// --list-textures: the textures of the frame the OpenGL renderer drew last, a line each into [file]: the emulated frame, the content
+// hash, TexParam (but its repeat, flip and transform bits) and TexPalette, the format and size, how many polygons used it and how many
+// of them were translucent, the first one's alpha and polygon ID, their box in the frame's 3D pixels, and whether it was hidden, a light,
+// UI or a focus
+void ListTextures(FILE* file, u32 frame, const TextureList& list)
+{
+    for (const TextureListEntry& e : list.Entries)
+    {
+        fprintf(file, "frame %u hash %08X param %08X pal %04X format %u size %ux%u polys %u translucent %u alpha %u id %u box %d,%d..%d,%d%s%s%s%s\n",
+                frame, e.Hash, e.TexParam, e.TexPalette, (e.TexParam >> 26) & 7, 8u << ((e.TexParam >> 20) & 7),
+                8u << ((e.TexParam >> 23) & 7), e.Polygons, e.Translucent, e.Alpha, e.PolygonId, e.Box[0], e.Box[1], e.Box[2], e.Box[3],
+                e.Hidden ? " hidden" : "", e.Light ? " light" : "", e.Ui ? " ui" : "", e.Focus ? " focus" : "");
+    }
 }
 
 // The exe is a GUI program, so it has no console of its own. Started from one (PowerShell, cmd, bash) it writes there: to the handles it
@@ -1387,6 +1974,10 @@ int main(int argc, char** argv)
     }
     presenter.SetRendererConfig(opts.Render);
     presenter.SetTiltShift(opts.TiltShift);
+    presenter.SetBloom(opts.Bloom);
+    presenter.SetDepthOfField(opts.DepthOfField);
+    presenter.SetShade(opts.Shade);
+    presenter.SetSun(opts.Sun);
     presenter.SetBackgrounds(&backgrounds);
 
     std::string cacheDir = opts.CacheDir.empty() ? exeDir + "cache" : opts.CacheDir;
@@ -1502,6 +2093,8 @@ int main(int argc, char** argv)
     // GPU::Comp1x: presented frames with a screen the compositor drew at 1x, and the first one's number, for the run's summary
     u32 presentedAt1x = 0, firstPresentedAt1x = 0;
     FrameStats stats;
+    // --gpu-sync: each game frame's present with its GPU work (the screen filters and the Lua passes), for the run's summary
+    FrameStats presentStats;
     TitleStats titleStats;
     std::string statsLabel = RendererName(opts.Renderer);
     auto runStart = std::chrono::steady_clock::now();
@@ -1555,11 +2148,52 @@ int main(int argc, char** argv)
     // UI thread: a hotkey pressed with [mod] in the window [windowId] (0: the main one); set below, also run by --at key=
     std::function<void(SDL_Keycode key, Uint16 mod, Uint32 windowId)> hotkey;
 
+    // --camera-dump's file: written on the emulator thread (AfterFrame), closed after emuThread below has stopped
+    std::unique_ptr<FILE, int (*)(FILE*)> cameraDump(nullptr, fclose);
+    u32 cameraDumpSwaps = 0;
+    if (!opts.CameraDumpPath.empty())
+    {
+        cameraDump.reset(fopen(opts.CameraDumpPath.c_str(), "w"));
+        if (!cameraDump)
+            fprintf(stderr, "--camera-dump: can't write %s\n", opts.CameraDumpPath.c_str());
+    }
+    // --list-textures' file: written on the emulator thread (AfterFrame), closed after emuThread below has stopped
+    std::unique_ptr<FILE, int (*)(FILE*)> textureList(nullptr, fclose);
+    u32 textureListFrames = 0;
+    if (!opts.ListTexturesPath.empty())
+    {
+        textureList.reset(fopen(opts.ListTexturesPath.c_str(), "w"));
+        if (!textureList)
+            fprintf(stderr, "--list-textures: can't write %s\n", opts.ListTexturesPath.c_str());
+    }
+    // --camera-shown's file: written on the UI thread (present below), once per frame sequence
+    std::unique_ptr<FILE, int (*)(FILE*)> cameraShown(nullptr, fclose);
+    u64 cameraShownSequence = 0;
+    if (!opts.CameraShownPath.empty())
+    {
+        cameraShown.reset(fopen(opts.CameraShownPath.c_str(), "w"));
+        if (!cameraShown)
+            fprintf(stderr, "--camera-shown: can't write %s\n", opts.CameraShownPath.c_str());
+    }
+
     Frontend::EmulatorThread emuThread;
     Frontend::EmulatorThread::Callbacks callbacks;
     callbacks.OnStart = [&](MelonDSAndroid::MelonInstance& instance)
     {
         SetDateTime(opts, *instance.getNds());
+        // as LuaEngine::wantsDepth: the depth of field, the shading, the sun shadows, the haze, a 3D-only glow and the lights read the depth
+        bool bloomWantsDepth = opts.Bloom && (opts.Bloom->HasHaze() || (opts.Bloom->HasBloom() && (opts.Bloom->OnlyThreeD || opts.Bloom->Lights)));
+        instance.setDepthWanted(opts.DepthOfField.has_value() || opts.Shade.has_value() || opts.Sun.has_value() || bloomWantsDepth
+                                || !opts.DepthShotPath.empty() || !opts.DepthRawPath.empty());
+        // and the characters' own shadows the core draws for it, as melon.screen.sun has it draw them
+        if (opts.Sun)
+            instance.setFrontendSun({true, opts.Sun->Direction, opts.Sun->Up});
+        // with the guard band that goes with it, which the core only renders while that sun is on
+        instance.setFrontendSunGuard(opts.SunGuard);
+        instance.setFrontendHiddenTextures(opts.HiddenTextures);
+        instance.setFrontendLightTextures(opts.LightTextures);
+        instance.setFrontendUiTextures(opts.UiTextures);
+        instance.setFrontendFocusTextures(opts.FocusTextures);
         if (commandLineGame && !opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
         {
             startFailed = true;
@@ -1700,6 +2334,29 @@ int main(int argc, char** argv)
             titleStats.Scale = ActiveScale(instance);
         }
         currentFrame = frame + 1;
+
+        if (cameraDump)
+        {
+            const GPU3D::CameraLog* log = nds.GPU.GPU3D.GetCameraLog();
+            if (log && log->Swaps != cameraDumpSwaps)
+            {
+                DumpCameraScene(cameraDump.get(), frame, *log);
+                cameraDumpSwaps = log->Swaps;
+            }
+        }
+
+        if (textureList)
+        {
+            // asked for again every frame, so a renderer switched to lists too
+            Renderer3D& renderer = nds.GPU.GetRenderer3D();
+            renderer.SetTextureListing(true);
+            const TextureList* list = renderer.GetTextureList();
+            if (list && list->Frames != textureListFrames)
+            {
+                ListTextures(textureList.get(), frame, *list);
+                textureListFrames = list->Frames;
+            }
+        }
 
         if (opts.GameState)
         {
@@ -1941,12 +2598,28 @@ int main(int argc, char** argv)
             opts.BootScreen = false;
         }
 
-        // GPU::Comp1x: the presenter draws a screen at 1x only with no filter, deband or tilt-shift, as the app's surfaces tell the emulator
+        // GPU::Comp1x: the presenter draws a screen at 1x only with no filter, deband or Lua effect, as the app's surfaces tell the emulator
         // after presenting; set before the first frame here, so a run's frames don't depend on when the UI thread first presents
         MelonDSAndroid::setHalvesAt1xSupported(presenter.CanDrawHalvesAt1x(windows.SurfaceCount()));
         auto instance = std::make_unique<MelonDSAndroid::MelonInstance>(0, MakeConfiguration(opts, renderer, scale), std::move(args),
             std::make_shared<Net>(), std::make_unique<MelonDSAndroid::ScreenshotRenderer>(screenshotBuffer.data()), opts.ConsoleType);
         instance->setDebugOverrides(ApplySwitches(opts, *instance->getNds()));
+        // --lua-script for the command line's game: given before the emulator thread starts, which loads it with the game
+        if (commandLine && !opts.LuaScriptPath.empty())
+        {
+            std::vector<u8> script;
+            if (!ReadPath(Frontend::PathFromUtf8(opts.LuaScriptPath), script))
+            {
+                fprintf(stderr, "can't read the Lua script %s\n", opts.LuaScriptPath.c_str());
+                return false;
+            }
+            MelonDSAndroid::LuaScriptSource source;
+            source.name = Frontend::PathToUtf8(Frontend::PathFromUtf8(opts.LuaScriptPath).filename());
+            source.source.assign(script.begin(), script.end());
+            source.options = LuaOptionDefaults(source.source);
+            instance->setLuaScripts({std::move(source)}, nullptr, true);
+            printf("Lua script: %s\n", opts.LuaScriptPath.c_str());
+        }
 
         // the save: --sav for the command line's game only; otherwise the one next to the ROM, or in a test run (a temporary profile) a
         // copy of it in the profile, so a test never writes a real save
@@ -2541,7 +3214,23 @@ int main(int argc, char** argv)
         if (frame)
         {
             PrepareFrame(frame);
-            windows.Present(presenter, Frontend::FrameView::Of(*frame), [&] { ReleaseFrame(frame); });
+            const Frontend::FrameView view = Frontend::FrameView::Of(*frame);
+            if (cameraShown && view.Sequence != cameraShownSequence)
+            {
+                // the top screen's render size and the guard band in it too, as the guard follows the sun's requests
+                fprintf(cameraShown.get(), "{\"seq\":%llu,\"top\":[%d,%d,%d],", (unsigned long long) view.Sequence, view.TopWidth, view.TopMargin,
+                    view.TopGuard);
+                PrintDepthCamera(cameraShown.get(), view.DepthTexture != 0, view.DepthCameraValid, view.DepthProjection, view.DepthViewport);
+                fprintf(cameraShown.get(), "}\n");
+                cameraShownSequence = view.Sequence;
+            }
+            auto presentStart = std::chrono::steady_clock::now();
+            windows.Present(presenter, view, [&] { ReleaseFrame(frame); });
+            if (opts.GpuSync)
+            {
+                glFinish();
+                presentStats.Add(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - presentStart).count());
+            }
             presentedThisGame++;
             if (frame->halvesAt1x != 0 && presentedAt1x++ == 0)
                 firstPresentedAt1x = presented + 1;
@@ -3238,8 +3927,21 @@ int main(int argc, char** argv)
     bool reachedFrames = opts.Frames && currentFrame + uiFrames >= opts.Frames;
     if ((reachedFrames || scriptEnded) && !opts.WindowShotPath.empty())
         windowShot(opts.WindowShotPath);
+    if ((reachedFrames || scriptEnded) && (!opts.DepthShotPath.empty() || !opts.DepthRawPath.empty()))
+    {
+        Frame* frame = emu ? AcquireFrame(*emu, std::nullopt) : nullptr;
+        if (frame)
+        {
+            PrepareFrame(frame);
+            DepthShot(*frame, opts.DepthShotPath, opts.DepthRawPath);
+            ReleaseFrame(frame);
+        }
+        else
+            fprintf(stderr, "--depth-shot: no frame\n");
+    }
 
     stats.Print(statsLabel.c_str(), wall);
+    presentStats.Print("present (--gpu-sync)", wall);
     printf("presented: %u frames in %.2f s (%.1f per second), %s\n", presented, wall, presented / wall,
         windows.IsDetached() ? "detached (two windows)" : "together");
     if (presentedAt1x)

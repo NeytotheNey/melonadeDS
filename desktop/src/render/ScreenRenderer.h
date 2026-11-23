@@ -48,8 +48,8 @@ struct SurfaceScreens
     bool IsWideLayout = false;
     bool AreScreensSwapped = false;
     // the desktop's own placements (its four built-in layouts, and a detached window's fit): PlacedTop and PlacedBottom are where the screens
-    // are drawn, on fractional pixels and already shaped for the frame (WideMelon's width), and the top screen shows its whole half, the
-    // WideMelon camera's margin rows too (Top and Bottom say which are shown)
+    // are drawn, on fractional pixels and already shaped for the frame as shown (WideMelon's width), and the top screen shows its whole half,
+    // the WideMelon camera's margin rows too, but the sun's guard band (Top and Bottom say which are shown)
     bool AsPlaced = false;
     Rect PlacedTop, PlacedBottom;
     // the background drawn while there's no frame too (the layout editor with no game running)
@@ -70,8 +70,8 @@ struct SurfaceBackground
 class Shader;
 
 // where a layout's [screens] (not AsPlaced) are drawn for a frame [frameTopWidth] DS pixels wide with [frameMargin] rows above and below its
-// top screen, on a surface [surfaceWidth] wide (getScreensDrawing)
-ScreensDrawing DrawingFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, float surfaceWidth);
+// top screen, [frameGuard] of each of them the sun's guard band that isn't shown, on a surface [surfaceWidth] wide (getScreensDrawing)
+ScreensDrawing DrawingFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, int frameGuard, float surfaceWidth);
 
 // where the screens end up, in the surface's pixels (W 0 for one not drawn): the top screen's picture, and the bottom screen's middle 256
 // columns (where touches go); the places as they are for AsPlaced
@@ -79,7 +79,7 @@ struct ScreenRects
 {
     Rect Top, Bottom;
 };
-ScreenRects RectsFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, float surfaceWidth);
+ScreenRects RectsFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, int frameGuard, float surfaceWidth);
 
 // RuntimeRendererConfiguration.kt without the internal resolution: the video filter (video_filtering), deband (video_deband), the DS screen
 // colors (video_ds_screen_colors, Pokefan531's color profile) and the screen shadow (video_screen_shadow)
@@ -94,8 +94,8 @@ struct RendererConfig
 };
 
 // DebandFold.kt's shouldFoldDeband: deband inside the screen shader, once per drawn pixel, when the switch is on, the filter takes it, no
-// tilt-shift runs and the screens draw fewer pixels than the frame has texels
-bool ShouldFoldDeband(bool isSwitchOn, bool canFilterFold, bool isTiltShiftActive, long long drawnPixels, long long frameTexels);
+// Lua tilt-shift, bloom or vignette runs and the screens draw fewer pixels than the frame has texels
+bool ShouldFoldDeband(bool isSwitchOn, bool canFilterFold, bool isLuaEffectActive, long long drawnPixels, long long frameTexels);
 
 class ScreenRenderer
 {
@@ -117,13 +117,17 @@ public:
     // the backgrounds to read from, and the one to show (loaded on the next frame that needs it, as DSRenderer.setBackground)
     void SetBackgroundStore(Backgrounds* store) { Store = store; }
     void SetBackground(const SurfaceBackground& background);
-    // runs the filter's pre-passes, clears the bound framebuffer (the window, at its viewport) and draws the background and the screens; the
-    // caller sets up the state the core left behind first. A background is decoded on a worker and shows once it's ready (the one before
-    // it, placed for the new size, until then); [waitForBackground] waits for it instead, so a window shot always has it
-    void DrawFrame(const FrameView& frame, const std::optional<TiltShift>& tiltShift, bool waitForBackground = false);
+    // runs the filter's pre-passes (the Lua effects among them, on the frame's top screen half before it's placed), clears the bound
+    // framebuffer (the window, at its viewport) and draws the background and the screens; the caller sets up the state the core left behind
+    // first. A background is decoded on a worker and shows once it's ready (the one before it, placed for the new size, until then);
+    // [waitForBackground] waits for it instead, so a window shot always has it
+    void DrawFrame(const FrameView& frame, const std::optional<TiltShift>& tiltShift, const std::optional<Bloom>& bloom,
+        const std::optional<DepthOfField>& depthOfField, const std::optional<Shade>& shade, const std::optional<Sun>& sun,
+        bool waitForBackground = false);
 
-    // GPU::Comp1x: whether a frame with a screen at 1x can be drawn as it is (the no-filter shader without deband or a tilt-shift)
-    bool CanDrawHalvesAt1x(bool isTiltShiftOn) const;
+    // GPU::Comp1x: whether a frame with a screen at 1x can be drawn as it is (the no-filter shader without deband or a Lua tilt-shift, bloom
+    // or vignette)
+    bool CanDrawHalvesAt1x(bool isLuaEffectOn) const;
     // GPU::OutputCap: how many times their native size the screens are shown at, at most (0 before any were placed)
     int OutputScaleNeed() const { return ScreensOutputScaleNeed; }
     // whether the filter debands, as the output cap's any-ratio rule asks (GPU::OutputCapDeband)
@@ -178,6 +182,7 @@ private:
     // the frame shape the quads were built for (the last valid frame's), and the screens' places
     int FrameTopScreenWidth = 256;
     int FrameTopScreenMargin = 0;
+    int FrameTopScreenGuard = 0;
     SurfaceScreens Screens;
     float Width = 0, Height = 0;
     // AreScreensSwapped as it was when the quads were built, given to the filters so they keep the same screen's sides (the desktop's own

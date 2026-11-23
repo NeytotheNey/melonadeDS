@@ -183,9 +183,10 @@ object MelonEmulator {
 
     /**
      * Presents the frame for the vsync at [vsyncTimeNs] (CLOCK_MONOTONIC), waiting until [deadlineNs] (if above 0) for a due frame before
-     * repeating the previous one.
+     * repeating the previous one. [depthCamera] (PresentFrameWrapper's DEPTH_CAMERA_SIZE floats) gets the frame's depth camera before
+     * [frameRenderCallback] runs, whenever the frame has depth (valid or not, which the callback is told).
      */
-    external fun presentFrame(deadlineNs: Long, vsyncTimeNs: Long, frameRenderCallback: FrameRenderCallback)
+    external fun presentFrame(deadlineNs: Long, vsyncTimeNs: Long, depthCamera: FloatArray, frameRenderCallback: FrameRenderCallback)
 
     /**
      * Publishes a display vsync timestamp (CLOCK_MONOTONIC) for frame pacing to lock to; call it from the vsync callback, always on the same

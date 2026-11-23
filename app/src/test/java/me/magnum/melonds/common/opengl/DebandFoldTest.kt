@@ -16,43 +16,43 @@ class DebandFoldTest {
 
     @Test
     fun foldsWhenEverythingAllowsIt() {
-        assertTrue(shouldFoldDeband(isSwitchOn = true, canFilterFold = true, isTiltShiftActive = false, drawnPixels, frameTexels))
+        assertTrue(shouldFoldDeband(isSwitchOn = true, canFilterFold = true, isLuaEffectActive = false, drawnPixels, frameTexels))
     }
 
     @Test
     fun switchOffKeepsThePrePass() {
-        assertFalse(shouldFoldDeband(isSwitchOn = false, canFilterFold = true, isTiltShiftActive = false, drawnPixels, frameTexels))
+        assertFalse(shouldFoldDeband(isSwitchOn = false, canFilterFold = true, isLuaEffectActive = false, drawnPixels, frameTexels))
     }
 
     @Test
     fun aFilterThatCantTakeItKeepsThePrePass() {
-        assertFalse(shouldFoldDeband(isSwitchOn = true, canFilterFold = false, isTiltShiftActive = false, drawnPixels, frameTexels))
+        assertFalse(shouldFoldDeband(isSwitchOn = true, canFilterFold = false, isLuaEffectActive = false, drawnPixels, frameTexels))
     }
 
     @Test
-    fun aTiltShiftKeepsThePrePass() {
-        assertFalse(shouldFoldDeband(isSwitchOn = true, canFilterFold = true, isTiltShiftActive = true, drawnPixels, frameTexels))
+    fun aLuaEffectKeepsThePrePass() {
+        assertFalse(shouldFoldDeband(isSwitchOn = true, canFilterFold = true, isLuaEffectActive = true, drawnPixels, frameTexels))
     }
 
     @Test
     fun screensDrawingAsManyPixelsAsTheFrameHasTexelsKeepThePrePass() {
-        assertFalse(shouldFoldDeband(isSwitchOn = true, canFilterFold = true, isTiltShiftActive = false, frameTexels, frameTexels))
+        assertFalse(shouldFoldDeband(isSwitchOn = true, canFilterFold = true, isLuaEffectActive = false, frameTexels, frameTexels))
     }
 
     @Test
     fun anUpscaledFrameKeepsThePrePass() {
         // 1x frame (256x390) on a 1080x2400 phone's two screens
-        assertFalse(shouldFoldDeband(isSwitchOn = true, canFilterFold = true, isTiltShiftActive = false, 1_440_000L, 256L * 390L))
+        assertFalse(shouldFoldDeband(isSwitchOn = true, canFilterFold = true, isLuaEffectActive = false, 1_440_000L, 256L * 390L))
     }
 
     @Test
     fun oneFewerPixelThanTexelsFolds() {
-        assertTrue(shouldFoldDeband(isSwitchOn = true, canFilterFold = true, isTiltShiftActive = false, frameTexels - 1, frameTexels))
+        assertTrue(shouldFoldDeband(isSwitchOn = true, canFilterFold = true, isLuaEffectActive = false, frameTexels - 1, frameTexels))
     }
 
     @Test
     fun nothingDrawnKeepsThePrePass() {
-        assertFalse(shouldFoldDeband(isSwitchOn = true, canFilterFold = true, isTiltShiftActive = false, 0L, frameTexels))
+        assertFalse(shouldFoldDeband(isSwitchOn = true, canFilterFold = true, isLuaEffectActive = false, 0L, frameTexels))
     }
 
     @Test

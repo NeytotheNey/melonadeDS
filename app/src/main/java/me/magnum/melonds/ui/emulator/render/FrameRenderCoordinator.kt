@@ -145,12 +145,16 @@ class FrameRenderCoordinator {
                 frameTextureHeight: Int,
                 topScreenWidth: Int,
                 topScreenMargin: Int,
+                topScreenGuard: Int,
                 overlayTextureId: Int,
                 overlayScreens: Int,
                 halvesAt1x: Int,
                 scaleAt1x: Int,
                 halfScaleAt1x: Int,
                 topWingLines: Int,
+                depthTextureId: Int,
+                isDepthCameraValid: Boolean,
+                depthFocus: Float,
                 frameSequence: Long,
             ): Boolean {
                 val renderStart = System.nanoTime()
@@ -162,14 +166,23 @@ class FrameRenderCoordinator {
                     this.textureHeight = frameTextureHeight
                     this.topScreenWidth = topScreenWidth
                     this.topScreenMargin = topScreenMargin
+                    this.topScreenGuard = topScreenGuard
                     this.overlayTextureId = overlayTextureId
                     this.overlayScreens = overlayScreens
                     this.halvesAt1x = halvesAt1x
                     this.scaleAt1x = scaleAt1x
                     this.halfScaleAt1x = halfScaleAt1x
+                    this.depthTextureId = depthTextureId
+                    // depthCamera itself was just filled by presentFrame()
+                    this.isDepthCameraValid = isDepthCameraValid
+                    this.depthFocus = depthFocus
                     this.frameSequence = frameSequence
                     // Moved once per presented frame, here, so every surface shows the same window
-                    this.wideWindow = if (isValidFrame) wideCameraController?.onFrame(renderStart, topScreenWidth, topScreenMargin, topWingLines) else null
+                    this.wideWindow = if (isValidFrame) {
+                        wideCameraController?.onFrame(renderStart, topScreenWidth, topScreenMargin, topWingLines, topScreenGuard)
+                    } else {
+                        null
+                    }
                 }
 
                 // debug.melonade.comp1x: the emulator only draws screens at 1x while every surface can show them. The output cap (on by
@@ -303,7 +316,7 @@ class FrameRenderCoordinator {
                 } else {
                     0L
                 }
-                MelonEmulator.presentFrame(deadline, vsyncTimeNanos, frameRenderCallback)
+                MelonEmulator.presentFrame(deadline, vsyncTimeNanos, presentFrameWrapper.depthCamera, frameRenderCallback)
             }
         }
 

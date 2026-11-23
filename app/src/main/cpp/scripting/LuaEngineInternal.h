@@ -1,6 +1,7 @@
 #ifndef LUAENGINEINTERNAL_H
 #define LUAENGINEINTERNAL_H
 
+#include <array>
 #include <new>
 #include <optional>
 #include <string>
@@ -92,6 +93,99 @@ struct LuaTiltShift
 };
 
 /**
+ * What melon.screen.bloom(), melon.screen.vignette() and melon.screen.haze() ask for, clamped, each call setting its own part; a default one is
+ * off, and a part that means off is made the default part so that they compare equal
+ */
+struct LuaBloom
+{
+    float strength = 0.0f;
+    float threshold = 0.7f;
+    float radius = 3.0f;
+    // Whether the glow only picks up 3D pixels, which needs the frame's depth (LuaEngine::wantsDepth)
+    bool onlyThreeD = true;
+    float vignette = 0.0f;
+    float vignetteSize = 0.6f;
+    float haze = 0.0f;
+    // 0xRRGGBB
+    melonDS::u32 hazeColor = 0xDCE6F0;
+    // Raw depth, 0..1
+    float hazeStart = 0.9968f;
+    float hazeFalloff = 0.0008f;
+    // Whether the glow takes the light textures (melon.gpu.light_textures) by their brightest channel from lightThreshold, at lightStrength
+    // times the rest, and the shading and sun shadows leave the ones that are on lit; needs the frame's depth (LuaEngine::wantsDepth). The
+    // threshold and strength are the defaults while it's off
+    bool lights = false;
+    float lightThreshold = 0.65f;
+    float lightStrength = 1.0f;
+
+    bool operator==(const LuaBloom&) const = default;
+};
+
+/**
+ * What melon.screen.depth_of_field() asks for, clamped; a default one is off, and every call that means off makes a default one so that they
+ * compare equal
+ */
+struct LuaDepthOfField
+{
+    float strength = 0.0f;
+    float radius = 4.0f;
+    // DS pixels of the top screen's 256 x 192 view, whose depth is the focus unless focusDepth isn't negative
+    float focusX = 128.0f;
+    float focusY = 96.0f;
+    float focusDepth = -1.0f;
+    // Relative to the focus's distance from the camera, as |1 - focus distance / pixel distance|
+    float range = 0.045f;
+    float falloff = 0.33f;
+
+    bool operator==(const LuaDepthOfField&) const = default;
+};
+
+/**
+ * What melon.screen.shade() asks for, clamped; a default one is off, and every call that means off makes a default one so that they compare
+ * equal
+ */
+struct LuaShade
+{
+    float strength = 0.0f;
+    // DS pixels
+    float radius = 8.0f;
+    // Raw depth, 0..1
+    float range = 0.0008f;
+    // The shadow's tint, 0xRRGGBB
+    melonDS::u32 color = 0x33384F;
+
+    bool operator==(const LuaShade&) const = default;
+};
+
+/**
+ * What melon.screen.sun() asks for, clamped, with its vectors normalized; a default one is off, and every call that means off makes a default
+ * one so that they compare equal. The defaults suit Pokémon White's field
+ */
+struct LuaSun
+{
+    float strength = 0.0f;
+    // Towards the sun, in the depth camera's view space
+    std::array<float, 3> direction = { 0.50f, 0.83f, 0.26f };
+    // The world's up in view space. The march doesn't use it; it's kept for the characters' shadows, which the core will draw
+    std::array<float, 3> up = { 0.0006f, 0.607f, 0.794f };
+    // View-space units (a tile is 16 in White)
+    float length = 96.0f;
+    int steps = 64;
+    float bias = 1.0f;
+    // DS pixels
+    float softness = 1.5f;
+    // The shadow's tint, 0xRRGGBB
+    melonDS::u32 color = 0x33384F;
+    // View-space units: nearer occluders cast nothing (0 for none)
+    float nearLimit = 0.0f;
+    // DS pixels the OpenGL renderer draws past each side of the top screen, and rows above and below, for the march but not shown, so
+    // casters just off screen still cast (MelonInstance::updateSunGuard); 0 for none
+    int guard = 0;
+
+    bool operator==(const LuaSun&) const = default;
+};
+
+/**
  * What a script's melon.wide calls ask of the WideMelon camera, clamped to what any game could take (the app clamps further); a default one
  * asks for nothing
  */
@@ -139,6 +233,34 @@ struct LuaScript
     std::optional<LuaTiltShift> tiltShift;
     // What the app was last told, so that a script can call tilt_shift() every frame and only changes cost an event
     LuaTiltShift sentTiltShift;
+    // melon.screen.bloom(), vignette() and haze(): kept until the script changes them or stops, since each call sets only its part, and what
+    // the app was last told of them, which also decides whether the frames keep their depth (LuaEngine::wantsDepth)
+    LuaBloom bloom;
+    LuaBloom sentBloom;
+    // melon.screen.depth_of_field(): kept until the script changes it or stops, and what the app was last told of it, which also decides whether
+    // the frames keep their depth (LuaEngine::wantsDepth)
+    LuaDepthOfField depthOfField;
+    LuaDepthOfField sentDepthOfField;
+    // melon.screen.shade(): the same as the depth of field
+    LuaShade shade;
+    LuaShade sentShade;
+    // melon.screen.sun(): the same, and when the app was told of it (LuaEngine::sunShadows), as the newest request is the one shown
+    LuaSun sun;
+    LuaSun sentSun;
+    unsigned int sentSunOrder = 0;
+    // melon.gpu.hide_textures(): the texture hashes the OpenGL renderer leaves out (LuaEngine::hiddenTextures), kept until the script changes
+    // them or stops, and when they last changed to a non-empty list, as the newest list is the one used. Native only: the app isn't told
+    std::vector<melonDS::u32> hiddenTextures;
+    unsigned int hiddenTexturesOrder = 0;
+    // melon.gpu.light_textures(): the same for the texture hashes the OpenGL renderer flags as lights in the depth (LuaEngine::lightTextures)
+    std::vector<melonDS::u32> lightTextures;
+    unsigned int lightTexturesOrder = 0;
+    // melon.gpu.ui_textures(): and for the texture hashes whose polygons the depth hands over as 2D on top (LuaEngine::uiTextures)
+    std::vector<melonDS::u32> uiTextures;
+    unsigned int uiTexturesOrder = 0;
+    // melon.gpu.focus_textures(): and for the texture hashes whose biggest polygon the depth of field focuses on (LuaEngine::focusTextures)
+    std::vector<melonDS::u32> focusTextures;
+    unsigned int focusTexturesOrder = 0;
     // melon.wide: kept until the script changes it or stops (not a per-call request), and what the app was last told of it
     LuaWideCamera wideCamera;
     LuaWideCamera sentWideCamera;

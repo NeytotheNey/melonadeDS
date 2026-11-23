@@ -26,6 +26,10 @@ import me.magnum.melonds.domain.model.render.FrameTextureLayout
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_BOTTOM
 import me.magnum.melonds.domain.model.render.OVERLAY_SCREEN_TOP
 import me.magnum.melonds.domain.model.render.PresentFrameWrapper
+import me.magnum.melonds.domain.model.render.Bloom
+import me.magnum.melonds.domain.model.render.DepthOfField
+import me.magnum.melonds.domain.model.render.Shade
+import me.magnum.melonds.domain.model.render.Sun
 import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.impl.diagnostics.DebugSwitches
 import me.magnum.melonds.impl.diagnostics.LogTags
@@ -79,6 +83,18 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     // The blur scripts want, or null for none; here rather than in the screen filter, which is rebuilt when the player's filter changes
     @Volatile
     var tiltShift: TiltShift? = null
+    // The same for the bloom and vignette, null for neither
+    @Volatile
+    var bloom: Bloom? = null
+    // The same for the depth of field, null for none
+    @Volatile
+    var depthOfField: DepthOfField? = null
+    // The same for the shading, null for none
+    @Volatile
+    var shade: Shade? = null
+    // The same for the sun shadows, null for none
+    @Volatile
+    var sun: Sun? = null
     private lateinit var backgroundShader: Shader
     private lateinit var shadowShader: Shader
     private lateinit var overlayShader: Shader
@@ -108,9 +124,14 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
     // The drawn rects the shadows were last built for, so a camera move that keeps them skips the shadows
     private var shadowTopRect: Rect? = null
     private var shadowBottomRect: Rect? = null
-    // Top-screen width of the frame the quads were built for; GL thread writes, touch input reads
+    // Top-screen width of the frame the quads were built for; GL thread only
+    private var frameTopScreenWidth = SCREEN_WIDTH
+    // The sun shadows' guard band of that frame (PresentFrameWrapper.topScreenGuard), which the quads leave out; GL thread only
+    private var frameTopScreenGuard = 0
+    // The top screen's width as that frame shows it, without the guard band, for where touches go (getScreensDrawing with no guard places the
+    // screens the same way); GL thread writes, touch input reads
     @Volatile
-    var frameTopScreenWidth = SCREEN_WIDTH
+    var frameShownTopScreenWidth = SCREEN_WIDTH
         private set
     // The rows of the frame the quads were built for, which the WideMelon camera's margin (PresentFrameWrapper.topScreenMargin) makes taller;
     // GL thread only
@@ -327,6 +348,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         // Lay out both screens for the current frame width, swap and wide-layout flags (see getScreensDrawing)
         val drawing = getScreensDrawing(
             topScreenRect, bottomScreenRect, frameTopScreenWidth, isWideLayout, areScreensSwapped, width, frameWideWindow, layout.topScreenMargin,
+            frameTopScreenGuard,
         )
         isBottomScreenWideInQuads = areScreensSwapped
         val topScreen = drawing.topScreen
@@ -339,7 +361,7 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             Log.i(LogTags.DEBUG, "OUTCAP: surface ${width.toInt()}x${height.toInt()} need $outputScaleNeed (was $screensOutputScaleNeed): " +
                 "top ${topScreen?.let { "${it.nativeRect.width}x${it.nativeRect.height} draw ${it.drawRect.width}x${it.drawRect.height}" } ?: "none"}, " +
                 "bottom ${bottomScreen?.let { "${it.nativeRect.width}x${it.nativeRect.height} draw ${it.drawRect.width}x${it.drawRect.height}" } ?: "none"}, " +
-                "drawn $screensDrawnPixels px, frame width $frameTopScreenWidth")
+                "drawn $screensDrawnPixels px, frame width $frameTopScreenWidth guard $frameTopScreenGuard")
             screensOutputScaleNeed = outputScaleNeed
         }
 
@@ -574,6 +596,14 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
                 frameTopScreenWidth = presentFrameWrapper.topScreenWidth
                 mustUpdateConfiguration = true
             }
+            // And the guard band in it and its rows, which the quads cut off
+            if (presentFrameWrapper.isValidFrame && presentFrameWrapper.topScreenGuard != frameTopScreenGuard) {
+                frameTopScreenGuard = presentFrameWrapper.topScreenGuard
+                mustUpdateConfiguration = true
+            }
+            if (presentFrameWrapper.isValidFrame) {
+                frameShownTopScreenWidth = presentFrameWrapper.shownTopScreenWidth
+            }
             // And the rows of its layout, which the camera's margin makes taller
             if (presentFrameWrapper.isValidFrame && presentFrameWrapper.topScreenMargin != frameLayout.topScreenMargin) {
                 frameLayout = FrameTextureLayout(presentFrameWrapper.topScreenMargin)
@@ -598,8 +628,15 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         // through the no-filter shader. Any other way (another filter or a pre-pass, in frames made before the emulator learnt of it, or a paused
         // frame presented again after the filter changed), renderPrePasses() expands it into the full frame first
         val currentTiltShift = tiltShift
+        val currentBloom = bloom
+        val currentDepthOfField = depthOfField
+        val currentShade = shade
+        val currentSun = sun
         val filter = screenFilter
-        val halvesAt1xShader = if (presentFrameWrapper.isValidFrame && presentFrameWrapper.halvesAt1x != 0 && currentTiltShift == null && filter?.canDrawHalvesAt1x == true) {
+        val halvesAt1xShader = if (
+            presentFrameWrapper.isValidFrame && presentFrameWrapper.halvesAt1x != 0 && currentTiltShift == null && currentBloom == null &&
+            currentDepthOfField == null && currentShade == null && currentSun == null && filter?.canDrawHalvesAt1x == true
+        ) {
             filter.getHalvesAt1xShader()
         } else {
             null
@@ -612,11 +649,13 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
             isDebandFoldOn = DebugSwitches.readInt("debandfold", 1) != 0
         }
         val frameTexels = presentFrameWrapper.textureWidth.toLong() * presentFrameWrapper.textureHeight
-        // Only a tilt-shift that adds passes (VideoFilterPipeline.renderPrePasses) keeps deband in the pre-pass
-        val isTiltShiftActive = currentTiltShift?.let { it.hasBlur || it.hasColorBoost } == true
+        // Only a Lua effect that adds passes (a tilt-shift, bloom, vignette, depth of field, shading or sun shadows, see
+        // VideoFilterPipeline.renderPrePasses) keeps deband in the pre-pass
+        val isLuaEffectActive = currentTiltShift?.let { it.hasBlur || it.hasColorBoost } == true || currentBloom?.isOff == false ||
+            currentDepthOfField?.isOff == false || currentShade?.isOff == false || currentSun?.isOff == false
         val debandScreenShader = if (
             presentFrameWrapper.isValidFrame && halvesAt1xShader == null && filter != null &&
-            shouldFoldDeband(isDebandFoldOn, filter.canFoldDeband, isTiltShiftActive, screensDrawnPixels, frameTexels)
+            shouldFoldDeband(isDebandFoldOn, filter.canFoldDeband, isLuaEffectActive, screensDrawnPixels, frameTexels)
         ) {
             filter.getDebandScreenShader()
         } else {
@@ -625,12 +664,13 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         if (presentFrameWrapper.isValidFrame && (debandScreenShader != null) != wasDebandFolded) {
             wasDebandFolded = debandScreenShader != null
             Log.i(LogTags.DEBUG, "DEBANDFOLD: ${if (wasDebandFolded) "screen shader" else "pre-pass or none"} (switch ${if (isDebandFoldOn) 1 else 0}, " +
-                "filter ${filter?.canFoldDeband == true}, tilt-shift $isTiltShiftActive, drawn $screensDrawnPixels px, frame $frameTexels texels)")
+                "filter ${filter?.canFoldDeband == true}, Lua effect $isLuaEffectActive, drawn $screensDrawnPixels px, frame $frameTexels texels)")
         }
 
         // Pre-passes must run before anything is drawn to the surface; also called for invalid frames to clear the cache
         val screenTexture = if (halvesAt1xShader == null) {
-            filter?.renderPrePasses(presentFrameWrapper, isBottomScreenWideInQuads, currentTiltShift, foldDeband = debandScreenShader != null)
+            filter?.renderPrePasses(presentFrameWrapper, isBottomScreenWideInQuads, currentTiltShift, currentBloom, currentDepthOfField,
+                currentShade, currentSun, foldDeband = debandScreenShader != null)
         } else {
             null
         }
@@ -702,10 +742,12 @@ class DSRenderer(private val context: Context) : EmulatorRenderer {
         shader.setHalvesAt1x(frame.halvesAt1x, frame.scaleAt1x, frame.halfScaleAt1x)
     }
 
-    // debug.melonade.comp1x: only the no-filter shader without deband or a Lua tilt-shift draws a screen at 1x straight from the 1x image; any
-    // other way the frame has to be expanded first, which costs more than the 1x draw saves. A check of state only, asked on every frame
+    // debug.melonade.comp1x: only the no-filter shader without deband or a Lua tilt-shift, bloom, vignette, depth of field, shading or sun
+    // shadows draws a screen at 1x straight from the 1x image; any other way the frame has to be expanded first, which costs more than the 1x
+    // draw saves. A check of state only, asked on every frame
     override fun canDrawHalvesAt1x(): Boolean {
-        return tiltShift == null && screenFilter?.canDrawHalvesAt1x == true
+        return tiltShift == null && bloom == null && depthOfField == null && shade == null && sun == null &&
+            screenFilter?.canDrawHalvesAt1x == true
     }
 
     override fun outputScaleNeed(): Int = screensOutputScaleNeed

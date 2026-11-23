@@ -305,6 +305,44 @@ void FrameQueue::validateRenderFrame(Frame* frame, int requiredWidth, int requir
     }
 }
 
+void FrameQueue::validateDepthTexture(Frame* frame, int rows)
+{
+    if (rows <= 0)
+    {
+        if (frame->depthTexture)
+        {
+            glDeleteTextures(1, &frame->depthTexture);
+            frame->depthTexture = 0;
+            frame->depthWidth = 0;
+            frame->depthHeight = 0;
+            frame->hasDepth = false;
+        }
+        return;
+    }
+    if (frame->depthTexture && frame->depthWidth == frame->width && frame->depthHeight == (u32) rows)
+        return;
+
+    if (!frame->depthTexture)
+    {
+        glGenTextures(1, &frame->depthTexture);
+        glBindTexture(GL_TEXTURE_2D, frame->depthTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    else
+    {
+        glBindTexture(GL_TEXTURE_2D, frame->depthTexture);
+    }
+    // Not cleared: hasDepth stays false until the compositor has drawn all of it
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei) frame->width, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    frame->depthWidth = frame->width;
+    frame->depthHeight = (u32) rows;
+    frame->hasDepth = false;
+}
+
 #ifdef MELONADE_DEBUG_TOOLS
 // How many frames have a texture, which is what the queue costs in graphics memory; only called when that or a texture's size changes
 void FrameQueue::logTextureCount(const char* reason, u32 width, u32 height)
@@ -431,6 +469,12 @@ void FrameQueue::releaseFrameResources(Frame& frame)
     glDeleteTextures(1, &frame.frameTexture);
     if (frame.overlayTexture)
         glDeleteTextures(1, &frame.overlayTexture);
+    if (frame.depthTexture)
+        glDeleteTextures(1, &frame.depthTexture);
+    frame.depthTexture = 0;
+    frame.depthWidth = 0;
+    frame.depthHeight = 0;
+    frame.hasDepth = false;
     if (frame.renderFence)
         destroyGpuFence(display, frame.renderFence);
     if (frame.presentFence)

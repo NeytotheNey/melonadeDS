@@ -94,6 +94,28 @@ void DesktopEventMessenger::onLuaTiltShift(int scriptId, float top, float bottom
     POST_LOG("Lua script %d: tilt shift %.2f %.2f\n", scriptId, top, bottom);
 }
 
+void DesktopEventMessenger::onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize,
+    bool onlyThreeD, float haze, int hazeColor, float hazeStart, float hazeFalloff, bool lights, float lightThreshold, float lightStrength)
+{
+    POST_LOG("Lua script %d: bloom %.2f vignette %.2f haze %.2f lights %d\n", scriptId, strength, vignette, haze, lights ? 1 : 0);
+}
+
+void DesktopEventMessenger::onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth, float range, float falloff)
+{
+    POST_LOG("Lua script %d: depth of field %.2f radius %.2f\n", scriptId, strength, radius);
+}
+
+void DesktopEventMessenger::onLuaShade(int scriptId, float strength, float radius, float range, int color)
+{
+    POST_LOG("Lua script %d: shade %.2f radius %.2f\n", scriptId, strength, radius);
+}
+
+void DesktopEventMessenger::onLuaSun(int scriptId, float strength, const std::array<float, 3>& direction, const std::array<float, 3>& up,
+    float length, int steps, float bias, float softness, int color, float nearLimit)
+{
+    POST_LOG("Lua script %d: sun %.2f length %.1f steps %d\n", scriptId, strength, length, steps);
+}
+
 void DesktopEventMessenger::onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY)
 {
     POST_LOG("Lua script %d: wide camera zoom %.2f\n", scriptId, zoom);

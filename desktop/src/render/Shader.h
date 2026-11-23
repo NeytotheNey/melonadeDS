@@ -13,6 +13,10 @@ namespace Frontend
 {
 
 struct TiltShift;
+struct Bloom;
+struct DepthOfField;
+struct Shade;
+struct Sun;
 
 class Shader
 {
@@ -34,15 +38,39 @@ public:
     void SetTopScreenWidth(int width) const;
     // the top screen's half in DS pixels (192 plus the WideMelon camera's margin on both sides), as frameLayout's v coordinates and rows
     void SetTopScreenHeight(int height) const;
+    // the sun shadows' guard band in DS pixels (FrameView::TopGuard): the vignette goes over the top screen as shown, without it
+    void SetTopScreenGuard(int guard) const;
     void SetBottomScreenWide(bool isBottomScreenWide) const;
     void SetTiltShift(const TiltShift& tiltShift) const;
+    // the bloom's strength, threshold and radius, the vignette's strength and size, the haze's strength, start, falloff and color, the lights'
+    // threshold and strength, the glow on unit 1, and the depth texture on unit 1 for the 3D-only and lights bright passes and on unit 2 for
+    // the haze
+    void SetBloom(const Bloom& bloom) const;
+    // the depth of field's radius at its strength, range and falloff, its focus point as [focusU] and [focusV] of the depth texture (read when
+    // it has no focus depth), whether this frame ages a held focus ([focusAgeStep], 0 or 1), and the depth texture on unit 1 and the picked
+    // focus on unit 2
+    void SetDepthOfField(const DepthOfField& depthOfField, float focusU, float focusV, float focusAgeStep, const float* depthProjection) const;
+    // the shading's strength, radius, range and tint, and for its last pass the frame's depth texture on unit 1 and the blurred depth on
+    // unit 2
+    void SetShade(const Shade& shade) const;
+    // the sun shadows' values and the depth camera they're marched with: [projection] and [inverse] (its inverse), 16 floats each
+    // column-major, and [viewport] (left, top, width, height in DS pixels of the depth texture's top half); and the frame's depth texture on
+    // unit 1 and the shadow on unit 2. The direction is normalized here
+    void SetSun(const Sun& sun, const float* projection, const float* inverse, const float* viewport) const;
     // GPU::Comp1x: which screens are at 1x, the frame's scale and theirs, and the coordinate textures on units 1 and 2
     void SetHalvesAt1x(int halvesAt1x, int scale, int halfScale) const;
 
 private:
     GLuint Program;
     GLint UniformTexSize = -1, UniformTopScreenWidth = -1, UniformFrameLayout = -1, UniformBottomScreenWide = -1;
+    GLint UniformTopScreenGuard = -1;
     GLint UniformTiltShift = -1, UniformTiltShiftBoost = -1;
+    GLint UniformBloom = -1, UniformVignette = -1, UniformGlowTex = -1;
+    GLint UniformHaze = -1, UniformHazeColor = -1, UniformHazeDepthTex = -1, UniformBloomLights = -1;
+    GLint UniformDepthOfField = -1, UniformDepthFocus = -1, UniformDepthProjection = -1, UniformDepthTex = -1, UniformFocusTex = -1;
+    GLint UniformShade = -1, UniformShadeColor = -1, UniformShadeDepthTex = -1, UniformShadeBlurTex = -1;
+    GLint UniformSun = -1, UniformSunDirection = -1, UniformSunSoftness = -1, UniformSunColor = -1, UniformSunProjection = -1;
+    GLint UniformSunInverse = -1, UniformSunViewport = -1, UniformSunDepthTex = -1, UniformSunMaskTex = -1, UniformSunNear = -1;
     GLint UniformHalvesAt1x = -1, UniformCoordXTex = -1, UniformCoordYTex = -1;
 };
 

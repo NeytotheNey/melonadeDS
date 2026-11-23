@@ -16,6 +16,10 @@ import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import me.magnum.melonds.domain.model.RuntimeBackground
+import me.magnum.melonds.domain.model.render.Bloom
+import me.magnum.melonds.domain.model.render.DepthOfField
+import me.magnum.melonds.domain.model.render.Shade
+import me.magnum.melonds.domain.model.render.Sun
 import me.magnum.melonds.domain.model.render.TiltShift
 import me.magnum.melonds.ui.emulator.DSRenderer
 import me.magnum.melonds.ui.emulator.EmulatorSurfaceView
@@ -53,7 +57,7 @@ class ExternalPresentation(
             surfaceView = createSurfaceView(it)
         }
         // Touches on this display go where its own renderer draws the bottom screen
-        layoutView.setFrameWidthProvider { emulatorRenderer.frameTopScreenWidth }
+        layoutView.setFrameWidthProvider { emulatorRenderer.frameShownTopScreenWidth }
         layoutView.setWideWindowProvider { emulatorRenderer.frameWideWindow }
         surfaceView.updateRendererConfiguration(currentRendererConfiguration)
 
@@ -121,6 +125,22 @@ class ExternalPresentation(
 
     fun updateTiltShift(tiltShift: TiltShift?) {
         emulatorRenderer.tiltShift = tiltShift
+    }
+
+    fun updateBloom(bloom: Bloom?) {
+        emulatorRenderer.bloom = bloom
+    }
+
+    fun updateDepthOfField(depthOfField: DepthOfField?) {
+        emulatorRenderer.depthOfField = depthOfField
+    }
+
+    fun updateShade(shade: Shade?) {
+        emulatorRenderer.shade = shade
+    }
+
+    fun updateSun(sun: Sun?) {
+        emulatorRenderer.sun = sun
     }
 
     override fun onStop() {

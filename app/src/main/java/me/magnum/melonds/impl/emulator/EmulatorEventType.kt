@@ -146,4 +146,53 @@ enum class EmulatorEventType(val event: Int) {
      * * vertical pan (`f32`), the window's offset down from center in DS pixels
      */
     EventLuaWideCamera(308),
+
+    /**
+     * A Lua script wants its bloom or vignette changed. Data:
+     * * script ID (`i32`)
+     * * bloom strength (`f32`), 0 to 2, 0 for no bloom
+     * * bloom threshold (`f32`), a luma from 0 to 1
+     * * bloom radius (`f32`), 0 to 8 DS pixels
+     * * vignette strength (`f32`), 0 to 1, 0 for no vignette
+     * * vignette size (`f32`), where it starts as a fraction of the half-diagonal, 0 to 1
+     */
+    EventLuaBloom(309),
+
+    /**
+     * A Lua script wants its depth of field changed. Data:
+     * * script ID (`i32`)
+     * * strength (`f32`), 0 to 1, 0 for none
+     * * radius (`f32`), 0 to 12 DS pixels
+     * * focus x (`f32`), -256 to 512 DS pixels of the top screen's 256 x 192 view
+     * * focus y (`f32`), -192 to 384 DS pixels
+     * * focus depth (`f32`), 0 to 1, or -1 for the depth at the focus point
+     * * range (`f32`), 0 to 1 of the renderer's depth, kept sharp around the focus
+     * * falloff (`f32`), 0 to 1 of the renderer's depth, from the range's edge to the full blur
+     */
+    EventLuaDepthOfField(310),
+
+    /**
+     * A Lua script wants its shading changed. Data:
+     * * script ID (`i32`)
+     * * strength (`f32`), 0 to 1, 0 for none
+     * * radius (`f32`), 1 to 16 DS pixels
+     * * range (`f32`), 0 to 1 of the renderer's depth, how much farther than its neighborhood a pixel is when it's fully shaded
+     * * color (`i32`), 0xRRGGBB, the shadow's tint
+     */
+    EventLuaShade(311),
+
+    /**
+     * A Lua script wants its sun shadows changed. Data:
+     * * script ID (`i32`)
+     * * strength (`f32`), 0 to 1, 0 for none
+     * * direction towards the sun (3 x `f32`), normalized, in the depth camera's view space
+     * * up (3 x `f32`), normalized, in the same view space
+     * * length (`f32`), 1 to 1024 view-space units, how far the march reaches
+     * * steps (`i32`), 1 to 128
+     * * bias (`f32`), 0 to 64 view-space units
+     * * softness (`f32`), 0 to 8 DS pixels
+     * * color (`i32`), 0xRRGGBB, the shadow's tint
+     * * near (`f32`), 0 to 1024 view-space units, nearer than which nothing casts (0 for no limit)
+     */
+    EventLuaSun(312),
 }

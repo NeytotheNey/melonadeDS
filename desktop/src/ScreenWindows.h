@@ -152,7 +152,7 @@ private:
         bool Detached = false, Top = false, Swap = false;
         int W = -1, H = -1;
         Fit FitTop = Fit::Aspect, FitBottom = Fit::Aspect;
-        int TopWidth = 0, TopMargin = 0;
+        int TopWidth = 0, TopMargin = 0, TopGuard = 0;
         int Version = -1;
 
         bool operator==(const PlanKey&) const = default;

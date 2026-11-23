@@ -1,7 +1,9 @@
-// What the presentation reads of a frame (the app's PresentFrameWrapper.kt) and the Lua tilt-shift a script asks for (TiltShift.kt)
+// What the presentation reads of a frame (the app's PresentFrameWrapper.kt) and the Lua tilt-shift, bloom, depth of field, shading and sun
+// shadows a script asks for (TiltShift.kt, Bloom.kt, DepthOfField.kt, Shade.kt, Sun.kt)
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <optional>
 
 #include "PlatformOGL.h"
@@ -20,15 +22,34 @@ struct FrameView
     int Width = 0, Height = 0;
     // the top screen's width in DS pixels (wider than 256 with WideMelon), and its margin rows above and below (WideMelon camera stage 2)
     int TopWidth = 256, TopMargin = 0;
+    // the sun shadows' guard band (Frame::topScreenGuard), included in both: the DS pixels on each side and rows above and below of the top
+    // screen's half that are rendered and filtered, so the sun's march finds the casters there, but not shown
+    int TopGuard = 0;
     // GPU::Comp1x: the halves the compositor drew at 1x (bit 0 the top one), the frame's scale and the scale they were drawn at
     int HalvesAt1x = 0, Scale = 1, HalfScale = 1;
     // the frame queue's sequence, so a frame presented again isn't filtered again (0: none)
     melonDS::u64 Sequence = 0;
+    // the top screen half's depth (Frame::depthTexture, GL_RGBA8), 0 when the frame has none
+    GLuint DepthTexture = 0;
+    // the camera that depth was drawn with (melonDS::DepthCamera in the core's GPU3D.h), only meaningful while DepthCameraValid:
+    // DepthProjection is the projection column-major as GLSL's mat4 takes it (mat4 * vec4(view, 1) is the clip position), DepthViewport
+    // its viewport's left, top, width and height in DS pixels from the native top screen's top-left corner, rows going down. A pixel at
+    // (x, y) there (its center at +0.5) with a Z-buffered 24-bit depth d is at NDC x = (x - left) * 2 / width - 1,
+    // y = 1 - (y - top) * 2 / height, z = (d - 0x7FFE00) / 2^23, and in view space at inverse(projection) * (ndc, 1), divided by its w
+    std::array<float, 16> DepthProjection {};
+    std::array<float, 4> DepthViewport {};
+    bool DepthCameraValid = false;
+    // the depth of field's focus on the focus textures (Frame::depthFocus): a depth from 0 to 1 as DepthTexture holds it, or negative for
+    // none. DepthProjection's depth terms go with it, valid camera or not
+    float DepthFocus = -1.f;
 
     bool IsValid() const { return Texture != 0; }
     // the top screen's half of the frame in DS pixels (192 plus the margin on both sides), and the whole frame's
     int TopScreenHeight() const { return 192 + 2 * TopMargin; }
     int FrameHeight() const { return TopScreenHeight() + 2 + 192; }
+    // the top screen's shown width and margin rows: the guard band left out
+    int ShownTopWidth() const { return TopWidth - 2 * TopGuard; }
+    int ShownTopMargin() const { return TopMargin - TopGuard; }
 
     static FrameView Of(const Frame& frame);
 };
@@ -54,6 +75,81 @@ struct TiltShift
     float AppliedSaturation() const { return 1.f + (Saturation - 1.f) * Color.value_or(std::max(Top, Bottom)); }
     float AppliedContrast() const { return 1.f + (Contrast - 1.f) * Color.value_or(std::max(Top, Bottom)); }
     bool HasColorBoost() const { return AppliedSaturation() != 1.f || AppliedContrast() != 1.f; }
+};
+
+// Bloom.kt: a glow over the DS top screen of what's brighter than [Threshold] (a luma, 0 to 1), blurred [Radius] DS pixels wide, at [Strength]
+// (0 to 2), only of 3D pixels with [OnlyThreeD] when the frame has its depth; a vignette that darkens it from [VignetteSize] of the
+// half-diagonal out to the corners, where it's [Vignette] (0 to 1); and a haze that mixes 3D pixels towards [HazeColor] (0xRRGGBB) at up to
+// [Haze] (0 to 1), easing in from [HazeStart] to [HazeStart] + [HazeFalloff] in the renderer's raw depth (0 to 1), only when the frame has
+// its depth. With [Lights] and the frame's depth, the light textures' pixels (flag 32) glow by their brightest channel from [LightThreshold]
+// (0 to 1) at [LightStrength] (0 to 4) times the rest, and those at least that bright aren't darkened by the shading or the sun shadows
+struct Bloom
+{
+    float Strength = 0, Threshold = 0.7f, Radius = 3;
+    bool OnlyThreeD = true;
+    float Vignette = 0, VignetteSize = 0.6f;
+    float Haze = 0;
+    melonDS::u32 HazeColor = 0xDCE6F0;
+    float HazeStart = 0.9968f, HazeFalloff = 0.0008f;
+    bool Lights = false;
+    float LightThreshold = 0.65f, LightStrength = 1;
+
+    bool operator==(const Bloom&) const = default;
+
+    bool HasBloom() const { return Strength > 0.f && Radius > 0.f; }
+    bool HasVignette() const { return Vignette > 0.f; }
+    bool HasHaze() const { return Haze > 0.f; }
+    bool HasLights() const { return Lights && HasBloom(); }
+    bool IsOff() const { return !HasBloom() && !HasVignette() && !HasHaze(); }
+};
+
+// DepthOfField.kt: a blur over the DS top screen's 3D that grows with each pixel's depth away from the focus, up to [Radius] DS pixels at
+// [Strength] (0 to 1). The focus is the depth at ([FocusX], [FocusY]) of the top screen's 256 x 192 view, or [FocusDepth] (0 to 1) when it's not
+// negative, or with neither the frame's focus on the focus textures (FrameView::DepthFocus) when it has one; pixels within [Range] of it stay
+// sharp and the blur is full [Falloff] past that, both relative to the focus's view distance (|1 - s / d| for a focus s and a pixel d away)
+struct DepthOfField
+{
+    float Strength = 0, Radius = 4, FocusX = 128, FocusY = 96, FocusDepth = -1, Range = 0.045f, Falloff = 0.33f;
+
+    bool operator==(const DepthOfField&) const = default;
+
+    bool IsOff() const { return Strength <= 0.f || Radius <= 0.f; }
+    float AppliedRadius() const { return Strength * Radius; }
+};
+
+// Shade.kt: soft contact shadows on the DS top screen's 3D, from unsharp masking its depth. Where a pixel's depth is farther than its
+// neighborhood's, blurred [Radius] DS pixels wide, it's tinted towards [Color] (0xRRGGBB), fully once it's [Range] farther in the renderer's
+// raw depth (0 to 1), at up to [Strength] (0 to 1). Only 3D pixels are shaded, and only when the frame has its depth
+struct Shade
+{
+    float Strength = 0, Radius = 8, Range = 0.0008f;
+    melonDS::u32 Color = 0x33384F;
+
+    bool operator==(const Shade&) const = default;
+
+    bool IsOff() const { return Strength <= 0.f || Radius <= 0.f; }
+};
+
+// Sun.kt: sun shadows on the DS top screen's 3D, marched in screen space from its depth and the camera it was drawn with. Each 3D pixel's
+// view-space position steps [Length] units towards [Direction] in [Steps] steps, and it's in shadow where the depth at a step is nearer than
+// the step by more than [Bias] units; the shadow is softened [Softness] DS pixels wide and tinted towards [Color] (0xRRGGBB) by [Strength]
+// (0 to 1). 3D nearer the camera than [Near] units casts nothing (0 for no limit). [Direction] and [Up] are in the camera's view space,
+// normalized where they're used. [Up] isn't used by the march; it's kept for the characters' shadows, which the core will draw. Only 3D
+// pixels are shadowed, and only when the frame has its depth and a usable camera
+struct Sun
+{
+    float Strength = 0;
+    std::array<float, 3> Direction {0.50f, 0.83f, 0.26f};
+    std::array<float, 3> Up {0.0006f, 0.607f, 0.794f};
+    float Length = 96;
+    int Steps = 64;
+    float Bias = 1, Softness = 1.5f;
+    melonDS::u32 Color = 0x33384F;
+    float Near = 0;
+
+    bool operator==(const Sun&) const = default;
+
+    bool IsOff() const { return Strength <= 0.f || Steps <= 0 || Length <= 0.f; }
 };
 
 }

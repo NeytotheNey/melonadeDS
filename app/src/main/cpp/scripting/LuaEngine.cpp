@@ -20,6 +20,32 @@ static const int kStorageSaveInterval = 600;
 static const lua_Number kMaxTiltShiftRadius = 12.0;
 // melon.screen.tilt_shift(): the largest saturation and contrast multipliers
 static const lua_Number kMaxTiltShiftBoost = 2.0;
+// melon.screen.bloom(): the strongest glow, and its widest radius in DS pixels, where the blur's samples are 2 texels apart, the most bilinear
+// filtering can bridge
+static const lua_Number kMaxBloomStrength = 2.0;
+static const lua_Number kMaxBloomRadius = 8.0;
+// melon.screen.bloom(): how many times the rest of the glow the lights' can be
+static const lua_Number kMaxBloomLightStrength = 4.0;
+// melon.screen.depth_of_field(): the widest blur in DS pixels, and how far outside the 256 x 192 view its focus point can be, a screen's size
+// either way, which covers WideMelon's wings and margins
+static const lua_Number kMaxDepthOfFieldRadius = 12.0;
+static const lua_Number kMinDepthOfFieldFocusX = -256.0;
+static const lua_Number kMaxDepthOfFieldFocusX = 512.0;
+static const lua_Number kMinDepthOfFieldFocusY = -192.0;
+static const lua_Number kMaxDepthOfFieldFocusY = 384.0;
+// melon.screen.shade(): the depth blur's radius in DS pixels, as many taps on each side of its passes
+static const lua_Number kMinShadeRadius = 1.0;
+static const lua_Number kMaxShadeRadius = 16.0;
+// melon.screen.sun(): the march's longest reach in view-space units (White's far plane is 1025), its most steps (the shader's loop bound),
+// the largest bias in units, the widest softening blur in DS pixels (the blur passes' tap bound), and the largest near distance in units
+static const lua_Number kMinSunLength = 1.0;
+static const lua_Number kMaxSunLength = 1024.0;
+static const lua_Number kMaxSunSteps = 128.0;
+static const lua_Number kMaxSunBias = 64.0;
+static const lua_Number kMaxSunSoftness = 8.0;
+static const lua_Number kMaxSunNear = 1024.0;
+// and its guard band in DS pixels, WideMelon's most margin rows
+static const lua_Number kMaxSunGuard = 128.0;
 
 /**
  * A new table on the stack with [functions] in it, like luaL_newlib() for a table whose size isn't known here
@@ -459,6 +485,33 @@ void LuaEngine::sendRequests(LuaScript& script)
             const LuaTiltShift& tiltShift = script.sentTiltShift;
             eventMessenger->onLuaTiltShift(script.id, tiltShift.top, tiltShift.bottom, tiltShift.center, tiltShift.width, tiltShift.radius, tiltShift.saturation, tiltShift.contrast, tiltShift.color);
         }
+        if (script.bloom != script.sentBloom)
+        {
+            script.sentBloom = script.bloom;
+            const LuaBloom& bloom = script.sentBloom;
+            eventMessenger->onLuaBloom(script.id, bloom.strength, bloom.threshold, bloom.radius, bloom.vignette, bloom.vignetteSize, bloom.onlyThreeD,
+                bloom.haze, (int) bloom.hazeColor, bloom.hazeStart, bloom.hazeFalloff, bloom.lights, bloom.lightThreshold, bloom.lightStrength);
+        }
+        if (script.depthOfField != script.sentDepthOfField)
+        {
+            script.sentDepthOfField = script.depthOfField;
+            const LuaDepthOfField& dof = script.sentDepthOfField;
+            eventMessenger->onLuaDepthOfField(script.id, dof.strength, dof.radius, dof.focusX, dof.focusY, dof.focusDepth, dof.range, dof.falloff);
+        }
+        if (script.shade != script.sentShade)
+        {
+            script.sentShade = script.shade;
+            const LuaShade& shade = script.sentShade;
+            eventMessenger->onLuaShade(script.id, shade.strength, shade.radius, shade.range, (int) shade.color);
+        }
+        if (script.sun != script.sentSun)
+        {
+            script.sentSun = script.sun;
+            script.sentSunOrder = ++sentSunRequests;
+            const LuaSun& sun = script.sentSun;
+            eventMessenger->onLuaSun(script.id, sun.strength, sun.direction, sun.up, sun.length, sun.steps, sun.bias, sun.softness, (int) sun.color,
+                sun.nearLimit);
+        }
         if (script.wideCamera != script.sentWideCamera)
         {
             script.sentWideCamera = script.wideCamera;
@@ -509,6 +562,19 @@ int LuaEngine::setupScript(lua_State* L)
         { "show_controls", luaSetBoolRequest<&LuaScript::showControls> },
         { "set_layout", luaScreenSetLayout },
         { "tilt_shift", luaScreenTiltShift },
+        { "bloom", luaScreenBloom },
+        { "vignette", luaScreenVignette },
+        { "haze", luaScreenHaze },
+        { "depth_of_field", luaScreenDepthOfField },
+        { "shade", luaScreenShade },
+        { "sun", luaScreenSun },
+        { nullptr, nullptr },
+    };
+    static const luaL_Reg gpuFunctions[] = {
+        { "hide_textures", luaGpuHideTextures },
+        { "light_textures", luaGpuLightTextures },
+        { "ui_textures", luaGpuUiTextures },
+        { "focus_textures", luaGpuFocusTextures },
         { nullptr, nullptr },
     };
     static const luaL_Reg emuFunctions[] = {
@@ -532,6 +598,8 @@ int LuaEngine::setupScript(lua_State* L)
     lua_setfield(L, -2, "mem");
     luaL_newlib(L, screenFunctions);
     lua_setfield(L, -2, "screen");
+    luaL_newlib(L, gpuFunctions);
+    lua_setfield(L, -2, "gpu");
     newLibrary(L, LuaDrawApi::functions);
     lua_setfield(L, -2, "draw");
     newLibrary(L, LuaFolderApi::imageFunctions);
@@ -647,6 +715,50 @@ void LuaEngine::closeScript(LuaScript& script)
             eventMessenger->onLuaTiltShift(script.id, off.top, off.bottom, off.center, off.width, off.radius, off.saturation, off.contrast, off.color);
         script.sentTiltShift = off;
     }
+    // The same for the bloom, vignette and haze, which a reloaded script starts without, and the haze, a 3D-only glow and the lights also stop
+    // the frames keeping their depth
+    script.bloom = LuaBloom();
+    if (script.sentBloom != LuaBloom())
+    {
+        LuaBloom off;
+        if (eventMessenger)
+            eventMessenger->onLuaBloom(script.id, off.strength, off.threshold, off.radius, off.vignette, off.vignetteSize, off.onlyThreeD, off.haze,
+                (int) off.hazeColor, off.hazeStart, off.hazeFalloff, off.lights, off.lightThreshold, off.lightStrength);
+        script.sentBloom = off;
+    }
+    // The same for the depth of field, which also stops the frames keeping their depth
+    script.depthOfField = LuaDepthOfField();
+    if (script.sentDepthOfField != LuaDepthOfField())
+    {
+        LuaDepthOfField off;
+        if (eventMessenger)
+            eventMessenger->onLuaDepthOfField(script.id, off.strength, off.radius, off.focusX, off.focusY, off.focusDepth, off.range, off.falloff);
+        script.sentDepthOfField = off;
+    }
+    // The same for the shading, which also stops the frames keeping their depth
+    script.shade = LuaShade();
+    if (script.sentShade != LuaShade())
+    {
+        LuaShade off;
+        if (eventMessenger)
+            eventMessenger->onLuaShade(script.id, off.strength, off.radius, off.range, (int) off.color);
+        script.sentShade = off;
+    }
+    // The same for the sun shadows
+    script.sun = LuaSun();
+    if (script.sentSun != LuaSun())
+    {
+        LuaSun off;
+        if (eventMessenger)
+            eventMessenger->onLuaSun(script.id, off.strength, off.direction, off.up, off.length, off.steps, off.bias, off.softness, (int) off.color,
+                off.nearLimit);
+        script.sentSun = off;
+    }
+    // A reloaded script starts hiding, lighting, marking and focusing on nothing
+    script.hiddenTextures.clear();
+    script.lightTextures.clear();
+    script.uiTextures.clear();
+    script.focusTextures.clear();
     // The same for the camera: a reloaded script starts asking for nothing
     script.wideCamera = LuaWideCamera();
     if (script.sentWideCamera != LuaWideCamera())
@@ -810,29 +922,72 @@ int LuaEngine::luaScreenSetLayout(lua_State* L)
 }
 
 /**
- * Argument [argument] clamped to 0..1, or an error if it's not a number
+ * Argument [argument] clamped to 0..[max], or an error if it's not a number
  */
-static float checkTiltShiftStrength(lua_State* L, int argument)
+static float checkStrength(lua_State* L, int argument, lua_Number max)
 {
     lua_Number value = luaL_checknumber(L, argument);
     if (std::isnan(value))
         luaL_argerror(L, argument, "number expected, got NaN");
-    return (float) std::clamp<lua_Number>(value, 0.0, 1.0);
+    return (float) std::clamp<lua_Number>(value, 0.0, max);
 }
 
 /**
- * The [name] field of the options table at index 3 clamped to 0..[max], or [defaultValue] if it's nil
+ * The [name] field of the options table at index [table] clamped to [min]..[max], or [defaultValue] if it's nil
  */
-static float getTiltShiftOption(lua_State* L, const char* name, float defaultValue, lua_Number max)
+static float getNumberOptionInRange(lua_State* L, int table, const char* name, float defaultValue, lua_Number min, lua_Number max)
 {
     float result = defaultValue;
-    if (lua_getfield(L, 3, name) != LUA_TNIL)
+    if (lua_getfield(L, table, name) != LUA_TNIL)
     {
         int isNumber;
         lua_Number value = lua_tonumberx(L, -1, &isNumber);
         if (!isNumber || std::isnan(value))
             luaL_error(L, "%s must be a number", name);
-        result = (float) std::clamp<lua_Number>(value, 0.0, max);
+        result = (float) std::clamp<lua_Number>(value, min, max);
+    }
+    lua_pop(L, 1);
+    return result;
+}
+
+/**
+ * The [name] field of the options table at index [table] clamped to 0..[max], or [defaultValue] if it's nil
+ */
+static float getNumberOption(lua_State* L, int table, const char* name, float defaultValue, lua_Number max)
+{
+    return getNumberOptionInRange(L, table, name, defaultValue, 0.0, max);
+}
+
+/**
+ * The [name] field of the options table at index [table], or [defaultValue] if it's nil
+ */
+static bool getBooleanOption(lua_State* L, int table, const char* name, bool defaultValue)
+{
+    bool result = defaultValue;
+    if (lua_getfield(L, table, name) != LUA_TNIL)
+    {
+        if (!lua_isboolean(L, -1))
+            luaL_error(L, "%s must be a boolean", name);
+        result = lua_toboolean(L, -1);
+    }
+    lua_pop(L, 1);
+    return result;
+}
+
+/**
+ * The low 24 bits (RRGGBB) of the [name] field of the options table at index [table], so that an ARGB color works too, or [defaultValue] if
+ * it's nil
+ */
+static u32 getColorOption(lua_State* L, int table, const char* name, u32 defaultValue)
+{
+    u32 result = defaultValue;
+    if (lua_getfield(L, table, name) != LUA_TNIL)
+    {
+        int isInteger;
+        lua_Integer value = lua_tointegerx(L, -1, &isInteger);
+        if (!isInteger)
+            luaL_error(L, "%s must be a whole number (0xRRGGBB)", name);
+        result = (u32) value & 0xFFFFFF;
     }
     lua_pop(L, 1);
     return result;
@@ -842,17 +997,17 @@ int LuaEngine::luaScreenTiltShift(lua_State* L)
 {
     LuaScript& script = getScript(L);
     LuaTiltShift tiltShift;
-    tiltShift.top = checkTiltShiftStrength(L, 1);
-    tiltShift.bottom = checkTiltShiftStrength(L, 2);
+    tiltShift.top = checkStrength(L, 1, 1.0);
+    tiltShift.bottom = checkStrength(L, 2, 1.0);
     if (!lua_isnoneornil(L, 3))
     {
         luaL_checktype(L, 3, LUA_TTABLE);
-        tiltShift.center = getTiltShiftOption(L, "center", tiltShift.center, 1.0);
-        tiltShift.width = getTiltShiftOption(L, "width", tiltShift.width, 1.0);
-        tiltShift.radius = getTiltShiftOption(L, "radius", tiltShift.radius, kMaxTiltShiftRadius);
-        tiltShift.saturation = getTiltShiftOption(L, "saturation", tiltShift.saturation, kMaxTiltShiftBoost);
-        tiltShift.contrast = getTiltShiftOption(L, "contrast", tiltShift.contrast, kMaxTiltShiftBoost);
-        tiltShift.color = getTiltShiftOption(L, "color", tiltShift.color, 1.0);
+        tiltShift.center = getNumberOption(L, 3, "center", tiltShift.center, 1.0);
+        tiltShift.width = getNumberOption(L, 3, "width", tiltShift.width, 1.0);
+        tiltShift.radius = getNumberOption(L, 3, "radius", tiltShift.radius, kMaxTiltShiftRadius);
+        tiltShift.saturation = getNumberOption(L, 3, "saturation", tiltShift.saturation, kMaxTiltShiftBoost);
+        tiltShift.contrast = getNumberOption(L, 3, "contrast", tiltShift.contrast, kMaxTiltShiftBoost);
+        tiltShift.color = getNumberOption(L, 3, "color", tiltShift.color, 1.0);
     }
 
     // Off is off, whatever the options are, so going over them while it's off costs no events. It's off with neither a blur nor a color boost to draw
@@ -866,6 +1021,366 @@ int LuaEngine::luaScreenTiltShift(lua_State* L)
     if (!script.engine->isUnloading)
         script.tiltShift = tiltShift;
     return 0;
+}
+
+int LuaEngine::luaScreenBloom(lua_State* L)
+{
+    LuaScript& script = getScript(L);
+    const LuaBloom defaults;
+    float strength = checkStrength(L, 1, kMaxBloomStrength);
+    float threshold = defaults.threshold;
+    float radius = defaults.radius;
+    bool onlyThreeD = defaults.onlyThreeD;
+    bool lights = defaults.lights;
+    float lightThreshold = defaults.lightThreshold;
+    float lightStrength = defaults.lightStrength;
+    if (!lua_isnoneornil(L, 2))
+    {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        threshold = getNumberOption(L, 2, "threshold", threshold, 1.0);
+        radius = getNumberOption(L, 2, "radius", radius, kMaxBloomRadius);
+        onlyThreeD = getBooleanOption(L, 2, "only_3d", onlyThreeD);
+        lights = getBooleanOption(L, 2, "lights", lights);
+        lightThreshold = getNumberOption(L, 2, "light_threshold", lightThreshold, 1.0);
+        lightStrength = getNumberOption(L, 2, "light_strength", lightStrength, kMaxBloomLightStrength);
+    }
+    // The lights' values only count while they're on, so going over them while they're off costs no events
+    if (!lights)
+    {
+        lightThreshold = defaults.lightThreshold;
+        lightStrength = defaults.lightStrength;
+    }
+
+    // A glow that draws nothing is the default part, so going over the options while it's off costs no events
+    if (strength <= 0.0f || radius <= 0.0f)
+    {
+        strength = defaults.strength;
+        threshold = defaults.threshold;
+        radius = defaults.radius;
+        onlyThreeD = defaults.onlyThreeD;
+        lights = defaults.lights;
+        lightThreshold = defaults.lightThreshold;
+        lightStrength = defaults.lightStrength;
+    }
+
+    if (!script.engine->isUnloading)
+    {
+        script.bloom.strength = strength;
+        script.bloom.threshold = threshold;
+        script.bloom.radius = radius;
+        script.bloom.onlyThreeD = onlyThreeD;
+        script.bloom.lights = lights;
+        script.bloom.lightThreshold = lightThreshold;
+        script.bloom.lightStrength = lightStrength;
+    }
+    return 0;
+}
+
+int LuaEngine::luaScreenVignette(lua_State* L)
+{
+    LuaScript& script = getScript(L);
+    const LuaBloom defaults;
+    float vignette = checkStrength(L, 1, 1.0);
+    float size = defaults.vignetteSize;
+    if (!lua_isnoneornil(L, 2))
+    {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        size = getNumberOption(L, 2, "size", size, 1.0);
+    }
+
+    // The same for the vignette's half
+    if (vignette <= 0.0f)
+    {
+        vignette = defaults.vignette;
+        size = defaults.vignetteSize;
+    }
+
+    if (!script.engine->isUnloading)
+    {
+        script.bloom.vignette = vignette;
+        script.bloom.vignetteSize = size;
+    }
+    return 0;
+}
+
+int LuaEngine::luaScreenHaze(lua_State* L)
+{
+    LuaScript& script = getScript(L);
+    const LuaBloom defaults;
+    float haze = checkStrength(L, 1, 1.0);
+    u32 color = defaults.hazeColor;
+    float start = defaults.hazeStart;
+    float falloff = defaults.hazeFalloff;
+    if (!lua_isnoneornil(L, 2))
+    {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        color = getColorOption(L, 2, "color", color);
+        start = getNumberOption(L, 2, "start", start, 1.0);
+        falloff = getNumberOption(L, 2, "falloff", falloff, 1.0);
+    }
+
+    // The same for the haze's part
+    if (haze <= 0.0f)
+    {
+        haze = defaults.haze;
+        color = defaults.hazeColor;
+        start = defaults.hazeStart;
+        falloff = defaults.hazeFalloff;
+    }
+
+    if (!script.engine->isUnloading)
+    {
+        script.bloom.haze = haze;
+        script.bloom.hazeColor = color;
+        script.bloom.hazeStart = start;
+        script.bloom.hazeFalloff = falloff;
+    }
+    return 0;
+}
+
+int LuaEngine::luaScreenDepthOfField(lua_State* L)
+{
+    LuaScript& script = getScript(L);
+    LuaDepthOfField depthOfField;
+    depthOfField.strength = checkStrength(L, 1, 1.0);
+    if (!lua_isnoneornil(L, 2))
+    {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        depthOfField.radius = getNumberOption(L, 2, "radius", depthOfField.radius, kMaxDepthOfFieldRadius);
+        depthOfField.focusX = getNumberOptionInRange(L, 2, "focus_x", depthOfField.focusX, kMinDepthOfFieldFocusX, kMaxDepthOfFieldFocusX);
+        depthOfField.focusY = getNumberOptionInRange(L, 2, "focus_y", depthOfField.focusY, kMinDepthOfFieldFocusY, kMaxDepthOfFieldFocusY);
+        // Absent, the focus is the depth at the focus point
+        depthOfField.focusDepth = getNumberOption(L, 2, "focus_depth", depthOfField.focusDepth, 1.0);
+        depthOfField.range = getNumberOption(L, 2, "range", depthOfField.range, 1.0);
+        depthOfField.falloff = getNumberOption(L, 2, "falloff", depthOfField.falloff, 1.0);
+    }
+
+    // Off is off, whatever the options are, so going over them while it's off costs no events
+    if (depthOfField.strength <= 0.0f || depthOfField.radius <= 0.0f)
+        depthOfField = LuaDepthOfField();
+
+    if (!script.engine->isUnloading)
+        script.depthOfField = depthOfField;
+    return 0;
+}
+
+int LuaEngine::luaScreenShade(lua_State* L)
+{
+    LuaScript& script = getScript(L);
+    LuaShade shade;
+    shade.strength = checkStrength(L, 1, 1.0);
+    if (!lua_isnoneornil(L, 2))
+    {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        shade.radius = getNumberOptionInRange(L, 2, "radius", shade.radius, kMinShadeRadius, kMaxShadeRadius);
+        shade.range = getNumberOption(L, 2, "range", shade.range, 1.0);
+        shade.color = getColorOption(L, 2, "color", shade.color);
+    }
+
+    // Off is off, whatever the options are, so going over them while it's off costs no events
+    if (shade.strength <= 0.0f)
+        shade = LuaShade();
+
+    if (!script.engine->isUnloading)
+        script.shade = shade;
+    return 0;
+}
+
+/**
+ * The [name] field of the options table at index [table] as a direction: a table of three numbers, normalized, or [defaultValue] if it's nil.
+ * Anything else, or a vector too short to have a direction, is an error
+ */
+static std::array<float, 3> getDirectionOption(lua_State* L, int table, const char* name, const std::array<float, 3>& defaultValue)
+{
+    std::array<float, 3> result = defaultValue;
+    if (lua_getfield(L, table, name) != LUA_TNIL)
+    {
+        if (!lua_istable(L, -1))
+            luaL_error(L, "%s must be a table of three numbers", name);
+        lua_Number vector[3];
+        for (int i = 0; i < 3; i++)
+        {
+            lua_rawgeti(L, -1, i + 1);
+            int isNumber;
+            vector[i] = lua_tonumberx(L, -1, &isNumber);
+            if (!isNumber || !std::isfinite(vector[i]))
+                luaL_error(L, "%s must be a table of three numbers", name);
+            lua_pop(L, 1);
+        }
+        lua_Number length = std::sqrt(vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2]);
+        if (!(length > 1e-6) || !std::isfinite(length))
+            luaL_error(L, "%s must not be zero", name);
+        for (int i = 0; i < 3; i++)
+            result[i] = (float) (vector[i] / length);
+    }
+    lua_pop(L, 1);
+    return result;
+}
+
+int LuaEngine::luaScreenSun(lua_State* L)
+{
+    LuaScript& script = getScript(L);
+    LuaSun sun;
+    sun.strength = checkStrength(L, 1, 1.0);
+    if (!lua_isnoneornil(L, 2))
+    {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        sun.direction = getDirectionOption(L, 2, "direction", sun.direction);
+        sun.up = getDirectionOption(L, 2, "up", sun.up);
+        sun.length = getNumberOptionInRange(L, 2, "length", sun.length, kMinSunLength, kMaxSunLength);
+        sun.steps = (int) std::lround(getNumberOptionInRange(L, 2, "steps", (float) sun.steps, 1.0, kMaxSunSteps));
+        sun.bias = getNumberOption(L, 2, "bias", sun.bias, kMaxSunBias);
+        sun.softness = getNumberOption(L, 2, "softness", sun.softness, kMaxSunSoftness);
+        sun.color = getColorOption(L, 2, "color", sun.color);
+        sun.nearLimit = getNumberOption(L, 2, "near", sun.nearLimit, kMaxSunNear);
+        sun.guard = (int) std::lround(getNumberOption(L, 2, "guard", (float) sun.guard, kMaxSunGuard));
+    }
+
+    // Off is off, whatever the options are, so going over them while it's off costs no events
+    if (sun.strength <= 0.0f)
+        sun = LuaSun();
+
+    if (!script.engine->isUnloading)
+        script.sun = sun;
+    return 0;
+}
+
+const LuaScript* LuaEngine::findNewestSun() const
+{
+    // The newest request wins, as in the app (LuaSunRequests). A stopped script's was set back to off when it closed
+    const LuaScript* newest = nullptr;
+    for (const auto& script : scripts)
+    {
+        if (script->sentSun.strength > 0.0f && (!newest || script->sentSunOrder > newest->sentSunOrder))
+            newest = script.get();
+    }
+    return newest;
+}
+
+melonDS::SunShadows LuaEngine::sunShadows() const
+{
+    const LuaScript* newest = findNewestSun();
+    melonDS::SunShadows sun;
+    if (newest)
+    {
+        sun.On = true;
+        sun.Direction = newest->sentSun.direction;
+        sun.Up = newest->sentSun.up;
+    }
+    return sun;
+}
+
+std::optional<int> LuaEngine::sunGuard() const
+{
+    const LuaScript* newest = findNewestSun();
+    return newest ? std::optional<int>(newest->sentSun.guard) : std::nullopt;
+}
+
+int LuaEngine::luaGpuHideTextures(lua_State* L)
+{
+    return setTextureList(L, "hide_textures", melonDS::MaxHiddenTextures, &LuaScript::hiddenTextures, &LuaScript::hiddenTexturesOrder,
+                          &LuaEngine::hiddenTextureRequests);
+}
+
+int LuaEngine::luaGpuLightTextures(lua_State* L)
+{
+    return setTextureList(L, "light_textures", melonDS::MaxLightTextures, &LuaScript::lightTextures, &LuaScript::lightTexturesOrder,
+                          &LuaEngine::lightTextureRequests);
+}
+
+int LuaEngine::luaGpuUiTextures(lua_State* L)
+{
+    return setTextureList(L, "ui_textures", melonDS::MaxUiTextures, &LuaScript::uiTextures, &LuaScript::uiTexturesOrder,
+                          &LuaEngine::uiTextureRequests);
+}
+
+int LuaEngine::luaGpuFocusTextures(lua_State* L)
+{
+    return setTextureList(L, "focus_textures", melonDS::MaxFocusTextures, &LuaScript::focusTextures, &LuaScript::focusTexturesOrder,
+                          &LuaEngine::focusTextureRequests);
+}
+
+int LuaEngine::setTextureList(lua_State* L, const char* name, size_t maxHashes, std::vector<melonDS::u32> LuaScript::* list,
+                              unsigned int LuaScript::* order, unsigned int LuaEngine::* requests)
+{
+    LuaScript& script = getScript(L);
+    std::array<melonDS::u32, std::max({melonDS::MaxHiddenTextures, melonDS::MaxLightTextures, melonDS::MaxUiTextures,
+                                       melonDS::MaxFocusTextures})> hashes;
+    maxHashes = std::min(maxHashes, hashes.size());
+    size_t count = 0;
+    // nil or {} lists nothing
+    if (!lua_isnoneornil(L, 1))
+    {
+        luaL_checktype(L, 1, LUA_TTABLE);
+        const lua_Unsigned length = lua_rawlen(L, 1);
+        if (length > maxHashes)
+            luaL_error(L, "%s takes at most %d hashes", name, (int) maxHashes);
+        for (lua_Unsigned i = 1; i <= length; i++)
+        {
+            lua_rawgeti(L, 1, (lua_Integer) i);
+            int isInteger;
+            const lua_Integer hash = lua_tointegerx(L, -1, &isInteger);
+            if (!isInteger || hash < 1 || hash > 0xFFFFFFFF)
+                luaL_error(L, "a texture hash must be a whole number from 1 to 0xFFFFFFFF");
+            lua_pop(L, 1);
+            hashes[count++] = (melonDS::u32) hash;
+        }
+    }
+
+    std::vector<melonDS::u32>& current = script.*list;
+    if (script.engine->isUnloading || std::equal(hashes.begin(), hashes.begin() + count, current.begin(), current.end()))
+        return 0;
+    current.assign(hashes.begin(), hashes.begin() + count);
+    if (count)
+        script.*order = ++(script.engine->*requests);
+    return 0;
+}
+
+const std::vector<melonDS::u32>& LuaEngine::newestTextureList(std::vector<melonDS::u32> LuaScript::* list, unsigned int LuaScript::* order) const
+{
+    // The newest list wins, as for the sun. A stopped script's was cleared when it closed
+    static const std::vector<melonDS::u32> none;
+    const LuaScript* newest = nullptr;
+    for (const auto& script : scripts)
+    {
+        if (!((*script).*list).empty() && (!newest || (*script).*order > newest->*order))
+            newest = script.get();
+    }
+    return newest ? newest->*list : none;
+}
+
+const std::vector<melonDS::u32>& LuaEngine::hiddenTextures() const
+{
+    return newestTextureList(&LuaScript::hiddenTextures, &LuaScript::hiddenTexturesOrder);
+}
+
+const std::vector<melonDS::u32>& LuaEngine::lightTextures() const
+{
+    return newestTextureList(&LuaScript::lightTextures, &LuaScript::lightTexturesOrder);
+}
+
+const std::vector<melonDS::u32>& LuaEngine::uiTextures() const
+{
+    return newestTextureList(&LuaScript::uiTextures, &LuaScript::uiTexturesOrder);
+}
+
+const std::vector<melonDS::u32>& LuaEngine::focusTextures() const
+{
+    return newestTextureList(&LuaScript::focusTextures, &LuaScript::focusTexturesOrder);
+}
+
+bool LuaEngine::wantsDepth() const
+{
+    for (const auto& script : scripts)
+    {
+        // A stopped script's were set back to off when it closed. only_3d is on by default, so it only counts while the glow is on, as the
+        // lights do (a glow that's off is the default part, lights off)
+        const LuaBloom& bloom = script->sentBloom;
+        if (script->sentDepthOfField.strength > 0.0f || script->sentShade.strength > 0.0f || script->sentSun.strength > 0.0f ||
+            bloom.haze > 0.0f || (bloom.strength > 0.0f && (bloom.onlyThreeD || bloom.lights)))
+            return true;
+    }
+    return false;
 }
 
 }

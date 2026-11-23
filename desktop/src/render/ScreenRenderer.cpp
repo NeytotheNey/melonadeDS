@@ -113,18 +113,18 @@ void GetBackgroundCoords(BackgroundMode mode, int backgroundWidth, int backgroun
 
 }
 
-ScreensDrawing DrawingFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, float surfaceWidth)
+ScreensDrawing DrawingFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, int frameGuard, float surfaceWidth)
 {
     const IntRect* top = screens.Top ? &screens.Top->Rect : nullptr;
     const IntRect* bottom = screens.Bottom ? &screens.Bottom->Rect : nullptr;
-    return GetScreensDrawing(top, bottom, frameTopWidth, screens.IsWideLayout, screens.AreScreensSwapped, surfaceWidth, frameMargin);
+    return GetScreensDrawing(top, bottom, frameTopWidth, screens.IsWideLayout, screens.AreScreensSwapped, surfaceWidth, frameMargin, frameGuard);
 }
 
-ScreenRects RectsFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, float surfaceWidth)
+ScreenRects RectsFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, int frameGuard, float surfaceWidth)
 {
     if (screens.AsPlaced)
         return {screens.Top ? screens.PlacedTop : Rect(), screens.Bottom ? screens.PlacedBottom : Rect()};
-    ScreensDrawing drawing = DrawingFor(screens, frameTopWidth, frameMargin, surfaceWidth);
+    ScreensDrawing drawing = DrawingFor(screens, frameTopWidth, frameMargin, frameGuard, surfaceWidth);
     ScreenRects rects;
     if (drawing.Top)
         rects.Top = Rect::Of(drawing.Top->DrawRect);
@@ -133,9 +133,9 @@ ScreenRects RectsFor(const SurfaceScreens& screens, int frameTopWidth, int frame
     return rects;
 }
 
-bool ShouldFoldDeband(bool isSwitchOn, bool canFilterFold, bool isTiltShiftActive, long long drawnPixels, long long frameTexels)
+bool ShouldFoldDeband(bool isSwitchOn, bool canFilterFold, bool isLuaEffectActive, long long drawnPixels, long long frameTexels)
 {
-    return isSwitchOn && canFilterFold && !isTiltShiftActive && drawnPixels >= 1 && drawnPixels < frameTexels;
+    return isSwitchOn && canFilterFold && !isLuaEffectActive && drawnPixels >= 1 && drawnPixels < frameTexels;
 }
 
 ScreenRenderer::~ScreenRenderer()
@@ -261,11 +261,13 @@ void ScreenRenderer::UpdateScreenCoordinates()
     // The texture has 2 empty lines between the screens (SCREEN_GAP), and the top screen's half is taller by the camera's margin (stage 2)
     FrameTextureLayout layout(FrameTopScreenMargin);
     int frameWidth = std::max(FrameTopScreenWidth, SCREEN_WIDTH);
+    // The sun's guard band is rendered and filtered but cut off here (Frame::topScreenGuard, which MelonInstance keeps within the frame)
+    int guard = FrameTopScreenGuard;
 
     // Each screen's quad: where it's drawn, the columns and rows of its half it shows, and the size its middle 256 columns and 192 rows are
     // shown at (the output cap's need). The app's layouts go through getScreensDrawing; the desktop's own placements are drawn where they
-    // are, on fractional pixels as the test frontend drew them, the top screen's whole half (the camera's margin too) where the app shows its
-    // middle rows
+    // are, on fractional pixels as the test frontend drew them, the top screen's whole half (the camera's margin too, not the guard band)
+    // where the app shows its middle rows
     struct ScreenQuad
     {
         Rect Draw;
@@ -278,7 +280,11 @@ void ScreenRenderer::UpdateScreenCoordinates()
         if (Screens.Top && Screens.PlacedTop.W > 0 && Screens.PlacedTop.H > 0)
         {
             const Rect& r = Screens.PlacedTop;
-            top = ScreenQuad {r, 0.f, 1.f, 0.f, (float)layout.TopScreenRows, r.W * SCREEN_WIDTH / frameWidth, r.H * SCREEN_HEIGHT / layout.TopScreenRows};
+            int shownWidth = frameWidth - 2 * guard;
+            int shownRows = layout.TopScreenRows - 2 * guard;
+            float guardU = guard / (float)frameWidth;
+            top = ScreenQuad {r, guardU, 1.f - guardU, (float)guard, (float)(layout.TopScreenRows - guard), r.W * SCREEN_WIDTH / shownWidth,
+                r.H * SCREEN_HEIGHT / shownRows};
         }
         if (Screens.Bottom && Screens.PlacedBottom.W > 0 && Screens.PlacedBottom.H > 0)
         {
@@ -290,7 +296,7 @@ void ScreenRenderer::UpdateScreenCoordinates()
     else
     {
         // Lay out both screens for the current frame width, swap and wide-layout flags (see getScreensDrawing)
-        ScreensDrawing drawing = DrawingFor(Screens, FrameTopScreenWidth, FrameTopScreenMargin, Width);
+        ScreensDrawing drawing = DrawingFor(Screens, FrameTopScreenWidth, FrameTopScreenMargin, FrameTopScreenGuard, Width);
         auto quad = [](const ScreenDrawing& d)
         {
             return ScreenQuad {Rect::Of(d.DrawRect), d.LeftU, d.RightU, d.TopRow, d.BottomRow, (float)d.NativeRect.W, (float)d.NativeRect.H};
@@ -456,9 +462,9 @@ void ScreenRenderer::UpdateShader()
     MustRebuildScreenFilter = false;
 }
 
-bool ScreenRenderer::CanDrawHalvesAt1x(bool isTiltShiftOn) const
+bool ScreenRenderer::CanDrawHalvesAt1x(bool isLuaEffectOn) const
 {
-    if (isTiltShiftOn)
+    if (isLuaEffectOn)
         return false;
     // before the filter is built for the configuration (the first frame of a game, or a change, asks before the next draw), what it will be
     bool isFilterCurrent = ScreenFilter && Config.Filtering == ScreenFilterFiltering && Config.Deband == ScreenFilterDeband
@@ -468,7 +474,8 @@ bool ScreenRenderer::CanDrawHalvesAt1x(bool isTiltShiftOn) const
     return ScreenFilter->CanDrawHalvesAt1x();
 }
 
-void ScreenRenderer::DrawFrame(const FrameView& frame, const std::optional<TiltShift>& tiltShift, bool waitForBackground)
+void ScreenRenderer::DrawFrame(const FrameView& frame, const std::optional<TiltShift>& tiltShift, const std::optional<Bloom>& bloom,
+    const std::optional<DepthOfField>& depthOfField, const std::optional<Shade>& shade, const std::optional<Sun>& sun, bool waitForBackground)
 {
     // The screens' UVs follow the width of the frame being presented, and the rows of its layout, which the camera's margin makes taller
     if (frame.IsValid() && frame.TopWidth != FrameTopScreenWidth)
@@ -481,6 +488,11 @@ void ScreenRenderer::DrawFrame(const FrameView& frame, const std::optional<TiltS
         FrameTopScreenMargin = frame.TopMargin;
         MustUpdateConfiguration = true;
     }
+    if (frame.IsValid() && frame.TopGuard != FrameTopScreenGuard)
+    {
+        FrameTopScreenGuard = frame.TopGuard;
+        MustUpdateConfiguration = true;
+    }
     if (MustUpdateConfiguration)
     {
         ApplyRendererConfiguration();
@@ -491,31 +503,35 @@ void ScreenRenderer::DrawFrame(const FrameView& frame, const std::optional<TiltS
     // no-filter shader. Any other way, RenderPrePasses expands it into the full frame first
     VideoFilterPipeline* filter = ScreenFilter.get();
     const Shader* halvesAt1xShader = nullptr;
-    if (frame.IsValid() && frame.HalvesAt1x != 0 && !tiltShift && filter && filter->CanDrawHalvesAt1x())
+    if (frame.IsValid() && frame.HalvesAt1x != 0 && !tiltShift && !bloom && !depthOfField && !shade && !sun && filter
+        && filter->CanDrawHalvesAt1x())
         halvesAt1xShader = filter->GetHalvesAt1xShader();
 
     // debug.melonade.debandfold: deband inside the screen shader, once per drawn pixel, instead of the pre-pass over every frame texel, when
     // ShouldFoldDeband allows it for this frame and layout; the pre-pass otherwise, or if the deband screen shader doesn't build
     long long frameTexels = (long long)frame.Width * frame.Height;
-    // Only a tilt-shift that adds passes (VideoFilterPipeline::RenderPrePasses) keeps deband in the pre-pass
-    bool isTiltShiftActive = tiltShift && (tiltShift->HasBlur() || tiltShift->HasColorBoost());
+    // Only a Lua effect that adds passes (a shading, sun shadows, depth of field, tilt-shift, bloom or vignette, see
+    // VideoFilterPipeline::RenderPrePasses) keeps deband in the pre-pass
+    bool isLuaEffectActive = (tiltShift && (tiltShift->HasBlur() || tiltShift->HasColorBoost())) || (bloom && !bloom->IsOff())
+        || (depthOfField && !depthOfField->IsOff()) || (shade && !shade->IsOff()) || (sun && !sun->IsOff());
     const Shader* debandScreenShader = nullptr;
     if (frame.IsValid() && !halvesAt1xShader && filter
-        && ShouldFoldDeband(IsDebandFoldOn, filter->CanFoldDeband(), isTiltShiftActive, ScreensDrawnPixels, frameTexels))
+        && ShouldFoldDeband(IsDebandFoldOn, filter->CanFoldDeband(), isLuaEffectActive, ScreensDrawnPixels, frameTexels))
         debandScreenShader = filter->GetDebandScreenShader();
     if (frame.IsValid() && (debandScreenShader != nullptr) != WasDebandFolded)
     {
         WasDebandFolded = debandScreenShader != nullptr;
         if (VerboseLog)
-            printf("DEBANDFOLD: %s (filter %d, tilt-shift %d, drawn %lld px, frame %lld texels)\n",
-                WasDebandFolded ? "screen shader" : "pre-pass or none", filter && filter->CanFoldDeband(), isTiltShiftActive, ScreensDrawnPixels,
+            printf("DEBANDFOLD: %s (filter %d, Lua effect %d, drawn %lld px, frame %lld texels)\n",
+                WasDebandFolded ? "screen shader" : "pre-pass or none", filter && filter->CanFoldDeband(), isLuaEffectActive, ScreensDrawnPixels,
                 frameTexels);
     }
 
     // Pre-passes must run before anything is drawn to the window; also called for no frame, to clear the cache
     const FilterOutput* screenTexture = nullptr;
     if (!halvesAt1xShader && filter)
-        screenTexture = &filter->RenderPrePasses(frame, IsBottomScreenWideInQuads, tiltShift, debandScreenShader != nullptr);
+        screenTexture = &filter->RenderPrePasses(frame, IsBottomScreenWideInQuads, tiltShift, bloom, depthOfField, shade, sun,
+            debandScreenShader != nullptr);
 
     glClear(GL_COLOR_BUFFER_BIT);
     if (!frame.IsValid())

@@ -187,6 +187,87 @@ void AndroidMelonEventMessenger::onLuaTiltShift(int scriptId, float top, float b
     MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_TILT_SHIFT, sizeof(data), &data);
 }
 
+void AndroidMelonEventMessenger::onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize,
+    bool onlyThreeD, float haze, int hazeColor, float hazeStart, float hazeFalloff, bool lights, float lightThreshold, float lightStrength)
+{
+    // Read in this order by AndroidEmulatorManager (EventLuaBloom)
+    struct {
+        int32_t scriptId;
+        float strength;
+        float threshold;
+        float radius;
+        float vignette;
+        float vignetteSize;
+        int32_t onlyThreeD;
+        float haze;
+        int32_t hazeColor;
+        float hazeStart;
+        float hazeFalloff;
+        int32_t lights;
+        float lightThreshold;
+        float lightStrength;
+    } data = {
+        (int32_t) scriptId, strength, threshold, radius, vignette, vignetteSize, onlyThreeD ? 1 : 0, haze, (int32_t) hazeColor, hazeStart,
+        hazeFalloff, lights ? 1 : 0, lightThreshold, lightStrength,
+    };
+
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_BLOOM, sizeof(data), &data);
+}
+
+void AndroidMelonEventMessenger::onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth, float range, float falloff)
+{
+    // Read in this order by AndroidEmulatorManager (EventLuaDepthOfField)
+    struct {
+        int32_t scriptId;
+        float strength;
+        float radius;
+        float focusX;
+        float focusY;
+        float focusDepth;
+        float range;
+        float falloff;
+    } data = { (int32_t) scriptId, strength, radius, focusX, focusY, focusDepth, range, falloff };
+
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_DEPTH_OF_FIELD, sizeof(data), &data);
+}
+
+void AndroidMelonEventMessenger::onLuaShade(int scriptId, float strength, float radius, float range, int color)
+{
+    // Read in this order by AndroidEmulatorManager (EventLuaShade)
+    struct {
+        int32_t scriptId;
+        float strength;
+        float radius;
+        float range;
+        int32_t color;
+    } data = { (int32_t) scriptId, strength, radius, range, (int32_t) color };
+
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_SHADE, sizeof(data), &data);
+}
+
+void AndroidMelonEventMessenger::onLuaSun(int scriptId, float strength, const std::array<float, 3>& direction, const std::array<float, 3>& up,
+    float length, int steps, float bias, float softness, int color, float nearLimit)
+{
+    // Read in this order by AndroidEmulatorManager (EventLuaSun)
+    struct {
+        int32_t scriptId;
+        float strength;
+        float direction[3];
+        float up[3];
+        float length;
+        int32_t steps;
+        float bias;
+        float softness;
+        int32_t color;
+        float nearLimit;
+    } data = {
+        (int32_t) scriptId, strength, { direction[0], direction[1], direction[2] }, { up[0], up[1], up[2] }, length, (int32_t) steps, bias,
+        softness, (int32_t) color, nearLimit,
+    };
+
+    MelonDSAndroid::fireEmulatorEvent(EVENT_LUA_SUN, sizeof(data), &data);
+}
+
 void AndroidMelonEventMessenger::onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY)
 {
     // Read in this order by AndroidEmulatorManager (EventLuaWideCamera)

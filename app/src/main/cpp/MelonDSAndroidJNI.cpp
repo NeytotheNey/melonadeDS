@@ -102,6 +102,10 @@ static std::atomic_bool isFramePacingBufferEnabled = false;
 static std::atomic<int64_t> upcomingFrameDueNs = 0;
 // Paced frames are due a fixed offset after a vsync, and this fraction of a refresh (half) of tolerance absorbs that offset and any phase error
 static const int64_t PRESENT_DUE_TOLERANCE_REFRESH_DENOMINATOR = 2;
+// PresentFrameWrapper.depthCamera's layout (PresentFrameWrapper.kt's DEPTH_CAMERA_*): the projection's 16 floats, then the viewport's 4
+static const jsize DEPTH_CAMERA_PROJECTION = 0;
+static const jsize DEPTH_CAMERA_VIEWPORT = 16;
+static const jsize DEPTH_CAMERA_SIZE = 20;
 
 /**
  * FrameRenderCallback.renderFrame(), looked up on the first call (always from Java, so FindClass() uses the app's class loader) through a global
@@ -113,7 +117,7 @@ static jmethodID getRenderFrameMethodId(JNIEnv* env)
         jclass localCallbackClass = env->FindClass("me/magnum/melonds/ui/emulator/render/FrameRenderCallback");
         jclass callbackClass = (jclass) env->NewGlobalRef(localCallbackClass);
         env->DeleteLocalRef(localCallbackClass);
-        return env->GetMethodID(callbackClass, "renderFrame", "(ZIIIIIIIIIIIJ)Z");
+        return env->GetMethodID(callbackClass, "renderFrame", "(ZIIIIIIIIIIIIIZFJ)Z");
     }();
     return renderFrameMethodId;
 }
@@ -331,7 +335,7 @@ Java_me_magnum_melonds_MelonEmulator_onDisplayVsync(JNIEnv* env, jobject thiz, j
 }
 
 JNIEXPORT void JNICALL
-Java_me_magnum_melonds_MelonEmulator_presentFrame(JNIEnv* env, jobject thiz, jlong deadlineNs, jlong vsyncTimeNs, jobject renderFrameCallback)
+Java_me_magnum_melonds_MelonEmulator_presentFrame(JNIEnv* env, jobject thiz, jlong deadlineNs, jlong vsyncTimeNs, jfloatArray depthCamera, jobject renderFrameCallback)
 {
     jmethodID renderFrameMethodId = getRenderFrameMethodId(env);
 
@@ -364,15 +368,28 @@ Java_me_magnum_melonds_MelonEmulator_presentFrame(JNIEnv* env, jobject thiz, jlo
         eglWaitSyncKHR(currentDisplay, presentationFrame->renderFence, 0);
         // Bit 0: the top screen has Lua drawings, bit 1: the bottom screen has
         jint overlayScreens = (presentationFrame->overlayRows[0].isEmpty() ? 0 : 1) | (presentationFrame->overlayRows[1].isEmpty() ? 0 : 2);
+        // Only a depth the compositor wrote this frame, since the texture outlives a switch to a draw that doesn't
+        jint depthTexture = presentationFrame->hasDepth ? (jint) presentationFrame->depthTexture : 0;
+        // Its camera into the caller's array (PresentFrameWrapper.depthCamera: DEPTH_CAMERA_PROJECTION, DEPTH_CAMERA_VIEWPORT) whenever
+        // there's depth, valid or not, as the depth of field's view distances take the projection either way; the array keeps whatever it
+        // held otherwise
+        bool hasDepthCamera = depthTexture != 0 && depthCamera != nullptr && env->GetArrayLength(depthCamera) >= DEPTH_CAMERA_SIZE;
+        jboolean depthCameraValid = hasDepthCamera && presentationFrame->depthCameraValid;
+        jfloat depthFocus = depthTexture != 0 ? presentationFrame->depthFocus : NO_DEPTH_FOCUS;
+        if (hasDepthCamera)
+        {
+            env->SetFloatArrayRegion(depthCamera, DEPTH_CAMERA_PROJECTION, 16, presentationFrame->depthProjection.data());
+            env->SetFloatArrayRegion(depthCamera, DEPTH_CAMERA_VIEWPORT, 4, presentationFrame->depthViewport.data());
+        }
         // GPU::Comp1x: the screens at 1x in the texture (Frame::halvesAt1x); the callback says whether every surface can draw such a frame
-        jboolean halvesAt1xSupported = env->CallBooleanMethod(renderFrameCallback, renderFrameMethodId, true, (jint) presentationFrame->frameTexture, (jint) presentationFrame->width, (jint) presentationFrame->height, (jint) presentationFrame->topScreenWidth, (jint) presentationFrame->topScreenMargin, (jint) presentationFrame->overlayTexture, overlayScreens, (jint) presentationFrame->halvesAt1x, (jint) presentationFrame->scaleAt1x, (jint) presentationFrame->halfScaleAt1x, (jint) presentationFrame->topWingLines, (jlong) presentationFrame->sequence);
+        jboolean halvesAt1xSupported = env->CallBooleanMethod(renderFrameCallback, renderFrameMethodId, true, (jint) presentationFrame->frameTexture, (jint) presentationFrame->width, (jint) presentationFrame->height, (jint) presentationFrame->topScreenWidth, (jint) presentationFrame->topScreenMargin, (jint) presentationFrame->topScreenGuard, (jint) presentationFrame->overlayTexture, overlayScreens, (jint) presentationFrame->halvesAt1x, (jint) presentationFrame->scaleAt1x, (jint) presentationFrame->halfScaleAt1x, (jint) presentationFrame->topWingLines, depthTexture, depthCameraValid, depthFocus, (jlong) presentationFrame->sequence);
         MelonDSAndroid::setHalvesAt1xSupported(halvesAt1xSupported);
         EGLSyncKHR presentFence = eglCreateSyncKHR(currentDisplay, EGL_SYNC_FENCE_KHR, nullptr);
         presentationFrame->presentFence = presentFence;
     }
     else
     {
-        jboolean halvesAt1xSupported = env->CallBooleanMethod(renderFrameCallback, renderFrameMethodId, false, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, (jlong) 0);
+        jboolean halvesAt1xSupported = env->CallBooleanMethod(renderFrameCallback, renderFrameMethodId, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, JNI_FALSE, (jfloat) NO_DEPTH_FOCUS, (jlong) 0);
         MelonDSAndroid::setHalvesAt1xSupported(halvesAt1xSupported);
     }
 }
