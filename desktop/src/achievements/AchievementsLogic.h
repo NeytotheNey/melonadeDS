@@ -31,6 +31,10 @@ std::string StripPingRichPresence(const std::string& body);
 // the r= field of [body] ("login2", "ping", ...), for the log: never the rest, which has the token or the password
 std::string RequestApi(const std::string& body);
 
+// A task made for the session numbered [madeFor] (a mid-game login's load, posted to the emulator thread) still applies when it runs: a
+// session is [active] and it's that one ([current]; each BeginSession counts the number up)
+bool IsSameSession(bool active, uint32_t current, uint32_t madeFor);
+
 // What the UI thread hears about, copied out of rc_client's events (so no pointer of rc_client's crosses threads) or made by Achievements
 // itself. The fields that don't apply to a type stay empty or 0
 struct AchievementEvent

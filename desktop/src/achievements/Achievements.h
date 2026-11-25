@@ -84,7 +84,8 @@ public:
     {
         // runs [task] on the UI thread at its next turn (DesktopEventMessenger::Post); any thread
         std::function<void(std::function<void()>)> PostToUi;
-        // runs [task] on the emulator thread between frames (EmulatorThread::Post) while a session is active; UI thread
+        // runs [task] on the emulator thread between frames (EmulatorThread::Post) while a session is active; any thread (the UI thread's
+        // logout, a worker's mid-game login)
         std::function<void(std::function<void()>)> PostToEmulator;
         // a password login's user name and token, to keep (ra_username, and desktop_ra_token through Secret.h)
         std::function<void(const std::string& userName, const std::string& token)> SaveToken;
@@ -147,11 +148,15 @@ public:
 
     // The client, null when disabled, for the UI's lists. rc_client locks itself in rc_client_create_achievement_list,
     // rc_client_create_leaderboard_list, rc_client_create_subset_list, rc_client_has_achievements, rc_client_has_leaderboards and
-    // rc_client_get_rich_presence_message, so the UI thread may call those (and destroy the lists they make). rc_client_get_game_info,
+    // rc_client_get_rich_presence_message, so the UI thread may call those (and destroy the lists they make). The lists point into the
+    // game, though, which a logout mid-game frees on the emulator thread: read them under HoldGame(). rc_client_get_game_info,
     // rc_client_get_user_info, rc_client_get_achievement_info and rc_client_get_user_game_summary return or read the client's own data without
     // its lock while a worker or the emulator thread may change or free it: use GetUser(), GetSession() and the events instead. Nothing
     // that loads, unloads or logs in goes through here
     rc_client_t* Client() const { return Client_; }
+    // Holds off everything that unloads or replaces the game (CallbackLock) until the lock goes: around making a list, copying what's
+    // needed out of it and destroying it. Not while calling Logout(), BeginSession() or EndSession(), which take it. UI thread
+    std::unique_lock<std::mutex> HoldGame() { return std::unique_lock(CallbackLock); }
 
 private:
     struct Job
@@ -195,11 +200,12 @@ private:
     int InFlight = 0;
     bool Stopping = false;
     std::vector<std::thread> Workers;
-    // the workers' calls into rc_client, one at a time
+    // the workers' calls into rc_client, one at a time, and everything that unloads or replaces the game (EndSession, the logout, a
+    // load), which rc_client doesn't order against a reply's callback; taken before any other lock here
     std::mutex CallbackLock;
 
-    // the user and the session: UserLock guards UserInfo; SessionLock guards SessionInfo, the session's hash and whether its load started,
-    // and orders a login's load against EndSession()
+    // the user and the session: UserLock guards UserInfo; SessionLock guards SessionInfo, the session's hash, number and whether its load
+    // started, and orders a login's load against EndSession()
     mutable std::mutex UserLock;
     User UserInfo;
     // logged in with --ra-token: its token is never saved, and a logout or its expiry leaves the saved one alone; under UserLock
@@ -208,6 +214,8 @@ private:
     Session SessionInfo;
     std::string SessionHash;
     bool SessionLoadStarted = false;
+    // counted up by each BeginSession, so a task made for one session can tell (IsSameSession) when it runs in another
+    uint32_t SessionNumber = 0;
 
     std::atomic_bool RichPresence = true;
     // the session's hardcore, for the ping shim on the workers

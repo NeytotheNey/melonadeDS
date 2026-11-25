@@ -64,14 +64,14 @@ public:
 
     void Draw(App& app) override
     {
-        if (!Built || Seen != app.AchievementChanges())
-            Rebuild(app);
-        // the game unloaded meanwhile (a logout): back to the pause menu
-        if (Rows.empty() && !HasAchievementList(app.GetHost()))
+        // the game unloaded meanwhile (a logout, the session's end): back to the pause menu, also with the rows copied before
+        if (!HasAchievementList(app.GetHost()))
         {
             app.Pop();
             return;
         }
+        if (!Built || Seen != app.AchievementChanges())
+            Rebuild(app);
         const Palette& p = app.Colors();
         ImVec2 win = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
         float footer = FooterHeight(app);
@@ -208,6 +208,8 @@ private:
             return;
         Session = ra->GetSession();
         Hardcore = ra->IsHardcoreSession();
+        // the lists point into the game, which a logout mid-game frees on the emulator thread: it stays until they're copied and destroyed
+        std::unique_lock game = ra->HoldGame();
         std::vector<std::pair<uint32_t, std::string>> sets = ListSets(client, Session.GameId);
         bool split = sets.size() > 1;
         std::unordered_map<uint32_t, uint32_t> setOf;
@@ -257,6 +259,7 @@ private:
             }
         }
         rc_client_destroy_achievement_list(list);
+        game.unlock();
 
         if (!split)
             sets.assign(1, {0, ""});

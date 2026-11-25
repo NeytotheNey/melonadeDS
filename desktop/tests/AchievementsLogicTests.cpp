@@ -127,6 +127,19 @@ TEST(AchievementsPing, apiIsTheRField)
     CHECK(RequestApi("u=test") == "");
 }
 
+TEST(AchievementsSession, aTaskRunsOnlyInItsOwnSession)
+{
+    // made in session 3, which still runs
+    CHECK(IsSameSession(true, 3, 3));
+    // its game stopped, and nothing runs
+    CHECK(!IsSameSession(false, 3, 3));
+    // the next game's session runs
+    CHECK(!IsSameSession(true, 4, 3));
+    // later ones, stopped or running
+    CHECK(!IsSameSession(false, 4, 3));
+    CHECK(!IsSameSession(true, 5, 3));
+}
+
 TEST(AchievementsEvents, achievementIsCopied)
 {
     rc_client_achievement_t achievement {};

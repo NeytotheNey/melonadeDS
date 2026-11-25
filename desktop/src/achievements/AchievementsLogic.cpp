@@ -146,6 +146,11 @@ std::string RequestApi(const std::string& body)
     return "";
 }
 
+bool IsSameSession(bool active, uint32_t current, uint32_t madeFor)
+{
+    return active && current == madeFor;
+}
+
 std::string BadgeFileName(const std::string& url)
 {
     std::string path = url.substr(0, url.find_first_of("?#"));

@@ -461,7 +461,7 @@ doing). Requests carry the User-Agent `melonadeDS-desktop/<version>` and nothing
 
 ### RetroAchievements
 
-The achievements while playing (`src/achievements/`) run on rcheevos' `rc_client` (rcheevos 12.2, the app's vendored copy), not on the
+The achievements while playing (`src/achievements/`) run on rcheevos' `rc_client` (the app's vendored rcheevos, 12.3 by its `rc_version.h`), not on the
 app's `RetroAchievementsManager` and its `rc_runtime`, which stays empty on the desktop. `rc_client` loads a game's achievements,
 leaderboards and rich presence by its RetroAchievements hash (the library's, `rc_hash`'s DS method), runs them each frame and sends
 the unlocks, scores and pings itself. It needs rcheevos' server API (`src/rapi`), which the app's `rcheevos` target leaves out: the
@@ -481,7 +481,7 @@ INFO (`ra: ...` on stderr).
   logout forgets it and unloads the game.
 - **A session per game**: started as the game boots. Hardcore is decided then and stays for the session: logged in (or logging in) at
   its start, and `ra_hardcore_enabled` (off by default) or `--ra-hardcore`. A login made while a game runs loads it in softcore.
-  Unofficial achievements, encore and spectator mode are off. `rc_client` keeps leaderboards off in softcore by itself (12.2 has no
+  Unofficial achievements, encore and spectator mode are off. `rc_client` keeps leaderboards off in softcore by itself (this copy has no
   switch for it: `allow_leaderboards_in_softcore` is never set). With `ra_rich_presence` off (on by default), a softcore session's
   pings leave out the rich presence (the `m=` field); hardcore always sends it.
 - **The emulator thread** runs `rc_client_do_frame` after each frame and `rc_client_idle` every 200 ms while the game is paused
@@ -506,7 +506,7 @@ logged out or with a failed login since):
   disabled (options left out) whenever a game started now would be hardcore.
 - **Stopping with unlocks still unsent** (`HasPendingUnlocks`, between `rc_client`'s disconnected and reconnected events), in any
   session: Quit to library, Quit melonadeDS and closing the window ask "Some unlocks haven't reached RetroAchievements yet." with Keep
-  playing (focused) and Stop anyway.
+  playing (focused) and Stop anyway. A hidden run, which can't show the question, quits without asking on a window close.
 
 **Settings > Achievements** (`--open settings/achievements`): the account ("Not logged in", "Your RetroAchievements login expired.", or
 "Logged in as NAME" with the hardcore and softcore points, and Log out, asked first), then Hardcore mode (`ra_hardcore_enabled`, off),
@@ -550,7 +550,7 @@ title with a Missable chip, two lines of description, a locked one's progress ba
 per section and moves with the controller, keyboard and mouse like the library's list. Confirm opens
 `https://retroachievements.org/achievement/<id>` in the default browser (in exclusive fullscreen a toast says to leave it first; a hidden
 run only prints `ui: open URL`). It's copied out of `rc_client`'s lists when it opens and again on an unlock, a reset or a state load,
-and Back returns to the pause menu.
+closes by itself on a logout or when the session ends, and Back returns to the pause menu.
 
 **Badges** (`src/achievements/BadgeCache.h`) are kept by URL in `<profile>\media\ra\badges\<the URL's file name>` (letters, digits, `-`,
 `_` and `.` only, an image's extension, at most 100 bytes); the game's icon is the library's `media\ra\<game id>\icon.png` when the sync
@@ -570,7 +570,9 @@ game's start.
 retroachievements.org: every hash is "Fake Game", with A1 unlocking 300 frames after its achievements start, A2 never, A3 with a
 measured progress, a leaderboard that starts 60 frames in and submits 600 frames in, and a constant rich presence line. `--log FILE`
 writes a JSON line per request (the password and token redacted, the `h` hardcore flag), `--fail-awards N` answers the first N
-unlocks with HTTP 503. From PowerShell:
+unlocks with HTTP 503, `--delay-ms MS [--delay-api r1,r2]` holds replies, and `--scenario full` adds a challenge achievement, a
+masterable core set and a bonus subset (its header has the frames). `tools/ra-late-award-server.py` holds a mastering unlock's reply,
+for the stop-before-the-reply case. From PowerShell:
 
     python -I tools\fake-ra-server.py --port 8765 --log ra.jsonl
     & .\build-desktop\melonade-desktop.exe --hidden --frames 900 --ra-host http://127.0.0.1:8765 --ra-user test --ra-token t0k3n `
@@ -658,7 +660,7 @@ app's Kotlin side ported in `src/lua/`.
 - **What they get.** The folder's modules and PNGs, within `LuaScriptFolderContent`'s caps (an image's size is read with WIC first, so
   one over 1024 a side or past the 4M pixel budget is never decoded); their saved `melon.storage` from
   `<profile>/lua-data/<game code>/<script>.bin` (homebrew by a hash of the game's settings key); and `melon.state` loads, which the app
-  only refuses under RetroAchievements hardcore, which the desktop doesn't have. A script that can't be read is reported as switched off
+  refuses under RetroAchievements hardcore as the app does (where no script runs at all). A script that can't be read is reported as switched off
   with the app's reason, as a toast and on stderr, like a script that stops on an error.
 - **Storage.** Snapshots are written on a thread of the session's own whenever native says some are waiting (every 10 s of changes, a
   `flush()`, a pause), and on the spot before the next boot reads them and when the game stops or the app quits.

@@ -1,6 +1,7 @@
 """A fake RetroAchievements server for the desktop's RetroAchievements tests (desktop/README.md, RetroAchievements).
 
-    python -I tools/fake-ra-server.py [--port 8765] [--log requests.jsonl] [--fail-awards N]
+    python -I tools/fake-ra-server.py [--port 8765] [--log requests.jsonl] [--fail-awards N] [--scenario basic|full]
+                                      [--delay-ms MS [--delay-api R,...]]
 
 then run the desktop with --ra-host http://127.0.0.1:8765 (and --ra-user test --ra-token t0k3n to log in for the run). Python's standard
 library only. It answers dorequest.php (POST form fields or a GET query, as rc_client 12.2 sends them) for:
@@ -19,7 +20,21 @@ library only. It answers dorequest.php (POST form fields or a GET query, as rc_c
     submitlbentry     the entry, ranked first of one
     ping              accepted
     lbinfo, unlocks, allprogress   small fixed answers
-and any other r= value gets {"Success":false} with an error. A GET of any path ending in .png (the badges, the game's icon, the avatar
+and any other r= value gets {"Success":false} with an error.
+
+--scenario full (basic, the default, is the game above) is a game that can be mastered, frames counted from the achievements' start:
+                      A1 (101) as above, at 300
+                      A2 (102) "Four fifty frames", at 450
+                      A3 (103) "Measured", its target 600 frames
+                      A4 (104) "Challenge", primed from frame 150 (a T: trigger condition), so rc_client shows its challenge
+                      indicator, and triggered at 700, which masters the core set
+                      the leaderboard as above
+                      a bonus set (2, its game 2) "Fake Game [Subset - Bonus]": B1 (301) at 800 and B2 (302) at 850, which completes it
+awardachievement's AchievementsRemaining counts the unlocks of the achievement's own set and mode, which rc_client's mastery and subset
+completed events need; there a startsession forgets the unlocks of its mode, so every game load starts from nothing.
+
+--delay-ms MS holds each dorequest.php reply MS milliseconds before it's sent (only for the r= values in --delay-api, comma-separated,
+when given), for requests still in flight at exit. A GET of any path ending in .png (the badges, the game's icon, the avatar
 the answers point at) gets a 64 x 64 PNG in a color made from the path.
 
 --log FILE writes one JSON line per request: {"r": ..., "fields": {...}, "hardcore": the h field as a number or null, "status": ...},
@@ -45,6 +60,19 @@ ACHIEVEMENTS = [
 ]
 LEADERBOARD = (201, "Frames", "Frames between the start and the submit",
                "STA:0xH000000=0xH000000.60.::CAN:0xH000000!=0xH000000::SUB:0xH000000=0xH000000.600.::VAL:M:0xH000000=0xH000000")
+FULL_ACHIEVEMENTS = [
+    ACHIEVEMENTS[0],
+    (102, "Four fifty frames", "Play for 450 frames", 10, "0xH000000=0xH000000.450."),
+    (103, "Measured", "Play for 600 frames (shows progress)", 25, "G:0xH000000=0xH000000.600."),
+    (104, "Challenge", "Primed from 150 frames, earned at 700", 10, "0xH000000=0xH000000.150._T:0xH000000=0xH000000.700."),
+]
+BONUS_SET_ID = 2
+BONUS_GAME_ID = 2
+BONUS_TITLE = "Fake Game [Subset - Bonus]"
+BONUS_ACHIEVEMENTS = [
+    (301, "Bonus one", "Play for 800 frames", 5, "0xH000000=0xH000000.800."),
+    (302, "Bonus two", "Play for 850 frames", 5, "0xH000000=0xH000000.850."),
+]
 RICH_PRESENCE = "Display:\nPlaying Fake Game\n"
 SECRET_FIELDS = ("p", "t")
 
@@ -58,9 +86,29 @@ def png(width, height, rgb):
             + chunk(b"IDAT", zlib.compress(row * height)) + chunk(b"IEND", b""))
 
 
+def scenario_sets(scenario):
+    """[(set id, its game id, title, type, achievements, has the leaderboard)] for a scenario."""
+    if scenario == "full":
+        return [(1, GAME_ID, "Fake Game", "core", FULL_ACHIEVEMENTS, True),
+                (BONUS_SET_ID, BONUS_GAME_ID, BONUS_TITLE, "bonus", BONUS_ACHIEVEMENTS, False)]
+    return [(1, GAME_ID, "Fake Game", "core", ACHIEVEMENTS, True)]
+
+
+def achievement_set(scenario, ident):
+    """(points, the ids of its set's achievements) for an achievement id, (0, []) when there's none."""
+    for _, _, _, _, achievements, _ in scenario_sets(scenario):
+        for i, _, _, points, _ in achievements:
+            if i == ident:
+                return points, [a[0] for a in achievements]
+    return 0, []
+
+
 class State:
-    def __init__(self, fail_awards, log_path):
+    def __init__(self, fail_awards, log_path, scenario="basic", delay_ms=0, delay_apis=None):
         self.lock = threading.Lock()
+        self.scenario = scenario
+        self.delay_ms = delay_ms
+        self.delay_apis = delay_apis
         self.fail_awards = fail_awards
         self.awarded = set()
         self.score = 1000
@@ -76,28 +124,32 @@ class State:
                 self.log.flush()
 
 
-def game_sets(base):
+def game_sets(base, scenario="basic"):
     icon = f"{base}/Images/000001.png"
-    achievements = [{
-        "ID": ident, "Title": title, "Description": description, "Flags": 3, "Points": points, "MemAddr": memaddr,
-        "Author": "fake", "BadgeName": f"{ident:05d}", "Created": 1700000000, "Modified": 1700000000, "Type": "",
-        "Rarity": 50.0, "RarityHardcore": 25.0,
-        "BadgeURL": f"{base}/Badge/{ident:05d}.png", "BadgeLockedURL": f"{base}/Badge/{ident:05d}_lock.png",
-    } for ident, title, description, points, memaddr in ACHIEVEMENTS]
     ident, title, description, mem = LEADERBOARD
     leaderboards = [{"ID": ident, "Title": title, "Description": description, "Mem": mem, "Format": "FRAMES",
                      "LowerIsBetter": False, "Hidden": False}]
+    sets = []
+    for set_id, set_game, set_title, set_type, set_achievements, has_leaderboard in scenario_sets(scenario):
+        achievements = [{
+            "ID": ident, "Title": title, "Description": description, "Flags": 3, "Points": points, "MemAddr": memaddr,
+            "Author": "fake", "BadgeName": f"{ident:05d}", "Created": 1700000000, "Modified": 1700000000, "Type": "",
+            "Rarity": 50.0, "RarityHardcore": 25.0,
+            "BadgeURL": f"{base}/Badge/{ident:05d}.png", "BadgeLockedURL": f"{base}/Badge/{ident:05d}_lock.png",
+        } for ident, title, description, points, memaddr in set_achievements]
+        set_icon = icon if set_game == GAME_ID else f"{base}/Images/{set_game:06d}.png"
+        sets.append({"AchievementSetId": set_id, "GameId": set_game, "Title": set_title, "Type": set_type,
+                     "ImageIconUrl": set_icon, "Achievements": achievements,
+                     "Leaderboards": leaderboards if has_leaderboard else []})
     return {
         "Success": True, "GameId": GAME_ID, "Title": "Fake Game", "ConsoleId": DS_CONSOLE_ID, "ImageIconUrl": icon,
-        "RichPresenceGameId": GAME_ID, "RichPresencePatch": RICH_PRESENCE,
-        "Sets": [{"AchievementSetId": 1, "GameId": GAME_ID, "Title": "Fake Game", "Type": "core", "ImageIconUrl": icon,
-                  "Achievements": achievements, "Leaderboards": leaderboards}],
+        "RichPresenceGameId": GAME_ID, "RichPresencePatch": RICH_PRESENCE, "Sets": sets,
     }
 
 
-def patch_data(base):
-    """The older r=patch answer, the same game."""
-    sets = game_sets(base)
+def patch_data(base, scenario="basic"):
+    """The older r=patch answer, the same game (its core set)."""
+    sets = game_sets(base, scenario)
     first = sets["Sets"][0]
     return {"Success": True, "PatchData": {
         "ID": GAME_ID, "Title": "Fake Game", "ConsoleID": DS_CONSOLE_ID, "ImageIcon": "/Images/000001.png",
@@ -122,12 +174,16 @@ def answer(state, api, fields, base):
         return 200, {"Success": True, "User": user, "Token": TOKEN, "Score": score, "SoftcoreScore": softcore, "Messages": 0,
                      "AvatarUrl": f"{base}/UserPic/{user}.png"}
     if api == "achievementsets":
-        return 200, game_sets(base)
+        return 200, game_sets(base, state.scenario)
     if api == "patch":
-        return 200, patch_data(base)
+        return 200, patch_data(base, state.scenario)
     if api == "gameid":
         return 200, {"Success": True, "GameID": GAME_ID}
     if api == "startsession":
+        if state.scenario == "full":
+            hardcore = fields.get("h") == "1"
+            with state.lock:
+                state.awarded = {(i, h) for i, h in state.awarded if h != hardcore}
         return 200, {"Success": True, "Unlocks": [], "HardcoreUnlocks": [], "ServerNow": int(time.time())}
     if api == "awardachievement":
         with state.lock:
@@ -135,15 +191,22 @@ def answer(state, api, fields, base):
                 state.fail_awards -= 1
                 return 503, None
             ident = int(fields.get("a", "0"))
-            points = next((p for i, _, _, p, _ in ACHIEVEMENTS if i == ident), 0)
             hardcore = fields.get("h") == "1"
+            if state.scenario == "full":
+                points, set_ids = achievement_set(state.scenario, ident)
+            else:
+                points = next((p for i, _, _, p, _ in ACHIEVEMENTS if i == ident), 0)
+                set_ids = None
             if (ident, hardcore) not in state.awarded:
                 state.awarded.add((ident, hardcore))
                 if hardcore:
                     state.score += points
                 else:
                     state.softcore_score += points
-            remaining = len(ACHIEVEMENTS) - len({i for i, h in state.awarded if h == hardcore})
+            if set_ids is None:
+                remaining = len(ACHIEVEMENTS) - len({i for i, h in state.awarded if h == hardcore})
+            else:
+                remaining = len([i for i in set_ids if (i, hardcore) not in state.awarded])
             return 200, {"Success": True, "Score": state.score, "SoftcoreScore": state.softcore_score, "AchievementID": ident,
                          "AchievementsRemaining": max(remaining, 0)}
     if api == "submitlbentry":
@@ -184,6 +247,8 @@ class Handler(BaseHTTPRequestHandler):
     def dorequest(self, fields):
         state = self.server.state
         api = fields.get("r", "")
+        if state.delay_ms > 0 and (not state.delay_apis or api in state.delay_apis):
+            time.sleep(state.delay_ms / 1000.0)
         status, reply = answer(state, api, fields, self.base())
         hardcore = fields.get("h")
         state.write_log({
@@ -224,9 +289,14 @@ def main():
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--log", help="a JSON line per request, appended to this file")
     parser.add_argument("--fail-awards", type=int, default=0, help="answer the first N awardachievement requests with HTTP 503")
+    parser.add_argument("--scenario", choices=("basic", "full"), default="basic",
+                        help="full: every core achievement reachable (mastery), a challenge, and a bonus set that completes")
+    parser.add_argument("--delay-ms", type=int, default=0, help="hold each dorequest.php reply this many milliseconds")
+    parser.add_argument("--delay-api", help="only delay these r= values (comma-separated)")
     args = parser.parse_args()
+    delay_apis = set(a for a in args.delay_api.split(",") if a) if args.delay_api else None
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    server.state = State(args.fail_awards, args.log)
+    server.state = State(args.fail_awards, args.log, args.scenario, max(args.delay_ms, 0), delay_apis)
     print(f"fake RetroAchievements server on http://127.0.0.1:{args.port}", flush=True)
     try:
         server.serve_forever()

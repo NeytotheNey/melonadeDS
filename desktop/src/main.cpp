@@ -3393,6 +3393,19 @@ int main(int argc, char** argv)
         });
     };
     host.Quit = [&] { confirmStop([&] { running = false; }); };
+    // the main window closed, or SDL_QUIT (Ctrl+C in the console, a test harness): a hidden run quits without asking, as it can't show
+    // the question and would never quit
+    auto quitFromSystem = [&]
+    {
+        if (!opts.Hidden)
+        {
+            host.Quit();
+            return;
+        }
+        if (emu && achievements.HasPendingUnlocks())
+            printf("ra: a hidden run quits with an unlock or a score not sent yet\n");
+        running = false;
+    };
     // a game from the menus: [file] is the ROM to load (a zip or 7z's, unpacked), or empty with [error] when it couldn't be
     // a game from the menus that's being unpacked: no other one starts meanwhile
     bool menuBooting = false;
@@ -4335,14 +4348,14 @@ int main(int argc, char** argv)
             switch (ev.type)
             {
             case SDL_QUIT:
-                host.Quit();
+                quitFromSystem();
                 break;
             case SDL_WINDOWEVENT:
             {
                 bool quit = false;
                 windows.OnWindowEvent(ev.window, quit);
                 if (quit)
-                    host.Quit();
+                    quitFromSystem();
                 // the camera's held input, whose releases go to the window that has the focus now
                 if (ev.window.event == SDL_WINDOWEVENT_FOCUS_LOST)
                 {

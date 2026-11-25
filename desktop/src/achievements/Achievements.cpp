@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "Platform.h"
+#include "rc_api_runtime.h"
 
 using namespace melonDS;
 
@@ -37,6 +38,38 @@ rc_api_server_response_t FailedResponse(const Http::Response& reply, std::string
     response.body = body.c_str();
     response.body_length = body.size();
     return response;
+}
+
+// An unlock's reply that says none are left (AchievementsRemaining 0), made safe for a game that's gone: rc_client_award_achievement_
+// callback then walks client->game's sets for the mastery without checking there is a game, so the reply goes without the count (rc_api
+// reads a missing one as unknown, which skips that walk) and with the scores and the id it uses. True when [response] was changed, [body]
+// holding its new text; any other reply takes no path into the game and stays as it is
+bool DropMasteryCount(rc_api_server_response_t& response, std::string& body)
+{
+    rc_api_award_achievement_response_t award;
+    int result = rc_api_process_award_achievement_server_response(&award, &response);
+    bool last = result == RC_OK && award.response.succeeded && award.achievements_remaining == 0;
+    char text[128];
+    if (last)
+        snprintf(text, sizeof(text), "{\"Success\":true,\"Score\":%u,\"SoftcoreScore\":%u,\"AchievementID\":%u}", award.new_player_score,
+            award.new_player_score_softcore, award.awarded_achievement_id);
+    rc_api_destroy_award_achievement_response(&award);
+    if (!last)
+        return false;
+    body = text;
+    response.body = body.c_str();
+    response.body_length = body.size();
+    return true;
+}
+
+// [text]'s bytes zeroed (a request body: the token, and a login's password), then emptied; through a volatile pointer, so the compiler
+// can't drop the stores to a string that's about to go
+void Wipe(std::string& text)
+{
+    volatile char* bytes = text.data();
+    for (size_t i = 0; i < text.size(); i++)
+        bytes[i] = 0;
+    text.clear();
 }
 
 }
@@ -123,6 +156,7 @@ void Achievements::Close()
             job = std::move(Queue.front());
             Queue.pop_front();
         }
+        Wipe(job.Body);
         Http::Response cancelled;
         cancelled.Err = Http::Response::Error::Cancelled;
         Finish(job, cancelled);
@@ -176,12 +210,16 @@ void Achievements::Logout()
     SessionHardcore = false;
     if (clearToken && Hook.ClearToken)
         Hook.ClearToken();
-    // the logout unloads the game, which mustn't race the emulator thread's frame
-    rc_client_t* client = Client_;
+    // the logout unloads the game, which mustn't race the emulator thread's frame, nor a server reply's callback (CallbackLock)
+    auto logout = [this]
+    {
+        std::lock_guard guard(CallbackLock);
+        rc_client_logout(Client_);
+    };
     if (active && Hook.PostToEmulator)
-        Hook.PostToEmulator([client] { rc_client_logout(client); });
+        Hook.PostToEmulator(logout);
     else
-        rc_client_logout(client);
+        logout();
     Platform::Log(Platform::LogLevel::Info, "ra: logged out\n");
 }
 
@@ -249,13 +287,18 @@ void Achievements::BeginSession(const std::string& raHash, bool hardcoreSetting)
         SessionInfo.Hardcore = hardcore;
         SessionHash = raHash;
         SessionLoadStarted = load;
+        SessionNumber++;
     }
     SessionHardcore = hardcore;
     rc_client_set_hardcore_enabled(Client_, hardcore ? 1 : 0);
     Platform::Log(Platform::LogLevel::Info, "ra: session for %s, %s%s\n", raHash.empty() ? "a game without a hash" : raHash.c_str(),
         hardcore ? "hardcore" : "softcore", load ? "" : signedIn ? " (nothing to load)" : " (logged out)");
     if (load)
+    {
+        // a load unloads what was there first
+        std::lock_guard guard(CallbackLock);
         rc_client_begin_load_game(Client_, raHash.c_str(), OnGameLoaded, this);
+    }
 }
 
 void Achievements::EndSession()
@@ -271,6 +314,7 @@ void Achievements::EndSession()
         SessionLoadStarted = false;
     }
     SessionHardcore = false;
+    std::lock_guard guard(CallbackLock);
     rc_client_unload_game(Client_);
 }
 
@@ -422,7 +466,10 @@ void Achievements::WorkerLoop()
             request.FollowRedirects = false;
             request.MaxBytes = MAX_REPLY_BYTES;
             reply = Http_->Send(request);
+            Wipe(request.Body);
         }
+        // sent: its secrets aren't needed any more
+        Wipe(job.Body);
         Finish(job, reply);
         {
             std::lock_guard guard(QueueLock);
@@ -449,7 +496,12 @@ void Achievements::Finish(const Job& job, const Http::Response& reply)
     if (!reply.Ok())
         Platform::Log(Platform::LogLevel::Warn, "ra: %s request: %s\n", job.Api.empty() ? "a" : job.Api.c_str(), Http::Describe(reply).c_str());
 
+    // Every call that unloads or replaces the game (EndSession, Logout, a load) holds this lock too, so a game that's there when a callback
+    // starts stays until it returns
     std::lock_guard guard(CallbackLock);
+    // an unlock sent before its game was stopped or logged out of: rc_client doesn't cancel it, and its last one would crash
+    if (job.Api == "awardachievement" && !rc_client_get_game_info(Client_) && DropMasteryCount(response, body))
+        Platform::Log(Platform::LogLevel::Info, "ra: the last unlock's reply came after its game was unloaded\n");
     job.Callback(&response, job.CallbackData);
     // an unlock's reply has the user's new score, which only these callbacks write
     if (job.Api == "awardachievement" && Client_)
@@ -548,22 +600,25 @@ void Achievements::FinishLogin(int result, const char* error, bool withToken)
     // A login during a session that loaded nothing (it started logged out): its game, in softcore, on the emulator thread so it's ordered
     // after a logout posted there
     bool load = false;
+    uint32_t session = 0;
     {
         std::lock_guard guard(SessionLock);
         if (SessionInfo.Active && !SessionLoadStarted && !SessionHash.empty())
         {
             SessionLoadStarted = true;
+            session = SessionNumber;
             load = true;
         }
     }
     if (!load)
         return;
-    auto start = [this]
+    auto start = [this, session]
     {
         std::string hash;
         {
             std::lock_guard guard(SessionLock);
-            if (!SessionInfo.Active)
+            // that game stopped before this ran (the next one's session may have begun, and loads its own game)
+            if (!IsSameSession(SessionInfo.Active, SessionNumber, session))
                 return;
             SessionInfo.Hardcore = false;
             hash = SessionHash;
@@ -573,8 +628,14 @@ void Achievements::FinishLogin(int result, const char* error, bool withToken)
         Platform::Log(Platform::LogLevel::Info, "ra: logged in mid-game: %s loads in softcore\n", hash.c_str());
         rc_client_begin_load_game(Client_, hash.c_str(), OnGameLoaded, this);
     };
+    // A load unloads what was there first, so it holds CallbackLock: posted, it takes it; run here, it's inside a reply's callback, which
+    // holds it already (a login only succeeds there)
     if (Hook.PostToEmulator)
-        Hook.PostToEmulator(start);
+        Hook.PostToEmulator([this, start]
+        {
+            std::lock_guard guard(CallbackLock);
+            start();
+        });
     else
         start();
 }
