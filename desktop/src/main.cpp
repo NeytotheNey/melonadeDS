@@ -2205,6 +2205,9 @@ int main(int argc, char** argv)
     std::atomic_bool stopRequested = false; // the core asked to stop (SignalStop)
     std::atomic_bool stateFailed = false;   // an --at state load failed: the run stops
     std::atomic_bool startFailed = false;   // the --state didn't load: nothing ran
+    // the game started in RetroAchievements hardcore (Achievements::WouldStartHardcore as it boots): set by the UI thread before the
+    // emulator thread starts, read there until its session has begun (BeginSession runs after the thread started)
+    std::atomic_bool bootHardcore = false;
     std::atomic<u32> currentFrame = 0;
     // UI frames while no game frame runs (the start screen, a menu over the paused game), which --frames counts too
     std::atomic<u32> uiFrames = 0;
@@ -2505,13 +2508,18 @@ int main(int argc, char** argv)
         // the savestates' achievement progress is rc_client's (before a --state loads, so its progress goes there)
         if (achievements.IsEnabled())
             instance.setAchievementsProgressHandler(&achievements);
-        if (commandLineGame && !opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
+        if (commandLineGame && !opts.StatePath.empty() && bootHardcore)
+            fprintf(stderr, "ra: --state ignored in hardcore mode\n");
+        else if (commandLineGame && !opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
         {
             startFailed = true;
             return false;
         }
         return true;
     };
+    // hardcore now, on any thread: the session's once it has begun, before that what the game booted with (the two agree, see
+    // Achievements::WouldStartHardcore)
+    auto hardcoreNow = [&] { return achievements.GetSession().Active ? achievements.IsHardcoreSession() : bootHardcore.load(); };
     int lastShadowMode = 0, lastScene = -2;
     std::vector<s16> audioBuf(2 * 1024);
     callbacks.BeforeFrame = [&](MelonDSAndroid::MelonInstance& instance, u32 frame)
@@ -2573,6 +2581,8 @@ int main(int argc, char** argv)
             {
                 if (opts.StatePath.empty())
                     fprintf(stderr, "--at %u:state: no state to load\n", at.Frame);
+                else if (hardcoreNow())
+                    fprintf(stderr, "ra: --at %u:state ignored in hardcore mode\n", at.Frame);
                 else if (!LoadStateFile(opts, instance, opts.StatePath))
                 {
                     fprintf(stderr, "--at %u:state: the state didn't load, stopping\n", at.Frame);
@@ -2820,8 +2830,8 @@ int main(int argc, char** argv)
         if (NDSCart::CartCommon* cart = instance.getNds()->NDSCartSlot.GetCart())
             gameCode = std::string(cart->GetHeader().GameCode, strnlen(cart->GetHeader().GameCode, 4));
         launch.DataGameKey = Frontend::LuaScriptDataStore::GetGameKey(gameCode, gameConfigKey);
-        // the app allows melon.state's loads unless RetroAchievements hardcore is on, which the desktop doesn't have
-        launch.AreStateLoadsAllowed = true;
+        // the app's areSaveStateLoadsAllowed: not in hardcore (where no script runs at all, as in the app)
+        launch.AreStateLoadsAllowed = !bootHardcore.load();
         return launch;
     };
 
@@ -2845,6 +2855,7 @@ int main(int argc, char** argv)
         emu = nullptr;
         // the achievements' game unloaded, now that no frame can run
         achievements.EndSession();
+        bootHardcore = false;
         // the scripts' last storage saved, their requests undone, and their events still on the way dropped
         messenger->EndLuaSession();
         luaSession.End();
@@ -3060,8 +3071,12 @@ int main(int argc, char** argv)
             else
                 printf("GBA slot: %s\n", gbaRom.c_str());
         }
+        // hardcore is decided here, as BeginSession will decide it once the thread runs: no scripts and no state loads then, as the app
+        bootHardcore = achievements.WouldStartHardcore(settings.GetBool("ra_hardcore_enabled", false));
+        if (bootHardcore && commandLine && !opts.LuaScriptPaths.empty())
+            fprintf(stderr, "ra: --lua-script ignored in hardcore mode\n");
         // the scripts, before the emulator thread starts, whose MelonInstance::start() loads them with the game
-        luaSession.Start(*instance, makeLuaLaunch(commandLine, *instance), windows.IsSwapped());
+        luaSession.Start(*instance, bootHardcore ? Frontend::LuaLaunch() : makeLuaLaunch(commandLine, *instance), windows.IsSwapped());
         emu = instance.get();
         romPath = path;
         commandLineGame = commandLine;
@@ -3212,6 +3227,20 @@ int main(int argc, char** argv)
     host.Library = &library;
     host.Metadata = &metadata;
     host.Lua = &luaSession;
+    host.Achievements = &achievements;
+    host.HardcoreSession = [&] { return emu != nullptr && hardcoreNow(); };
+    host.HardcoreAtNextStart = [&] { return achievements.WouldStartHardcore(settings.GetBool("ra_hardcore_enabled", false)); };
+    // the player stopping the game or quitting: asked first while an unlock or a score hasn't reached RetroAchievements yet
+    auto confirmStop = [&](std::function<void()> stop)
+    {
+        if (!emu || !achievements.HasPendingUnlocks())
+        {
+            stop();
+            return;
+        }
+        if (!ui.HasScreen("ra/pending"))
+            ui.Push(Ui::MakePendingUnlocksQuestion(std::move(stop)));
+    };
     // the key in use: the command line's (for the run), the saved one, or none
     std::string raKeySource = !opts.RaWebApiKey.empty() ? "command line" : metadata.HasApiKey() ? "saved" : "";
     host.RaKeySource = [&] { return raKeySource; };
@@ -3313,6 +3342,13 @@ int main(int argc, char** argv)
             done(false);
             return;
         }
+        // the menus and the hotkey don't offer it in hardcore; this is the last stop
+        if (hardcoreNow())
+        {
+            fprintf(stderr, "ra: loading a state is off in hardcore mode\n");
+            done(false);
+            return;
+        }
         fs::path file = slots.StatePath(slot);
         emuThread.Post([&, file, done](MelonDSAndroid::MelonInstance& instance)
         {
@@ -3323,13 +3359,16 @@ int main(int argc, char** argv)
     };
     host.QuitToStart = [&]
     {
-        messenger->Post([&]
+        confirmStop([&]
         {
-            stopGame();
-            ui.ShowStart();
+            messenger->Post([&]
+            {
+                stopGame();
+                ui.ShowStart();
+            });
         });
     };
-    host.Quit = [&] { running = false; };
+    host.Quit = [&] { confirmStop([&] { running = false; }); };
     // a game from the menus: [file] is the ROM to load (a zip or 7z's, unpacked), or empty with [error] when it couldn't be
     // a game from the menus that's being unpacked: no other one starts meanwhile
     bool menuBooting = false;
@@ -3837,6 +3876,11 @@ int main(int argc, char** argv)
             if (!emu || ui.IsOpen() || quickBusy)
                 break;
             bool save = action == Action::QuickSave;
+            if (!save && host.HardcoreSession())
+            {
+                ui.Toast("Loading states is off in hardcore mode");
+                break;
+            }
             if (!save && !std::filesystem::exists(slots.StatePath(0), ec))
             {
                 ui.Toast("The quick slot is empty");
@@ -4267,14 +4311,14 @@ int main(int argc, char** argv)
             switch (ev.type)
             {
             case SDL_QUIT:
-                running = false;
+                host.Quit();
                 break;
             case SDL_WINDOWEVENT:
             {
                 bool quit = false;
                 windows.OnWindowEvent(ev.window, quit);
                 if (quit)
-                    running = false;
+                    host.Quit();
                 // the camera's held input, whose releases go to the window that has the focus now
                 if (ev.window.event == SDL_WINDOWEVENT_FOCUS_LOST)
                 {

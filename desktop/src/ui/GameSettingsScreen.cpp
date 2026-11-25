@@ -333,26 +333,32 @@ private:
     }
 
     // RomModsUi's Lua scripts section: the script folder (picked, removed, or picked again when it can't be read), then each script of the
-    // synced list with its switch, its options while it's on, and its saved data. Changes apply when the game next starts
+    // synced list with its switch, its options while it's on, and its saved data. Changes apply when the game next starts. While a game
+    // started now would be RetroAchievements hardcore, which runs no scripts, the rows are there but disabled and the options left out
     void DrawLuaScripts(App& app)
     {
         // read when the section first shows, as the app syncs when the Mods tab shows
         if (!LuaSynced)
             SyncLuaScripts(app);
         RomConfig config = Current(app);
+        Host& host = app.GetHost();
+        LuaLocked = host.HardcoreAtNextStart && host.HardcoreAtNextStart();
+        bool on = !LuaLocked;
         SectionLabel(app, "Lua scripts");
+        if (LuaLocked)
+            Note(app, "Lua scripts are off while hardcore mode is on.");
         std::string folder = config.LuaScriptFolder.empty() ? "None" : config.LuaScriptFolder;
-        if (DetailRow(app, "##luafolder", Icon::Folder, "Script folder", folder.c_str(), AtMods))
+        if (DetailRow(app, "##luafolder", Icon::Folder, "Script folder", folder.c_str(), AtMods && on, on))
             PickLuaFolder(app);
         Track("luafolder");
-        if (!config.LuaScriptFolder.empty() && MenuRow(app, "##luaremove", Icon::Close, "Remove folder", nullptr))
+        if (!config.LuaScriptFolder.empty() && MenuRow(app, "##luaremove", Icon::Close, "Remove folder", nullptr, false, on))
         {
             SetLuaFolder(app, "");
             return;
         }
         if (LuaFolderRead == config.LuaScriptFolder && !LuaFolderReadable)
         {
-            if (DetailRow(app, "##luamissing", Icon::FolderOpen, "Can't find the folder", "Pick it again to use its scripts"))
+            if (DetailRow(app, "##luamissing", Icon::FolderOpen, "Can't find the folder", "Pick it again to use its scripts", false, on))
                 PickLuaFolder(app);
         }
         else if (!config.LuaScriptFolder.empty() && config.LuaScripts.empty())
@@ -375,7 +381,7 @@ private:
             int count = header->UnreadableOptionCount;
             detail += (detail.empty() ? "" : " \xc2\xb7 ") + std::to_string(count) + (count == 1 ? " option line skipped" : " option lines skipped");
         }
-        if (ToggleRow(app, "##luascript", Icon::Code, script.FileName.c_str(), detail.c_str(), script.Enabled))
+        if (ToggleRow(app, "##luascript", Icon::Code, script.FileName.c_str(), detail.c_str(), script.Enabled, false, !LuaLocked))
         {
             RomConfig config = Current(app);
             for (Frontend::RomLuaScript& s : config.LuaScripts)
@@ -387,7 +393,7 @@ private:
         }
         Track("luascript");
 
-        bool showOptions = script.Enabled && header && !header->Options.empty();
+        bool showOptions = script.Enabled && header && !header->Options.empty() && !LuaLocked;
         auto size = LuaDataSizes.find(script.FileName);
         if (!showOptions && size == LuaDataSizes.end())
             return;
@@ -404,7 +410,7 @@ private:
         {
             // rounded up, so a few bytes don't show as 0 KB
             std::string label = "Saved data: " + std::to_string((size->second + 1023) / 1024) + " KB";
-            if (MenuRow(app, "##luadata", Icon::DeleteSweep, label.c_str(), "Clear"))
+            if (MenuRow(app, "##luadata", Icon::DeleteSweep, label.c_str(), "Clear", false, !LuaLocked))
                 AskClearLuaData(app, script.FileName);
         }
         ImGui::Unindent(app.Px(32));
@@ -587,6 +593,8 @@ private:
     LibraryEntry Entry;
     // --open library/settings/mods: the focus starts on the script folder, scrolled to it
     bool AtMods = false;
+    // a game started now would be hardcore: the Lua scripts' rows are disabled (set as the section draws)
+    bool LuaLocked = false;
     std::string FocusedRow;
     std::string NameBuffer;
     bool EditingName = false;

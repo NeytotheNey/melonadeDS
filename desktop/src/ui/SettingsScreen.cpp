@@ -1,11 +1,14 @@
-// Settings, on six tabs (L / R switch them): Video, Display, Emulation, Audio, Controls and Library (the ROM folders, and the metadata and art
-// sync: the RetroAchievements Web API key, the libretro thumbnails, Refresh metadata, Clear downloaded art). Each change goes through Host::ChangeSetting,
+// Settings, on seven tabs (L / R switch them): Video, Display, Emulation, Audio, Controls, Library (the ROM folders, and the metadata and art
+// sync: the RetroAchievements Web API key, the libretro thumbnails, Refresh metadata, Clear downloaded art) and Achievements (the
+// RetroAchievements login, hardcore, rich presence and the indicators, as the app's RetroAchievementsPreferencesFragment). Each change goes through Host::ChangeSetting,
 // which saves it and applies it at once where the running game allows it; the rest (JIT, the console, the BIOS) wait for the next game
 // that starts, and the rows say so. The keys are the app's preference names where it has the setting, desktop_ ones otherwise
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <ctime>
+#include <memory>
+#include <optional>
 #include <string>
 
 #include "Icons.h"
@@ -16,6 +19,7 @@
 #include "Settings.h"
 #include "Ui.h"
 #include "Widgets.h"
+#include "achievements/Achievements.h"
 #include "layout/Layouts.h"
 
 namespace Ui
@@ -39,9 +43,12 @@ const Option kConsoles[] = {{"ds", "DS"}, {"dsi", "DSi"}};
 const Option kLatency[] = {{"low", "Low (Slower)"}, {"medium", "Medium"}, {"high", "High (Faster)"}};
 const Option kSpeeds[] = {{"-1", "Unlimited"}, {"1.5", "1.5x"}, {"2", "2x"}, {"3", "3x"}, {"4", "4x"}, {"8", "8x"}};
 
-const char* const kTabNames[] = {"Video", "Display", "Emulation", "Audio", "Controls", "Library"};
-const char* const kTabIds[] = {"video", "display", "emulation", "audio", "controls", "library"};
-constexpr int kTabCount = 6;
+const char* const kTabNames[] = {"Video", "Display", "Emulation", "Audio", "Controls", "Library", "Achievements"};
+const char* const kTabIds[] = {"video", "display", "emulation", "audio", "controls", "library", "achievements"};
+constexpr int kTabCount = 7;
+
+const char* kRaRestart = "Restart the game to apply the new RetroAchievements settings.";
+const char* kDots = "\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2";
 
 const char* kNextGame = "Applies when a game starts";
 
@@ -115,7 +122,8 @@ public:
 
         if (ScreenHeader(app, "Settings", true))
             app.Pop();
-        int clicked = TabStrip(app, ImVec2(win.x + app.Px(40), win.y + app.Px(88) + app.Px(4)), kTabNames, kTabCount, TabIndex);
+        int clicked = TabStrip(app, ImVec2(win.x + app.Px(40), win.y + app.Px(88) + app.Px(4)), size.x - app.Px(40), kTabNames, kTabCount,
+            TabIndex);
         if (clicked >= 0 && clicked != TabIndex)
             SetTab(app, clicked);
 
@@ -144,7 +152,8 @@ public:
         case 2: DrawEmulation(app); break;
         case 3: DrawAudio(app); break;
         case 4: DrawControls(app); break;
-        default: DrawLibrary(app); break;
+        case 5: DrawLibrary(app); break;
+        default: DrawAchievements(app); break;
         }
         ImGui::Dummy(ImVec2(1, app.Px(24)));
         ImGui::EndChild();
@@ -599,6 +608,101 @@ private:
                   "media folder; nothing syncs while a game runs.");
     }
 
+    // RetroAchievements: the account (logged in, logged out, expired), hardcore and rich presence (a running game needs a restart for
+    // them, as the app says), and the indicators. With --no-ra, only that it's off
+    void DrawAchievements(App& app)
+    {
+        Host& host = app.GetHost();
+        Frontend::Achievements* ra = host.Achievements;
+        if (!ra || !ra->IsEnabled())
+        {
+            Note(app, "RetroAchievements is off for this run (--no-ra).");
+            return;
+        }
+        DrawRaAccount(app, *ra);
+
+        Frontend::Settings& s = Store(app);
+        bool running = host.GameRunning && host.GameRunning();
+        SectionLabel(app, "Gameplay");
+        bool hardcore = s.GetBool("ra_hardcore_enabled", false);
+        if (ToggleRow(app, "##ra_hardcore_enabled", Icon::Trophy, "Hardcore mode",
+                "No loading states and no Lua scripts; leaderboards count. Applies the next time a game starts.", hardcore, TakeFirst()))
+        {
+            Change(app, "ra_hardcore_enabled", picojson::value(!hardcore));
+            if (running)
+                app.Toast(kRaRestart);
+        }
+        Track("ra_hardcore_enabled");
+        // hardcore always sends it (Achievements' ping shim); --ra-hardcore stands in for the switch for the run
+        bool hardcoreRun = ra->HardcoreRunOverride().value_or(s.GetBool("ra_hardcore_enabled", false));
+        bool presence = hardcoreRun || s.GetBool("ra_rich_presence", true);
+        if (ToggleRow(app, "##ra_rich_presence", Icon::Public, "Rich presence",
+                hardcoreRun ? "Always on in hardcore mode" : "Show what you're doing in the game on your RetroAchievements profile.", presence,
+                TakeFirst(), !hardcoreRun))
+        {
+            Change(app, "ra_rich_presence", picojson::value(!presence));
+            if (running)
+                app.Toast(kRaRestart);
+        }
+        Track("ra_rich_presence");
+        if (std::optional<bool> run = ra->HardcoreRunOverride())
+            Note(app, *run ? "--ra-hardcore on: this run's games are hardcore whatever the switch says."
+                           : "--ra-hardcore off: this run's games are softcore whatever the switch says.");
+
+        SectionLabel(app, "On-screen indicators");
+        Toggle(app, "ra_active_challenge_indicators", Icon::Timer, "Challenge indicators",
+            "Shows on-screen indicators while certain achievements can be earned", true);
+        Toggle(app, "ra_progress_indicators", Icon::TaskAlt, "Progress indicators",
+            "Shows on-screen indicators when progress is made toward an achievement", true);
+        Toggle(app, "ra_leaderboard_indicators", Icon::Sort, "Leaderboard trackers",
+            "Shows on-screen indicators when a leaderboard attempt is in progress", true);
+        Note(app, "Game art and the Web API key are on the Library tab.");
+    }
+
+    void DrawRaAccount(App& app, Frontend::Achievements& ra)
+    {
+        using State = Frontend::Achievements::LoginState;
+        Frontend::Achievements::User user = ra.GetUser();
+        SectionLabel(app, "Account");
+        if (user.State == State::LoggingIn)
+        {
+            Note(app, "Logging in\xe2\x80\xa6");
+            return;
+        }
+        if (user.State == State::LoggedIn)
+        {
+            std::string name = user.DisplayName.empty() ? user.UserName : user.DisplayName;
+            Note(app, ("Logged in as " + name).c_str());
+            Note(app, (std::to_string(user.Score) + " points \xc2\xb7 " + std::to_string(user.SoftcoreScore) + " softcore points").c_str());
+            if (MenuRow(app, "##ra_logout", Icon::Logout, "Log out", nullptr, TakeFirst("ra_logout")))
+                AskLogout(app);
+            Track("ra_logout");
+            return;
+        }
+        // logged out, also after a login that failed
+        Note(app, user.State == State::Expired ? "Your RetroAchievements login expired." : "Not logged in");
+        if (MenuRow(app, "##ra_login", Icon::Person, "Log in", nullptr, TakeFirst("ra_login")))
+            app.Push(MakeRaLoginScreen());
+        Track("ra_login");
+    }
+
+    void AskLogout(App& app)
+    {
+        printf("ui: ask log out\n");
+        fflush(stdout);
+        app.Push(MakePanelScreen("ra/logout", "Log out of RetroAchievements?", "", [](App& app)
+        {
+            if (MenuRow(app, "##logout", Icon::Logout, "Log out", nullptr))
+            {
+                app.Pop();
+                if (Frontend::Achievements* ra = app.GetHost().Achievements)
+                    ra->Logout();
+            }
+            else if (MenuRow(app, "##cancel", Icon::Close, "Cancel", nullptr, true))
+                app.Pop();
+        }));
+    }
+
     std::string FocusRow;
     std::string KeyBuffer;
     bool EditingKey = false;
@@ -613,6 +717,81 @@ private:
 std::unique_ptr<Screen> MakeSettingsScreen(const std::string& tab)
 {
     return std::make_unique<SettingsScreen>(tab);
+}
+
+namespace
+{
+
+// the login panel's fields, kept by the panel while the keyboard edits them
+struct RaLoginFields
+{
+    bool Prefilled = false;
+    std::string UserName, Password;
+    // the login was sent: its answer closes the panel, or toasts why it failed
+    bool Sent = false;
+};
+
+void ForgetPassword(std::string& password)
+{
+    password.assign(password.size(), '\0');
+    password.clear();
+}
+
+void RaLoginRows(App& app, RaLoginFields& f)
+{
+    using State = Frontend::Achievements::LoginState;
+    Frontend::Achievements* ra = app.GetHost().Achievements;
+    if (!ra)
+        return;
+    Frontend::Achievements::User user = ra->GetUser();
+    if (!f.Prefilled)
+    {
+        f.Prefilled = true;
+        f.UserName = user.UserName;
+    }
+    if (f.Sent && user.State == State::LoggedIn)
+    {
+        f.Sent = false;
+        ForgetPassword(f.Password);
+        app.Toast("Logged in as " + (user.DisplayName.empty() ? user.UserName : user.DisplayName));
+        app.Pop();
+        return;
+    }
+    if (f.Sent && user.State != State::LoggingIn)
+    {
+        f.Sent = false;
+        app.Toast("Login failed: " + (user.Message.empty() ? std::string("no reason given") : user.Message));
+        // to the password, which was cleared
+        app.RefocusDefault();
+    }
+    bool busy = f.Sent;
+    // the fields stay enabled while the login is on its way, so the focus has somewhere to be (editing them changes nothing sent)
+    if (DetailRow(app, "##ra_user", Icon::Person, "Username", f.UserName.empty() ? "Not set" : f.UserName.c_str(), f.UserName.empty()))
+        app.OpenKeyboard(&f.UserName, "Username", 64);
+    if (DetailRow(app, "##ra_password", Icon::Key, "Password", f.Password.empty() ? "Not set" : kDots, !f.UserName.empty()))
+        app.OpenKeyboard(&f.Password, "Password", 128, true);
+    std::string name = f.UserName;
+    name.erase(0, name.find_first_not_of(" \t"));
+    name.erase(name.find_last_not_of(" \t") + 1);
+    bool ready = !busy && !name.empty() && !f.Password.empty();
+    if (MenuRow(app, "##ra_submit", Icon::Check, busy ? "Logging in\xe2\x80\xa6" : "Log in", nullptr, false, ready))
+    {
+        printf("ui: ra login sent\n");
+        fflush(stdout);
+        ra->LoginWithPassword(name, f.Password);
+        ForgetPassword(f.Password);
+        f.Sent = true;
+        // the button is disabled from now on: the focus goes to the password
+        app.RefocusDefault();
+    }
+}
+
+}
+
+std::unique_ptr<Screen> MakeRaLoginScreen()
+{
+    auto fields = std::make_shared<RaLoginFields>();
+    return MakePanelScreen("settings/achievements/login", "Log in to RetroAchievements", "", [fields](App& app) { RaLoginRows(app, *fields); });
 }
 
 }

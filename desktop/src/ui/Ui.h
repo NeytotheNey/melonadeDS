@@ -66,8 +66,9 @@ public:
     // the library alone (no game), the home screen; [open] as MakeLibraryScreen's
     void ShowStart(LibraryOpen open = LibraryOpen::None);
     // --open: "library" (or "start"), "library/details", "library/settings", "library/settings/mods", "pause", "pause/save", "pause/load",
-    // "pause/mods", "pause/mods/options/<script id>", "settings", "settings/library", "keyboard", "layouts", "layout-editor" (the layout in
-    // use), "layout-editor/new", "layout-editor/<id>"; false for a name it doesn't know
+    // "pause/mods", "pause/mods/options/<script id>", "settings", "settings/library", "settings/achievements",
+    // "settings/achievements/login", "keyboard", "layouts", "layout-editor" (the layout in use), "layout-editor/new",
+    // "layout-editor/<id>"; false for a name it doesn't know. In a RetroAchievements hardcore session "pause/load" is the pause menu
     bool OpenPath(const std::string& path);
     void OpenPause();
 
@@ -93,6 +94,8 @@ public:
     // widgets: after an item that can take the focus, gives it the focus when its screen opens (or comes back on top, then the item that
     // had it), and remembers it
     void TrackFocus(bool isDefault);
+    // the screen being drawn gives the focus to its default item again (from that item on, in this frame or the next), as when it opened
+    void RefocusDefault();
 
     // the on-screen keyboard over the screen, editing [target] (kept alive by the caller until it closes); the physical keyboard types too
     // [masked]: the text shown as dots (a key); Ctrl+V pastes into it as into any field

@@ -11,7 +11,7 @@
 #include "SaveSlots.h"
 #include "layout/LayoutEditing.h"
 
-namespace Frontend { class Settings; class Input; class Library; class MetadataSync; class Layouts; class Backgrounds; class LuaSession; }
+namespace Frontend { class Settings; class Input; class Library; class MetadataSync; class Layouts; class Backgrounds; class LuaSession; class Achievements; }
 
 namespace Ui
 {
@@ -35,6 +35,12 @@ struct Host
     bool Hidden = false;
     // the game session's Lua scripts (the pause menu's Mods), and the scripts' saved data (a game's settings show its size and clear it)
     Frontend::LuaSession* Lua = nullptr;
+
+    // RetroAchievements (Settings > Achievements: the login and its settings); IsEnabled() is false with --no-ra
+    Frontend::Achievements* Achievements = nullptr;
+    // the running game's session is hardcore (no state loads, no Lua), and a game started now would be (the game settings' Lua section)
+    std::function<bool()> HardcoreSession;
+    std::function<bool()> HardcoreAtNextStart;
 
     std::function<bool()> GameRunning;
     // the game's name (its ROM's file name without the extension) and "Compute 4x"

@@ -18,6 +18,7 @@
 #include "Screens.h"
 #include "Settings.h"
 #include "Widgets.h"
+#include "achievements/Achievements.h"
 #include "layout/Layouts.h"
 #include "lua/LuaSession.h"
 
@@ -333,6 +334,14 @@ void App::TrackFocus(bool isDefault)
         s->FocusId = id;
 }
 
+void App::RefocusDefault()
+{
+    if (!Drawing)
+        return;
+    Drawing->WantFocus = true;
+    Drawing->FocusId = 0;
+}
+
 void App::Push(std::unique_ptr<Screen> screen)
 {
     if (Stack.empty())
@@ -471,9 +480,11 @@ bool App::OpenPath(const std::string& path)
             return false;
         if (Stack.empty())
             OpenPause();
+        // a RetroAchievements hardcore session loads no states: pause/load is the pause menu alone
+        bool hardcore = HostPtr->HardcoreSession && HostPtr->HardcoreSession();
         if (path == "pause/layout")
             Push(MakeLayoutsScreen(LayoutsFor::InGame));
-        else if (path != "pause")
+        else if (path == "pause/save" || (path == "pause/load" && !hardcore))
             Push(MakeStatesScreen(path == "pause/save"));
     }
     else if (path == "layouts")
@@ -504,13 +515,22 @@ bool App::OpenPath(const std::string& path)
     else if (path == "settings" || path.rfind("settings/", 0) == 0 || path == "input")
     {
         std::string tab = path.size() > 9 && path != "input" ? path.substr(9) : "";
-        if (tab != "" && tab != "video" && tab != "display" && tab != "emulation" && tab != "audio" && tab != "controls" && tab != "library")
+        bool login = tab == "achievements/login";
+        if (login)
+            tab = "achievements";
+        if (tab != "" && tab != "video" && tab != "display" && tab != "emulation" && tab != "audio" && tab != "controls" && tab != "library"
+            && tab != "achievements")
+            return false;
+        // the login only while there's a client to log in with
+        if (login && !(HostPtr->Achievements && HostPtr->Achievements->IsEnabled()))
             return false;
         if (game && Stack.empty())
             OpenPause();
         Push(MakeSettingsScreen(path == "input" ? "controls" : tab));
         if (path == "input")
             Push(MakeInputScreen());
+        if (login)
+            Push(MakeRaLoginScreen());
     }
     else if (path == "keyboard")
         Push(MakeKeyboardTestScreen());

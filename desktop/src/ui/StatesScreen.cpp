@@ -46,6 +46,12 @@ public:
     {
         if (app.Busy || Ask != Question::None)
             return;
+        // a RetroAchievements hardcore session loads no states: the Load tab isn't there to go to
+        if (SaveTab && Hardcore(app))
+        {
+            app.Toast("Loading states is off in hardcore mode");
+            return;
+        }
         SaveTab = !SaveTab;
         // the focus stays on the same slot when it can; an empty one can't be loaded
         WantFocus = true;
@@ -60,6 +66,8 @@ public:
         ImDrawList* draw = ImGui::GetWindowDrawList();
         float pad = app.Px(40), footer = FooterHeight(app);
         std::vector<SaveSlots::Slot> slots = host.ListSlots ? host.ListSlots() : std::vector<SaveSlots::Slot>();
+        if (!SaveTab && Hardcore(app))
+            SaveTab = true;
 
         if (ScreenHeader(app, SaveTab ? "Save state" : "Load state", true) && !app.Busy)
             app.Pop();
@@ -295,8 +303,19 @@ private:
         line(ImVec2(a.x + r, b.y - r), ImVec2(a.x + r, a.y + r));
     }
 
+    static bool Hardcore(App& app)
+    {
+        Host& host = app.GetHost();
+        return host.HardcoreSession && host.HardcoreSession();
+    }
+
     void Choose(App& app, const SaveSlots::Slot& slot)
     {
+        if (!SaveTab && Hardcore(app))
+        {
+            app.Toast("Loading states is off in hardcore mode");
+            return;
+        }
         Host& host = app.GetHost();
         int number = slot.Number;
         app.Busy = true;

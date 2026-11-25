@@ -117,6 +117,14 @@ public:
     // Right after the emulator thread started: the session for the game with [raHash] (none when empty: nothing loads, also after a
     // login), hardcore when [hardcoreSetting] (ra_hardcore_enabled; --ra-hardcore over it) and the user is logged in or logging in
     void BeginSession(const std::string& raHash, bool hardcoreSetting);
+    // Whether a session BeginSession() started now would be hardcore, by the same rule (for what's decided before the emulator thread
+    // starts, the Lua scripts); [hardcoreSetting] as BeginSession's. Any thread
+    bool WouldStartHardcore(bool hardcoreSetting) const;
+    // The running session is hardcore: active, hardcore at its start, and the login hasn't failed, expired or been logged out since (no
+    // state loads, no Lua). Any thread
+    bool IsHardcoreSession() const;
+    // --ra-hardcore, when the run has it (over ra_hardcore_enabled)
+    std::optional<bool> HardcoreRunOverride() const { return HardcoreRun; }
     // After the emulator thread stopped (no DoFrame() can run): the game unloaded
     void EndSession();
     Session GetSession() const;
@@ -167,6 +175,8 @@ private:
     void Finish(const Job& job, const Http::Response& response);
     // a login's end: the user, the event, the token kept or cleared, and a session that waits for a login loaded
     void FinishLogin(int result, const char* error, bool withToken);
+    // the session isn't hardcore any more (a logout, a login that failed or expired)
+    void DropSessionHardcore();
     void Push(AchievementEvent event);
     // [memory] and this thread as the one rc_client may read through, around a call into it
     void BeginMemoryAccess(const NdsMemoryView& memory);

@@ -164,6 +164,8 @@ void Achievements::Logout()
     {
         std::lock_guard guard(SessionLock);
         active = SessionInfo.Active;
+        // logged out, the session stays softcore, also after a login (which loads the game in softcore)
+        SessionInfo.Hardcore = false;
         SessionInfo.Loaded = false;
         SessionInfo.GameId = 0;
         SessionInfo.Title.clear();
@@ -171,6 +173,7 @@ void Achievements::Logout()
         // a login after this loads the game again
         SessionLoadStarted = false;
     }
+    SessionHardcore = false;
     if (clearToken && Hook.ClearToken)
         Hook.ClearToken();
     // the logout unloads the game, which mustn't race the emulator thread's frame
@@ -188,6 +191,44 @@ Achievements::User Achievements::GetUser() const
     return UserInfo;
 }
 
+bool Achievements::WouldStartHardcore(bool hardcoreSetting) const
+{
+    if (!Client_)
+        return false;
+    LoginState login;
+    {
+        std::lock_guard guard(UserLock);
+        login = UserInfo.State;
+    }
+    // BeginSession's rule
+    bool signedIn = login == LoginState::LoggedIn || login == LoginState::LoggingIn;
+    return signedIn && HardcoreRun.value_or(hardcoreSetting);
+}
+
+bool Achievements::IsHardcoreSession() const
+{
+    if (!Client_)
+        return false;
+    LoginState login;
+    {
+        std::lock_guard guard(UserLock);
+        login = UserInfo.State;
+    }
+    if (login != LoginState::LoggedIn && login != LoginState::LoggingIn)
+        return false;
+    std::lock_guard guard(SessionLock);
+    return SessionInfo.Active && SessionInfo.Hardcore;
+}
+
+void Achievements::DropSessionHardcore()
+{
+    {
+        std::lock_guard guard(SessionLock);
+        SessionInfo.Hardcore = false;
+    }
+    SessionHardcore = false;
+}
+
 void Achievements::BeginSession(const std::string& raHash, bool hardcoreSetting)
 {
     if (!Client_)
@@ -199,7 +240,7 @@ void Achievements::BeginSession(const std::string& raHash, bool hardcoreSetting)
     }
     // A login still on its way at the start counts: the game waits for it (rc_client's AWAIT_LOGIN), and a failed one loads nothing
     bool signedIn = login == LoginState::LoggedIn || login == LoginState::LoggingIn;
-    bool hardcore = signedIn && HardcoreRun.value_or(hardcoreSetting);
+    bool hardcore = signedIn && WouldStartHardcore(hardcoreSetting);
     bool load = signedIn && !raHash.empty();
     {
         std::lock_guard guard(SessionLock);
@@ -493,6 +534,9 @@ void Achievements::FinishLogin(int result, const char* error, bool withToken)
         event.Result = result;
     }
     Push(std::move(event));
+    // a session that started hardcore while this login was on its way is softcore from here on
+    if (result != RC_OK)
+        DropSessionHardcore();
 
     if (!savedToken.empty() && Hook.PostToUi && Hook.SaveToken)
         Hook.PostToUi([this, savedUser, savedToken] { Hook.SaveToken(savedUser, savedToken); });

@@ -414,27 +414,52 @@ bool DetailRow(App& app, const char* id, ImWchar icon, const char* label, const 
     return pressed;
 }
 
-int TabStrip(App& app, ImVec2 pos, const char* const* labels, int count, int selected)
+namespace
+{
+
+// one tab of a TabStrip at x,y, [w] wide; true when it's clicked
+bool StripTab(App& app, ImDrawList* draw, int i, const char* label, float x, float y, float w, float textSize, bool on)
+{
+    const Palette& p = app.Colors();
+    ImVec2 s = TextSize(app, app.Medium, textSize, label);
+    float h = app.Px(40);
+    ImGui::SetCursorScreenPos(ImVec2(x, y));
+    ImGui::PushID(i);
+    ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
+    bool pressed = ImGui::InvisibleButton("##tab", ImVec2(w, h));
+    ImGui::PopItemFlag();
+    ImGui::PopID();
+    bool hovered = ImGui::IsItemHovered();
+    ImU32 bg = on ? p.SecondaryContainer : hovered ? WithAlpha(p.OnSurface, 0.08f) : 0;
+    draw->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h), bg, h / 2);
+    TextAt(app, app.Medium, textSize, ImVec2(x + (w - s.x) / 2, y + (h - s.y) / 2), on ? p.OnSecondaryContainer : p.OnSurfaceVariant, label);
+    return pressed;
+}
+
+}
+
+int TabStrip(App& app, ImVec2 pos, float width, const char* const* labels, int count, int selected)
 {
     const Palette& p = app.Colors();
     ImDrawList* draw = ImGui::GetWindowDrawList();
     float x = pos.x, y = pos.y;
     int clicked = -1;
+    auto capWidth = [&](const char* text) { return std::max(app.Px(24), TextSize(app, app.Medium, 13, text).x + app.Px(12)); };
     auto cap = [&](const char* text)
     {
         ImVec2 s = TextSize(app, app.Medium, 13, text);
-        float h = app.Px(24), w = std::max(h, s.x + app.Px(12));
+        float h = app.Px(24), w = capWidth(text);
         ImVec2 c0(x, y + (app.Px(40) - h) / 2);
         draw->AddRectFilled(c0, ImVec2(c0.x + w, c0.y + h), p.SurfaceContainerHighest, app.Px(6));
         TextAt(app, app.Medium, 13, ImVec2(c0.x + (w - s.x) / 2, c0.y + (h - s.y) / 2), p.OnSurfaceVariant, text);
         x += w + app.Px(10);
     };
-    // the tabs' padding shrinks, then their text, when they don't fit the window (a narrow one): the caps take about 2 x 34
-    float room = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - app.Px(16) - pos.x - app.Px(2 * 34 + 4);
-    float textSize = 16, pad = 36;
+    // the tabs' padding shrinks, then their text, when they don't fit the width (a narrow window): the caps take about 2 x 34
+    float room = width - app.Px(16) - app.Px(2 * 34 + 4);
+    float textSize = 16, pad = 36, total = 0;
     for (;;)
     {
-        float total = 0;
+        total = 0;
         for (int i = 0; i < count; i++)
             total += TextSize(app, app.Medium, textSize, labels[i]).x + app.Px(pad) + app.Px(6);
         if (total <= room || textSize <= 12)
@@ -444,27 +469,79 @@ int TabStrip(App& app, ImVec2 pos, const char* const* labels, int count, int sel
         else
             textSize -= 1;
     }
-    cap(app.UsingPad() ? "L" : "Q");
+    const char* left = app.UsingPad() ? "L" : "Q";
+    const char* right = app.UsingPad() ? "R" : "W";
+    cap(left);
+    if (total <= room)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            float w = TextSize(app, app.Medium, textSize, labels[i]).x + app.Px(pad);
+            if (StripTab(app, draw, i, labels[i], x, y, w, textSize, i == selected))
+                clicked = i;
+            x += w + app.Px(6);
+        }
+        x += app.Px(4);
+        cap(right);
+        return clicked;
+    }
+
+    // Still too wide: the tabs scroll between the caps, the right cap at the end of the width, a chevron's gutter on either side
+    float h = app.Px(40), gutter = app.Px(14);
+    float rightCap = pos.x + width - app.Px(16) - capWidth(right);
+    float view0 = x + gutter, view1 = std::max(view0 + 1, rightCap - app.Px(10) - gutter);
+    float viewW = view1 - view0;
+    float content = 0, selLeft = 0, selRight = 0;
     for (int i = 0; i < count; i++)
     {
-        ImVec2 s = TextSize(app, app.Medium, textSize, labels[i]);
-        float w = s.x + app.Px(pad), h = app.Px(40);
-        ImGui::SetCursorScreenPos(ImVec2(x, y));
-        ImGui::PushID(i);
-        ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
-        if (ImGui::InvisibleButton("##tab", ImVec2(w, h)))
-            clicked = i;
-        ImGui::PopItemFlag();
-        ImGui::PopID();
-        bool hovered = ImGui::IsItemHovered();
-        bool on = i == selected;
-        ImU32 bg = on ? p.SecondaryContainer : hovered ? WithAlpha(p.OnSurface, 0.08f) : 0;
-        draw->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h), bg, h / 2);
-        TextAt(app, app.Medium, textSize, ImVec2(x + (w - s.x) / 2, y + (h - s.y) / 2), on ? p.OnSecondaryContainer : p.OnSurfaceVariant, labels[i]);
-        x += w + app.Px(6);
+        float w = TextSize(app, app.Medium, textSize, labels[i]).x + app.Px(pad);
+        if (i == selected)
+        {
+            selLeft = content;
+            selRight = content + w;
+        }
+        content += w + (i + 1 < count ? app.Px(6) : 0);
     }
-    x += app.Px(4);
-    cap(app.UsingPad() ? "R" : "W");
+    // the strip's scroll and the tab it last brought into view, kept in the window's state
+    ImGuiStorage* state = ImGui::GetStateStorage();
+    float* scroll = state->GetFloatRef(ImGui::GetID("##tabscroll"), 0.f);
+    int* shown = state->GetIntRef(ImGui::GetID("##tabshown"), -1);
+    ImGuiIO& io = ImGui::GetIO();
+    if (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(ImVec2(view0 - gutter, y), ImVec2(view1 + gutter, y + h)))
+        *scroll -= (io.MouseWheelH != 0 ? io.MouseWheelH : io.MouseWheel) * app.Px(60);
+    // the selected tab into view when it changes, only as far as it takes
+    if (*shown != selected)
+    {
+        *shown = selected;
+        if (selLeft < *scroll)
+            *scroll = selLeft;
+        else if (selRight > *scroll + viewW)
+            *scroll = selRight - viewW;
+    }
+    *scroll = std::clamp(*scroll, 0.f, std::max(0.f, content - viewW));
+
+    ImGui::PushClipRect(ImVec2(view0, y), ImVec2(view1, y + h), true);
+    float tx = view0 - *scroll;
+    for (int i = 0; i < count; i++)
+    {
+        float w = TextSize(app, app.Medium, textSize, labels[i]).x + app.Px(pad);
+        if (StripTab(app, draw, i, labels[i], tx, y, w, textSize, i == selected))
+            clicked = i;
+        tx += w + app.Px(6);
+    }
+    ImGui::PopClipRect();
+    // a chevron on each side with tabs out of view
+    auto chevron = [&](const char* text, float x0)
+    {
+        ImVec2 s = TextSize(app, app.Medium, 20, text);
+        TextAt(app, app.Medium, 20, ImVec2(x0 + (gutter - s.x) / 2, y + (h - s.y) / 2), p.OnSurfaceVariant, text);
+    };
+    if (*scroll > 0.5f)
+        chevron("\xe2\x80\xb9", view0 - gutter);
+    if (*scroll < content - viewW - 0.5f)
+        chevron("\xe2\x80\xba", view1);
+    x = rightCap;
+    cap(right);
     return clicked;
 }
 

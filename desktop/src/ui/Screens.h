@@ -26,14 +26,19 @@ std::unique_ptr<Screen> MakeGameDetailsScreen(const Frontend::LibraryEntry& entr
 // RetroAchievements hash; [atMods]: scrolled to the Lua scripts, the focus on the script folder
 std::unique_ptr<Screen> MakeGameSettingsScreen(const Frontend::LibraryEntry& entry, bool atMods = false);
 std::unique_ptr<Screen> MakePauseScreen();
+// the question before the player stops the game or quits while an unlock hasn't reached RetroAchievements: Keep playing, or Stop anyway
+// ([stop] runs then)
+std::unique_ptr<Screen> MakePendingUnlocksQuestion(std::function<void()> stop);
 // the pause menu's Mods: the session's scripts, each with a switch for this session only and its Options (ui/ModsScreen.cpp)
 std::unique_ptr<Screen> MakeModsScreen();
 // a script's options over the pause menu: saved to the game's settings and the script restarted with them, or cancelled
 std::unique_ptr<Screen> MakeLuaOptionsScreen(const Frontend::LuaScriptStatus& script);
 // the savestate slots, on the Save tab or the Load tab
 std::unique_ptr<Screen> MakeStatesScreen(bool save);
-// the settings, on one of its tabs: video, display, emulation, audio, controls, library
+// the settings, on one of its tabs: video, display, emulation, audio, controls, library, achievements
 std::unique_ptr<Screen> MakeSettingsScreen(const std::string& tab = "");
+// Settings > Achievements' login (--open settings/achievements/login): the user name and password, and Log in
+std::unique_ptr<Screen> MakeRaLoginScreen();
 // the bindings of each device (input setup)
 std::unique_ptr<Screen> MakeInputScreen();
 // a text field and the on-screen keyboard, for tests (--open keyboard)

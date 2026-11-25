@@ -116,7 +116,7 @@ main ones:
 | `--set Name=Value` | a core debug switch on `GPU`, e.g. `--set LateBlit=0` (`--list-sets`) |
 | `--frames N` | quit after N frames and print frame time stats: the game's frames, plus the UI's while no game frame runs (the start screen, a menu over the paused game), how many presented frames had a screen at 1x (GPU::Comp1x), and with [frame pacing](#frame-pacing) on, a `pacing` line |
 | `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window, menus included, when `--frames` or `--ui-script` ends the run; detached, the windows as `F_top.bmp` and `F_bottom.bmp`. The window shot has the Lua drawings; the frame only with `video_lua_drawings_in_state_pictures` on, as the app's save state pictures |
-| `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `library/settings/mods` (its settings at the Lua scripts), `pause`, `pause/save`, `pause/load`, `pause/layout`, `pause/mods`, `pause/mods/options/ID` (a script's options by its id, from 0), `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`), `layouts` (the global layout's list), `layout-editor` (the [layout editor](#layout-editor) on the layout in use), `layout-editor/new`, `layout-editor/ID` (a custom layout by its id), `input`, `keyboard`; with a game, once its first frame is shown |
+| `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `library/settings/mods` (its settings at the Lua scripts), `pause`, `pause/save`, `pause/load`, `pause/layout`, `pause/mods`, `pause/mods/options/ID` (a script's options by its id, from 0), `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`, `achievements`), `settings/achievements/login` (the RetroAchievements login panel; not with `--no-ra`), `layouts` (the global layout's list), `layout-editor` (the [layout editor](#layout-editor) on the layout in use), `layout-editor/new`, `layout-editor/ID` (a custom layout by its id), `input`, `keyboard`; with a game, once its first frame is shown |
 | `--layout NAME\|ID` | the [layout](#layouts-and-backgrounds) for the run, over the game's own and the settings' (never stored): a layout's name in any case or its id from `layouts.json`, `default` (the app's Default), or the desktop's `vertical`, `horizontal`, `top`, `bottom`; an unknown one lists them and quits. It also means the screens together, unless `--detach` is given too (then it's the layout for when they're together again, and its detached windows' layouts) |
 | `--background FILE\|NAME` | the background for the run, over the layout's: an image (PNG, JPEG, BMP, GIF) or SVG file, a background's name (`crimson`, `pearl-tech`, `Pearl Tech`, or a user background's name from `backgrounds.json`) or id, or `none` |
 | `--background-mode MODE` | how it's placed for the run: `stretch`, `fit-center`, `fit-top`, `fit-left`, `fit-bottom`, `fit-right` (the app's `BackgroundMode`, `FIT_CENTER` style too) |
@@ -276,12 +276,13 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
   them in its own files; they don't travel with the states. The screenshot is read from the frame the
   game is paused on, since the app's `ScreenshotRenderer` only takes one as the next frame runs. Saving over a used slot asks
   first, and X (Delete) on a used slot deletes it, once asked, to the recycle bin with its screenshot.
-- **Settings**: six tabs (L / R): Video (renderer, internal resolution, the renderer settings, the screen filter in the app's list and
+- **Settings**: seven tabs (L / R): Video (renderer, internal resolution, the renderer settings, the screen filter in the app's list and
   order, smooth gradients, DS screen colors, screen shadow, the app's Frame pacing section: VSync, Force 60 Hz, Triple buffering, greyed
   out while VSync is off, and Frame interpolation, greyed out on Software; then JIT), Display (screens together or detached, the global layout's list, swap, each detached
   screen's fit, the bottom window's title bar and on-top, fullscreen mode, theme), Emulation (console, custom BIOS and its folders through the Windows folder picker, boot screen, fast-forward
   speed), Audio (on/off, volume, latency, mute while fast forwarding), Controls (the input setup, rumble) and Library (the ROM folders:
-  A changes one through the folder picker, X removes it, then Add a ROM folder and Rescan the library). A change is saved at
+  A changes one through the folder picker, X removes it, then Add a ROM folder and Rescan the library) and Achievements (the
+  [RetroAchievements](#retroachievements) account, hardcore, rich presence and the indicators). A change is saved at
   once and applied to a running game where the core allows it; the rows that wait for the next game say so, and a toast says it
   when a game runs. `--open settings/audio` opens a tab.
 - **Buttons and hotkeys** (Settings > Controls, `--open input`): one device at a time (L / R: the keyboard, the controllers plugged
@@ -463,8 +464,9 @@ The achievements while playing (`src/achievements/`) run on rcheevos' `rc_client
 app's `RetroAchievementsManager` and its `rc_runtime`, which stays empty on the desktop. `rc_client` loads a game's achievements,
 leaderboards and rich presence by its RetroAchievements hash (the library's, `rc_hash`'s DS method), runs them each frame and sends
 the unlocks, scores and pings itself. It needs rcheevos' server API (`src/rapi`), which the app's `rcheevos` target leaves out: the
-desktop builds it as `rcheevos-rapi` (`desktop/CMakeLists.txt`). There are no menus for it yet; for now the events are printed (`ra: ...`
-lines on stdout) and `rc_client`'s own log goes to the log at INFO (`ra: ...` on stderr).
+desktop builds it as `rcheevos-rapi` (`desktop/CMakeLists.txt`). Settings > Achievements has the login and the settings; there are no
+popups, indicators or achievement list yet, so the events are printed (`ra: ...` lines on stdout) and `rc_client`'s own log goes to the
+log at INFO (`ra: ...` on stderr).
 
 `Achievements` (`src/achievements/Achievements.h`, which documents its API and threads) owns the one client:
 
@@ -489,8 +491,37 @@ lines on stdout) and `rc_client`'s own log goes to the log at INFO (`ra: ...` on
   a state from the app mostly carries over, a state without the section or with progress that doesn't fit resets it, and a reset
   (Ctrl+R) resets it too.
 
-The flags, all for the run only: `--no-ra` (no client at all), `--ra-hardcore on|off`, `--ra-host URL` (`rc_client_set_host`, a test
-server) and `--ra-user NAME --ra-token TOKEN` (logged in with that token, never saved).
+**Hardcore rules**, as the app's `EmulatorSession`. Whether a game is hardcore is decided as it boots
+(`Achievements::WouldStartHardcore`, the rule `BeginSession` uses a moment later; a token login that fails in between leaves the game
+softcore with the scripts still off). While the session is hardcore (`Achievements::IsHardcoreSession`: hardcore at its start, and not
+logged out or with a failed login since):
+
+- **No state loads**: the pause menu has no Load state, the states screen stays on its Save tab (switching to Load toasts "Loading
+  states is off in hardcore mode"), the quick-load hotkey toasts the same, `Host::LoadSlot` refuses, `--open pause/load` opens the
+  pause menu alone, and the command line's `--state` and `--at N:state` are skipped with `ra: --state ignored in hardcore mode` (and
+  `ra: --at N:state ignored ...`) on stderr. Saving states, fast forward and the WideMelon camera stay.
+- **No Lua**: no script starts (the session gets an empty launch), `--lua-script` is skipped with `ra: --lua-script ignored in hardcore
+  mode`, the pause menu has no Mods, and a game's settings show "Lua scripts are off while hardcore mode is on." over their script rows,
+  disabled (options left out) whenever a game started now would be hardcore.
+- **Stopping with unlocks still unsent** (`HasPendingUnlocks`, between `rc_client`'s disconnected and reconnected events), in any
+  session: Quit to library, Quit melonadeDS and closing the window ask "Some unlocks haven't reached RetroAchievements yet." with Keep
+  playing (focused) and Stop anyway.
+
+**Settings > Achievements** (`--open settings/achievements`): the account ("Not logged in", "Your RetroAchievements login expired.", or
+"Logged in as NAME" with the hardcore and softcore points, and Log out, asked first), then Hardcore mode (`ra_hardcore_enabled`, off),
+Rich presence (`ra_rich_presence`, on; shown on and disabled while hardcore is on, by the switch or `--ra-hardcore on`), and the
+Challenge, Progress and Leaderboard indicators (`ra_active_challenge_indicators`, `ra_progress_indicators`, `ra_leaderboard_indicators`,
+all on, for the indicators still to come). Hardcore and rich presence apply when a game starts; changed while one runs, a toast says to
+restart it. Log in opens a panel over it (`--open settings/achievements/login`): Username and Password (the on-screen keyboard, the
+password as dots), then Log in once both are filled; a failure toasts `rc_client`'s message and stays, a success toasts and goes back.
+The password is cleared once it's sent and never printed. With `--no-ra` the tab says RetroAchievements is off for the run and nothing
+else. The Web API key stays on the Library tab.
+
+The flags, all for the run only: `--no-ra` (no client at all, an Achievements tab with nothing on it), `--ra-hardcore on|off` (over the
+Hardcore switch for every game of the run; the tab says so under the switch, which then changes only the stored setting), `--ra-host
+URL` (`rc_client_set_host`, a test server) and `--ra-user NAME --ra-token TOKEN` (logged in with that token, never saved; the tab shows
+it logged in, and Log out leaves the saved login alone). `--ra-hardcore on` without a login is softcore: hardcore needs a login at the
+game's start.
 
 **The fake server**, `tools/fake-ra-server.py` (Python's standard library; its header lists what it answers), stands in for
 retroachievements.org: every hash is "Fake Game", with A1 unlocking 300 frames after its achievements start, A2 never, A3 with a

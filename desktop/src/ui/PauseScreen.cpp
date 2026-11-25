@@ -1,5 +1,6 @@
 // The pause menu: a panel along the left over the game's last frame, dimmed. Resume, savestates, the screens (together or detached, swap),
-// the layout (pick one, or edit the one in use), the Lua scripts (Mods, while the game runs any), settings, reset and quitting
+// the layout (pick one, or edit the one in use), the Lua scripts (Mods, while the game runs any), settings, reset and quitting. A
+// RetroAchievements hardcore session has no Load state and no Mods, as the app's filterRomPauseMenuOption
 #include "Icons.h"
 #include "Screens.h"
 #include "Ui.h"
@@ -76,7 +77,8 @@ public:
             app.CloseAll();
         if (MenuRow(app, "##save", Icon::Save, "Save state", nullptr))
             app.Push(MakeStatesScreen(true));
-        if (MenuRow(app, "##load", Icon::History, "Load state", nullptr))
+        bool hardcore = host.HardcoreSession && host.HardcoreSession();
+        if (!hardcore && MenuRow(app, "##load", Icon::History, "Load state", nullptr))
             app.Push(MakeStatesScreen(false));
         Divider(app);
 
@@ -98,7 +100,7 @@ public:
         Divider(app);
 
         // while this session loaded a script, even once they're all switched off (the app's filterRomPauseMenuOption)
-        if (host.Lua && host.Lua->HasScripts() && MenuRow(app, "##mods", Icon::Extension, "Mods", nullptr))
+        if (!hardcore && host.Lua && host.Lua->HasScripts() && MenuRow(app, "##mods", Icon::Extension, "Mods", nullptr))
             app.Push(MakeModsScreen());
         if (MenuRow(app, "##settings", Icon::Settings, "Settings", nullptr))
             app.Push(MakeSettingsScreen());
@@ -128,6 +130,23 @@ public:
 std::unique_ptr<Screen> MakePauseScreen()
 {
     return std::make_unique<PauseScreen>();
+}
+
+std::unique_ptr<Screen> MakePendingUnlocksQuestion(std::function<void()> stop)
+{
+    printf("ui: ask stop with unlocks pending\n");
+    fflush(stdout);
+    return MakePanelScreen("ra/pending", "Some unlocks haven't reached RetroAchievements yet.", "Stop now and they're lost.",
+        [stop](App& app)
+        {
+            if (MenuRow(app, "##keep", Icon::PlayArrow, "Keep playing", nullptr, true))
+                app.Pop();
+            else if (MenuRow(app, "##stop", Icon::Power, "Stop anyway", nullptr))
+            {
+                app.Pop();
+                stop();
+            }
+        });
 }
 
 }
