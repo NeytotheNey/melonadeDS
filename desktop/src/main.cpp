@@ -52,6 +52,7 @@
 #include "renderer/ScreenshotRenderer.h"
 #include "retroachievements/RetroAchievementsManager.h"
 
+#include "achievements/Achievements.h"
 #include "Audio.h"
 #include "Controls.h"
 #include "DesktopEventMessenger.h"
@@ -104,6 +105,13 @@ namespace
 constexpr ULONG kIgnoreTimerResolution = 0x4;
 
 enum class RendererType { Software, OpenGL, Compute };
+
+// The console's memory as RetroAchievements reads it (Achievements::DoFrame): main RAM wrapped by its mask (4 MB on a DS, 16 MB on a DSi)
+// and the ARM9's data TCM by its size, as RetroAchievementsManager::PeekMemory reads them
+Frontend::NdsMemoryView AchievementsMemory(NDS& nds)
+{
+    return {nds.MainRAM, nds.MainRAMMask, nds.ARM9.DTCM, DTCMPhysicalSize - 1};
+}
 
 const char* RendererName(RendererType type)
 {
@@ -260,6 +268,11 @@ struct Options
     bool NoSync = false, SyncNow = false;
     std::string MetadataBaseUrl, ThumbnailsBaseUrl, DatUrl, RaWebApiKey;
     int SyncBackoffMs = 0;     // --sync-backoff S: the first wait after a sync stopped early (tests; 15 minutes otherwise)
+    // RetroAchievements (achievements/Achievements.h), all for the run only: --no-ra, --ra-hardcore over ra_hardcore_enabled, --ra-host (a
+    // test server), and --ra-user with --ra-token to log in with (never saved)
+    bool NoRa = false;
+    std::optional<bool> RaHardcore;
+    std::string RaHost, RaUser, RaToken;
 };
 
 void Usage()
@@ -465,6 +478,14 @@ void Usage()
         "  --sync-now                  scan the library and sync its metadata at the start, without opening the\n"
         "                              library, with RetroAchievements' hash library fetched whatever its age\n"
         "  --ra-web-api-key KEY        a RetroAchievements Web API key for this run only, never stored\n"
+        "  --no-ra                     no RetroAchievements this run: no login, no requests, no achievements\n"
+        "  --ra-hardcore on|off        RetroAchievements hardcore for this run's games, over ra_hardcore_enabled\n"
+        "                              (a game is hardcore only when its session starts logged in)\n"
+        "  --ra-host URL               RetroAchievements' server for this run (a test server,\n"
+        "                              tools/fake-ra-server.py): URL/dorequest.php in place of retroachievements.org\n"
+        "  --ra-user NAME --ra-token TOKEN\n"
+        "                              log in to RetroAchievements as NAME with TOKEN for this run, over the saved\n"
+        "                              login; never saved\n"
         "  --metadata-base-url URL     RetroAchievements' hosts for this run (a test server): URL/dorequest.php,\n"
         "                              URL/API/API_GetGame.php and URL/Images/... in place of retroachievements.org\n"
         "                              and media.retroachievements.org\n"
@@ -1060,6 +1081,20 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--thumbnails-base-url") opts.ThumbnailsBaseUrl = next();
         else if (arg == "--dat-url") opts.DatUrl = next();
         else if (arg == "--ra-web-api-key") opts.RaWebApiKey = next();
+        else if (arg == "--no-ra") opts.NoRa = true;
+        else if (arg == "--ra-hardcore")
+        {
+            std::string value = next();
+            if (value != "on" && value != "off")
+            {
+                fprintf(stderr, "bad --ra-hardcore %s (on or off)\n", value.c_str());
+                return false;
+            }
+            opts.RaHardcore = value == "on";
+        }
+        else if (arg == "--ra-host") opts.RaHost = next();
+        else if (arg == "--ra-user") opts.RaUser = next();
+        else if (arg == "--ra-token") opts.RaToken = next();
         else if (arg == "--sync-backoff") opts.SyncBackoffMs = std::max(1, atoi(next().c_str())) * 1000;
         else if (arg == "--pretend-wide-tiles")
         {
@@ -1068,6 +1103,11 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "-h" || arg == "--help") { Usage(); exit(0); }
         else if (arg[0] == '-') { fprintf(stderr, "unknown option %s\n", arg.c_str()); return false; }
         else opts.RomPath = arg;
+    }
+    if (opts.RaUser.empty() != opts.RaToken.empty())
+    {
+        fprintf(stderr, "--ra-user and --ra-token go together\n");
+        return false;
     }
     // as the app's LuaBloomRequests, which drops a request for none of them
     opts.Bloom = bloom.IsOff() ? std::nullopt : std::optional<Frontend::Bloom>(bloom);
@@ -2390,6 +2430,45 @@ int main(int argc, char** argv)
     // before the emulator thread, which reads its tracker, so it goes after it
     Frontend::VsyncSource vsyncSource;
     Frontend::EmulatorThread emuThread;
+
+    // RetroAchievements (achievements/Achievements.h): its client and workers, and the token login with the run's token or the saved one
+    Frontend::Achievements achievements;
+    {
+        Frontend::Achievements::Config config;
+        config.Disabled = opts.NoRa;
+        config.Host = opts.RaHost;
+        config.UserName = settings.GetString("ra_username", "");
+        std::string stored = settings.GetString("desktop_ra_token", "");
+        if (!stored.empty() && !Frontend::UnprotectSecret(stored, config.Token))
+            fprintf(stderr, "ra: the saved login can't be read (another Windows account's?); logged out\n");
+        config.RunUserName = opts.RaUser;
+        config.RunToken = opts.RaToken;
+        config.HardcoreRun = opts.RaHardcore;
+        config.RichPresence = settings.GetBool("ra_rich_presence", true);
+        Frontend::Achievements::Hooks hooks;
+        hooks.PostToUi = [&](std::function<void()> task) { messenger->Post(std::move(task)); };
+        hooks.PostToEmulator = [&](std::function<void()> task) { emuThread.Post([task](MelonDSAndroid::MelonInstance&) { task(); }); };
+        hooks.SaveToken = [&](const std::string& userName, const std::string& token)
+        {
+            std::string protectedToken = Frontend::ProtectSecret(token);
+            settings.SetStored("ra_username", picojson::value(userName));
+            if (protectedToken.empty())
+                fprintf(stderr, "ra: Windows couldn't encrypt the login; it's kept for this run only\n");
+            else
+                settings.SetStored("desktop_ra_token", picojson::value(protectedToken));
+            settings.Save();
+            printf("settings: ra_username = %s, desktop_ra_token = (encrypted)\n", userName.c_str());
+        };
+        hooks.ClearToken = [&]
+        {
+            settings.SetStored("desktop_ra_token", picojson::value(std::string()));
+            settings.Save();
+            printf("settings: desktop_ra_token removed\n");
+        };
+        achievements.Open(config, std::move(hooks));
+    }
+    // the UI thread's copy of the events it takes each pass (Achievements::DrainEvents), printed until the menus show them
+    std::vector<Frontend::AchievementEvent> achievementEvents;
     // Frame pacing as the run has it (FramePacingOn, frame_pacing_buffer): the vsync thread on the main window's monitor, the main window's
     // swap interval and the emulator thread's pacing, at the start and when the settings change
     bool framePacingRan = false; // the vsync thread ran in this run: the summary has a pacing line
@@ -2423,6 +2502,9 @@ int main(int argc, char** argv)
         instance.setFrontendLightTextures(opts.LightTextures);
         instance.setFrontendUiTextures(opts.UiTextures);
         instance.setFrontendFocusTextures(opts.FocusTextures);
+        // the savestates' achievement progress is rc_client's (before a --state loads, so its progress goes there)
+        if (achievements.IsEnabled())
+            instance.setAchievementsProgressHandler(&achievements);
         if (commandLineGame && !opts.StatePath.empty() && !LoadStateFile(opts, instance, opts.StatePath))
         {
             startFailed = true;
@@ -2611,9 +2693,16 @@ int main(int argc, char** argv)
             audio.AfterFrame(instance);
         else
             while (instance.readAudioOutput(audioBuf.data(), (int)audioBuf.size() / 2) > 0) {}
+
+        // the achievements' frame, on the memory this frame left
+        achievements.DoFrame(AchievementsMemory(nds), frame);
     };
-    callbacks.OnStop = [&](MelonDSAndroid::MelonInstance&)
+    // rc_client's timers (an unlock's retry, the pings) while the game is paused; without RetroAchievements the parked thread just waits
+    if (achievements.IsEnabled())
+        callbacks.OnIdle = [&](MelonDSAndroid::MelonInstance& instance) { achievements.Idle(AchievementsMemory(*instance.getNds())); };
+    callbacks.OnStop = [&](MelonDSAndroid::MelonInstance& instance)
     {
+        instance.setAchievementsProgressHandler(nullptr);
         OpenGL::ShaderCacheStats cacheStats;
         OpenGL::SaveShaderCache(cacheStats);
     };
@@ -2754,6 +2843,8 @@ int main(int argc, char** argv)
         }
         emuThread.Stop();
         emu = nullptr;
+        // the achievements' game unloaded, now that no frame can run
+        achievements.EndSession();
         // the scripts' last storage saved, their requests undone, and their events still on the way dropped
         messenger->EndLuaSession();
         luaSession.End();
@@ -3014,6 +3105,9 @@ int main(int argc, char** argv)
         MelonDSAndroid::MelonInstance* started = instance.get();
         emuThread.SetFastForwardSpeed(opts.FastForwardSpeed);
         emuThread.Start(emuWindow, emuContext, std::move(instance), callbacks);
+        // the achievements' session, once the thread can take what it posts: its game loads by hash, with hardcore fixed from here on
+        achievements.SetRichPresence(settings.GetBool("ra_rich_presence", true));
+        achievements.BeginSession(identity.RaHash, settings.GetBool("ra_hardcore_enabled", false));
         audio.SetInstance(started);
         audio.SetRunning(true);
         return true;
@@ -4352,6 +4446,15 @@ int main(int argc, char** argv)
         // the emulator's events (its stop), what the emulator thread waits for (--at shot, --at key), and the menus' queued actions (a
         // game booted or stopped)
         messenger->Drain();
+        // the achievements' events, printed (a tracker's every change left out) until the menus show them
+        achievements.DrainEvents(achievementEvents);
+        for (const Frontend::AchievementEvent& event : achievementEvents)
+        {
+            if (event.Kind != Frontend::AchievementEvent::Type::LeaderboardTrackerUpdate)
+                printf("ra: %s\n", Frontend::DescribeEvent(event).c_str());
+        }
+        if (!achievementEvents.empty())
+            fflush(stdout);
         if (!running || (emu && emuThread.IsFinished()))
             break;
 
@@ -4547,6 +4650,7 @@ int main(int argc, char** argv)
     input.StopRumble();
     emuThread.Stop();
     emu = nullptr;
+    achievements.EndSession();
     // the scripts' last storage, which the instance's stop put in the outbox
     messenger->EndLuaSession();
     luaSession.End();
@@ -4558,6 +4662,11 @@ int main(int argc, char** argv)
     // the sync stopped (its requests cancelled), then the library's worker (a scan stops between two files)
     metadata.Close();
     library.Close();
+    // RetroAchievements' last requests (an unlock on its way gets a moment), then its client, and its last events printed
+    achievements.Close();
+    achievements.DrainEvents(achievementEvents);
+    for (const Frontend::AchievementEvent& event : achievementEvents)
+        printf("ra: %s\n", Frontend::DescribeEvent(event).c_str());
     MelonDSAndroid::frontendContext.eventMessenger = nullptr;
     presenter.Free();
     audio.Close();

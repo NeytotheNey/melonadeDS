@@ -118,7 +118,20 @@ bool RetroAchievementsManager::DoSavestate(Savestate* savestate)
 {
     std::unique_lock lock(runtimeLock);
 
+    // With a handler, a state without the section (an older desktop one) resets its progress and still loads
+    if (progressHandler && !savestate->Saving && !savestate->Error && !savestate->HasSection("RCHV"))
+    {
+        progressHandler->ResetProgress();
+        return true;
+    }
+
     savestate->Section("RCHV");
+    // A handler with nothing to save (no game loaded) saves the empty runtime's progress, as before, which the app can read
+    if (savestate->Saving && progressHandler && progressHandler->ProgressSize() > 0)
+        return SaveHandlerProgress(savestate);
+    if (!savestate->Saving && !savestate->Error && progressHandler)
+        return LoadHandlerProgress(savestate);
+
     if (savestate->Saving)
     {
         u32 rcheevosStateSize = (u32) rc_runtime_progress_size(&rcheevosRuntime, nullptr);
@@ -156,10 +169,62 @@ bool RetroAchievementsManager::DoSavestate(Savestate* savestate)
     return true;
 }
 
+bool RetroAchievementsManager::SaveHandlerProgress(Savestate* savestate)
+{
+    size_t size = progressHandler->ProgressSize();
+    if (size > UINT32_MAX)
+        return false;
+
+    progressBuffer.resize(size);
+    if (!progressHandler->SerializeProgress(progressBuffer.data(), size))
+        return false;
+
+    u32 stateSize = (u32) size;
+    savestate->Var32(&stateSize);
+    savestate->VarArray(progressBuffer.data(), stateSize);
+    return !savestate->Error;
+}
+
+bool RetroAchievementsManager::LoadHandlerProgress(Savestate* savestate)
+{
+    u32 stateSize = 0;
+    savestate->Var32(&stateSize);
+    if (savestate->Error)
+        return false;
+
+    // The size comes from the file: one past the rest of the state is a damaged section, whose progress is dropped
+    if (stateSize > savestate->BufferLength() - savestate->Length())
+    {
+        Platform::Log(Platform::LogLevel::Warn, "RCHV section claims %u bytes, more than the state has; achievement progress reset\n", stateSize);
+        progressHandler->ResetProgress();
+        return true;
+    }
+
+    progressBuffer.resize(stateSize);
+    savestate->VarArray(progressBuffer.data(), stateSize);
+    if (savestate->Error)
+        return false;
+
+    if (stateSize == 0 || !progressHandler->DeserializeProgress(progressBuffer.data(), stateSize))
+    {
+        Platform::Log(Platform::LogLevel::Info, "The state's achievement progress doesn't fit the game loaded; it's reset\n");
+        progressHandler->ResetProgress();
+    }
+    return true;
+}
+
+void RetroAchievementsManager::SetProgressHandler(ProgressHandler* handler)
+{
+    std::unique_lock lock(runtimeLock);
+    progressHandler = handler;
+}
+
 void RetroAchievementsManager::Reset()
 {
     std::unique_lock lock(runtimeLock);
     rc_runtime_reset(&rcheevosRuntime);
+    if (progressHandler)
+        progressHandler->ResetProgress();
     FlushPeekWarnings();
 }
 

@@ -41,7 +41,11 @@ public:
         std::function<void(Instance&, melonDS::u32 frame, melonDS::u32 lines, double workMs)> AfterFrame;
         // as the thread ends, before the instance's stop() and destruction
         std::function<void(Instance&)> OnStop;
+        // while it's parked (paused, or held at a frame), every IDLE_INTERVAL_MS (RetroAchievements' rc_client_idle); without it the
+        // parked thread just waits
+        std::function<void(Instance&)> OnIdle;
     };
+    static constexpr int IDLE_INTERVAL_MS = 200;
 
     ~EmulatorThread();
 

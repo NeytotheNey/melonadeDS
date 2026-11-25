@@ -330,7 +330,16 @@ void EmulatorThread::Run(SDL_Window* window, SDL_GLContext context)
                 Emu->flushLuaStorage();
                 Emu->finishRewindScreenshot(true);
                 lock.lock();
-                Wake.wait(lock, [this] { return FinishRequested || (!Paused && Held == kNoFrame) || !Commands.empty(); });
+                auto woken = [this] { return FinishRequested || (!Paused && Held == kNoFrame) || !Commands.empty(); };
+                if (!Hooks.OnIdle)
+                    Wake.wait(lock, woken);
+                // the idle hook between timed waits; a wake ends the wait as before, so the pacing after a resume is the same
+                while (Hooks.OnIdle && !Wake.wait_for(lock, std::chrono::milliseconds(IDLE_INTERVAL_MS), woken))
+                {
+                    lock.unlock();
+                    Hooks.OnIdle(*Emu);
+                    lock.lock();
+                }
                 if (!Paused && Held == kNoFrame)
                 {
                     frameLimitError = 0;

@@ -1,7 +1,8 @@
-// A small HTTP(S) client on WinHTTP (a system DLL), for the library's metadata and art (MetadataSync.h): GET only, synchronous, for worker
-// threads only. It has timeouts, follows redirects when asked (never from HTTPS to HTTP, WinHTTP's default), caps the body's size, sends a
+// A small HTTP(S) client on WinHTTP (a system DLL), for the library's metadata and art (MetadataSync.h) and RetroAchievements'
+// requests (achievements/Achievements.h): GET, or POST with a body, synchronous, for worker threads only. It has timeouts, follows redirects when asked (never from HTTPS to HTTP, WinHTTP's default), caps the body's size, sends a
 // generic User-Agent (melonadeDS-desktop/<version>, nothing about the user), and can be cancelled from another thread for shutdown or a game
-// starting. URLs can hold a key (RetroAchievements' Web API key is a query parameter), so nothing here logs or returns them
+// starting. URLs and bodies can hold a key or a password (RetroAchievements' Web API key is a query parameter, its login a POST field), so
+// nothing here logs or returns them
 #pragma once
 
 #include <atomic>
@@ -17,6 +18,9 @@ namespace Frontend::Http
 struct Request
 {
     std::string Url;               // UTF-8, already encoded (UrlEncode for the parts that need it)
+    std::string Method = "GET";    // "GET" or "POST"
+    std::string Body;              // sent as it is (a POST's form fields); empty for a GET
+    std::string ContentType;       // the body's Content-Type header ("application/x-www-form-urlencoded"); none when empty
     bool FollowRedirects = true;   // false: a 3xx comes back as it is (the RetroAchievements Web API, whose URLs hold the key)
     size_t MaxBytes = 16u << 20;   // a longer body fails with TooLarge
     int TimeoutMs = 20000;         // connecting, sending and each wait for data
@@ -43,7 +47,9 @@ public:
     Client(const Client&) = delete;
     Client& operator=(const Client&) = delete;
 
-    Response Get(const Request& request);
+    // [request] as its Method says (Get() is the same, for the callers that only ever GET)
+    Response Send(const Request& request);
+    Response Get(const Request& request) { return Send(request); }
 
     // Every request in flight fails at once with Cancelled (their handles closed), and so does every later one until Resume
     void Cancel();

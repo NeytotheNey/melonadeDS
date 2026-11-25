@@ -88,8 +88,26 @@ target_compile_definitions(rhash-rom PRIVATE RC_DISABLE_LUA=1 RC_HASH_NO_DISC RC
 # md5, rc_path_* and the rest it calls are in rcheevos
 target_link_libraries(rhash-rom PRIVATE rcheevos)
 
+# rcheevos' server API (rapi: the requests and replies), which rc_client (src/achievements, in the app's rcheevos target already) calls
+# and the app's target leaves out; desktop only. rc_client.c calls into it and it calls rcheevos' rc_buffer and JSON helpers back, so each
+# links the other and CMake repeats them on the link line
+add_library(rcheevos-rapi STATIC
+    "${RCHEEVOS_DIR}/src/rapi/rc_api_common.c"
+    "${RCHEEVOS_DIR}/src/rapi/rc_api_editor.c"
+    "${RCHEEVOS_DIR}/src/rapi/rc_api_info.c"
+    "${RCHEEVOS_DIR}/src/rapi/rc_api_runtime.c"
+    "${RCHEEVOS_DIR}/src/rapi/rc_api_user.c")
+target_include_directories(rcheevos-rapi PRIVATE "${RCHEEVOS_DIR}/include" "${RCHEEVOS_DIR}/src")
+target_compile_definitions(rcheevos-rapi PRIVATE RC_DISABLE_LUA=1)
+target_link_libraries(rcheevos-rapi PRIVATE rcheevos)
+target_link_libraries(rcheevos INTERFACE rcheevos-rapi)
+
 add_executable(melonade-desktop
     src/main.cpp
+    src/achievements/Achievements.cpp
+    src/achievements/Achievements.h
+    src/achievements/AchievementsLogic.cpp
+    src/achievements/AchievementsLogic.h
     src/ArtImage.cpp
     src/ArtImage.h
     src/Audio.cpp
@@ -344,6 +362,12 @@ target_sources(melonade-desktop-tests PRIVATE ${LUA_SCRIPT_SOURCES}
     tests/RomConfigTests.cpp
     src/RomConfig.cpp
     src/RomConfig.h)
+# the RetroAchievements client's pure parts (src/achievements/AchievementsLogic), which only need rc_client.h's types
+target_sources(melonade-desktop-tests PRIVATE
+    tests/AchievementsLogicTests.cpp
+    src/achievements/AchievementsLogic.cpp
+    src/achievements/AchievementsLogic.h)
+target_include_directories(melonade-desktop-tests PRIVATE "${RCHEEVOS_DIR}/include")
 target_link_libraries(melonade-desktop-tests PRIVATE bcrypt)
 target_include_directories(melonade-desktop-tests PRIVATE "${CORE_LIB}/src")
 target_include_directories(melonade-desktop-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/tests"

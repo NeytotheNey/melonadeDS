@@ -48,7 +48,8 @@ release folder. It's a console program with the app's Kotlin tests ported for th
 camera (`src/camera/`: `WideCameraTest`, `WideCameraControllerTest`, `WidescreenLaunchCameraTest`,
 `LuaWideCameraRequestsTest`), the screens' placement (`src/layout/LayoutGeometry`: `ScreensDrawingTest`), the Lua scripts' side
 of the app (`src/lua/`: the header parser, options, folder content and sync, saved data, the arbiters) and the game settings' script list
-(`RomConfig`), with the same expected values. It's built from those sources alone, with no SDL, GL or core, and lives in `tests/` (a tiny harness in
+(`RomConfig`), with the same expected values, plus the RetroAchievements client's pure parts (`src/achievements/AchievementsLogic`: the
+console's memory as `rc_client` reads it, the ping's rich presence shim, the events' copies), which need only `rc_client.h`'s types. It's built from those sources alone, with no SDL, GL or core, and lives in `tests/` (a tiny harness in
 `tests/Test.h`, no test library). To run it by hand, from PowerShell:
 
     & .\build-desktop\melonade-desktop-tests.exe            # all of them
@@ -126,6 +127,10 @@ main ones:
 | `--no-sync` | no network at all for the run: the [metadata sync](#metadata-and-art) makes no requests (the art on disk still shows, and the ROMs' hashes are still computed) |
 | `--sync-now` | scan the library and sync at the start, without the library screen (with `--open settings/library`, say), with RetroAchievements' hash library fetched whatever its age |
 | `--ra-web-api-key KEY` | a RetroAchievements Web API key for this run only, never stored |
+| `--no-ra` | no [RetroAchievements](#retroachievements) this run: no login, no requests, no achievements |
+| `--ra-hardcore on\|off` | RetroAchievements hardcore for the run's games, over `ra_hardcore_enabled` (a game is hardcore only when its session starts logged in) |
+| `--ra-host URL` | RetroAchievements' server for the run (a test server such as `tools/fake-ra-server.py`): `URL/dorequest.php` |
+| `--ra-user NAME --ra-token TOKEN` | log in to RetroAchievements as NAME with TOKEN for the run, over the saved login; never saved |
 | `--metadata-base-url URL`, `--thumbnails-base-url URL`, `--dat-url URL` | the sync's hosts for this run (a local test server): `URL/dorequest.php`, `URL/API/API_GetGame.php` and `URL/Images/...` in place of retroachievements.org and media.retroachievements.org; `URL/Named_Boxarts/<name>.png` and `URL/Named_Titles/<name>.png` for the libretro thumbnails; the DAT's address |
 | `--sync-backoff S` | a sync that stopped early tries again after S seconds, then twice that (default 900, the app's 15 minutes), for tests |
 | `--ui-script F` | drive the menus from a file, see [UI scripts](#ui-scripts) |
@@ -451,6 +456,55 @@ the Windows user, so the file alone gives it to no one; Test the key (one `API_G
 images found missing that long ago asked for again); Clear downloaded art (the sync stops and the media folder is deleted; the next
 sync downloads the art again with no API calls); and a status line ("Art: 5 of 7 games, last synced Nov 21, 01:01 AM", and what it's
 doing). Requests carry the User-Agent `melonadeDS-desktop/<version>` and nothing about the user; the key is never logged.
+
+### RetroAchievements
+
+The achievements while playing (`src/achievements/`) run on rcheevos' `rc_client` (rcheevos 12.2, the app's vendored copy), not on the
+app's `RetroAchievementsManager` and its `rc_runtime`, which stays empty on the desktop. `rc_client` loads a game's achievements,
+leaderboards and rich presence by its RetroAchievements hash (the library's, `rc_hash`'s DS method), runs them each frame and sends
+the unlocks, scores and pings itself. It needs rcheevos' server API (`src/rapi`), which the app's `rcheevos` target leaves out: the
+desktop builds it as `rcheevos-rapi` (`desktop/CMakeLists.txt`). There are no menus for it yet; for now the events are printed (`ra: ...`
+lines on stdout) and `rc_client`'s own log goes to the log at INFO (`ra: ...` on stderr).
+
+`Achievements` (`src/achievements/Achievements.h`, which documents its API and threads) owns the one client:
+
+- **Server calls** go to a queue served by two worker threads with their own HTTP client (`Http.h`, POST to `dorequest.php` with a
+  form body), apart from the metadata sync's, which a game starting cancels. Every request's callback runs once, also when the network
+  fails (as `rc_client`'s retryable error, so an unlock is retried and the disconnected and reconnected events come) and at exit, where
+  the requests in flight get two seconds before they're cancelled. The User-Agent is `melonadeDS-desktop/<version>` with `rc_client`'s
+  clause (`Achievements::USER_AGENT_PRODUCT`). Only the request's `r=` value is ever logged: the bodies hold the token or the password.
+- **The login**: with a password (its token is saved as `desktop_ra_token`, DPAPI-encrypted like the Web API key, and the name as
+  `ra_username`), and with the saved token at the start. An expired or refused token logs out, keeps the name and forgets the token; a
+  logout forgets it and unloads the game.
+- **A session per game**: started as the game boots. Hardcore is decided then and stays for the session: logged in (or logging in) at
+  its start, and `ra_hardcore_enabled` (off by default) or `--ra-hardcore`. A login made while a game runs loads it in softcore.
+  Unofficial achievements, encore and spectator mode are off. `rc_client` keeps leaderboards off in softcore by itself (12.2 has no
+  switch for it: `allow_leaderboards_in_softcore` is never set). With `ra_rich_presence` off (on by default), a softcore session's
+  pings leave out the rich presence (the `m=` field); hardcore always sends it.
+- **The emulator thread** runs `rc_client_do_frame` after each frame and `rc_client_idle` every 200 ms while the game is paused
+  (`EmulatorThread`'s `OnIdle`, a timed wait in its pause that changes nothing once it resumes); those are the only places `rc_client`
+  reads the console (background reads are off): main RAM at `0x00xxxxxx` and the ARM9's DTCM at `0x01xxxxxx`, wrapped byte by byte as
+  the app's `PeekMemory` reads them, nothing else.
+- **Savestates** keep `rc_client`'s progress in the app's `RCHV` section, same format (`RetroAchievementsManager::SetProgressHandler`):
+  a state from the app mostly carries over, a state without the section or with progress that doesn't fit resets it, and a reset
+  (Ctrl+R) resets it too.
+
+The flags, all for the run only: `--no-ra` (no client at all), `--ra-hardcore on|off`, `--ra-host URL` (`rc_client_set_host`, a test
+server) and `--ra-user NAME --ra-token TOKEN` (logged in with that token, never saved).
+
+**The fake server**, `tools/fake-ra-server.py` (Python's standard library; its header lists what it answers), stands in for
+retroachievements.org: every hash is "Fake Game", with A1 unlocking 300 frames after its achievements start, A2 never, A3 with a
+measured progress, a leaderboard that starts 60 frames in and submits 600 frames in, and a constant rich presence line. `--log FILE`
+writes a JSON line per request (the password and token redacted, the `h` hardcore flag), `--fail-awards N` answers the first N
+unlocks with HTTP 503. From PowerShell:
+
+    python -I tools\fake-ra-server.py --port 8765 --log ra.jsonl
+    & .\build-desktop\melonade-desktop.exe --hidden --frames 900 --ra-host http://127.0.0.1:8765 --ra-user test --ra-token t0k3n `
+        --ra-hardcore on "game.nds" 2>&1 | Out-File out.txt
+
+A1's unlock is printed as `ra: achievement triggered 101 at frame 300: ...`. The first ping comes 30 seconds after the game loads (then
+every two minutes), so a run that should show one needs about 2000 frames. The token `expired` gets the expired answer, the password
+`wrong` the refused one.
 
 ### Input
 

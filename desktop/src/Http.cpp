@@ -78,9 +78,15 @@ void Client::Resume()
     Stopped = false;
 }
 
-Response Client::Get(const Request& request)
+Response Client::Send(const Request& request)
 {
     Response r;
+    bool post = request.Method == "POST";
+    if (!post && request.Method != "GET")
+    {
+        r.Err = Response::Error::BadUrl;
+        return r;
+    }
     if (Stopped)
     {
         r.Err = Response::Error::Cancelled;
@@ -120,7 +126,7 @@ Response Client::Get(const Request& request)
         r.SystemError = GetLastError();
         return r;
     }
-    HINTERNET req = WinHttpOpenRequest(connect, L"GET", object.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+    HINTERNET req = WinHttpOpenRequest(connect, post ? L"POST" : L"GET", object.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
         secure ? WINHTTP_FLAG_SECURE : 0);
     if (!req)
     {
@@ -158,7 +164,13 @@ Response Client::Get(const Request& request)
             : code == ERROR_WINHTTP_TIMEOUT ? Response::Error::Timeout : error;
         r.SystemError = code;
     };
-    bool ok = WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) && WinHttpReceiveResponse(req, nullptr);
+    // a POST's body and its Content-Type (a GET sends neither, as before)
+    std::wstring headers = !post || request.ContentType.empty() ? std::wstring() : L"Content-Type: " + Widen(request.ContentType) + L"\r\n";
+    void* body = post && !request.Body.empty() ? (void*)request.Body.data() : WINHTTP_NO_REQUEST_DATA;
+    DWORD bodySize = post ? (DWORD)request.Body.size() : 0;
+    bool ok = WinHttpSendRequest(req, headers.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : headers.c_str(), headers.empty() ? 0 : (DWORD)-1L,
+                  body, bodySize, bodySize, 0)
+        && WinHttpReceiveResponse(req, nullptr);
     if (!ok)
         fail(Response::Error::Network);
     if (ok)

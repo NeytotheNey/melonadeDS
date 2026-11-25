@@ -140,6 +140,9 @@ public:
     void unloadRetroAchievementsData();
     std::string getRichPresenceStatus();
     std::vector<RetroAchievements::RARuntimeAchievement> getRuntimeAchievements();
+    // The savestates' achievement progress from [handler] (RetroAchievementsManager::SetProgressHandler), null for the manager's own; the
+    // desktop's rc_client. Emulator thread, or before it starts
+    void setAchievementsProgressHandler(RetroAchievements::ProgressHandler* handler) { retroAchievementsManager->SetProgressHandler(handler); }
     // Must be called before the emulator thread starts (the scripts load when the game starts)
     void setLuaScripts(std::vector<LuaScriptSource> scripts, std::shared_ptr<const LuaFolderContent> folderContent, bool areStateLoadsAllowed) { luaEngine.setScripts(std::move(scripts), std::move(folderContent), areStateLoadsAllowed); }
     void disableLuaScript(int scriptId) { luaEngine.disableScript(scriptId); }
