@@ -12,6 +12,8 @@ cmake -G Ninja -S desktop -B "$BUILD" -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}
     -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_PREFIX_PATH="$MINGW"
 cmake --build "$BUILD"
 echo "built $BUILD/melonade-desktop.exe"
+# the desktop's unit tests (README.md, Tests), built with the exe; a failing one stops the script here
+"$BUILD/melonade-desktop-tests.exe"
 
 # the release folder, named for the app's versionName (buildSrc AppConfig.kt, as the exe's version info)
 VERSION=$(sed -n 's/.*versionName = "\([0-9.]*\)".*/\1/p' buildSrc/src/main/kotlin/AppConfig.kt)

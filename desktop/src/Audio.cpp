@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 
+#include "Configuration.h"
 #include "MelonInstance.h"
 
 namespace Frontend
@@ -20,6 +21,8 @@ double NowMs()
 
 // the desktop's ring is deeper than the app's (Audio.h says why): the starving part of the target
 constexpr double kStarvingFraction = 0.25;
+// the DS's refresh rate, 33513982 Hz / (6 * 355 * 263), as OboeCallback.cpp has it
+constexpr double INTERNAL_FRAME_RATE = 59.8260982880808;
 
 }
 
@@ -262,8 +265,8 @@ void SDLCALL AudioOutput::Callback(void* userdata, Uint8* stream, int len)
 
 void AudioOutput::UpdateSkew(MelonDSAndroid::MelonInstance& instance, int numFrames, bool canSteer, int fill)
 {
-    // the emulator runs at the DS's own rate here, so no base correction (the app's 60 / 59.83)
-    double baseSkew = 1.0;
+    // The emulator runs 60 DS frames a second, slightly more than the DS's own rate (the app's OboeCallback::updateOutputSkew)
+    double baseSkew = std::clamp(EMULATOR_TARGET_FPS / INTERNAL_FRAME_RATE, 0.995, 1.005);
     uint32_t rateGeneration = RateGeneration.load(std::memory_order_acquire);
     bool steering = canSteer;
     if (FastForward.load(std::memory_order_relaxed))

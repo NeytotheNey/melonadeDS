@@ -152,7 +152,7 @@ public:
             BindingRow(app, *input, *profile, a, labelW, chipW);
         SectionLabel(app, "Hotkeys");
         static const Action kHotkeys[] = {Action::Pause, Action::FastForwardHold, Action::FastForward, Action::QuickSave, Action::QuickLoad,
-            Action::SwapScreens, Action::DetachScreens, Action::Screenshot, Action::Fullscreen, Action::Rewind};
+            Action::SwapScreens, Action::DetachScreens, Action::Screenshot, Action::Fullscreen, Action::Rewind, Action::WideCameraZoom};
         for (Action a : kHotkeys)
             BindingRow(app, *input, *profile, a, labelW, chipW);
         ImGui::Dummy(ImVec2(1, app.Px(6)));
@@ -160,7 +160,8 @@ public:
         ImVec2 ns = TextAt(app, app.Regular, 14, ImVec2(np.x + app.Px(20), np.y), p.OnSurfaceVariant,
             profile->Keyboard ? "Keyboard combos (Ctrl + S) fire at once. The F-keys F2 to F8 and F10, P and Ctrl + R stay as they are."
                               : "Controller combos fire once held for half a second, so the game's own combos still reach it. The right stick "
-                                "moves the touch cursor unless something here uses it.",
+                                "moves the touch cursor unless something here uses it; with the wide camera on it pans the camera, and its "
+                                "click switches it between the two.",
             colW - app.Px(40));
         ImGui::Dummy(ImVec2(1, ns.y + app.Px(24)));
         ImGui::EndChild();

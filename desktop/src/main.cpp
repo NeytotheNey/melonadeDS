@@ -44,6 +44,8 @@
 #include "EmulatorArgsBuilder.h"
 #include "MelonInstance.h"
 #include "gamestate/GameState.h"
+#include "MonotonicClock.h"
+#include "renderer/FramePacing.h"
 #include "renderer/FrameQueue.h"
 #include "renderer/GpuFence.h"
 #include "renderer/ScreenshotRenderer.h"
@@ -69,6 +71,10 @@
 #include "ScreenWindows.h"
 #include "Settings.h"
 #include "UiScript.h"
+#include "VsyncSource.h"
+#include "camera/LuaWideCameraRequests.h"
+#include "camera/WideCameraController.h"
+#include "camera/WidescreenLaunch.h"
 #include "version.h"
 #include "ui/Host.h"
 #include "ui/Ui.h"
@@ -128,8 +134,17 @@ struct Options
     std::string CacheDir;      // the Compute program cache, next to the exe by default
     RendererType Renderer = RendererType::Compute;
     int Scale = 4;
+    // the width and margin the booted game renders at (WidescreenLaunch, from --wide and the flags below or the game's own settings), set
+    // at each boot
     int WideWidth = 256;
     int WideMargin = 0;        // WideMelon camera stage 2: 3D rows above and below the top screen
+    // the command line's widescreen for the run, over the game's settings: --wide (none: the game's), --wide-margin (with no camera),
+    // --wide-camera, --wide-camera-max, --wide-camera-zoom
+    std::optional<int> WideWidthArg;
+    int WideMarginArg = 0;
+    std::optional<bool> WideCameraArg;
+    std::optional<int> WideCameraMaxArg;
+    std::optional<float> WideCameraZoomArg;
     int WideShiftX = 0;        // --wide-shift: the OpenGL view shift (MelonInstance::setDebugViewShift)
     int WideShiftY = 0;
     // both off: in this core the x86-64 JIT runs slower than the interpreter, with or without
@@ -150,6 +165,7 @@ struct Options
         bool EdgeMarking = true;
         bool PreciseDepth = false; // GPU::PreciseDepth, the app's "Precise depth" setting
         bool GlSeams = false;
+        bool Smooth30Fps = false;  // frame_pacing_smooth_30fps, the app's "Frame interpolation" (--smooth30 for the run)
     } Toggles;
     int Filter2DMode = -1;     // --filter2d-mode: 2 or 3, the debug modes without a setting
     int Gpu2D = 0;             // the GPU 2D shadow renderer (GPU::SetShadow2D): 0 off, 1, 2 all, 3 all + log, 4 check
@@ -157,7 +173,6 @@ struct Options
     int Gpu2DAffine = 0;       // debug.melonade.gpu2daffine: 1-2 draw rotated BGs with the plain composite, -1 lifts the 6x cap
     bool Threaded2D = true;
     bool ThreadedSoft3D = true;
-    bool HalfCamera = false;
     int HalfCameraMode = 0;    // debug.melonade.halfcam (GPU3D::SetHalfCamera), replaces --smooth30
     bool BootScreen = false;
     std::string DsiBiosDir;    // dsi_bios_dir, for console_type dsi
@@ -168,7 +183,10 @@ struct Options
     bool FixedTime = false;    // the RTC starts at FixedDateTime instead of now
     // --fixed-time's start: year, month, day, hour, minute, second
     std::array<int, 6> FixedDateTime = {2026, 1, 1, 12, 0, 0};
-    bool VSync = false;
+    // frame pacing (frame_pacing_vsync, frame_pacing_buffer): the main window waits for vsync and the game's frames are paced to it, never in a
+    // hidden or unthrottled run (FramePacingOn)
+    bool VSync = true;
+    bool FrameBuffer = true;
     bool Unthrottled = false;
     bool Audio = true;
     std::string AudioWav;      // --audio-wav: what the audio callback plays, as a WAV
@@ -249,8 +267,13 @@ void Usage()
         "\n"
         "  --renderer soft|gl|compute  3D renderer (default compute)\n"
         "  --scale N                   internal resolution for gl/compute, 1-16 (default 4)\n"
-        "  --wide W                    WideMelon top screen width, even, 256-768 (default 256, off)\n"
-        "  --wide-margin M             with --wide, M more 3D rows above and below the top screen (0-128)\n"
+        "  --wide W                    WideMelon top screen width, even, 256-768 (256: off), over the game's own\n"
+        "                              widescreen setting for the run\n"
+        "  --wide-margin M             with --wide and no camera, M more 3D rows above and below the top screen (0-128)\n"
+        "  --wide-camera on|off        the WideMelon camera for the run, over the game's setting (needs --wide or the\n"
+        "                              game's widescreen)\n"
+        "  --wide-camera-max W|max     the camera's widest view for the run (even, 256-768; max is 768)\n"
+        "  --wide-camera-zoom Z        the zoom the camera starts at for the run (1 = native), not stored\n"
         "  --wide-shift X,Y            debug, OpenGL: shift the native 256x192 X columns right and Y rows down in the\n"
         "                              rendered view (within --wide and --wide-margin); the frame isn't cropped for it\n"
         "  --better-polygons           OpenGL: better polygon splitting\n"
@@ -266,7 +289,8 @@ void Usage()
         "  --gpu2d-affine N            with --gpu2d, rotated BGs drawn with the plain composite: 1 with the affine\n"
         "                              stack still written, 2 without it, -1 lifts the 6x cap on sharp rotated\n"
         "                              BGs (debug.melonade.gpu2daffine)\n"
-        "  --smooth30                  gl/compute: in-between frames for 30 fps games (half camera)\n"
+        "  --smooth30                  gl/compute: in-between frames for 30 fps games (half camera), the app's Frame\n"
+        "                              interpolation (frame_pacing_smooth_30fps) for the run\n"
         "  --halfcam N                 debug.melonade.halfcam N, 1-5 (3 and up log HALFCAM lines), replaces --smooth30\n"
         "  --no-threaded2d             2D on the emulator thread\n"
         "  --no-threaded-soft          software 3D on the emulator thread\n"
@@ -303,8 +327,8 @@ void Usage()
         "                              gets a fresh temporary one, so it never reads or writes your settings\n"
         "  --setting KEY=VALUE         a setting for this run only, e.g. desktop_fit_bottom=integer (README lists them)\n"
         "  (the options that change a setting, --renderer, --scale, --filter, --linear, --deband, --ds-colors,\n"
-        "  --screen-shadow, --vsync, --no-audio, --layout, --background, --detach and --rom-folder, are for the run\n"
-        "  only too: none of them is written to settings.json)\n"
+        "  --screen-shadow, --vsync, --frame-buffer, --smooth30, --no-audio, --layout, --background, --detach and --rom-folder,\n"
+        "  are for the run only too: none of them is written to settings.json)\n"
         "\n"
         "  --layout NAME|ID            the layout for this run, over the game's and the settings': a layout's name (any\n"
         "                              case) or id from layouts.json, default (the app's Default), or the desktop's\n"
@@ -371,7 +395,10 @@ void Usage()
         "                              guard, hidden, light and UI textures reach the core; its screen effects aren't drawn)\n"
         "  --output-cap                send the windows' screen size to the core (GPU::OutputCap), as the app does: the\n"
         "                              frame is drawn no bigger than the screens are shown\n"
-        "  --vsync                     wait for vsync on swap (pacing stays at the DS's 59.83 Hz)\n"
+        "  --vsync on|off              frame pacing (frame_pacing_vsync): the main window waits for vsync and the game's\n"
+        "                              frames are paced to its monitor's refresh when it's near a multiple of 60 Hz;\n"
+        "                              off, the timer runs them at 60 fps. Never in --hidden or --unthrottled runs\n"
+        "  --frame-buffer on|off       with --vsync, frames are due a refresh later (frame_pacing_buffer, Triple buffering)\n"
         "  --unthrottled               run as fast as possible (benchmarks)\n"
         "  --no-audio\n"
         "  --frames N                  quit after N frames (prints timing stats): the game's frames, plus the UI's\n"
@@ -388,7 +415,8 @@ void Usage()
         "  --depth-raw FILE.png        the same frame's depth texture as it is (RGB the 24-bit depth, A the flags)\n"
         "  --camera-dump FILE          debug: a JSON line per 3D scene with the projection matrices (20.12) and\n"
         "                              viewports its polygons were built under, how many polygons each, and the pick\n"
-        "  --camera-shown FILE         debug: a JSON line per presented frame with the depth camera it came with\n"
+        "  --camera-shown FILE         debug: a JSON line per presented frame with the depth camera it came with,\n"
+        "                              and the WideMelon camera's window while the camera is on\n"
         "  --list-textures FILE        debug: a line per texture of each frame OpenGL draws, with its content hash\n"
         "  --hide-textures HASH,...    OpenGL leaves out the polygons of these textures (hex content hashes)\n"
         "  --light-textures HASH,...   OpenGL flags these textures' pixels as lights in the depth (flag 32)\n"
@@ -412,7 +440,11 @@ void Usage()
         "  --rom-config KEY=VALUE      over the game's own settings (library.db's rom_config) for this run, for\n"
         "                              whichever game boots (repeat it for more): console=default|ds|dsi,\n"
         "                              gba-slot=none|gba-rom|rumble-pak|memory-expansion, gba-rom=FILE.gba,\n"
-        "                              name=TEXT; never stored. --console and --gba beat the stored ones too\n"
+        "                              name=TEXT, layout=ID|global, and the app's widescreen fields:\n"
+        "                              wideViewWidth=W|off, wideCamera=on|off, wideCameraMaxWidth=W|default,\n"
+        "                              wideCameraReturnToCenter=on|off, wideCameraZoom=Z|default,\n"
+        "                              wideCameraZoomOnText=on|off; never stored. --console, --gba and the --wide\n"
+        "                              flags beat the stored ones too\n"
         "  --pretend-title-art         every game counts as having title-screen art, so the Mosaic view gives one in\n"
         "                              six of them a wide tile (without downloaded art)\n"
         "  --pretend-wide-tiles N      one in N games with title-screen art (downloaded, or with --pretend-title-art)\n"
@@ -458,7 +490,9 @@ void Usage()
         "      F2 = next layout, F8 = linear filter on/off, F10 = fit of the focused detached window\n"
         "      menus: arrows move, Enter chooses, Esc or Backspace goes back, Delete clears, Q/W switch tabs\n"
         "      controllers: Guide or Select+Start held = pause menu, the right stick moves a touch cursor and the\n"
-        "      right trigger taps; face buttons by the pad's layout (Nintendo: east = A, others: south = A)\n");
+        "      right trigger taps; face buttons by the pad's layout (Nintendo: east = A, others: south = A)\n"
+        "      the wide camera (on): the right stick pans it and its click (R3) switches it to the touch cursor and\n"
+        "      back; the mouse drags it and the wheel zooms on the top screen; Wide camera zoom (unbound) steps\n");
 }
 
 using Frontend::ApplySet;
@@ -609,14 +643,46 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         }
         else if (arg == "--wide")
         {
-            opts.WideWidth = atoi(next().c_str());
-            if (opts.WideWidth < 256 || opts.WideWidth > 768 || (opts.WideWidth & 1))
+            int width = atoi(next().c_str());
+            if (width < 256 || width > 768 || (width & 1))
             {
                 fprintf(stderr, "--wide needs an even width 256-768\n");
                 return false;
             }
+            opts.WideWidthArg = width;
         }
-        else if (arg == "--wide-margin") opts.WideMargin = std::clamp(atoi(next().c_str()), 0, 128);
+        else if (arg == "--wide-margin") opts.WideMarginArg = std::clamp(atoi(next().c_str()), 0, 128);
+        else if (arg == "--wide-camera")
+        {
+            std::string value = next();
+            if (value != "on" && value != "off")
+            {
+                fprintf(stderr, "--wide-camera is on or off\n");
+                return false;
+            }
+            opts.WideCameraArg = value == "on";
+        }
+        else if (arg == "--wide-camera-max")
+        {
+            std::string value = next();
+            int width = value == "max" ? Frontend::MAX_WIDE_VIEW_WIDTH : atoi(value.c_str());
+            if (!Frontend::ValidWideViewWidth(width))
+            {
+                fprintf(stderr, "--wide-camera-max needs an even width 256-768, or max\n");
+                return false;
+            }
+            opts.WideCameraMaxArg = width;
+        }
+        else if (arg == "--wide-camera-zoom")
+        {
+            float zoom = (float)atof(next().c_str());
+            if (!std::isfinite(zoom) || zoom < 1.f || zoom > 3.f)
+            {
+                fprintf(stderr, "--wide-camera-zoom needs a zoom from 1 (native) to 3\n");
+                return false;
+            }
+            opts.WideCameraZoomArg = zoom;
+        }
         else if (arg == "--wide-shift")
         {
             std::string spec = next();
@@ -646,7 +712,7 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         else if (arg == "--gpu2d") opts.Gpu2D = std::clamp(atoi(next().c_str()), 0, 4);
         else if (arg == "--gpu2d-wide") opts.Gpu2DWide = 1;
         else if (arg == "--gpu2d-affine") opts.Gpu2DAffine = std::clamp(atoi(next().c_str()), -1, 2);
-        else if (arg == "--smooth30") opts.HalfCamera = true;
+        else if (arg == "--smooth30") setting("frame_pacing_smooth_30fps", picojson::value(true));
         else if (arg == "--halfcam") opts.HalfCameraMode = std::clamp(atoi(next().c_str()), 0, 5);
         else if (arg == "--no-threaded2d") opts.Threaded2D = false;
         else if (arg == "--no-threaded-soft") opts.ThreadedSoft3D = false;
@@ -885,7 +951,12 @@ bool ParseArgs(int argc, char** argv, Options& opts)
         }
         else if (arg == "--lua-script") opts.LuaScriptPath = next();
         else if (arg == "--output-cap") opts.OutputCap = true;
-        else if (arg == "--vsync") setting("desktop_vsync", picojson::value(true));
+        else if (arg == "--vsync" || arg == "--frame-buffer")
+        {
+            std::string value = next();
+            if (value != "on" && value != "off") { fprintf(stderr, "%s needs on or off\n", arg.c_str()); return false; }
+            setting(arg == "--vsync" ? "frame_pacing_vsync" : "frame_pacing_buffer", picojson::value(value == "on"));
+        }
         else if (arg == "--unthrottled") opts.Unthrottled = true;
         else if (arg == "--no-audio") setting("sound_enabled", picojson::value(false));
         else if (arg == "--audio-wav") opts.AudioWav = next();
@@ -1003,6 +1074,7 @@ Options::RenderToggles ReadToggles(const Options& opts, const Frontend::Settings
     t.EdgeMarking = settings.GetBool("video_edge_marking", true);
     t.PreciseDepth = settings.GetBool("video_precise_depth", false);
     t.GlSeams = settings.GetBool("video_gl_seams", false);
+    t.Smooth30Fps = settings.GetBool("frame_pacing_smooth_30fps", false);
     return t;
 }
 
@@ -1035,7 +1107,8 @@ void ApplySettings(Options& opts, const Frontend::Settings& settings)
     opts.Scale = std::clamp(settings.GetInt("video_internal_resolution", 4), 1, 16);
     opts.Render = ReadRendererConfig(settings);
     opts.Audio = settings.GetBool("sound_enabled", true);
-    opts.VSync = settings.GetBool("desktop_vsync", false);
+    opts.VSync = settings.GetBool("frame_pacing_vsync", true);
+    opts.FrameBuffer = settings.GetBool("frame_pacing_buffer", true);
     opts.Toggles = ReadToggles(opts, settings);
     // the interpreter by default here (the JIT is slower on x86-64, see the README), where the app's default is on
     opts.Jit = settings.GetBool("enable_jit", false);
@@ -1046,6 +1119,13 @@ void ApplySettings(Options& opts, const Frontend::Settings& settings)
     opts.BootScreen = settings.GetBool("show_bios", false);
     opts.ConsoleType = settings.GetString("console_type", "ds") == "dsi" ? 1 : 0;
     opts.FastForwardSpeed = FastForwardSpeed(settings);
+}
+
+// frame_pacing_vsync as the run has it: a hidden run's window shows nothing to pace to and an unthrottled one is a benchmark, so both swap
+// with interval 0 and leave the frames unpaced, as before
+bool FramePacingOn(const Options& opts)
+{
+    return opts.VSync && !opts.Hidden && !opts.Unthrottled;
 }
 
 const char* RendererSettingValue(RendererType type)
@@ -1102,9 +1182,10 @@ std::shared_ptr<MelonDSAndroid::EmulatorConfiguration> MakeConfiguration(const O
     config->dsiBios7Path = config->dsiBios9Path = config->dsiFirmwarePath = config->dsiNandPath = empty;
     config->internalFilesDir = empty;
     config->fastForwardSpeedMultiplier = opts.FastForwardSpeed > 0 ? opts.FastForwardSpeed : -1.0f;
+    // only the app's JNI reads the pacing switches here; the desktop's emulator thread gets them itself (EmulatorThread::SetFramePacing)
     config->framePacingVsync = false;
     config->framePacingBuffer = false;
-    config->framePacingSmooth30Fps = opts.HalfCamera;
+    config->framePacingSmooth30Fps = opts.Toggles.Smooth30Fps;
     config->showBootScreen = opts.BootScreen;
     config->useJit = opts.Jit;
     config->syncRtcToDevice = false;
@@ -1502,6 +1583,39 @@ struct FrameStats
     }
 };
 
+// Frame pacing's present (the app's presentFrame and FrameRenderCoordinator): a paced frame is due a fixed offset after a vsync, and half a
+// refresh of tolerance takes that offset and any phase error in
+constexpr int64_t PRESENT_DUE_TOLERANCE_REFRESH_DENOMINATOR = 2;
+// the longest the UI thread waits for the next vsync before it does a pass the old way
+constexpr int PRESENT_VSYNC_TIMEOUT_MS = 50;
+// the menus' pace when nothing else paces them: about 60 per second
+constexpr int64_t UI_FRAME_NS = 16666667;
+// the WideMelon camera: the pinch a mouse wheel notch stands for (a modest step; the hotkey's steps are 0.25 zoom), and how far the left stick
+// has to be pushed to count as the player moving (the app's LEFT_STICK_MOVE_THRESHOLD)
+constexpr float CAMERA_WHEEL_PINCH = 1.08f;
+constexpr float CAMERA_LEFT_STICK_MOVE_THRESHOLD = 0.3f;
+
+// the vsync a pass of the UI thread presents for: its time and the refresh period, when the vsync thread gave one (On)
+struct PresentVsync
+{
+    bool On = false;
+    int64_t Ns = 0, PeriodNs = 0;
+};
+
+// the app's RenderStatistics: the mean time a present takes (the menus built, the windows drawn and swapped, as the app's includes
+// eglSwapBuffers), over about the last 60, for the deadline of the wait for a frame
+struct RenderTimeMean
+{
+    int64_t MeanNs = 0;
+    int Samples = 0;
+    void Track(int64_t ns)
+    {
+        if (Samples < 60)
+            Samples++;
+        MeanNs = (MeanNs * (Samples - 1) + ns) / Samples;
+    }
+};
+
 // what the emulator thread shows in the title, once a second
 struct TitleStats
 {
@@ -1513,13 +1627,25 @@ struct TitleStats
 
 // The frame to show or read on the UI thread, ready for its context the way the app's presentFrame (MelonDSAndroidJNI.cpp) makes it: its
 // last present fence dropped and a GPU wait on its render fence queued. ReleaseFrame() puts a new present fence on it after the draw or read,
-// which the emulator thread waits on before it renders into the frame again
-Frame* AcquireFrame(MelonDSAndroid::MelonInstance& emu, std::optional<std::chrono::steady_clock::time_point> deadline)
+// which the emulator thread waits on before it renders into the frame again. With frame pacing, the newest frame due on the vsync at
+// [vsyncNs] (within [dueToleranceNs]) or the previous one again, waiting until [deadline] only while [upcomingDueNs] (the frame being
+// emulated) can still be due on it; without (all 0), the newest frame
+Frame* AcquireFrame(MelonDSAndroid::MelonInstance& emu, std::optional<std::chrono::steady_clock::time_point> deadline, int64_t vsyncNs = 0,
+    int64_t dueToleranceNs = 0, int64_t upcomingDueNs = 0)
 {
-    Frame* frame = emu.getPresentationFrame(deadline, 0, 0, 0);
+    Frame* frame = emu.getPresentationFrame(deadline, vsyncNs, dueToleranceNs, upcomingDueNs);
     if (!frame || !frame->frameTexture)
         return nullptr;
     return frame;
+}
+
+// FrameQueue::isDue, which is private there: whether a frame due at [dueNs] (0: unpaced) is presented on the vsync at [vsyncNs], so a present
+// waits for the frame being emulated only when it can be
+bool IsDueOn(int64_t dueNs, int64_t vsyncNs, int64_t toleranceNs)
+{
+    // a frame due this much later than the vsync is presented anyway, as there
+    constexpr int64_t MAX_PRESENT_HOLD_NS = 100000000;
+    return dueNs == 0 || vsyncNs <= 0 || dueNs <= vsyncNs + toleranceNs || dueNs > vsyncNs + MAX_PRESENT_HOLD_NS;
 }
 
 void PrepareFrame(Frame* frame)
@@ -1838,6 +1964,8 @@ int main(int argc, char** argv)
     } profileCleanup {temporaryProfile ? profileDir : fs::path()};
     Frontend::Settings settings;
     settings.Load(profileDir);
+    // the main window's vsync is the app's frame pacing switch now
+    settings.RenameStored("desktop_vsync", "frame_pacing_vsync");
     for (const auto& [key, value] : opts.SettingOverrides)
         settings.Override(key, value);
     ApplySettings(opts, settings);
@@ -1942,10 +2070,11 @@ int main(int argc, char** argv)
     Frontend::ScreenWindows windows;
     Frontend::ScreenWindows::Options windowOptions;
     windowOptions.Hidden = opts.Hidden;
-    windowOptions.VSync = opts.VSync;
+    windowOptions.VSync = FramePacingOn(opts);
     windowOptions.WindowScale = opts.WindowScale;
-    windowOptions.TopW = opts.WideWidth;
-    windowOptions.TopH = 192 + (opts.WideWidth != 256 ? 2 * opts.WideMargin : 0);
+    // the default size from the command line's --wide (a game's own widescreen isn't known before it boots); the camera shows 192 rows
+    windowOptions.TopW = opts.WideWidthArg.value_or(256);
+    windowOptions.TopH = 192 + (opts.WideWidthArg && opts.WideWidthArg != 256 && opts.WideCameraArg != true ? 2 * opts.WideMarginArg : 0);
     windowOptions.MainOverride = opts.Window;
     windowOptions.SecondOverride = opts.Window2;
     windowOptions.SaveHiddenPlaces = opts.SaveHiddenPlaces;
@@ -2133,6 +2262,113 @@ int main(int argc, char** argv)
     int scale = opts.Scale;
     std::vector<u32> screenshotBuffer(256 * 384);
 
+    // The WideMelon camera, as the app's EmulatorActivity and EmulatorViewModel wire it (UI thread, which presents): the booted game's
+    // launch (WidescreenLaunch) and the width it's shown at, the camera session (one per boot), the zoom it starts at, the render width and
+    // margin last sent to the core, the last window presented (for window shots), and what the scripts ask of it
+    Frontend::WidescreenLaunch wideLaunch;
+    int wideShowWidth = 0;
+    int wideSession = 0;
+    float wideStartZoom = 1.f;
+    int wideRenderWidth = 256, wideRenderMargin = 0;
+    std::optional<Frontend::WideWindow> lastWideWindow;
+    Frontend::LuaWideCameraRequests luaWideCamera;
+    // the right stick pans the camera (true) or moves the touch cursor; R3 switches, and each boot starts on the camera
+    bool rightStickCamera = true;
+    // the mouse's left button dragging the top screen's camera window, and where it was last (window points)
+    bool cameraDragging = false;
+    int cameraDragX = 0, cameraDragY = 0;
+    Frontend::WideCameraCallbacks cameraCallbacks;
+    // the zoom a Wide camera zoom press picked: the camera starts there next time, and the game's settings remember it (the app's
+    // onWideCameraZoomPicked); one from an earlier session is dropped
+    cameraCallbacks.OnZoomPicked = [&](int session, float zoom)
+    {
+        if (session != wideSession)
+            return;
+        wideStartZoom = zoom;
+        Frontend::RomConfig config = library.GetConfig(gameConfigKey);
+        if (config.WideCameraZoom != zoom)
+        {
+            config.WideCameraZoom = zoom;
+            if (!library.SetConfig(gameConfigKey, config))
+                fprintf(stderr, "wide camera: couldn't store the zoom in the game's settings\n");
+        }
+    };
+    cameraCallbacks.OnCameraChanged = [&](float x, float zoom, float y)
+    {
+        if (emu)
+            emu->updateWideCamera(x, zoom, y);
+    };
+    cameraCallbacks.GameScene = [&] { return emu ? emu->pollGameScene() : Frontend::GameScene::UNKNOWN; };
+    // the core renders as wide as the camera's player zoom needs (the app's onWideCameraRenderZoomNeeded and startObservingWideViewWidth);
+    // setWideView takes it from any thread and applies it before the next frame
+    cameraCallbacks.OnRenderZoomNeeded = [&](int session, float zoom)
+    {
+        if (session != wideSession || !emu)
+            return;
+        int width = wideLaunch.GetRenderWidth(wideShowWidth, zoom), margin = wideLaunch.GetRenderMargin(wideShowWidth, zoom);
+        if (width == wideRenderWidth && margin == wideRenderMargin)
+            return;
+        wideRenderWidth = width;
+        wideRenderMargin = margin;
+        emu->setWideView(width, margin);
+        printf("wide camera: render zoom %g, width %d, margin %d\n", zoom, width, margin);
+    };
+    Frontend::WideCameraController camera(cameraCallbacks);
+    // the scripts' melon.wide requests (phase 4 runs them), picked a part at a time as the app's LuaWideCameraRequests does
+    messenger->OnLuaWideCamera = [&](int scriptId, const Frontend::WideCameraRequest& request)
+    {
+        camera.SetScriptRequest(luaWideCamera.OnScriptRequest(scriptId, request));
+    };
+    messenger->OnLuaScriptStopped = [&](int scriptId) { camera.SetScriptRequest(luaWideCamera.OnScriptStopped(scriptId)); };
+    // a new session for the game booting with [game]'s settings (--rom-config's on them): its widescreen and camera as the app's
+    // getWidescreenLaunch resolves them, with the command line's flags over them for the run, and the width and margin the core starts at
+    // (opts.WideWidth and WideMargin, which MakeConfiguration hands it)
+    auto startWidescreen = [&](const Frontend::RomConfig& game)
+    {
+        std::optional<int> viewWidth = game.WideViewWidth;
+        if (opts.WideWidthArg)
+            viewWidth = *opts.WideWidthArg == 256 ? std::nullopt : opts.WideWidthArg;
+        bool cameraOn = opts.WideCameraArg.value_or(game.WideCamera);
+        std::optional<int> maxWidth = opts.WideCameraMaxArg ? opts.WideCameraMaxArg : game.WideCameraMaxWidth;
+        // the software renderer only does the normal width
+        wideLaunch = Frontend::ResolveWidescreenLaunch(viewWidth, cameraOn, maxWidth, game.WideCameraReturnToCenter, game.WideCameraZoomOnText,
+            renderer != RendererType::Software);
+        wideShowWidth = wideLaunch.IsWideSession() ? wideLaunch.ViewWidth : 0;
+        wideStartZoom = opts.WideCameraZoomArg.value_or(game.ValidWideCameraZoom());
+        wideSession++;
+        // the app's getWideCameraSettings: none while it's off or has no room to zoom out past the shown width
+        std::optional<Frontend::WideCameraSettings> settings;
+        int maxRenderWidth = wideLaunch.GetMaxRenderWidth(wideShowWidth);
+        if (wideLaunch.IsCameraOn() && wideShowWidth > 0 && maxRenderWidth > wideShowWidth)
+            settings = Frontend::WideCameraSettings {wideShowWidth, wideLaunch.CameraReturnsToCenter, wideLaunch.CameraZoomsInOnText, maxRenderWidth};
+        if (wideLaunch.IsCameraOn())
+        {
+            wideRenderWidth = wideLaunch.GetRenderWidth(wideShowWidth, wideStartZoom);
+            wideRenderMargin = wideLaunch.GetRenderMargin(wideShowWidth, wideStartZoom);
+        }
+        else
+        {
+            // --wide-margin's rows without the camera, as before it
+            wideRenderWidth = wideLaunch.IsWideSession() ? wideLaunch.ViewWidth : 256;
+            wideRenderMargin = opts.WideMarginArg;
+        }
+        opts.WideWidth = wideRenderWidth;
+        opts.WideMargin = wideRenderMargin;
+        lastWideWindow.reset();
+        camera.SetState({wideSession, settings, wideStartZoom});
+        camera.SetScriptRequest(luaWideCamera.OnSessionEnded());
+        // the right stick pans the camera from the start of each game
+        rightStickCamera = true;
+        input.RightStickMovesCursor = !settings;
+        if (!wideLaunch.IsWideSession())
+            printf("widescreen: off%s\n", viewWidth && renderer == RendererType::Software ? " (the software renderer)" : "");
+        else if (!settings)
+            printf("widescreen: %d wide%s\n", wideShowWidth, wideLaunch.IsCameraOn() ? ", the camera off (its widest view isn't wider)" : "");
+        else
+            printf("widescreen: %d wide, the camera on (up to %d, zoom %g: rendered %d wide, margin %d)\n", wideShowWidth, maxRenderWidth,
+                wideStartZoom, wideRenderWidth, wideRenderMargin);
+    };
+
     messenger->OnStop = [&](Platform::StopReason)
     {
         stopRequested = true;
@@ -2205,7 +2441,24 @@ int main(int argc, char** argv)
             fprintf(stderr, "--camera-shown: can't write %s\n", opts.CameraShownPath.c_str());
     }
 
+    // before the emulator thread, which reads its tracker, so it goes after it
+    Frontend::VsyncSource vsyncSource;
     Frontend::EmulatorThread emuThread;
+    // Frame pacing as the run has it (FramePacingOn, frame_pacing_buffer): the vsync thread on the main window's monitor, the main window's
+    // swap interval and the emulator thread's pacing, at the start and when the settings change
+    bool framePacingRan = false; // the vsync thread ran in this run: the summary has a pacing line
+    auto applyFramePacing = [&]
+    {
+        bool on = FramePacingOn(opts);
+        if (on)
+            vsyncSource.Start(window);
+        else
+            vsyncSource.Stop();
+        framePacingRan = framePacingRan || vsyncSource.IsRunning();
+        windows.SetVSync(on);
+        emuThread.SetFramePacing(vsyncSource.IsRunning() ? vsyncSource.Tracker() : nullptr, on, opts.FrameBuffer);
+    };
+    applyFramePacing();
     Frontend::EmulatorThread::Callbacks callbacks;
     callbacks.OnStart = [&](MelonDSAndroid::MelonInstance& instance)
     {
@@ -2492,6 +2745,13 @@ int main(int argc, char** argv)
         padTouching = false;
         ffToggle = false;
         updateFastForward();
+        // the camera off, its session over (a pick or a resize still on its way is dropped), and the scripts' requests with it
+        wideSession++;
+        camera.SetState({wideSession, std::nullopt, 1.f});
+        camera.SetScriptRequest(luaWideCamera.OnSessionEnded());
+        lastWideWindow.reset();
+        cameraDragging = false;
+        input.RightStickMovesCursor = true;
         windows.UpdateTitles("");
         gameLayoutId.clear();
         gameRunLayoutId.reset();
@@ -2576,6 +2836,7 @@ int main(int argc, char** argv)
         if (!gameLayoutId.empty() && !layouts.Find(gameLayoutId))
             printf("game settings: its layout %s isn't in layouts.json, so the global one shows\n", gameLayoutId.c_str());
         applyLayout();
+        startWidescreen(game);
 
         // The console, as before the shared code: FreeBIOS and a generated firmware unless --bios says otherwise
         std::unique_ptr<NDSArgs> args;
@@ -2732,6 +2993,9 @@ int main(int argc, char** argv)
             bool wide = renderer != RendererType::Software && opts.WideWidth != 256;
             planned.TopWidth = wide ? opts.WideWidth : 256;
             planned.TopMargin = wide ? opts.WideMargin : 0;
+            // the camera's first window, the middle of the frame at its start zoom
+            if (wide && camera.IsEnabled())
+                planned.Window = Frontend::WideWindow::Centered(wideShowWidth, opts.WideWidth, planned.TopScreenHeight());
             windows.SetFrameShape(planned);
             refreshTouchRect();
         }
@@ -3130,7 +3394,7 @@ int main(int argc, char** argv)
             return true;
         }
         if (key == "video_hires_capture" || key == "video_filter_2d" || key == "video_sharper_rotated_2d" || key == "video_edge_marking"
-            || key == "video_precise_depth" || key == "video_gl_seams")
+            || key == "video_precise_depth" || key == "video_gl_seams" || key == "frame_pacing_smooth_30fps")
         {
             applyToggles();
             return true;
@@ -3140,9 +3404,16 @@ int main(int argc, char** argv)
             applyRendererConfig();
             return true;
         }
-        if (key == "desktop_vsync")
+        if (key == "frame_pacing_vsync" || key == "frame_pacing_buffer")
         {
-            windows.SetVSync(settings.GetBool("desktop_vsync", false));
+            opts.VSync = settings.GetBool("frame_pacing_vsync", true);
+            opts.FrameBuffer = settings.GetBool("frame_pacing_buffer", true);
+            applyFramePacing();
+            return true;
+        }
+        if (key == "frame_pacing_lock_60hz")
+        {
+            windows.ApplyExclusiveMode();
             return true;
         }
         if (key == "desktop_theme")
@@ -3230,7 +3501,10 @@ int main(int argc, char** argv)
         if (frame)
         {
             PrepareFrame(frame);
-            windows.WindowShot(presenter, Frontend::FrameView::Of(*frame), path);
+            // the camera's window as last presented, without moving it on (a frame of another width draws without it)
+            Frontend::FrameView view = Frontend::FrameView::Of(*frame);
+            view.Window = lastWideWindow;
+            windows.WindowShot(presenter, view, path);
             ReleaseFrame(frame);
         }
         else
@@ -3244,13 +3518,24 @@ int main(int argc, char** argv)
         if (frame)
         {
             PrepareFrame(frame);
-            const Frontend::FrameView view = Frontend::FrameView::Of(*frame);
+            Frontend::FrameView view = Frontend::FrameView::Of(*frame);
+            // the WideMelon camera moves once per presented frame, here, so every window shows the same window (FrameRenderCoordinator)
+            camera.SetScreensSwapped(windows.IsBottomScreenWide());
+            view.Window = camera.OnFrame(monotonicNanos(), view.TopWidth, view.TopMargin, view.TopWingLines, view.TopGuard);
+            lastWideWindow = view.Window;
             if (cameraShown && view.Sequence != cameraShownSequence)
             {
                 // the top screen's render size and the guard band in it too (left, right, top, bottom), as the guard follows the sun's requests
                 fprintf(cameraShown.get(), "{\"seq\":%llu,\"top\":[%d,%d,%d,%d,%d,%d],", (unsigned long long) view.Sequence, view.TopWidth,
                     view.TopMargin, view.TopGuard.left, view.TopGuard.right, view.TopGuard.top, view.TopGuard.bottom);
                 PrintDepthCamera(cameraShown.get(), view.DepthTexture != 0, view.DepthCameraValid, view.DepthProjection, view.DepthViewport);
+                // the camera's window of the shown frame: show width, frame width, x, width, frame height, y, height, and its wing lines
+                if (view.Window)
+                {
+                    const Frontend::WideWindow& w = *view.Window;
+                    fprintf(cameraShown.get(), ",\"wide\":[%d,%d,%.3f,%.3f,%d,%.3f,%.3f],\"wings\":%d", w.ShowWidth, w.FrameWidth, w.X, w.Width,
+                        w.FrameHeight, w.Y, w.Height, view.TopWingLines);
+                }
                 fprintf(cameraShown.get(), "}\n");
                 cameraShownSequence = view.Sequence;
             }
@@ -3283,6 +3568,9 @@ int main(int argc, char** argv)
             paused = !paused;
             paused ? emuThread.Pause() : emuThread.Resume();
             audio.SetRunning(!paused);
+            // the camera's sticks, keys and drag, whose releases may come while it's paused
+            camera.ReleaseHeldInput();
+            cameraDragging = false;
             break;
         case SDLK_r:
             if ((mod & KMOD_CTRL) && emu)
@@ -3428,6 +3716,11 @@ int main(int argc, char** argv)
         case Action::Rewind:
             if (emu && !ui.IsOpen())
                 ui.Toast("Rewind comes in a later version");
+            break;
+        case Action::WideCameraZoom:
+            // the next zoom step, applied by the camera's next frame (none while it's off)
+            if (emu && !ui.IsOpen())
+                camera.OnZoomPress();
             break;
         default:
             // the DS buttons go through GameMask(), the touch tap through the cursor below
@@ -3720,7 +4013,73 @@ int main(int argc, char** argv)
     bool menuOverGame = false;
     bool openFailed = false; // --open named a screen that isn't there
     auto lastPresent = std::chrono::steady_clock::now();
+    // frame pacing's present: the vsyncs passed so far, the last one presented on, and the present's time; for the summary, the passes on
+    // a vsync and the vsyncs that went by while a pass was still busy
+    uint64_t presentVsyncCount = 0;
+    uint64_t presentVsyncPasses = 0, presentVsyncsMissed = 0;
+    int64_t lastPresentVsyncNs = 0;
+    RenderTimeMean renderTime;
+    // the sequence of the frame the frame queue handed out last, to tell a new one from the previous one again
+    u64 acquiredSequence = 0;
+    // the next vsync of the main window's monitor after the last pass's, while the vsync thread gives them (none for a while: a pass the
+    // old way, so the loop never waits on a display that stopped)
+    auto waitForPresentVsync = [&]() -> PresentVsync
+    {
+        PresentVsync vsync;
+        if (!vsyncSource.IsRunning())
+            return vsync;
+        const DisplayVsyncTracker* tracker = vsyncSource.Tracker();
+        if (tracker->getRefreshPeriodNs() <= 0 || monotonicNanos() - tracker->getLastVsyncNs() > VsyncFramePacer::MAX_VSYNC_AGE_NS)
+        {
+            presentVsyncCount = vsyncSource.Count();
+            return vsync;
+        }
+        uint64_t count = vsyncSource.WaitAfter(presentVsyncCount, PRESENT_VSYNC_TIMEOUT_MS);
+        if (count == presentVsyncCount)
+            return vsync;
+        if (presentVsyncPasses > 0 && count > presentVsyncCount + 1)
+            presentVsyncsMissed += count - presentVsyncCount - 1;
+        presentVsyncPasses++;
+        presentVsyncCount = count;
+        vsync.On = true;
+        vsync.Ns = tracker->getLastVsyncNs();
+        vsync.PeriodNs = tracker->getRefreshPeriodNs();
+        return vsync;
+    };
     Frontend::Input::Cursor lastCursor;
+    // the DS's D-pad as the camera was last told it (the app's MelonTouchHandler sends it the directions), and where the mouse was last
+    // (window points, its window), which a wheel step zooms at
+    u32 cameraDirections = 0;
+    int mouseX = 0, mouseY = 0;
+    Uint32 mouseWindow = 0;
+    // [windowId]'s point x,y in its drawable's pixels per point, for the top screen's rect
+    auto drawableScale = [](Uint32 windowId, float& sx, float& sy)
+    {
+        sx = sy = 1.f;
+        SDL_Window* w = SDL_GetWindowFromID(windowId);
+        int ww = 0, wh = 0, dw = 0, dh = 0;
+        if (!w)
+            return;
+        SDL_GetWindowSize(w, &ww, &wh);
+        SDL_GL_GetDrawableSize(w, &dw, &dh);
+        if (ww > 0 && wh > 0)
+        {
+            sx = (float)dw / ww;
+            sy = (float)dh / wh;
+        }
+    };
+    // whether the camera takes the mouse at x,y of [windowId]: it's on, the game runs with no menu over it, and the point is on the DS top
+    // screen's picture
+    auto cameraTakesMouse = [&](Uint32 windowId, int x, int y)
+    {
+        if (!emu || ui.IsOpen() || !camera.IsEnabled() || windowId != SDL_GetWindowID(windows.TopWindow()))
+            return false;
+        Frontend::Rect r = windows.TopRect();
+        float sx, sy;
+        drawableScale(windowId, sx, sy);
+        float px = x * sx, py = y * sy;
+        return r.W > 0 && r.H > 0 && px >= r.X && px < r.X + r.W && py >= r.Y && py < r.Y + r.H;
+    };
     while (running)
     {
         SDL_Event ev;
@@ -3749,6 +4108,12 @@ int main(int argc, char** argv)
                 windows.OnWindowEvent(ev.window, quit);
                 if (quit)
                     running = false;
+                // the camera's held input, whose releases go to the window that has the focus now
+                if (ev.window.event == SDL_WINDOWEVENT_FOCUS_LOST)
+                {
+                    camera.ReleaseHeldInput();
+                    cameraDragging = false;
+                }
                 if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || ev.window.event == SDL_WINDOWEVENT_EXPOSED
                     || ev.window.event == SDL_WINDOWEVENT_CLOSE)
                 {
@@ -3769,13 +4134,38 @@ int main(int argc, char** argv)
                 break;
             }
             case SDL_MOUSEBUTTONDOWN:
+                mouseX = ev.button.x;
+                mouseY = ev.button.y;
+                mouseWindow = ev.button.windowID;
                 // touch comes from the window that shows the bottom screen
                 if (!menus && ev.button.button == SDL_BUTTON_LEFT && ev.button.windowID == SDL_GetWindowID(windows.BottomWindow()))
                     touchAt(ev.button.x, ev.button.y);
+                // and a drag on the top screen's picture moves the camera, as a finger does (WideCameraTouchHandler)
+                if (!menus && ev.button.button == SDL_BUTTON_LEFT && !touching && cameraTakesMouse(ev.button.windowID, ev.button.x, ev.button.y))
+                {
+                    cameraDragging = true;
+                    cameraDragX = ev.button.x;
+                    cameraDragY = ev.button.y;
+                    camera.SetTouching(true);
+                }
                 break;
             case SDL_MOUSEMOTION:
+                mouseX = ev.motion.x;
+                mouseY = ev.motion.y;
+                mouseWindow = ev.motion.windowID;
                 if (!menus && touching && ev.motion.windowID == SDL_GetWindowID(windows.BottomWindow()))
                     touchAt(ev.motion.x, ev.motion.y);
+                if (cameraDragging)
+                {
+                    // as fractions of the drawn picture, so it follows the pointer
+                    Frontend::Rect r = windows.TopRect();
+                    float sx, sy;
+                    drawableScale(ev.motion.windowID, sx, sy);
+                    if (r.W > 0 && r.H > 0)
+                        camera.OnTouchMove((ev.motion.x - cameraDragX) * sx / r.W, 1.f, (ev.motion.y - cameraDragY) * sy / r.H);
+                    cameraDragX = ev.motion.x;
+                    cameraDragY = ev.motion.y;
+                }
                 break;
             case SDL_MOUSEBUTTONUP:
                 if (ev.button.button == SDL_BUTTON_LEFT && touching)
@@ -3783,6 +4173,19 @@ int main(int argc, char** argv)
                     touching = false;
                     if (emu)
                         emu->releaseScreen();
+                }
+                if (ev.button.button == SDL_BUTTON_LEFT && cameraDragging)
+                {
+                    cameraDragging = false;
+                    camera.SetTouching(false);
+                }
+                break;
+            case SDL_MOUSEWHEEL:
+                // a wheel step on the top screen's picture zooms as a pinch would: away from you in, towards you out
+                if (!menus && ev.wheel.windowID == mouseWindow && cameraTakesMouse(ev.wheel.windowID, mouseX, mouseY))
+                {
+                    float steps = ev.wheel.preciseY * (ev.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1.f : 1.f);
+                    camera.OnTouchMove(0.f, std::pow(CAMERA_WHEEL_PINCH, std::clamp(steps, -10.f, 10.f)), 0.f);
                 }
                 break;
             case SDL_JOYDEVICEADDED:
@@ -3801,6 +4204,23 @@ int main(int argc, char** argv)
                 break;
             case SDL_CONTROLLERBUTTONDOWN:
             case SDL_CONTROLLERBUTTONUP:
+                // with the camera on, the right stick's click switches the stick between the camera and the touch cursor, and goes
+                // nowhere else
+                if (!menus && emu && camera.IsEnabled() && ev.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSTICK)
+                {
+                    if (ev.type == SDL_CONTROLLERBUTTONDOWN)
+                    {
+                        rightStickCamera = !rightStickCamera;
+                        input.RightStickMovesCursor = !rightStickCamera;
+                        camera.OnSticks(0.f, 0.f, false);
+                        ui.Toast(rightStickCamera ? "Right stick: camera" : "Right stick: touch cursor");
+                        printf("right stick: %s\n", rightStickCamera ? "camera" : "touch cursor");
+                    }
+                    break;
+                }
+                if (!menus)
+                    input.OnEvent(ev);
+                break;
             case SDL_CONTROLLERAXISMOTION:
                 if (!menus)
                     input.OnEvent(ev);
@@ -3811,6 +4231,29 @@ int main(int argc, char** argv)
         // combos held long enough, the touch cursor's move; then the DS buttons for the next frame (none under a menu)
         input.Tick();
         keyMask = emu && !ui.IsOpen() ? input.GameMask() : 0;
+        // the camera's sticks (the right one while it's the camera's, the left one as the player moving) and the D-pad, not while a menu
+        // is over the game (the app's dispatchGenericMotionEvent and MelonTouchHandler)
+        if (emu && !ui.IsOpen() && camera.IsEnabled())
+        {
+            float rightX = 0.f, rightY = 0.f;
+            bool isLeftStickPushed = false;
+            input.CameraSticks(rightX, rightY, isLeftStickPushed, CAMERA_LEFT_STICK_MOVE_THRESHOLD);
+            camera.OnSticks(rightStickCamera ? rightX : 0.f, rightStickCamera ? rightY : 0.f, isLeftStickPushed);
+        }
+        {
+            using Frontend::WideCameraDirection;
+            const std::pair<Frontend::Action, WideCameraDirection> directions[] = {{Frontend::Action::Up, WideCameraDirection::Up},
+                {Frontend::Action::Down, WideCameraDirection::Down}, {Frontend::Action::Left, WideCameraDirection::Left},
+                {Frontend::Action::Right, WideCameraDirection::Right}};
+            u32 held = keyMask;
+            for (const auto& [action, direction] : directions)
+            {
+                u32 bit = 1u << (int)action;
+                if ((held & bit) != (cameraDirections & bit))
+                    camera.OnKey(direction, (held & bit) != 0);
+            }
+            cameraDirections = held;
+        }
         {
             // the touch cursor taps where it is, as long as the tap is held
             Frontend::Input::Cursor cursor = input.GetCursor();
@@ -3862,6 +4305,9 @@ int main(int argc, char** argv)
                 // the menus take the input from here: nothing stays held for the game
                 input.ReleaseAll();
                 keyMask = 0;
+                // and the camera's, whose releases the menus take (the app's onOverlaysPresent)
+                camera.ReleaseHeldInput();
+                cameraDragging = false;
                 if (touching || padTouching)
                 {
                     touching = padTouching = false;
@@ -3879,16 +4325,40 @@ int main(int argc, char** argv)
             updateFastForward();
         }
 
-        // the newest frame, waiting a little for one when nothing new is queued, drawn once (or again when the window needs it); every
-        // time while the menus are up
+        // Without frame pacing: the newest frame, waiting a little for one when nothing new is queued, drawn once (or again when the window
+        // needs it); every time while the menus are up. With it, a pass per vsync as the app's Choreographer callback: the frame due on that
+        // vsync, waited for until the next vsync less twice the mean present (none while the game is parked, which sends none), or the
+        // previous one again, so a running game's frame goes to every vsync. A swap that waits for the vblank makes the mean a refresh, and
+        // then nothing is waited for: each pass presents right after its vsync
         bool uiActive = ui.Active();
-        Frame* frame = emu ? AcquireFrame(*emu, std::chrono::steady_clock::now() + std::chrono::milliseconds(8)) : nullptr;
-        bool newFrame = frame && frame->sequence != lastSequence;
-        if (newFrame || redraw || uiActive)
+        bool gameIdle = !emu || emuThread.IsParked();
+        PresentVsync vsync = waitForPresentVsync();
+        Frame* frame = nullptr;
+        if (emu && vsync.On)
         {
-            // the menus at about 60 per second when nothing else paces the loop (no vsync, the game paused or not there)
-            bool gameIdle = !emu || emuThread.IsParked();
-            if (uiActive && gameIdle && !opts.Unthrottled && !settings.GetBool("desktop_vsync", false))
+            // FrameQueue::getPresentFrame's wait, with the emulator thread's (EmulatorThread::WaitForFrame says why): only while nothing
+            // due was queued and the frame being emulated can still be due on this vsync
+            int64_t toleranceNs = vsync.PeriodNs / PRESENT_DUE_TOLERANCE_REFRESH_DENOMINATOR;
+            int64_t deadlineNs = vsync.Ns + vsync.PeriodNs - 2 * renderTime.MeanNs;
+            frame = AcquireFrame(*emu, std::nullopt, vsync.Ns, toleranceNs);
+            while (!gameIdle && !(frame && frame->sequence != acquiredSequence)
+                && IsDueOn(emuThread.UpcomingFrameDueNs(), vsync.Ns, toleranceNs) && emuThread.WaitForFrame(deadlineNs))
+                frame = AcquireFrame(*emu, std::nullopt, vsync.Ns, toleranceNs);
+        }
+        else if (emu)
+            frame = AcquireFrame(*emu, std::chrono::steady_clock::now() + std::chrono::milliseconds(8));
+        if (frame)
+            acquiredSequence = frame->sequence;
+        auto renderStart = std::chrono::steady_clock::now();
+        bool newFrame = frame && frame->sequence != lastSequence;
+        bool again = vsync.On && frame && !gameIdle;
+        // the menus at about 60 per second when nothing else paces the loop (the game paused or not there): paced, the vsyncs closer than
+        // that to the last one drawn are left out; otherwise a sleep, unless the swap waits for vsync
+        bool idleUi = uiActive && gameIdle && !opts.Unthrottled;
+        bool skipVsync = idleUi && vsync.On && vsync.Ns - lastPresentVsyncNs < UI_FRAME_NS - vsync.PeriodNs / 2;
+        if (!skipVsync && (newFrame || redraw || uiActive || again))
+        {
+            if (idleUi && !vsync.On && !FramePacingOn(opts))
             {
                 auto due = lastPresent + std::chrono::microseconds(16667);
                 if (std::chrono::steady_clock::now() < due)
@@ -3899,6 +4369,11 @@ int main(int argc, char** argv)
                 ui.BuildFrame();
             present(frame);
             lastPresent = std::chrono::steady_clock::now();
+            if (vsync.On)
+            {
+                lastPresentVsyncNs = vsync.Ns;
+                renderTime.Track(std::chrono::duration_cast<std::chrono::nanoseconds>(lastPresent - renderStart).count());
+            }
             if (frame)
                 lastSequence = frame->sequence;
             redraw = false;
@@ -3909,7 +4384,7 @@ int main(int argc, char** argv)
                     running = false;
             }
         }
-        else if (!emu)
+        else if (!emu && !vsync.On)
             SDL_Delay(5);
         // after each pass of the loop (a UI frame when the menus are up), also while the game is held with nothing drawn
         scriptTick();
@@ -3978,6 +4453,18 @@ int main(int argc, char** argv)
         printf("presented at 1x: %u frames had a screen at 1x (GPU::Comp1x), the first at present %u\n", presentedAt1x, firstPresentedAt1x);
     else
         printf("presented at 1x: none\n");
+    if (framePacingRan)
+    {
+        // over the run's games, the frames at normal speed: paced and locked to the vsync grid, and the ones the timer ran with pacing on
+        Frontend::EmulatorThread::PacingStats pacing = emuThread.GetPacingStats();
+        auto percent = [&](uint64_t count) { return pacing.Frames ? 100.0 * (double)count / (double)pacing.Frames : 0.0; };
+        int64_t periodNs = vsyncSource.Tracker()->getRefreshPeriodNs();
+        printf("pacing: %llu frames at normal speed, %.1f%% paced, %.1f%% locked, divisor %d, refresh %.4f ms (%.3f Hz), %llu on the timer; "
+            "present loop on %llu vsyncs, %llu missed\n",
+            (unsigned long long)pacing.Frames, percent(pacing.Paced), percent(pacing.Locked), pacing.LastDivisor, periodNs / 1e6,
+            periodNs > 0 ? 1e9 / (double)periodNs : 0.0, (unsigned long long)pacing.TimerWithPacing, (unsigned long long)presentVsyncPasses,
+            (unsigned long long)presentVsyncsMissed);
+    }
     if (!opts.ScreenshotPath.empty() && !startFailed && emu)
         screenshot(opts.ScreenshotPath);
 
@@ -3987,6 +4474,8 @@ int main(int argc, char** argv)
     input.StopRumble();
     emuThread.Stop();
     emu = nullptr;
+    // before the main window it watches goes
+    vsyncSource.Stop();
     // what waited to be written (the library's last focused game)
     settings.SaveIfChanged();
     ui.Shutdown();

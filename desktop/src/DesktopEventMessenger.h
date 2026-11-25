@@ -1,6 +1,7 @@
 // The desktop's MelonEventMessenger (the app's is AndroidMelonEventMessenger, which calls into Kotlin): the emulator's events, which
-// come from the emulator thread, are posted to the UI thread and run there at its next Drain(). Rumble goes to OnRumble; RetroAchievements and the Lua
-// scripts' requests are only logged for now; the stop is handed to OnStop
+// come from the emulator thread, are posted to the UI thread and run there at its next Drain(). Rumble goes to OnRumble, the scripts' wide
+// camera requests and stops to OnLuaWideCamera and OnLuaScriptStopped; RetroAchievements and the other Lua requests are only logged for now;
+// the stop is handed to OnStop
 #pragma once
 
 #include <functional>
@@ -8,6 +9,7 @@
 #include <vector>
 
 #include "MelonEventMessenger.h"
+#include "camera/WideCamera.h"
 
 namespace Frontend
 {
@@ -20,6 +22,10 @@ public:
     // UI thread: the Rumble Pak's motor on (for up to [durationMs]) and off
     std::function<void(int durationMs)> OnRumble;
     std::function<void()> OnRumbleStop;
+    // UI thread: a script's melon.wide request (the app's EmulatorEvent.LuaWideCamera) and a script that stopped, for the WideMelon camera's
+    // LuaWideCameraRequests
+    std::function<void(int scriptId, const WideCameraRequest& request)> OnLuaWideCamera;
+    std::function<void(int scriptId)> OnLuaScriptStopped;
 
     // Runs [task] on the UI thread at its next Drain(); any thread
     void Post(std::function<void()> task);

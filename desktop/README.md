@@ -8,7 +8,8 @@ Its menus ([below](#menus)) are Dear ImGui screens made for a TV and a controlle
 
 Like the app it runs on two threads, each with its own GLES context (shared through SDL): the
 emulator thread (`src/EmulatorThread.cpp`, a port of the app's `emulate()`) runs the frames and
-hands them over through the app's `FrameQueue`, and the UI thread presents them. The desktop's
+hands them over through the app's `FrameQueue`, and the UI thread presents them, both on the main window's monitor's vsyncs
+with [frame pacing](#frame-pacing) on (`src/VsyncSource.cpp` waits for them on a thread of its own). The desktop's
 side of the shared code is `src/DesktopPlatform.cpp` (the core's Platform layer, with
 `src/PlatformBase.cpp`, which `tools/jitverify` shares), `src/DesktopEventMessenger.cpp` and
 `src/DesktopLog.cpp`.
@@ -40,6 +41,21 @@ built-in backgrounds ([Layouts and backgrounds](#layouts-and-backgrounds)). It n
 `gl/pc_gl_loader.h/.cpp` are generated from `gl/khronos/GLES3/gl32.h` by `gl/gen_gl_loader.py`;
 run it again only if that header changes.
 
+### Tests
+
+`build.sh` also builds `melonade-desktop-tests.exe` and runs it after the exe; a failing test stops the script before the
+release folder. It's a console program with the app's Kotlin tests ported for the desktop's pure logic: the WideMelon
+camera (`src/camera/`: `WideCameraTest`, `WideCameraControllerTest`, `WidescreenLaunchCameraTest`,
+`LuaWideCameraRequestsTest`) and the screens' placement (`src/layout/LayoutGeometry`: `ScreensDrawingTest`), with the same
+expected values. It's built from those sources alone, with no SDL, GL or core, and lives in `tests/` (a tiny harness in
+`tests/Test.h`, no test library). To run it by hand, from PowerShell:
+
+    & .\build-desktop\melonade-desktop-tests.exe            # all of them
+    & .\build-desktop\melonade-desktop-tests.exe WideCamera  # only the suites or tests whose name contains this
+
+It prints each failure with its file and line and a count, and exits with 1 if any test failed. To build only the
+tests: `cmake --build build-desktop --target melonade-desktop-tests`.
+
 ## Running
 
     melonade-desktop [options] [game.nds|.dsi|.zip|.7z]
@@ -64,10 +80,12 @@ main ones:
 |---|---|
 | `--renderer soft\|gl\|compute` | 3D renderer, Compute by default |
 | `--scale N` | internal resolution (default 4) |
-| `--wide W` | WideMelon top screen width (256 = off) |
-| `--wide-margin M` | with `--wide`, M more 3D rows above and below the top screen (camera stage 2, 0-128) |
+| `--wide W` | WideMelon top screen width (256 = off), over the game's own widescreen setting for the run (every game booted in it) |
+| `--wide-margin M` | with `--wide` and the camera off, M more 3D rows above and below the top screen (camera stage 2, 0-128) |
+| `--wide-camera on\|off`, `--wide-camera-max W\|max`, `--wide-camera-zoom Z` | the [WideMelon camera](#widemelon-camera) for the run, over the game's settings and never stored: on or off (it needs `--wide` or the game's widescreen), its widest view (an even 256-768, `max` 768), and the zoom it starts at (1-3, 1 native; clamped to the widest view) |
 | `--wide-shift X,Y` | debug, OpenGL only: the core's view shift (`GLRenderer::SetViewShift`), the native 256 x 192 moved X columns right and Y rows down inside the `--wide` / `--wide-margin` view, so it starts at column (W-256)/2+X and row M+Y of the top half (clamped to the view), on top of the sun guard band's own shift. The window shows the most of the view that's centred on the native screen (`frameGuardFor`), so check the whole of it with `--screenshot` or `--depth-raw` |
-| `--dither`, `--hires-capture`, `--filter2d`, `--smooth30`, `--better-polygons`, `--precise-depth` | the app's renderer settings (the ones the settings screens have are overrides of their settings) |
+| `--dither`, `--hires-capture`, `--filter2d`, `--smooth30`, `--better-polygons`, `--precise-depth` | the app's renderer settings (the ones the settings screens have are overrides of their settings; `--smooth30` is Frame interpolation, `frame_pacing_smooth_30fps`) |
+| `--vsync on\|off`, `--frame-buffer on\|off` | [frame pacing](#frame-pacing) (`frame_pacing_vsync`) and its Triple buffering (`frame_pacing_buffer`) for the run |
 | `--filter NAME` | the [screen filter](#screen-filters) for the run (`video_filtering`): `none`, `linear`, `xbr2`, `hq2x`, `hq4x`, `quilez`, `lcd`, `scanlines`, `scale2x`, `fxaa`, `sharp`, `mmpx`, the app's `VideoFiltering` names in any case; `--linear` is `--filter linear` |
 | `--deband on\|off`, `--ds-colors on\|off`, `--screen-shadow on\|off` | smooth gradients (`video_deband`), the DS screen colors (`video_ds_screen_colors`) and the screen shadow (`video_screen_shadow`) for the run |
 | `--tilt-shift TOP,BOTTOM,CENTER,WIDTH,RADIUS[,SATURATION,CONTRAST[,COLOR]]` | the Lua tilt-shift's passes over the top screen, for tests until scripts drive them (phase 4): the blur's strength above and below the sharp band (0-1), the band's center and width (fractions of the screen's height), the radius in DS pixels (up to 64), and the color boost with what it follows (the app's `TiltShift`) |
@@ -86,14 +104,14 @@ main ones:
 | `--depth-shot FILE.png` | when `--frames` or `--ui-script` ends the run, the last frame's top screen depth (OpenGL only; the core's depth for the Lua post effects, asked for by this flag alone) as a grayscale PNG: the 3D from near (dark) to far (light) over the range it covers, 2D on top black, transparent 3D white. It prints the depth range, how many distinct depth values the 3D has (and how many of them 16 bits would tell apart), and how many pixels carry each flag |
 | `--depth-raw FILE.png` | the same frame's depth texture as it is, top row first, for scripts: RGB the 24-bit depth (high byte in R), A the flags (1 2D on top, 2 transparent 3D, 4 W-buffered, 8 drawn under another camera than the frame's, such as White's characters, 16 in such a character's sun shadow while `--sun` or `melon.screen.sun` is on, 32 drawn by a light texture's polygon from `--light-textures` or `melon.gpu.light_textures`, 64 with 1 and depth 0 drawn by a UI texture's polygon from `--ui-textures` or `melon.gpu.ui_textures`). Asks for the depth as `--depth-shot` does, and prints a `depth camera:` line with the camera that frame came with, as `--camera-shown` writes it |
 | `--camera-dump FILE` | debug: a JSON line per 3D scene the core latches, with the scene's polygon count, each projection matrix (raw 20.12, in the DS's order, which is OpenGL's column-major one) and viewport (x0, y0, x1, y1, width, height, y0 the bottom row) its polygons were built under with how many polygons each, the polygons past the core's table of 16, and the one the core picked for the depth (`pick`, an index into `uses`, -1 for none) with whether it's `valid` (`GPU3D::SetCameraLogging`, off otherwise) |
-| `--camera-shown FILE` | debug: a JSON line per newly presented frame with the depth camera it came with (`FrameView`, as the app's `PresentFrameWrapper.depthCamera`): `seq` the frame queue's sequence, `top` the top screen's width, margin rows and sun guard band's left, right, top and bottom in DS pixels (`Frame::topScreenWidth`, `topScreenMargin` and `topScreenGuard`), `depth` whether the frame has depth, `valid`, `proj` the projection's 16 floats column-major (GLSL's `mat4` of them times the view-space position is the clip position) and `vp` the viewport's left, top, width and height in DS pixels from the native top screen's top-left corner. The core's `DepthCamera` in `GPU3D.h` says how to rebuild positions from them |
+| `--camera-shown FILE` | debug: a JSON line per newly presented frame with the depth camera it came with (`FrameView`, as the app's `PresentFrameWrapper.depthCamera`): `seq` the frame queue's sequence, `top` the top screen's width, margin rows and sun guard band's left, right, top and bottom in DS pixels (`Frame::topScreenWidth`, `topScreenMargin` and `topScreenGuard`), `depth` whether the frame has depth, `valid`, `proj` the projection's 16 floats column-major (GLSL's `mat4` of them times the view-space position is the clip position) and `vp` the viewport's left, top, width and height in DS pixels from the native top screen's top-left corner. The core's `DepthCamera` in `GPU3D.h` says how to rebuild positions from them. While the [WideMelon camera](#widemelon-camera) shows a window, `wide` is that window of the shown frame (show width, frame width, x, width, frame height, y, height in DS pixels) and `wings` the frame's top screen lines with 3D wings |
 | `--list-textures FILE` | debug: a line per texture of each frame the OpenGL renderer draws (`Renderer3D::SetTextureListing`): the frame, its content hash (what `--hide-textures`, `--light-textures`, `--ui-textures`, `--focus-textures` and `melon.gpu.hide_textures`, `light_textures`, `ui_textures` and `focus_textures` take), its TexParam without the repeat, flip and transform bits, its TexPalette, format and size, how many polygons used it and how many were translucent, the first one's alpha and polygon ID, and the polygons' box in the frame's 3D pixels, with `hidden` when the hidden textures left them out, `light` when the light textures marked them, `ui` when the UI textures did and `focus` when the focus textures listed them. White's blob shadows are the 16x16 format 2 texture drawn at alpha 19, ID 2, and its speech bubble tails the 8x8 format 3 one at ID 63 |
 | `--hide-textures HASH,...` | the OpenGL renderer leaves out the polygons of these textures, as `melon.gpu.hide_textures` has it (hex content hashes from `--list-textures`, at most 64); a script's own list wins over it |
 | `--light-textures HASH,...` | the OpenGL renderer flags the pixels these textures' polygons draw as lights (flag 32 in the depth's flags, see `--depth-raw`), as `melon.gpu.light_textures` has it (hex content hashes from `--list-textures`, at most 64); a script's own list wins over it. White's lit windows at night are `84D7B868` |
 | `--ui-textures HASH,...` | the depth hands the pixels these textures' polygons draw over as 2D on top (depth 0, flags 1 and 64, see `--depth-raw`), as `melon.gpu.ui_textures` has it, so every depth effect leaves them and takes nothing from them (hex content hashes from `--list-textures`, at most 64; OpenGL only); a script's own list wins over it. White's speech bubble tails are `BE2606E4` |
 | `--focus-textures HASH,...` | `--dof` focuses on the polygon of these textures that covers the biggest box on screen, as `melon.gpu.focus_textures` has it (hex content hashes from `--list-textures`, at most 64; OpenGL only), eased from scene to scene and held 8 frames once it's gone; a script's own list wins over it, and `--dof`'s focus depth over both. White's female player is `A762276B` |
 | `--set Name=Value` | a core debug switch on `GPU`, e.g. `--set LateBlit=0` (`--list-sets`) |
-| `--frames N` | quit after N frames and print frame time stats: the game's frames, plus the UI's while no game frame runs (the start screen, a menu over the paused game), and how many presented frames had a screen at 1x (GPU::Comp1x) |
+| `--frames N` | quit after N frames and print frame time stats: the game's frames, plus the UI's while no game frame runs (the start screen, a menu over the paused game), how many presented frames had a screen at 1x (GPU::Comp1x), and with [frame pacing](#frame-pacing) on, a `pacing` line |
 | `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window, menus included, when `--frames` or `--ui-script` ends the run; detached, the windows as `F_top.bmp` and `F_bottom.bmp` |
 | `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `pause`, `pause/save`, `pause/load`, `pause/layout`, `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`), `layouts` (the global layout's list), `layout-editor` (the [layout editor](#layout-editor) on the layout in use), `layout-editor/new`, `layout-editor/ID` (a custom layout by its id), `input`, `keyboard`; with a game, once its first frame is shown |
 | `--layout NAME\|ID` | the [layout](#layouts-and-backgrounds) for the run, over the game's own and the settings' (never stored): a layout's name in any case or its id from `layouts.json`, `default` (the app's Default), or the desktop's `vertical`, `horizontal`, `top`, `bottom`; an unknown one lists them and quits. It also means the screens together, unless `--detach` is given too (then it's the layout for when they're together again, and its detached windows' layouts) |
@@ -101,7 +119,7 @@ main ones:
 | `--background-mode MODE` | how it's placed for the run: `stretch`, `fit-center`, `fit-top`, `fit-left`, `fit-bottom`, `fit-right` (the app's `BackgroundMode`, `FIT_CENTER` style too) |
 | `--export-layouts FILE` | write the profile's `layouts.json` again to FILE, as the desktop saves it (the app's format, unknown fields kept), and quit; for round-trip checks |
 | `--rom-folder DIR` | a folder for the game library, repeated for more; for the run only, in place of the saved `rom_search_dirs`, never written |
-| `--rom-config KEY=VALUE` | over the booted game's own settings for this run, never stored: `console=default\|ds\|dsi`, `gba-slot=default\|none\|gba-rom\|rumble-pak\|memory-expansion`, `gba-rom=FILE.gba`, `name=TEXT`, `layout=ID\|global` (like `--layout`, a layout picked while it holds stays in the run); repeat it for more |
+| `--rom-config KEY=VALUE` | over the booted game's own settings for this run, never stored: `console=default\|ds\|dsi`, `gba-slot=default\|none\|gba-rom\|rumble-pak\|memory-expansion`, `gba-rom=FILE.gba`, `name=TEXT`, `layout=ID\|global` (like `--layout`, a layout picked while it holds stays in the run), and the widescreen fields by the app's names: `wideViewWidth=W\|off`, `wideCamera=on\|off`, `wideCameraMaxWidth=W\|default`, `wideCameraReturnToCenter=on\|off`, `wideCameraZoom=Z\|default`, `wideCameraZoomOnText=on\|off`; repeat it for more. The `--wide` flags beat it |
 | `--pretend-title-art`, `--pretend-wide-tiles N` | every game counts as having title-screen art, so the Mosaic view makes one in six of them wide by ROM hash, as the app does; `--pretend-wide-tiles N` makes one in N of the games with title art (downloaded, or pretended) wide by path instead, for a test library of copies of a few ROMs |
 | `--no-sync` | no network at all for the run: the [metadata sync](#metadata-and-art) makes no requests (the art on disk still shows, and the ROMs' hashes are still computed) |
 | `--sync-now` | scan the library and sync at the start, without the library screen (with `--open settings/library`, say), with RetroAchievements' hash library fetched whatever its age |
@@ -110,7 +128,7 @@ main ones:
 | `--sync-backoff S` | a sync that stopped early tries again after S seconds, then twice that (default 900, the app's 15 minutes), for tests |
 | `--ui-script F` | drive the menus from a file, see [UI scripts](#ui-scripts) |
 | `--state-dir DIR` | the command line's game's savestate slots (`.ml0`-`.ml8`) in DIR instead of next to the ROM, for tests (without it, a test run keeps them in its temporary profile) |
-| `--unthrottled`, `--hidden`, `--no-audio`, `--gpu-sync` | for benchmarks and scripted runs; with `--gpu-sync` the run's summary adds a `present` line, each game frame's present with its GPU work (the screen filters and the Lua passes) |
+| `--unthrottled`, `--hidden`, `--no-audio`, `--gpu-sync` | for benchmarks and scripted runs (both of the first two leave frame pacing off); with `--gpu-sync` the run's summary adds a `present` line, each game frame's present with its GPU work (the screen filters and the Lua passes) |
 | `--virtual-pad xbox\|switch\|ps\|generic` | an SDL virtual controller of that model (generic: a joystick SDL has no mapping for), the one controller a hidden run takes; `--ui-script`'s `pad` and `axis` steps drive it through SDL's own events, and its rumble is printed |
 | `--audio-log`, `--audio-wav F.wav`, `--audio-trace F.csv` | the sound: the ring's fill and ratio once a second, what the callback plays (before the volume), every callback's and frame's fill |
 | `--console ds\|dsi`, `--dsi-bios DIR` | the console for this run (`console_type`, `dsi_bios_dir`); DSi needs `--bios` too |
@@ -144,7 +162,7 @@ runs never read or change the real one, visible or not. Keys the app has use its
 desktop-only ones start with `desktop_`. Keys the desktop doesn't know are kept.
 
 Options that set a setting (`--renderer`, `--scale`, `--filter`, `--linear`, `--deband`, `--ds-colors`, `--screen-shadow`, `--vsync`,
-`--no-audio`, `--detach`, `--rom-folder`, `--setting`) apply to that run only and are never written; a hotkey that changes one of
+`--frame-buffer`, `--smooth30`, `--no-audio`, `--detach`, `--rom-folder`, `--setting`) apply to that run only and are never written; a hotkey that changes one of
 them during that run changes it for the run only too. Hotkeys change and save the others. `--layout` and `--background` are the run's
 too: a layout picked while one is given (F2, the pause menu) changes the run's, and nothing is stored. `--layout`
 also means the screens together for that run, unless `--detach` is given too.
@@ -158,6 +176,10 @@ also means the screens together for that run, unless `--detach` is given too.
 | `video_ds_screen_colors` | `true`, `false` | the DS screen colors (default off; the app took its switch out and reads it as off whatever is stored) |
 | `video_screen_shadow` | `true`, `false` | a soft shadow around the screens (default off, as in the app) |
 | `video_hires_capture`, `video_filter_2d`, `video_sharper_rotated_2d`, `video_edge_marking`, `video_precise_depth`, `video_gl_seams` | `true`, `false` | the renderer settings, applied to a running game at once (desktop defaults: edge marking on, the rest off) |
+| `frame_pacing_vsync` | `true`, `false` | [frame pacing](#frame-pacing): the main window waits for vsync and the game's frames are paced to its monitor (default on, as in the app; `--vsync`). An older profile's `desktop_vsync` is carried over to it once and no longer written |
+| `frame_pacing_buffer` | `true`, `false` | Triple buffering: paced frames are due a refresh later (default on, as in the app; `--frame-buffer`) |
+| `frame_pacing_smooth_30fps` | `true`, `false` | Frame interpolation: in-between 3D scenes in 30 fps games, OpenGL and Compute only (default off, as in the app; `--smooth30`) |
+| `frame_pacing_lock_60hz` | `true`, `false` | Force 60 Hz: exclusive fullscreen runs the monitor at a multiple of 60 Hz (default off, unlike the app: switching a PC monitor's mode blanks it and moves other windows) |
 | `enable_jit` | `true`, `false` | from the next game on (desktop default off) |
 | `console_type` | `ds`, `dsi` | from the next game on; DSi needs the custom BIOS and both folders below |
 | `use_custom_bios`, `bios_dir`, `dsi_bios_dir`, `show_bios` | | the custom BIOS and firmware (off: FreeBIOS) and the boot screen, from the next game on |
@@ -167,7 +189,6 @@ also means the screens together for that run, unless `--detach` is given too.
 | `audio_latency` | `low`, `medium`, `high` | the callback's size and the buffered sound, see [Sound](#sound) |
 | `mute_fast_forward_audio` | `true`, `false` | (default on, as in the app) |
 | `desktop_rumble` | `true`, `false` | controllers rumble when the game does |
-| `desktop_vsync` | `true`, `false` | the main window waits for vsync (`--vsync`) |
 | `input_layout_id` | a layout's id | the global [layout](#layouts-and-backgrounds) (the app's key; default the app's Default, `00000000-0000-0000-0000-000000000000`); F2 and the pause menu change it when the one in use is the global one. Before it's set, an older profile's `desktop_layout` (`vertical`, `horizontal`, `top`, `bottom`, which the desktop no longer writes) still picks that arrangement |
 | (`layouts.json`, `backgrounds.json`) | | the custom layouts and the user's backgrounds, the app's files, next to `settings.json`, see [Layouts and backgrounds](#layouts-and-backgrounds) |
 | `layout_editor_snap_to_grid`, `layout_editor_grid_size` | `true`, `false`; `SMALL`, `MEDIUM`, `LARGE` | the [layout editor](#layout-editor)'s snapping and its grid (16, 32 or 48 reference pixels), the app's keys and values (default off, `MEDIUM`) |
@@ -211,11 +232,15 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
   Emulation > Console, DS or DSi; locked to DSi for a DSiWare title, as the app does) and GBA slot (None by default as in the app, GBA
   ROM with its file through the Windows file dialog and its save next to it as `--gba` does, Rumble Pak, Memory expansion; the file is
   kept while another slot is chosen), Layout (the game's own, the app's `layoutId`, or "Use global layout", its default; the list as
-  in Settings), then Reset to defaults. They're kept by the ROM's RetroAchievements hash, so they survive the
-  file being moved or renamed and every copy of the game shares them (by path for a ROM rc_hash refuses). The app's
-  microphone source, widescreen and mods are listed as "Coming later" (phases 6, 3 and 4), and its Motion Paks are
+  in Settings), Widescreen (the app's Mods tab section, its rows, words and options: Use widescreen, which turns on at 16:9; its
+  Aspect ratio, 16:10, 16:9, 20:9 or 21:9; Camera, and while it's on Zoom out up to, the widths past the shown one of 426, 448, 512, 640
+  and 768, with the app's note when the stored one isn't wider, Return to center when moving and Auto zoom in on text; with the
+  software renderer in the settings, the app's note that it shows the normal width, the width kept for OpenGL and Compute; the app's
+  wide layout pick is left out, as the desktop picks its layouts its own way), then Reset to defaults. They're kept by the ROM's
+  RetroAchievements hash, so they survive the file being moved or renamed and every copy of the game shares them (by path for a ROM
+  rc_hash refuses). The app's microphone source and mods are listed as "Coming later" (phases 6 and 4), and its Motion Paks are
   left out until the desktop reads a controller's gyro. Changes are stored at once and apply the next time the game starts, from the
-  library or the command line. The command line beats them: `--rom-config` for the run, then `--console` and `--gba`.
+  library or the command line. The command line beats them: `--rom-config` for the run, then `--console`, `--gba` and the `--wide` flags.
   `--open library/settings` opens the first game's.
 - **Pause menu** (the Pause binding: Esc, Guide, or Select + Start held; over the last frame, dimmed): Resume, Save state, Load state,
   Detached screens, Swap screens, Layout (the list of layouts, the one in use marked; a pick is stored where that one came from: the
@@ -230,8 +255,9 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
   game is paused on, since the app's `ScreenshotRenderer` only takes one as the next frame runs. Saving over a used slot asks
   first, and X (Delete) on a used slot deletes it, once asked, to the recycle bin with its screenshot.
 - **Settings**: six tabs (L / R): Video (renderer, internal resolution, the renderer settings, the screen filter in the app's list and
-  order, smooth gradients, DS screen colors, screen shadow, JIT), Display (screens together or detached, the global layout's list, swap, each detached
-  screen's fit, the bottom window's title bar and on-top, fullscreen mode, vsync, theme), Emulation (console, custom BIOS and its folders through the Windows folder picker, boot screen, fast-forward
+  order, smooth gradients, DS screen colors, screen shadow, the app's Frame pacing section: VSync, Force 60 Hz, Triple buffering, greyed
+  out while VSync is off, and Frame interpolation, greyed out on Software; then JIT), Display (screens together or detached, the global layout's list, swap, each detached
+  screen's fit, the bottom window's title bar and on-top, fullscreen mode, theme), Emulation (console, custom BIOS and its folders through the Windows folder picker, boot screen, fast-forward
   speed), Audio (on/off, volume, latency, mute while fast forwarding), Controls (the input setup, rumble) and Library (the ROM folders:
   A changes one through the folder picker, X removes it, then Add a ROM folder and Rescan the library). A change is saved at
   once and applied to a running game where the core allows it; the rows that wait for the next game say so, and a toast says it
@@ -337,8 +363,10 @@ file's size and time, what was read, the icon as 32x32 RGBA, the whole ROM's `cr
 `play_history` table (last played, by path, so it outlives rescans and covers games started from the command line) and, since schema
 version 2, a `rom_config` table: each game's own settings by its `game` key, the ROM's RetroAchievements hash (or its path when rc_hash
 refuses it), one row per field that differs from the default under the app's `RomConfigDto` names and values (`runtimeConsoleType` =
-`DS`/`DSi`, `customName`, `gbaSlotConfig.type` = `GbaRom`/`RumblePak`/`MemoryExpansion`, `gbaSlotConfig.gbaRomPath`, `layoutId`; rows with other
-keys are left alone). A game booted from outside the library is read for its hash before it boots.
+`DS`/`DSi`, `customName`, `gbaSlotConfig.type` = `GbaRom`/`RumblePak`/`MemoryExpansion`, `gbaSlotConfig.gbaRomPath`, `layoutId`, and its
+`mods` widescreen fields: `mods.wideViewWidth`, `mods.wideCamera`, `mods.wideCameraMaxWidth`, `mods.wideCameraReturnToCenter`,
+`mods.wideCameraZoom`, `mods.wideCameraZoomOnText`, numbers and `true`/`false` as text, a value that doesn't read counting as the default;
+rows with other keys are left alone). The widescreen fields needed no new schema version. A game booted from outside the library is read for its hash before it boots.
 Schema version 3 adds the metadata sync's tables (see below). The version is `PRAGMA user_version`; a new version is a new entry in
 `LibraryDb.cpp`'s migrations, run once when the file opens, so an older `library.db` gets the new tables the first time this build opens it.
 
@@ -436,10 +464,37 @@ the device used last.
 | Swap screens | F1 | the left stick's click |
 | Detach screens, screenshot, fullscreen | F9, F12, F11 (or Alt+Enter) | none |
 | Rewind | (comes later; it shows a toast) | |
+| Wide camera zoom (`CAMERA_ZOOM`) | none | none (the right stick's click switches the stick, below) |
 
 The right stick moves a touch cursor over the bottom screen, drawn in whichever window shows it, and the Touch binding taps where it
-is; it stays a few seconds after it stops. A pad whose profile binds the right stick to something else doesn't move it. Rumble (a game
+is; it stays a few seconds after it stops. A pad whose profile binds the right stick to something else doesn't move it. While the
+[WideMelon camera](#widemelon-camera) is on, the right stick pans the camera instead, and its click (R3) switches it between the camera
+and the touch cursor with a toast ("Right stick: camera", "Right stick: touch cursor"); each game starts on the camera. The click goes
+to nothing else then, so the Touch binding's alternate (R3) doesn't tap meanwhile; the right trigger still does. Rumble (a game
 with the Rumble Pak in the GBA slot) goes to the pad that played last, through `SDL_GameControllerRumble`; `desktop_rumble` turns it off.
+
+### WideMelon camera
+
+The app's WideMelon camera (`docs/plan-widemelon.md`; `src/camera/`, ports of `WideCamera.kt`, `WideCameraController.kt`,
+`LuaWideCameraRequests.kt` and `WidescreenLaunch.kt`), wired as the app's `EmulatorActivity`, `EmulatorViewModel` and
+`FrameRenderCoordinator` wire it. A game's widescreen settings (Game settings, or the `--wide` flags) are resolved when it boots
+(`ResolveWidescreenLaunch`; the software renderer is never wide): the width it's shown at, and with the camera on its widest view. The
+core renders only as wide as the player's zoom needs, at the next zoom step (`GetRenderWidth`), with margin rows above and below so the
+widest window fills the screen (`GetRenderMargin`); a zoom-out asks for a wider frame at once and a zoom-in for a narrower one once it has
+eased in, through `MelonInstance::setWideView`, which takes it before the next frame (a `wide camera: render zoom` line on stdout each
+time). The camera moves once per presented frame on the UI thread (`WideCameraController::OnFrame`, with the frame's top screen wing
+lines and the known Pokemon games' scene from `MelonInstance::pollGameScene`), and its window is only where the top screen's quad reads
+from: the filters and the Lua passes run over the whole frame, and the quads are filled again only when the window moves. Every layout
+shows it: the app's layouts through `GetScreensDrawing`, the desktop's own arrangements and a detached window's fit shaped for the shown
+width at 192 rows, whatever width the core renders at. Touch on the bottom screen goes through the drawn native rect as before, also
+when a layout swaps it into the wide rect (the camera stays at 1x then). The window goes to the scripts' `melon.wide.camera()`
+(`updateWideCamera`), and the scripts' `melon.wide` requests come in through `DesktopEventMessenger` (phase 4 runs the scripts).
+
+Input, while it's on and no menu is over the game: the right stick pans (see [Input](#input) for R3), the D-pad and the left stick count
+as the player moving (Return to center when moving), the Wide camera zoom hotkey steps out a quarter at a time to the widest view and
+back to 1x, and the step it picks is remembered in the game's settings (`mods.wideCameraZoom`) to start from next time. The mouse on the
+top screen's picture drags it (left button) and zooms with the wheel (each notch a pinch of 1.08, away from you in), as a finger does on
+the phone; neither is remembered. A menu opening over the game, a pause or the window losing the focus lets go of what was held.
 
 ### Sound
 
@@ -449,8 +504,44 @@ of gaps, and trims what fast forward leaves. Since a PC runs a frame in a few mi
 slow, the emulator thread moves each frame's sound into a ring of its own (8192 frames) instead of the callback reading the SPU's
 (2048), with targets of 1500, 2000 and 2800 frames (31, 42 and 58 ms) for low, medium and high latency (256, 512 and 1024 frames a
 callback). Fast forward is the app's: silent while muted (the default), sped up and pitched up at its speed when it isn't, and silent
-when it's unlimited. The emulator runs at the DS's 59.83 Hz, which the display's refresh rate doesn't change. `--audio-log` prints the
-fill, the filtered fill, the ratio, underruns and overflows once a second.
+when it's unlimited. As in the app, the emulator runs 60 frames a second, a little faster than the DS's 59.83 Hz (paced to the display or
+on the timer, see [Frame pacing](#frame-pacing)), so the ratio's base is 60 / 59.83 (the app's `OboeCallback::updateOutputSkew`), times
+the speed for fast forward, and the drift control takes up the rest, such as a 59.94 Hz monitor's. `--audio-log` prints the fill, the
+filtered fill, the ratio, underruns and overflows once a second.
+
+### Frame pacing
+
+The app's frame pacing (`docs/code-notes.md`), with the same code (`app/src/main/cpp/renderer/FramePacing.cpp`): each game frame starts on
+the display's vsync grid and carries the vsync it's due on, so frames reach the screen evenly instead of drifting against the refresh.
+`frame_pacing_vsync` turns it on (Settings > Video > VSync, `--vsync`; on by default, as in the app).
+
+- **The vsyncs** come from a thread of their own (`src/VsyncSource.cpp`, the desktop's Choreographer) that waits for each vertical
+  blank of the monitor the main window is on (DXGI's `IDXGIOutput::WaitForVBlank`), and picks the monitor again within a few vsyncs when
+  the window moves to another one. Its times are on the app's clock (`monotonicNanos()`: MinGW's `CLOCK_MONOTONIC` reads
+  QueryPerformanceCounter, as `std::chrono::steady_clock` does). Detached, the second window's monitor isn't followed.
+- **The emulator thread** (`src/EmulatorThread.cpp`) does what the app's `emulate()` does: at normal speed, with VSync on and a refresh
+  within 0.5% of 60, 120, 180 or 240 Hz, each frame starts on the grid (`VsyncFramePacer`) and is due a frame later, or two with Triple
+  buffering (`frame_pacing_buffer`); otherwise, the timer runs it at 60 fps. The first frame after a pause starts at once and pacing locks
+  on again after it. Fast forward runs on the timer at its speed, `--unthrottled` as fast as it can.
+- **The UI thread** presents once per vsync, as the app's render thread does on each Choreographer callback: the newest frame due on that
+  vsync (within half a refresh), waiting for the one being emulated until the next vsync less twice the mean present when it can still be
+  due, or the previous frame again. The main window swaps with interval 1, the second window with 0. The frame queue's own wait is a timed
+  condition variable, which winpthreads wakes on the system timer's 15.6 ms ticks whatever `timeBeginPeriod` asks, so the desktop waits
+  on an event the emulator thread sets after each frame and a high-resolution timer instead (`EmulatorThread::WaitForFrame`). On this PC's
+  NVIDIA driver a swap with interval 1 waits for the vblank, which makes the mean present a refresh, so nothing is waited for and each
+  pass presents right after its vsync. The menus with no game running (or over a paused one) still draw about 60 times a second: the
+  vsyncs closer than that to the last one drawn are left out.
+- **Force 60 Hz** (`frame_pacing_lock_60hz`) only does something in exclusive fullscreen: the mode taken is the monitor's resolution at
+  the lowest refresh rate that's a multiple of 60 it has (60, then 120, ...), so the frames can lock to it; a monitor with none keeps its
+  own mode. Windowed and borderless, the monitor's rate is what it is (a 144 or 165 Hz monitor doesn't lock, and the timer runs the game).
+  It's off by default (on in the app): it only helps a 144 or 165 Hz monitor without G-Sync or FreeSync, where 60 fps can't land evenly
+  on the refreshes; with variable refresh any rate is smooth.
+- **Frame interpolation** (`frame_pacing_smooth_30fps`, `--smooth30`) is the app's in-between 3D scenes for 30 fps games, OpenGL and
+  Compute only (`--halfcam N` sets its debug mode).
+- Hidden and unthrottled runs never pace: no vsync thread, swap interval 0, as before. With it on, the run's summary has a line such as
+  `pacing: 600 frames at normal speed, 100.0% paced, 99.8% locked, divisor 1, refresh 16.6739 ms (59.974 Hz), 0 on the timer; present
+  loop on 605 vsyncs, 4 missed`: the frames at normal speed, how many were paced and locked to the grid, the last frame's refreshes per
+  frame, the measured refresh, the frames the timer ran with VSync on, and how many vsyncs the UI thread was too busy to present on.
 
 ### Screen filters
 
@@ -652,8 +743,8 @@ the monitor's scale, so at 150% a 2x window is 3x in pixels, the size it had bef
 keep the plain window scale. The main window remembers its size, position and monitor
 (found again by name). A place is fitted to its monitor's usable area with its title bar and borders, and centered when its monitor is gone or its title bar would be off every monitor. F11 toggles
 fullscreen on the focused window: the main window goes borderless or exclusive
-(`desktop_fullscreen_mode`, exclusive at the monitor's own mode), the second one always borderless on
-its own monitor.
+(`desktop_fullscreen_mode`, exclusive at the monitor's own mode, or with Force 60 Hz at a multiple of 60 Hz, see
+[Frame pacing](#frame-pacing)), the second one always borderless on its own monitor.
 
 Detached (F9, `--detach`), the top and bottom screens each get a window, "melonadeDS: top" (the main
 window) and "melonadeDS: bottom". Each has its own size, place, monitor and fullscreen, remembered
@@ -667,7 +758,7 @@ the main one quits. The second window can have no title bar (`desktop_bottom_no_
 the black bars or with Alt held, resize it at its edges) and stay on top (`desktop_bottom_on_top`).
 
 Both windows draw the same frame with one GL context, made current on each in turn. Only the main
-window waits for vsync; the second swaps with interval 0, so detaching doesn't halve the frame rate.
+window waits for vsync (`frame_pacing_vsync`); the second swaps with interval 0, so detaching doesn't halve the frame rate.
 WGL sets the swap interval per window on NVIDIA, which the frontend checks when it detaches (it
 prints which); on a driver that keeps it per context it's set before each swap instead.
 `--hidden` runs never go fullscreen and save no window places unless `--save-window-places` asks.
@@ -686,17 +777,18 @@ A scripted check, e.g. comparing renderers on the same frame:
   the PC build interprets unless `--jit` / `--fastmem` ask for it. The app runs the ARM64 JIT,
   which this doesn't test.
 - The screens are drawn with the app's filters, deband, layouts and backgrounds ([Screen filters](#screen-filters), [Layouts and
-  backgrounds](#layouts-and-backgrounds)), but not yet with its frame pacing to the display's vsync or its on-screen controls (a PC has
-  none to touch). The layout editor edits the screens only, and differs from the app's in the ways [its section](#layout-editor) lists. A window picks or scales a layout's variant by its own rule, SVG backgrounds draw no
+  backgrounds](#layouts-and-backgrounds)) and paced to the display's vsync as the app's frames are ([Frame pacing](#frame-pacing),
+  the grid following the main window's monitor only), but not with its on-screen controls (a PC has none to touch). The layout editor edits the screens only, and differs from the app's in the ways [its section](#layout-editor) lists. A window picks or scales a layout's variant by its own rule, SVG backgrounds draw no
   `<text>`, and WebP or HEIF background images aren't read. The app draws a background with whatever blending the previous frame left on,
   so a translucent pixel of a background comes out darker on the phone; the desktop draws it opaque. The built-in backgrounds are opaque
   (or fully transparent), so they look the same. Lua scripts, rewind and
-  RetroAchievements are compiled in (shared code) but not set up yet. Pacing is the app's timer
-  limiter at the DS's 59.83 Hz instead of the app's 60.
+  RetroAchievements are compiled in (shared code) but not set up yet. Force 60 Hz picks the mode exclusive fullscreen takes (60 Hz, else
+  120, 180, ...), where the app asks for the phone's 60 Hz mode for its window; windowed and borderless it does nothing here.
 - DS mode only (no DSi NAND), no multiplayer, Wi-Fi, mic or camera.
 - The library reads banner titles in Windows' display language (English when the banner has none in it); the app reads English.
-- The game settings have no microphone, widescreen or mods yet; the app's long press is holding confirm or the mouse for half a second here. They're
-  kept by RetroAchievements hash, where the app keeps them with each ROM file.
+- The game settings have no microphone or mods yet, and widescreen has no wide layout pick; the app's long press is holding confirm or the
+  mouse for half a second here. They're kept by RetroAchievements hash, where the app keeps them with each ROM file. The WideMelon camera's
+  zoom has no default controller button (the app's is R3, which switches the right stick here), and the mouse stands in for drag and pinch.
 - A hidden run (`--hidden`) takes no input from real controllers, only `--ui-script`'s and its `--virtual-pad`'s, and never
   opens the file or folder dialog.
 - The sound goes through a deeper buffer than the app's, with larger targets (see [Sound](#sound)).

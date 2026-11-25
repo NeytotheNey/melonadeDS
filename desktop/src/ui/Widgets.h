@@ -29,8 +29,9 @@ void FocusRing(App& app, ImDrawList* draw, ImVec2 min, ImVec2 max, float roundin
 
 // A row of a menu list, the width of the region: icon, label, and a hint on the right ([hint] may be null). True when chosen
 bool MenuRow(App& app, const char* id, ImWchar icon, const char* label, const char* hint, bool isDefault = false, bool enabled = true);
-// A row with an on/off switch; true when chosen (the caller flips the value)
-bool ToggleRow(App& app, const char* id, ImWchar icon, const char* label, const char* detail, bool value, bool isDefault = false);
+// A row with an on/off switch; true when chosen (the caller flips the value). A disabled one is faded and can't be focused or chosen
+bool ToggleRow(App& app, const char* id, ImWchar icon, const char* label, const char* detail, bool value, bool isDefault = false,
+    bool enabled = true);
 // A row with a value: confirm or Right goes to the next value (1), Left to the previous one (-1); 0 when nothing happened
 // [detail], when given, is a second line under the label
 int ChoiceRow(App& app, const char* id, ImWchar icon, const char* label, const char* value, bool isDefault = false, const char* detail = nullptr);

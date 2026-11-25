@@ -1,5 +1,10 @@
 #include "RomConfig.h"
 
+#include <cerrno>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+
 namespace Frontend
 {
 
@@ -11,6 +16,60 @@ constexpr const char* kNameKey = "customName";
 constexpr const char* kGbaKey = "gbaSlotConfig.type";
 constexpr const char* kGbaRomKey = "gbaSlotConfig.gbaRomPath";
 constexpr const char* kLayoutKey = "layoutId";
+// RomConfigDto.mods (RomModsConfigDto)
+constexpr const char* kWideViewWidthKey = "mods.wideViewWidth";
+constexpr const char* kWideCameraKey = "mods.wideCamera";
+constexpr const char* kWideCameraMaxWidthKey = "mods.wideCameraMaxWidth";
+constexpr const char* kWideCameraReturnToCenterKey = "mods.wideCameraReturnToCenter";
+constexpr const char* kWideCameraZoomKey = "mods.wideCameraZoom";
+constexpr const char* kWideCameraZoomOnTextKey = "mods.wideCameraZoomOnText";
+// a stored width or zoom past these is no setting the app could have written, so it reads as none
+constexpr long MAX_STORED_WIDTH = 100000;
+constexpr float MAX_STORED_ZOOM = 100.f;
+
+// the whole of [text] as a whole number within +-MAX_STORED_WIDTH, or none
+std::optional<int> ParseWidth(const std::string& text)
+{
+    if (text.empty())
+        return std::nullopt;
+    errno = 0;
+    char* end = nullptr;
+    long value = strtol(text.c_str(), &end, 10);
+    if (errno != 0 || *end != '\0' || value < -MAX_STORED_WIDTH || value > MAX_STORED_WIDTH)
+        return std::nullopt;
+    return (int)value;
+}
+
+// the whole of [text] as a finite number within +-MAX_STORED_ZOOM, or none
+std::optional<float> ParseZoom(const std::string& text)
+{
+    if (text.empty())
+        return std::nullopt;
+    char* end = nullptr;
+    float value = strtof(text.c_str(), &end);
+    if (*end != '\0' || !std::isfinite(value) || std::fabs(value) > MAX_STORED_ZOOM)
+        return std::nullopt;
+    return value;
+}
+
+// --rom-config's on and off (true and false too, as stored)
+bool ParseSwitch(const std::string& text, bool& value)
+{
+    if (text == "on" || text == "true")
+        value = true;
+    else if (text == "off" || text == "false")
+        value = false;
+    else
+        return false;
+    return true;
+}
+
+std::string ZoomText(float zoom)
+{
+    char text[32];
+    snprintf(text, sizeof(text), "%g", zoom);
+    return text;
+}
 
 // the app's enum names, as its RomConfigDto stores them
 const char* ConsoleValue(RomConfig::Console c)
@@ -38,8 +97,14 @@ const char* GbaValue(RomConfig::GbaSlot s)
 
 const std::vector<std::string>& RomConfig::Keys()
 {
-    static const std::vector<std::string> keys = {kConsoleKey, kNameKey, kGbaKey, kGbaRomKey, kLayoutKey};
+    static const std::vector<std::string> keys = {kConsoleKey, kNameKey, kGbaKey, kGbaRomKey, kLayoutKey, kWideViewWidthKey, kWideCameraKey,
+        kWideCameraMaxWidthKey, kWideCameraReturnToCenterKey, kWideCameraZoomKey, kWideCameraZoomOnTextKey};
     return keys;
+}
+
+float RomConfig::ValidWideCameraZoom() const
+{
+    return WideCameraZoom && std::isfinite(*WideCameraZoom) && *WideCameraZoom >= 1.f ? *WideCameraZoom : 1.f;
 }
 
 std::map<std::string, std::string> RomConfig::ToFields() const
@@ -56,6 +121,18 @@ std::map<std::string, std::string> RomConfig::ToFields() const
         fields[kGbaRomKey] = GbaRomPath;
     if (!LayoutId.empty())
         fields[kLayoutKey] = LayoutId;
+    if (WideViewWidth)
+        fields[kWideViewWidthKey] = std::to_string(*WideViewWidth);
+    if (WideCamera)
+        fields[kWideCameraKey] = "true";
+    if (WideCameraMaxWidth)
+        fields[kWideCameraMaxWidthKey] = std::to_string(*WideCameraMaxWidth);
+    if (!WideCameraReturnToCenter)
+        fields[kWideCameraReturnToCenterKey] = "false";
+    if (WideCameraZoom)
+        fields[kWideCameraZoomKey] = ZoomText(*WideCameraZoom);
+    if (!WideCameraZoomOnText)
+        fields[kWideCameraZoomOnTextKey] = "false";
     return fields;
 }
 
@@ -78,6 +155,13 @@ RomConfig RomConfig::FromFields(const std::map<std::string, std::string>& fields
     }
     c.GbaRomPath = get(kGbaRomKey);
     c.LayoutId = get(kLayoutKey);
+    // what doesn't read as its type counts as missing, as Gson's null does in the app: the field's default
+    c.WideViewWidth = ParseWidth(get(kWideViewWidthKey));
+    c.WideCamera = get(kWideCameraKey) == "true";
+    c.WideCameraMaxWidth = ParseWidth(get(kWideCameraMaxWidthKey));
+    c.WideCameraReturnToCenter = get(kWideCameraReturnToCenterKey) != "false";
+    c.WideCameraZoom = ParseZoom(get(kWideCameraZoomKey));
+    c.WideCameraZoomOnText = get(kWideCameraZoomOnTextKey) != "false";
     return c;
 }
 
@@ -108,9 +192,42 @@ bool RomConfig::Apply(const std::string& key, const std::string& value, std::str
         CustomName = value;
     else if (key == "layout")
         LayoutId = value == "global" ? std::string() : value;
+    else if (key == "wideViewWidth" || key == "wideCameraMaxWidth")
+    {
+        bool isView = key == "wideViewWidth";
+        std::optional<int> width = ParseWidth(value);
+        if (value == (isView ? "off" : "default"))
+            width.reset();
+        else if (!width)
+        {
+            error = key + (isView ? " is a width or off" : " is a width or default");
+            return false;
+        }
+        (isView ? WideViewWidth : WideCameraMaxWidth) = width;
+    }
+    else if (key == "wideCameraZoom")
+    {
+        std::optional<float> zoom = ParseZoom(value);
+        if (value != "default" && !zoom)
+        {
+            error = "wideCameraZoom is a zoom (1 = native) or default";
+            return false;
+        }
+        WideCameraZoom = value == "default" ? std::nullopt : zoom;
+    }
+    else if (key == "wideCamera" || key == "wideCameraReturnToCenter" || key == "wideCameraZoomOnText")
+    {
+        bool& field = key == "wideCamera" ? WideCamera : key == "wideCameraReturnToCenter" ? WideCameraReturnToCenter : WideCameraZoomOnText;
+        if (!ParseSwitch(value, field))
+        {
+            error = key + " is on or off";
+            return false;
+        }
+    }
     else
     {
-        error = "the keys are console, gba-slot, gba-rom, name and layout";
+        error = "the keys are console, gba-slot, gba-rom, name, layout, wideViewWidth, wideCamera, wideCameraMaxWidth, "
+                "wideCameraReturnToCenter, wideCameraZoom and wideCameraZoomOnText";
         return false;
     }
     return true;
@@ -151,6 +268,18 @@ std::string RomConfig::Describe() const
         add("name \"" + CustomName + "\"");
     if (!LayoutId.empty())
         add("layout " + LayoutId);
+    if (WideViewWidth)
+        add("widescreen " + std::to_string(*WideViewWidth));
+    if (WideCamera)
+        add("wide camera");
+    if (WideCameraMaxWidth)
+        add("camera zooms out to " + std::to_string(*WideCameraMaxWidth));
+    if (!WideCameraReturnToCenter)
+        add("camera stays off center");
+    if (WideCameraZoom)
+        add("camera zoom " + ZoomText(*WideCameraZoom));
+    if (!WideCameraZoomOnText)
+        add("camera stays out on text");
     return text.empty() ? "defaults" : text;
 }
 

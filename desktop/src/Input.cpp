@@ -36,6 +36,7 @@ const ActionInfo kActions[kActionCount] = {
     {"SCREENSHOT", "Screenshot", false},
     {"FULLSCREEN", "Fullscreen", false},
     {"REWIND", "Rewind", false},
+    {"CAMERA_ZOOM", "Wide camera zoom", false},
 };
 
 // a stick counts as pushed one way past this (of 32767), a trigger as pulled past the other
@@ -856,6 +857,10 @@ void Input::OnEvent(const SDL_Event& event)
             state.RightX = value;
         else if (axis == SDL_CONTROLLER_AXIS_RIGHTY)
             state.RightY = value;
+        else if (axis == SDL_CONTROLLER_AXIS_LEFTX)
+            state.LeftX = value;
+        else if (axis == SDL_CONTROLLER_AXIS_LEFTY)
+            state.LeftY = value;
         int threshold = IsTrigger(axis) ? kTriggerThreshold : kStickThreshold;
         SetHeld(state, Axis((SDL_GameControllerAxis)axis, 1), value > threshold);
         SetHeld(state, Axis((SDL_GameControllerAxis)axis, -1), value < -threshold);
@@ -983,31 +988,12 @@ void Input::Tick()
     // combos held long enough
     Update();
 
-    // the touch cursor: the right stick of the pad pushed furthest, unless its profile binds the right stick to something
-    float bestX = 0, bestY = 0, best = 0;
-    for (auto& [id, state] : PadStates)
-    {
-        const DeviceProfile& profile = ProfileFor(id);
-        bool bound = false;
-        for (const ActionBinding& pair : profile.Map)
-        {
-            for (const Binding* b : {&pair.Primary, &pair.Alt})
-            {
-                for (const InputPart& p : b->Parts)
-                    bound |= p.Type == InputPart::Kind::Axis && (p.Code == SDL_CONTROLLER_AXIS_RIGHTX || p.Code == SDL_CONTROLLER_AXIS_RIGHTY);
-            }
-        }
-        if (bound)
-            continue;
-        float x = state.RightX / 32767.f, y = state.RightY / 32767.f;
-        float m = std::hypot(x, y);
-        if (m > best)
-        {
-            best = m;
-            bestX = x;
-            bestY = y;
-        }
-    }
+    // the touch cursor: the right stick of the pad pushed furthest, unless its profile binds the right stick to something (or the stick
+    // pans the WideMelon camera)
+    float bestX = 0, bestY = 0;
+    bool unusedLeft = false;
+    CameraSticks(bestX, bestY, unusedLeft, 1.f);
+    float best = RightStickMovesCursor ? std::hypot(bestX, bestY) : 0.f;
     if (best > kCursorDeadZone)
     {
         // slow near the middle for aiming, fast at the edge
@@ -1019,6 +1005,44 @@ void Input::Tick()
     }
     if (Active[(int)Action::TouchTap])
         CursorShownUntil = now + std::chrono::milliseconds(kCursorShowMs);
+}
+
+bool Input::BindsRightStick(const DeviceProfile& profile)
+{
+    for (const ActionBinding& pair : profile.Map)
+    {
+        for (const Binding* b : {&pair.Primary, &pair.Alt})
+        {
+            for (const InputPart& p : b->Parts)
+            {
+                if (p.Type == InputPart::Kind::Axis && (p.Code == SDL_CONTROLLER_AXIS_RIGHTX || p.Code == SDL_CONTROLLER_AXIS_RIGHTY))
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
+void Input::CameraSticks(float& rightX, float& rightY, bool& isLeftStickPushed, float leftThreshold)
+{
+    rightX = rightY = 0.f;
+    isLeftStickPushed = false;
+    float best = 0;
+    for (auto& [id, state] : PadStates)
+    {
+        float lx = state.LeftX / 32767.f, ly = state.LeftY / 32767.f;
+        isLeftStickPushed = isLeftStickPushed || std::max(std::fabs(lx), std::fabs(ly)) > leftThreshold;
+        if (BindsRightStick(ProfileFor(id)))
+            continue;
+        float x = state.RightX / 32767.f, y = state.RightY / 32767.f;
+        float m = std::hypot(x, y);
+        if (m > best)
+        {
+            best = m;
+            rightX = x;
+            rightY = y;
+        }
+    }
 }
 
 Input::Cursor Input::GetCursor() const

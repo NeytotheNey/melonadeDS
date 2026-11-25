@@ -55,6 +55,9 @@ public:
     bool SaveIfChanged() { return Unsaved ? Save() : true; }
     // a stored value written whatever the overrides say (the window places, which have overrides of their own)
     void SetStored(const std::string& key, const picojson::value& value);
+    // a key the desktop renamed: [from]'s stored value goes to [to] when [to] has none, and [from] is no longer written either way (the
+    // file's written at the next save)
+    void RenameStored(const std::string& from, const std::string& to);
     const picojson::value* FindStored(const std::string& key) const;
 
     // a value for this run only (the command line)

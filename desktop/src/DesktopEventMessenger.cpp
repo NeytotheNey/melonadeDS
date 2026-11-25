@@ -77,7 +77,12 @@ void DesktopEventMessenger::onLeaderboardAttemptCompleted(long leaderboardId, in
 
 void DesktopEventMessenger::onLuaScriptStopped(int scriptId, const std::string& error)
 {
-    Post([=] { Platform::Log(Platform::LogLevel::Info, "Lua script %d stopped: %s\n", scriptId, error.c_str()); });
+    Post([=, this]
+    {
+        Platform::Log(Platform::LogLevel::Info, "Lua script %d stopped: %s\n", scriptId, error.c_str());
+        if (OnLuaScriptStopped)
+            OnLuaScriptStopped(scriptId);
+    });
 }
 
 void DesktopEventMessenger::onLuaSwapScreens(int scriptId, bool swapped) { POST_LOG("Lua script %d: swap screens %d\n", scriptId, swapped); }
@@ -118,7 +123,21 @@ void DesktopEventMessenger::onLuaSun(int scriptId, float strength, const std::ar
 
 void DesktopEventMessenger::onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY)
 {
-    POST_LOG("Lua script %d: wide camera zoom %.2f\n", scriptId, zoom);
+    // as AndroidEmulatorManager reads EventLuaWideCamera: a zoom of 0 or less is none, and each pan only when the script gave it
+    WideCameraRequest request;
+    if (zoom > 0.f)
+        request.Zoom = zoom;
+    if (hasPan)
+        request.Pan = pan;
+    request.HoldNative = holdNative;
+    if (hasPanY)
+        request.PanY = panY;
+    Post([this, scriptId, request]
+    {
+        Platform::Log(Platform::LogLevel::Debug, "Lua script %d: wide camera zoom %.2f\n", scriptId, request.Zoom.value_or(0.f));
+        if (OnLuaWideCamera)
+            OnLuaWideCamera(scriptId, request);
+    });
 }
 
 void DesktopEventMessenger::onLuaStateLoaded() { POST_LOG("Lua script loaded a state\n"); }

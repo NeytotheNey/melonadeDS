@@ -510,7 +510,10 @@ const ScreenWindows::SurfacePlan& ScreenWindows::Plan(int surface, int w, int h)
     bool detached = IsDetached();
     // the main window shows the top screen unless they're swapped, the second one the other
     bool top = i == 0 ? MainShowsTop() : !MainShowsTop();
-    PlanKey key {detached, top, Swap, w, h, FitTop, FitBottom, Shape.TopWidth, Shape.TopMargin, Shape.TopGuard, Version};
+    // a camera window's show width shapes the desktop's own placements (Presenter::Place), not its moves
+    const WideWindow* window = UsableWideWindow(Shape.Window ? &*Shape.Window : nullptr, Shape.ShownTopWidth());
+    PlanKey key {detached, top, Swap, w, h, FitTop, FitBottom, Shape.TopWidth, Shape.TopMargin, Shape.TopGuard, Version,
+        window ? window->ShowWidth : 0};
     if (!(key == PlanKeys[i]))
     {
         Plans[i] = Preview && Preview->Surface == i ? MakePreviewPlan(detached, top) : MakePlan(detached, top, w, h);
@@ -661,6 +664,42 @@ void ScreenWindows::PlaceWindow(SDL_Window* window, const WindowPlace& place, bo
         SDL_SetWindowPosition(window, x, y);
 }
 
+namespace
+{
+
+// the mode exclusive fullscreen takes on [display]: the monitor's own, or with Force 60 Hz ([lock60], frame_pacing_lock_60hz) the one at its
+// resolution with the smallest refresh rate that's a multiple of 60 (60, then 120, 180, ...), so paced frames can lock to it, in the
+// monitor's own pixel format when there's one in it; a monitor without such a mode keeps its own
+bool ExclusiveMode(int display, bool lock60, SDL_DisplayMode& mode)
+{
+    if (display < 0 || SDL_GetDesktopDisplayMode(display, &mode) != 0)
+        return false;
+    if (!lock60)
+        return true;
+    SDL_DisplayMode best {};
+    bool found = false;
+    int count = SDL_GetNumDisplayModes(display);
+    for (int i = 0; i < count; i++)
+    {
+        SDL_DisplayMode candidate;
+        if (SDL_GetDisplayMode(display, i, &candidate) != 0 || candidate.w != mode.w || candidate.h != mode.h || candidate.refresh_rate <= 0
+            || candidate.refresh_rate % 60 != 0)
+            continue;
+        bool better = !found || candidate.refresh_rate < best.refresh_rate
+            || (candidate.refresh_rate == best.refresh_rate && candidate.format == mode.format && best.format != mode.format);
+        if (better)
+        {
+            best = candidate;
+            found = true;
+        }
+    }
+    if (found)
+        mode = best;
+    return true;
+}
+
+}
+
 void ScreenWindows::SetFullscreen(SDL_Window* window, Fullscreen mode)
 {
     // a hidden run keeps track of it, but a hidden window never takes a monitor (an exclusive mode would change the display's)
@@ -672,11 +711,15 @@ void ScreenWindows::SetFullscreen(SDL_Window* window, Fullscreen mode)
     int result = 0;
     if (mode == Fullscreen::Exclusive)
     {
-        // the monitor's own mode: without one SDL picks the mode closest to the window's size
+        // the monitor's own mode (or Force 60 Hz's): without one SDL picks the mode closest to the window's size
         SDL_DisplayMode displayMode;
-        int display = SDL_GetWindowDisplayIndex(window);
-        if (display >= 0 && SDL_GetDesktopDisplayMode(display, &displayMode) == 0)
+        bool lock60 = Store->GetBool("frame_pacing_lock_60hz", false);
+        if (ExclusiveMode(SDL_GetWindowDisplayIndex(window), lock60, displayMode))
+        {
             SDL_SetWindowDisplayMode(window, &displayMode);
+            printf("fullscreen: exclusive at %dx%d, %d Hz%s\n", displayMode.w, displayMode.h, displayMode.refresh_rate,
+                lock60 ? " (Force 60 Hz)" : "");
+        }
         result = SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
     }
     else if (mode == Fullscreen::Borderless)
@@ -716,6 +759,17 @@ void ScreenWindows::ToggleFullscreen(Uint32 windowId)
     MainTogetherPlace.Keep = true;
     SetFullscreen(MainWindow, next);
     printf("fullscreen main window: %s\n", FullscreenName(next));
+}
+
+void ScreenWindows::ApplyExclusiveMode()
+{
+    if (Opts.Hidden || MainFull != Fullscreen::Exclusive)
+        return;
+    SDL_DisplayMode displayMode;
+    bool lock60 = Store->GetBool("frame_pacing_lock_60hz", false);
+    // while the window is in it, SDL changes the monitor's mode at once
+    if (ExclusiveMode(SDL_GetWindowDisplayIndex(MainWindow), lock60, displayMode) && SDL_SetWindowDisplayMode(MainWindow, &displayMode) == 0)
+        printf("fullscreen: exclusive at %dx%d, %d Hz%s\n", displayMode.w, displayMode.h, displayMode.refresh_rate, lock60 ? " (Force 60 Hz)" : "");
 }
 
 bool ScreenWindows::OpenSecond()
@@ -936,7 +990,22 @@ Rect ScreenWindows::BottomRect() const
     int w, h;
     SDL_GL_GetDrawableSize(BottomWindow(), &w, &h);
     const SurfacePlan& plan = Plan(BottomWindow() == MainWindow ? 0 : 1, w, h);
-    return RectsFor(plan.Screens, Shape.TopWidth, Shape.TopMargin, Shape.TopGuard, (float)w).Bottom;
+    return RectsFor(plan.Screens, Shape.TopWidth, Shape.TopMargin, Shape.TopGuard, (float)w, Shape.Window ? &*Shape.Window : nullptr).Bottom;
+}
+
+Rect ScreenWindows::TopRect() const
+{
+    int w, h;
+    SDL_GL_GetDrawableSize(TopWindow(), &w, &h);
+    const SurfacePlan& plan = Plan(TopWindow() == MainWindow ? 0 : 1, w, h);
+    return RectsFor(plan.Screens, Shape.TopWidth, Shape.TopMargin, Shape.TopGuard, (float)w, Shape.Window ? &*Shape.Window : nullptr).Top;
+}
+
+bool ScreenWindows::IsBottomScreenWide() const
+{
+    // the app's layouts put the DS top screen in the bottom rect when swapped; the desktop's own placements and a detached window keep it
+    // the wide one
+    return Swap && !IsDetached() && !Preview && ArrangementOf(Choice.BuiltIn) == Layout::Count;
 }
 
 void ScreenWindows::SetDetached(bool detached)

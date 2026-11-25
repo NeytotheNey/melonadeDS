@@ -219,11 +219,11 @@ private:
         Track(key);
     }
 
-    void Toggle(App& app, const char* key, ImWchar icon, const char* label, const char* detail, bool fallback)
+    void Toggle(App& app, const char* key, ImWchar icon, const char* label, const char* detail, bool fallback, bool enabled = true)
     {
         bool value = Store(app).GetBool(key, fallback);
         std::string id = std::string("##") + key;
-        if (ToggleRow(app, id.c_str(), icon, label, detail, value, TakeFirst()))
+        if (ToggleRow(app, id.c_str(), icon, label, detail, value, TakeFirst(), enabled))
             Change(app, key, picojson::value(!value));
         Track(key);
     }
@@ -300,6 +300,15 @@ private:
         Toggle(app, "video_deband", Icon::Tune, "Smooth gradients", "Smooths banding in gradients and backgrounds", false);
         Toggle(app, "video_ds_screen_colors", Icon::Palette, "DS screen colors", "The colors of the DS's own screen", false);
         Toggle(app, "video_screen_shadow", Icon::Monitor, "Screen shadow", "Draws a soft outer shadow around the screens", false);
+        // the app's Frame pacing section, in its order and with its words; Triple buffering needs VSync, and Frame interpolation the GPU
+        // renderers, as the app greys them out
+        SectionLabel(app, "Frame pacing");
+        bool vsync = s.GetBool("frame_pacing_vsync", true);
+        Toggle(app, "frame_pacing_vsync", Icon::Sync, "VSync", "Times frames to the screen for smoother motion", true);
+        Toggle(app, "frame_pacing_lock_60hz", Icon::Speed, "Force 60 Hz", "Exclusive fullscreen runs the monitor at a multiple of 60 Hz", false);
+        Toggle(app, "frame_pacing_buffer", Icon::Layers, "Triple buffering", "Smoother in heavy scenes, increases lag", true, vsync);
+        Toggle(app, "frame_pacing_smooth_30fps", Icon::AutoAwesome, "Frame interpolation (Experimental)",
+            soft ? "OpenGL and Compute only" : "Fills in frames in many 30 FPS games, with one frame of delay", false, !soft);
         SectionLabel(app, "Performance");
         Toggle(app, "enable_jit", Icon::Bolt, "Enable JIT", "Slower than the interpreter on PC. Applies when a game starts", false);
         Note(app, "Everything here but the JIT applies to a running game at once.");
@@ -336,7 +345,6 @@ private:
         Toggle(app, "desktop_bottom_on_top", Icon::PushPin, "Bottom window always on top", nullptr, false);
         SectionLabel(app, "Window");
         Choice(app, "desktop_fullscreen_mode", Icon::Fullscreen, "Fullscreen", kFullscreen, "borderless", "What F11 does to the main window");
-        Toggle(app, "desktop_vsync", Icon::Sync, "VSync", "The main window waits for the monitor", false);
         SectionLabel(app, "Look");
         int theme = std::max(IndexOf(kThemes, s.GetString("desktop_theme", "system")), 0);
         Choice(app, "desktop_theme", theme == 1 ? Icon::LightMode : theme == 2 ? Icon::DarkMode : Icon::BrightnessAuto, "Theme", kThemes, "system");

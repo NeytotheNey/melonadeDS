@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "camera/WideCamera.h"
+
 namespace Frontend
 {
 
@@ -66,21 +68,99 @@ void ScaleComponents(ScreenLayout& layout, float scale, float dx, float dy)
     }
 }
 
+// Kotlin's coerceIn (a NaN goes through), without its throw for an empty range
+float CoerceIn(float value, float minimum, float maximum)
+{
+    if (value < minimum)
+        return minimum;
+    if (value > maximum)
+        return maximum;
+    return value;
+}
+
+}
+
+const WideWindow* UsableWideWindow(const WideWindow* window, int shownFrameWidth)
+{
+    return window && window->FrameWidth == shownFrameWidth && window->ShowWidth > DS_SCREEN_WIDTH && window->ShowWidth < shownFrameWidth
+        ? window : nullptr;
+}
+
+ScreenDrawing GetWindowedScreenDrawing(const IntRect& rect, const WideWindow& window)
+{
+    float frameWidth = (float)window.FrameWidth;
+    float windowWidth = CoerceIn(window.Width, 1.f, frameWidth);
+    float windowX = CoerceIn(window.X, 0.f, frameWidth - windowWidth);
+    float frameHeight = (float)std::max(window.FrameHeight, DS_SCREEN_HEIGHT);
+    float windowHeight = CoerceIn(window.Height, 1.f, frameHeight);
+    float windowY = CoerceIn(window.Y, 0.f, frameHeight - windowHeight);
+    // at the DS's pixel shape the rect's height shows 192 * zoom rows, so fewer rows than that leave bars above and below
+    float pictureHeight = rect.H * std::min(1.f, (windowHeight / DS_SCREEN_HEIGHT) * (window.ShowWidth / windowWidth));
+    IntRect drawRect = BuildCenteredRect(rect.X + rect.W / 2.f, rect.Y + (rect.H - pictureHeight) / 2.f, (float)rect.W, pictureHeight);
+
+    float pixelsPerColumn = drawRect.W / windowWidth;
+    float nativeLeft = drawRect.X + ((frameWidth - DS_SCREEN_WIDTH) / 2.f - windowX) * pixelsPerColumn;
+    float nativeRight = nativeLeft + DS_SCREEN_WIDTH * pixelsPerColumn;
+    // the native rows as fractions of the window's, so a window of just those (no margin, or 1x) lands on the picture's edges exactly
+    float margin = (frameHeight - DS_SCREEN_HEIGHT) / 2.f;
+    float nativeTop = drawRect.Y + drawRect.H * ((margin - windowY) / windowHeight);
+    float nativeBottom = drawRect.Y + drawRect.H * ((margin + DS_SCREEN_HEIGHT - windowY) / windowHeight);
+
+    ScreenDrawing d;
+    d.DrawRect = drawRect;
+    d.NativeRect = BuildCenteredRect((nativeLeft + nativeRight) / 2.f, nativeTop, nativeRight - nativeLeft, nativeBottom - nativeTop);
+    d.LeftU = windowX / frameWidth;
+    d.RightU = (windowX + windowWidth) / frameWidth;
+    OverlayDrawing& o = d.Overlay;
+    o.Left = CoerceIn(nativeLeft, (float)drawRect.X, (float)drawRect.Right());
+    o.Right = CoerceIn(nativeRight, o.Left, (float)drawRect.Right());
+    o.Top = CoerceIn(nativeTop, (float)drawRect.Y, (float)drawRect.Bottom());
+    o.Bottom = CoerceIn(nativeBottom, o.Top, (float)drawRect.Bottom());
+    o.LeftU = (o.Left - nativeLeft) / (nativeRight - nativeLeft);
+    o.RightU = (o.Right - nativeLeft) / (nativeRight - nativeLeft);
+    o.TopV = (o.Top - nativeTop) / (nativeBottom - nativeTop);
+    o.BottomV = (o.Bottom - nativeTop) / (nativeBottom - nativeTop);
+    d.NativeRectAt1x = GetNativeScreenRect(rect, window.ShowWidth);
+    d.TopRow = windowY;
+    d.BottomRow = windowY + windowHeight;
+    return d;
+}
+
+namespace
+{
+
 // getScreensDrawing for a frame without a guard band: the shown one
 ScreensDrawing GetShownScreensDrawing(const IntRect* topScreenRect, const IntRect* bottomScreenRect, int frameWidth, bool isWideLayout,
-    bool areScreensSwapped, float surfaceWidth, int frameMargin)
+    bool areScreensSwapped, float surfaceWidth, const WideWindow* wideWindow, int frameMargin)
 {
     const IntRect* wideScreenRect = areScreensSwapped ? bottomScreenRect : topScreenRect;
     const IntRect* narrowScreenRect = areScreensSwapped ? topScreenRect : bottomScreenRect;
+    // a window for another frame width (one presented before a width change) is left out
+    const WideWindow* window = UsableWideWindow(wideWindow, frameWidth);
     // the DS top screen's native rows, which a screen shows without the camera's window
     float topScreenRows = (float)std::max(frameMargin, 0);
 
     std::optional<ScreenDrawing> wideScreen, narrowScreen;
-    if (wideScreenRect)
+    if (wideScreenRect && window)
+    {
+        IntRect rect = GetWideScreenDrawRect(*wideScreenRect, narrowScreenRect, window->ShowWidth, isWideLayout, surfaceWidth);
+        // the bottom screen has no margin, so swapped (the camera keeps 1x then) it shows all its rows
+        WideWindow rowWindow = *window;
+        if (areScreensSwapped && window->FrameHeight != DS_SCREEN_HEIGHT)
+        {
+            rowWindow.FrameHeight = DS_SCREEN_HEIGHT;
+            rowWindow.Y = 0.f;
+            rowWindow.Height = (float)DS_SCREEN_HEIGHT;
+        }
+        wideScreen = GetWindowedScreenDrawing(rect, rowWindow);
+    }
+    else if (wideScreenRect)
     {
         ScreenDrawing d;
         d.DrawRect = GetWideScreenDrawRect(*wideScreenRect, narrowScreenRect, frameWidth, isWideLayout, surfaceWidth);
         d.NativeRect = GetNativeScreenRect(d.DrawRect, frameWidth);
+        d.Overlay = OverlayDrawing::Of(d.NativeRect);
+        d.NativeRectAt1x = d.NativeRect;
         d.TopRow = areScreensSwapped ? 0.f : topScreenRows;
         d.BottomRow = d.TopRow + DS_SCREEN_HEIGHT;
         wideScreen = d;
@@ -90,6 +170,8 @@ ScreensDrawing GetShownScreensDrawing(const IntRect* topScreenRect, const IntRec
         ScreenDrawing d;
         d.DrawRect = isWideLayout && areScreensSwapped ? GetLetterboxedRect(*narrowScreenRect, CONSOLE_ASPECT_RATIO) : *narrowScreenRect;
         d.NativeRect = d.DrawRect;
+        d.Overlay = OverlayDrawing::Of(d.NativeRect);
+        d.NativeRectAt1x = d.NativeRect;
         int width = std::max(frameWidth, DS_SCREEN_WIDTH);
         d.LeftU = (width - DS_SCREEN_WIDTH) / (2.f * width);
         d.RightU = 1.f - d.LeftU;
@@ -167,13 +249,13 @@ MelonDSAndroid::FrameGuard CoercedFrameGuard(const MelonDSAndroid::FrameGuard& g
 }
 
 ScreensDrawing GetScreensDrawing(const IntRect* topScreenRect, const IntRect* bottomScreenRect, int frameWidth, bool isWideLayout,
-    bool areScreensSwapped, float surfaceWidth, int frameMargin, const MelonDSAndroid::FrameGuard& frameGuard)
+    bool areScreensSwapped, float surfaceWidth, int frameMargin, const MelonDSAndroid::FrameGuard& frameGuard, const WideWindow* wideWindow)
 {
     // MelonInstance keeps the guard within the frame already; kept there here too, so a bad one can't turn the shown frame inside out
     MelonDSAndroid::FrameGuard guard = CoercedFrameGuard(frameGuard, frameWidth, frameMargin);
     int shownWidth = frameWidth - guard.left - guard.right;
     ScreensDrawing shown = GetShownScreensDrawing(topScreenRect, bottomScreenRect, shownWidth, isWideLayout, areScreensSwapped, surfaceWidth,
-        frameMargin - (guard.top + guard.bottom) / 2);
+        wideWindow, frameMargin - (guard.top + guard.bottom) / 2);
     if (guard == MelonDSAndroid::FrameGuard {})
         return shown;
 

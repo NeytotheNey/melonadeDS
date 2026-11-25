@@ -2,10 +2,13 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 
+#include "Configuration.h"
 #include "MelonInstance.h"
+#include "MonotonicClock.h"
 
 using namespace melonDS;
 
@@ -15,13 +18,10 @@ namespace Frontend
 namespace
 {
 
-// the DS's refresh rate: 33513982 Hz / (6 * 355 * 263), where the app's timer limiter uses EMULATOR_TARGET_FPS (60)
-constexpr double kDsFps = 33513982.0 / (6.0 * 355 * 263);
-
+// the app's getCurrentMillis(), on the clock the vsyncs and the pacer's times are on
 double NowMs()
 {
-    using namespace std::chrono;
-    return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
+    return monotonicNanos() / 1000000.0;
 }
 
 // A high-resolution waitable timer (Windows 10 1803 and up) up to the last half millisecond, then a spin. Plain sleeps follow the system
@@ -66,6 +66,30 @@ void SleepUntilMs(double untilMs)
 EmulatorThread::~EmulatorThread()
 {
     Stop();
+    if (FramePushed)
+        CloseHandle((HANDLE)FramePushed);
+    if (FrameWaitTimer)
+        CloseHandle((HANDLE)FrameWaitTimer);
+}
+
+bool EmulatorThread::WaitForFrame(int64_t untilNs)
+{
+    int64_t leftNs = untilNs - monotonicNanos();
+    if (leftNs <= 0 || !FramePushed)
+        return false;
+    if (!FrameWaitTimer)
+        FrameWaitTimer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    // the event with a millisecond timeout when the timer can't be had (older Windows), a millisecond past the deadline at most
+    DWORD timeoutMs = (DWORD)(leftNs / 1000000 + 1);
+    HANDLE handles[2] = {(HANDLE)FramePushed, (HANDLE)FrameWaitTimer};
+    LARGE_INTEGER due;
+    // relative, in 100 ns units
+    due.QuadPart = -std::max<LONGLONG>(leftNs / 100, 1);
+    bool timed = FrameWaitTimer && SetWaitableTimerEx((HANDLE)FrameWaitTimer, &due, 0, nullptr, nullptr, nullptr, 0);
+    DWORD result = WaitForMultipleObjects(timed ? 2 : 1, handles, FALSE, timed ? timeoutMs + 1 : timeoutMs);
+    if (timed && result != WAIT_OBJECT_0 + 1)
+        CancelWaitableTimer((HANDLE)FrameWaitTimer);
+    return result == WAIT_OBJECT_0;
 }
 
 void EmulatorThread::Start(SDL_Window* window, SDL_GLContext context, std::unique_ptr<Instance> instance, Callbacks callbacks)
@@ -73,6 +97,9 @@ void EmulatorThread::Start(SDL_Window* window, SDL_GLContext context, std::uniqu
     // a thread that ran before is done (Stop() joined it): its state goes back to a fresh one
     if (Handle.joinable())
         Handle.join();
+    // auto-reset, set after each frame (WaitForFrame)
+    if (!FramePushed)
+        FramePushed = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     {
         std::lock_guard guard(Lock);
         Commands.clear();
@@ -157,11 +184,97 @@ void EmulatorThread::RunCommands()
         command(*Emu);
 }
 
+EmulatorThread::PacingStats EmulatorThread::GetPacingStats() const
+{
+    PacingStats stats;
+    stats.Frames = StatFrames.load();
+    stats.Paced = StatPaced.load();
+    stats.Locked = StatLocked.load();
+    stats.TimerWithPacing = StatTimerWithPacing.load();
+    stats.LastDivisor = StatDivisor.load();
+    return stats;
+}
+
+void EmulatorThread::ResetPacing(PacingState& pacing, int64_t dueNs)
+{
+    pacing.NextDueNs = dueNs;
+    pacing.NextLocked = false;
+    pacing.NextDivisor = 0;
+    UpcomingDueNs.store(dueNs, std::memory_order_relaxed);
+}
+
+bool EmulatorThread::SchedulePacedFrame(PacingState& pacing, int64_t workNs)
+{
+    const DisplayVsyncTracker* tracker = Tracker.load(std::memory_order_acquire);
+    if (!tracker)
+        return false;
+    int64_t lastVsyncNs = tracker->getLastVsyncNs();
+    int64_t refreshPeriodNs = tracker->getRefreshPeriodNs();
+    int64_t currentNs = monotonicNanos();
+    int divisor = VsyncFramePacer::getRefreshDivisor(currentNs, lastVsyncNs, refreshPeriodNs);
+    if (divisor <= 0)
+        return false;
+
+    // Without the buffer a locked frame is due on the first vsync after one frame period, and the buffer adds one more
+    VsyncFramePacer::FrameSchedule schedule = pacing.Pacer.scheduleNextFrame(currentNs, lastVsyncNs, refreshPeriodNs, divisor, workNs,
+        PacingBuffer.load(std::memory_order_relaxed));
+    pacing.NextDueNs = schedule.dueNs;
+    pacing.NextLocked = schedule.isLocked;
+    pacing.NextDivisor = divisor;
+    // Published before sleeping so that the UI thread knows whether this frame can still be due on the vsync it's presenting
+    UpcomingDueNs.store(schedule.dueNs, std::memory_order_relaxed);
+    if (schedule.startNs > currentNs)
+        SleepUntilMs(schedule.startNs / 1000000.0);
+    return true;
+}
+
+void EmulatorThread::PaceNextFrame(PacingState& pacing, u32 lines, int64_t workNs, double& frameLimitError, double& lastTick)
+{
+    // Lock the next frame's start to the display's vsync grid if possible, otherwise fall back to the timer
+    bool isFpsLimited = LimitFps.load(std::memory_order_relaxed);
+    bool isFastForward = FastForward.load(std::memory_order_relaxed);
+    bool isNormalSpeed = isFpsLimited && !isFastForward;
+    bool wantsPacing = isNormalSpeed && PacingVsync.load(std::memory_order_relaxed);
+    bool isPaced = wantsPacing && SchedulePacedFrame(pacing, workNs);
+    if (isNormalSpeed)
+    {
+        StatFrames.fetch_add(1, std::memory_order_relaxed);
+        if (isPaced)
+        {
+            StatPaced.fetch_add(1, std::memory_order_relaxed);
+            if (pacing.NextLocked)
+                StatLocked.fetch_add(1, std::memory_order_relaxed);
+            StatDivisor.store(pacing.NextDivisor, std::memory_order_relaxed);
+        }
+        else if (wantsPacing)
+            StatTimerWithPacing.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (isPaced)
+    {
+        // Start the timer limiter from scratch if pacing stops
+        frameLimitError = 0;
+        lastTick = NowMs();
+        return;
+    }
+
+    // The first frame after pacing stops is kept behind a buffered frame that may still be queued, and later ones are presented right away
+    ResetPacing(pacing, pacing.Pacer.unlockFromRunning());
+    // fast forward at its speed, or as fast as it can (the app's applyFastForwardPacing)
+    float ffSpeed = FastForwardSpeed.load();
+    if (isFpsLimited && (!isFastForward || ffSpeed > 0))
+        LimitFrame(lines, isFastForward ? ffSpeed : 1.0, frameLimitError, lastTick);
+    else
+    {
+        frameLimitError = 0;
+        lastTick = NowMs();
+    }
+}
+
 void EmulatorThread::LimitFrame(u32 lines, double speed, double& frameLimitError, double& lastTick)
 {
     double currentTick = NowMs();
     double delay = currentTick - lastTick;
-    double frameTimeStep = (double)lines / (kDsFps * 263.0) * 1000.0 / speed;
+    double frameTimeStep = (double)lines / (EMULATOR_TARGET_FPS * 263.0) * 1000.0 / speed;
     if (frameTimeStep < 1)
         frameTimeStep = 1;
 
@@ -192,6 +305,8 @@ void EmulatorThread::Run(SDL_Window* window, SDL_GLContext context)
     double lastMeasureFpsTick = lastTick;
     double frameLimitError = 0;
     int observedFrames = 0;
+    PacingState pacing;
+    ResetPacing(pacing, 0);
 
     while (running)
     {
@@ -220,6 +335,9 @@ void EmulatorThread::Run(SDL_Window* window, SDL_GLContext context)
                 {
                     frameLimitError = 0;
                     lastTick = NowMs();
+                    // The first frame after a pause starts right away, off the vsync grid, and pacing re-syncs after it
+                    pacing.Pacer.unlock();
+                    ResetPacing(pacing, 0);
                 }
             }
         }
@@ -239,23 +357,19 @@ void EmulatorThread::Run(SDL_Window* window, SDL_GLContext context)
             break;
 
         auto frameStart = std::chrono::steady_clock::now();
-        u32 lines = Emu->runFrame(0);
+        u32 lines = Emu->runFrame(pacing.NextDueNs);
+        // the frame's in the queue: a present waiting for it goes on
+        if (FramePushed)
+            SetEvent((HANDLE)FramePushed);
         if (GpuSync)
             glFinish();
-        double workMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count();
+        auto workTime = std::chrono::steady_clock::now() - frameStart;
+        double workMs = std::chrono::duration<double, std::milli>(workTime).count();
         if (Hooks.AfterFrame)
             Hooks.AfterFrame(*Emu, frame, lines, workMs);
         frame++;
 
-        // fast forward at its speed, or as fast as it can (the app's applyFastForwardPacing)
-        float ffSpeed = FastForwardSpeed.load();
-        if (LimitFps && (!FastForward || ffSpeed > 0))
-            LimitFrame(lines, FastForward ? ffSpeed : 1.0, frameLimitError, lastTick);
-        else
-        {
-            frameLimitError = 0;
-            lastTick = NowMs();
-        }
+        PaceNextFrame(pacing, lines, std::chrono::duration_cast<std::chrono::nanoseconds>(workTime).count(), frameLimitError, lastTick);
 
         if (++observedFrames >= 30)
         {
@@ -266,6 +380,7 @@ void EmulatorThread::Run(SDL_Window* window, SDL_GLContext context)
     }
 
     // The instance and its last frame stay for the UI thread (the final screenshots) until Stop(); commands posted meanwhile still run
+    UpcomingDueNs.store(0, std::memory_order_relaxed);
     Finished = true;
     for (;;)
     {

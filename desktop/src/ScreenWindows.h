@@ -104,7 +104,7 @@ public:
     // the fit of the screen the window [windowId] shows (0: the main window); detached only
     void CycleFit(Uint32 windowId);
     // fullscreen on and off for the window [windowId] (0: the main window): the main one goes to desktop_fullscreen_mode (borderless or
-    // exclusive), the second one is always borderless on its own monitor
+    // exclusive, at a multiple of 60 Hz with frame_pacing_lock_60hz), the second one is always borderless on its own monitor
     void ToggleFullscreen(Uint32 windowId);
 
     // a window event: CLOSE of the main window sets [quit], of the second one goes back to together; moves and resizes are remembered
@@ -126,14 +126,22 @@ public:
     // current size, layout, fit and swap, and the shape of the last frame drawn)
     SDL_Window* BottomWindow() const { return (IsDetached() && !Swap) ? SecondWindow : MainWindow; }
     Rect BottomRect() const;
+    // the same for the DS top screen: the window that shows it, and its picture in that window's drawable pixels (a camera window's
+    // picture inside its rect)
+    SDL_Window* TopWindow() const { return (IsDetached() && Swap) ? SecondWindow : MainWindow; }
+    Rect TopRect() const;
+    // whether the DS bottom screen is in the wide rect (the app's layouts swapped, together), which keeps the WideMelon camera at 1x
+    bool IsBottomScreenWide() const;
     // the frame shape (top screen width and margin) BottomRect assumes before the first frame is drawn
     void SetFrameShape(const FrameView& frame) { Shape = frame; }
 
     // the titles: [stats] after the main window's name
     void UpdateTitles(const std::string& stats);
 
-    // the main window waits for vsync (desktop_vsync), changed while running
+    // the main window waits for vsync (frame_pacing_vsync), changed while running
     void SetVSync(bool vsync);
+    // the main window's exclusive fullscreen mode again, while it's in one (frame_pacing_lock_60hz changed)
+    void ApplyExclusiveMode();
     // drawn into the main window after the game, in each present and window shot (the menus); none while it's empty
     std::function<void()> MainOverlay;
     // drawn over the bottom screen in whichever window shows it, before the menus (the touch cursor): its rect, and the drawable's size
@@ -155,6 +163,7 @@ private:
         int TopWidth = 0, TopMargin = 0;
         MelonDSAndroid::FrameGuard TopGuard {};
         int Version = -1;
+        int WindowShowWidth = 0;
 
         bool operator==(const PlanKey&) const = default;
     };

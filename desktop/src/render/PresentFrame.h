@@ -7,6 +7,7 @@
 #include <optional>
 
 #include "PlatformOGL.h"
+#include "camera/WideCamera.h"
 #include "renderer/SunGuard.h"
 #include "types.h"
 
@@ -44,6 +45,11 @@ struct FrameView
     // the depth of field's focus on the focus textures (Frame::depthFocus): a depth from 0 to 1 as DepthTexture holds it, or negative for
     // none. DepthProjection's depth terms go with it, valid camera or not
     float DepthFocus = -1.f;
+    // the DS top screen's lines with 3D wings (Frame::topWingLines), for the WideMelon camera
+    int TopWingLines = 0;
+    // the WideMelon camera's window for this present (WideCameraController::OnFrame, set once per presented frame so every window shows
+    // the same one), of the shown frame inside the guard band; none without the camera
+    std::optional<WideWindow> Window;
 
     bool IsValid() const { return Texture != 0; }
     // the top screen's half of the frame in DS pixels (192 plus the margin on both sides), and the whole frame's

@@ -127,6 +127,7 @@ FrameView FrameView::Of(const Frame& frame)
     view.DepthViewport = frame.depthViewport;
     view.DepthCameraValid = frame.depthCameraValid;
     view.DepthFocus = frame.hasDepth ? frame.depthFocus : -1.f;
+    view.TopWingLines = frame.topWingLines;
     return view;
 }
 
@@ -137,8 +138,14 @@ ScreenRects Presenter::Place(const FrameView& frame, int windowW, int windowH, L
     else if (swap && layout == Layout::BottomOnly)
         layout = Layout::TopOnly;
     int margin = frame.ShownTopMargin();
-    // the frame in DS pixels as shown: the top screen is its shown width wide (and 192 + 2 x margin tall), the bottom one 256
+    // the frame in DS pixels as shown: the top screen is its shown width wide (and 192 + 2 x margin tall), the bottom one 256; with the
+    // WideMelon camera's window, the window's show width and 192 rows, whatever the frame's render width and margin are
     float topW = (float)frame.ShownTopWidth(), botW = 256.f, h = 192.f, topH = 192.f + 2.f * margin;
+    if (const WideWindow* window = UsableWideWindow(frame.Window ? &*frame.Window : nullptr, frame.ShownTopWidth()))
+    {
+        topW = (float)window->ShowWidth;
+        topH = h;
+    }
     float boxW, boxH;
     switch (layout)
     {
@@ -235,7 +242,7 @@ ScreenRects Presenter::Draw(const FrameView& frame, int windowW, int windowH, co
     if (frame.IsValid() || screens.ShowBackgroundWithoutFrame)
         renderer.UpdateScreenAreas(screens, windowW, windowH);
     if (frame.IsValid())
-        rects = RectsFor(screens, frame.TopWidth, frame.TopMargin, frame.TopGuard, (float)windowW);
+        rects = RectsFor(screens, frame.TopWidth, frame.TopMargin, frame.TopGuard, (float)windowW, frame.Window ? &*frame.Window : nullptr);
     renderer.DrawFrame(frame, CurrentTiltShift, CurrentBloom, CurrentDepthOfField, CurrentShade, CurrentSun, waitForBackground);
     return rects;
 }

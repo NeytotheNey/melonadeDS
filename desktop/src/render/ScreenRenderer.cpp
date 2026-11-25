@@ -114,19 +114,34 @@ void GetBackgroundCoords(BackgroundMode mode, int backgroundWidth, int backgroun
 }
 
 ScreensDrawing DrawingFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, const MelonDSAndroid::FrameGuard& frameGuard,
-    float surfaceWidth)
+    float surfaceWidth, const WideWindow* wideWindow)
 {
     const IntRect* top = screens.Top ? &screens.Top->Rect : nullptr;
     const IntRect* bottom = screens.Bottom ? &screens.Bottom->Rect : nullptr;
-    return GetScreensDrawing(top, bottom, frameTopWidth, screens.IsWideLayout, screens.AreScreensSwapped, surfaceWidth, frameMargin, frameGuard);
+    return GetScreensDrawing(top, bottom, frameTopWidth, screens.IsWideLayout, screens.AreScreensSwapped, surfaceWidth, frameMargin, frameGuard,
+        wideWindow);
+}
+
+IntRect RoundedRect(const Rect& rect)
+{
+    int left = RoundToInt(rect.X), top = RoundToInt(rect.Y);
+    return {left, top, RoundToInt(rect.X + rect.W) - left, RoundToInt(rect.Y + rect.H) - top};
 }
 
 ScreenRects RectsFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, const MelonDSAndroid::FrameGuard& frameGuard,
-    float surfaceWidth)
+    float surfaceWidth, const WideWindow* wideWindow)
 {
     if (screens.AsPlaced)
-        return {screens.Top ? screens.PlacedTop : Rect(), screens.Bottom ? screens.PlacedBottom : Rect()};
-    ScreensDrawing drawing = DrawingFor(screens, frameTopWidth, frameMargin, frameGuard, surfaceWidth);
+    {
+        ScreenRects placed {screens.Top ? screens.PlacedTop : Rect(), screens.Bottom ? screens.PlacedBottom : Rect()};
+        MelonDSAndroid::FrameGuard guard = CoercedFrameGuard(frameGuard, std::max(frameTopWidth, DS_SCREEN_WIDTH), frameMargin);
+        int shownWidth = std::max(frameTopWidth, DS_SCREEN_WIDTH) - guard.left - guard.right;
+        const WideWindow* window = UsableWideWindow(wideWindow, shownWidth);
+        if (window && screens.Top && placed.Top.W > 0 && placed.Top.H > 0)
+            placed.Top = Rect::Of(GetWindowedScreenDrawing(RoundedRect(placed.Top), *window).DrawRect);
+        return placed;
+    }
+    ScreensDrawing drawing = DrawingFor(screens, frameTopWidth, frameMargin, frameGuard, surfaceWidth, wideWindow);
     ScreenRects rects;
     if (drawing.Top)
         rects.Top = Rect::Of(drawing.Top->DrawRect);
@@ -258,7 +273,7 @@ void ScreenRenderer::ApplyRendererConfiguration()
     UpdateShader();
 }
 
-void ScreenRenderer::UpdateScreenCoordinates()
+void ScreenRenderer::UpdateScreenCoordinates(bool isWindowOnly)
 {
     // The texture has 2 empty lines between the screens (SCREEN_GAP), and the top screen's half is taller by the camera's margin (stage 2)
     FrameTextureLayout layout(FrameTopScreenMargin);
@@ -277,12 +292,23 @@ void ScreenRenderer::UpdateScreenCoordinates()
         float NativeW = 0, NativeH = 0;
     };
     std::optional<ScreenQuad> top, bottom;
+    const WideWindow* wideWindow = FrameWideWindow ? &*FrameWideWindow : nullptr;
     if (Screens.AsPlaced)
     {
-        if (Screens.Top && Screens.PlacedTop.W > 0 && Screens.PlacedTop.H > 0)
+        int shownWidth = frameWidth - guard.left - guard.right;
+        const WideWindow* window = UsableWideWindow(wideWindow, shownWidth);
+        if (Screens.Top && Screens.PlacedTop.W > 0 && Screens.PlacedTop.H > 0 && window)
+        {
+            // the camera's window of the shown frame, moved in by the guard band as getScreensDrawing moves it; the output cap's need from
+            // the window at 1x, the largest it shows the middle columns, so zooming and panning never change it
+            ScreenDrawing d = GetWindowedScreenDrawing(RoundedRect(Screens.PlacedTop), *window);
+            top = ScreenQuad {Rect::Of(d.DrawRect), (guard.left + d.LeftU * shownWidth) / frameWidth,
+                (guard.left + d.RightU * shownWidth) / frameWidth, d.TopRow + guard.top, d.BottomRow + guard.top, (float)d.NativeRectAt1x.W,
+                (float)d.NativeRectAt1x.H};
+        }
+        else if (Screens.Top && Screens.PlacedTop.W > 0 && Screens.PlacedTop.H > 0)
         {
             const Rect& r = Screens.PlacedTop;
-            int shownWidth = frameWidth - guard.left - guard.right;
             int shownRows = layout.TopScreenRows - guard.top - guard.bottom;
             top = ScreenQuad {r, guard.left / (float)frameWidth, 1.f - guard.right / (float)frameWidth, (float)guard.top,
                 (float)(layout.TopScreenRows - guard.bottom), r.W * SCREEN_WIDTH / shownWidth, r.H * SCREEN_HEIGHT / shownRows};
@@ -301,10 +327,12 @@ void ScreenRenderer::UpdateScreenCoordinates()
     else
     {
         // Lay out both screens for the current frame width, swap and wide-layout flags (see getScreensDrawing)
-        ScreensDrawing drawing = DrawingFor(Screens, FrameTopScreenWidth, FrameTopScreenMargin, FrameTopScreenGuard, Width);
+        ScreensDrawing drawing = DrawingFor(Screens, FrameTopScreenWidth, FrameTopScreenMargin, FrameTopScreenGuard, Width, wideWindow);
+        // the output cap's need from the middle columns at 1x (NativeRect without a camera), as DSRenderer takes it
         auto quad = [](const ScreenDrawing& d)
         {
-            return ScreenQuad {Rect::Of(d.DrawRect), d.LeftU, d.RightU, d.TopRow, d.BottomRow, (float)d.NativeRect.W, (float)d.NativeRect.H};
+            return ScreenQuad {Rect::Of(d.DrawRect), d.LeftU, d.RightU, d.TopRow, d.BottomRow, (float)d.NativeRectAt1x.W,
+                (float)d.NativeRectAt1x.H};
         };
         if (drawing.Top && drawing.Top->DrawRect.W > 0 && drawing.Top->DrawRect.H > 0)
             top = quad(*drawing.Top);
@@ -369,7 +397,12 @@ void ScreenRenderer::UpdateScreenCoordinates()
         glBufferSubData(GL_ARRAY_BUFFER, 0, ScreenVertexFloats * sizeof(float), ScreenVertices.data());
     ScreenIndices = ScreenVertexFloats / FLOATS_PER_VERTEX;
 
-    UpdateShadowCoordinates(top ? &top->Draw : nullptr, bottom ? &bottom->Draw : nullptr, topAlpha, bottomAlpha);
+    std::optional<Rect> topRect = top ? std::optional<Rect>(top->Draw) : std::nullopt;
+    std::optional<Rect> bottomRect = bottom ? std::optional<Rect>(bottom->Draw) : std::nullopt;
+    if (!isWindowOnly || topRect != ShadowTopRect || bottomRect != ShadowBottomRect)
+        UpdateShadowCoordinates(top ? &top->Draw : nullptr, bottom ? &bottom->Draw : nullptr, topAlpha, bottomAlpha);
+    ShadowTopRect = topRect;
+    ShadowBottomRect = bottomRect;
 }
 
 void ScreenRenderer::PutQuad(const Rect& rect, float leftU, float rightU, float topV, float bottomV, float alpha)
@@ -498,11 +531,21 @@ void ScreenRenderer::DrawFrame(const FrameView& frame, const std::optional<TiltS
         FrameTopScreenGuard = frame.TopGuard;
         MustUpdateConfiguration = true;
     }
+    // And the camera's window, which moves every frame while it eases or pans: then only the quads are filled again (and the shadows if a
+    // screen's drawn rect changed)
+    bool hasWindowMoved = false;
+    if (frame.IsValid() && frame.Window != FrameWideWindow)
+    {
+        FrameWideWindow = frame.Window;
+        hasWindowMoved = true;
+    }
     if (MustUpdateConfiguration)
     {
         ApplyRendererConfiguration();
         MustUpdateConfiguration = false;
     }
+    else if (hasWindowMoved)
+        UpdateScreenCoordinates(true);
 
     // GPU::Comp1x: a frame with screens the compositor drew at 1x goes through the 1x shader when the full frame would only go through the
     // no-filter shader. Any other way, RenderPrePasses expands it into the full frame first

@@ -9,9 +9,9 @@
 //   so the sound arrives ~1500 frames at a time at worst, which the SPU's ring can't hold with a callback's worth on top.
 // - The targets are larger to match (low 1500 frames, medium 2000, high 2800 at 48 kHz: 31 to 58 ms), and the drift control counts the
 //   ring as starving below a quarter of the target rather than half, since the fill's sawtooth is deeper.
-// - The emulator runs at the DS's own 59.83 Hz here, so the base ratio is 1 (the app's is 60 / 59.83, as it runs 60 frames a second).
 // - Every latency primes (the app's plain mode is for Bluetooth-sized bursts, which a PC's callbacks never are).
-// Fast forward is the app's: sped up (and pitched up) at its speed, or silent when it's muted (the default) or unlimited.
+// As in the app, the emulator runs 60 frames a second (paced to the display or on the timer), a little faster than the DS's 59.83 Hz, so the
+// base ratio is 60 / 59.83. Fast forward is the app's: sped up (and pitched up) at its speed, or silent when it's muted (the default) or unlimited.
 //
 // UI thread, apart from the emulator thread's hooks (BeforeFrame / AfterFrame) and the callback
 #pragma once

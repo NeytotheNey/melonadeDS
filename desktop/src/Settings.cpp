@@ -265,6 +265,18 @@ void Settings::SetStored(const std::string& key, const picojson::value& value)
     Stored[key] = value;
 }
 
+void Settings::RenameStored(const std::string& from, const std::string& to)
+{
+    auto old = Stored.find(from);
+    if (old == Stored.end())
+        return;
+    picojson::value value = old->second;
+    Stored.erase(old);
+    if (Stored.find(to) == Stored.end())
+        Stored[to] = value;
+    Unsaved = true;
+}
+
 picojson::value Settings::ParseValue(const std::string& text)
 {
     if (text == "true")

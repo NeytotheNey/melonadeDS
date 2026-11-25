@@ -1,12 +1,15 @@
 // A game's own settings, the app's ROM settings screen (RomConfigUi) for what the desktop can apply when the game boots: its display
-// name (on the on-screen keyboard), the console it boots as (locked to DSi for a DSiWare title, as the app does), the GBA slot and its own
-// layout (or the global one). They're kept by the ROM's RetroAchievements hash, so every copy of the game shares them. The app's other
-// per-game settings belong to later phases and are listed disabled ("Coming later"): the microphone (phase 6), WideMelon (phase 3 step C)
-// and mods (phase 4).
+// name (on the on-screen keyboard), the console it boots as (locked to DSi for a DSiWare title, as the app does), the GBA slot, its own
+// layout (or the global one) and the Mods tab's widescreen section (RomModsUi: widescreen, its ratio and the WideMelon camera; the app's
+// wide layout pick is left out, as the desktop picks its layouts its own way). They're kept by the ROM's RetroAchievements hash, so every
+// copy of the game shares them. The app's other per-game settings belong to later phases and are listed disabled ("Coming later"): the
+// microphone (phase 6) and mods (phase 4).
 // Changes go to library.db at once (Library::SetConfig) and apply the next time the game starts, from the library or the command line.
 // Reached from the details screen, a featured mosaic tile's menu button, or by holding confirm (or the mouse) on a tile
 #include <algorithm>
+#include <cstdlib>
 #include <string>
+#include <vector>
 
 #include "Icons.h"
 #include "Library.h"
@@ -15,6 +18,9 @@
 #include "Settings.h"
 #include "Ui.h"
 #include "Widgets.h"
+#include "camera/WidescreenLaunch.h"
+#include "layout/LayoutEditing.h"
+#include "layout/LayoutGeometry.h"
 #include "layout/Layouts.h"
 
 namespace Ui
@@ -29,6 +35,30 @@ using Frontend::RomConfig;
 const RomConfig::Console kConsoles[] = {RomConfig::Console::Default, RomConfig::Console::Ds, RomConfig::Console::Dsi};
 const RomConfig::GbaSlot kSlots[] = {RomConfig::GbaSlot::None, RomConfig::GbaSlot::GbaRom, RomConfig::GbaSlot::RumblePak,
     RomConfig::GbaSlot::MemoryExpansion};
+// RomModsConfig.WIDE_CAMERA_MAX_WIDTHS: the camera's widest views to pick from
+const int kCameraMaxWidths[] = {426, 448, 512, 640, Frontend::MAX_WIDE_VIEW_WIDTH};
+// WidescreenAspect.DEFAULT
+constexpr const char* kDefaultAspect = "16:9";
+
+// WidescreenAspect.viewWidth: the even 3D view width of a ratio's key, 0 for one it doesn't know
+int AspectViewWidth(const std::string& key)
+{
+    std::optional<float> ratio = Frontend::WidescreenAspectRatio(key);
+    return ratio ? Frontend::RoundToInt(*ratio * Frontend::DS_SCREEN_HEIGHT) : 0;
+}
+
+// WidescreenAspect.fromViewWidth: the ratio whose width is closest to [viewWidth], as an index into WidescreenAspectKeys
+int AspectIndexOf(int viewWidth)
+{
+    const std::vector<std::string>& keys = Frontend::WidescreenAspectKeys();
+    int best = 0;
+    for (int i = 1; i < (int)keys.size(); i++)
+    {
+        if (std::abs(AspectViewWidth(keys[i]) - viewWidth) < std::abs(AspectViewWidth(keys[best]) - viewWidth))
+            best = i;
+    }
+    return best;
+}
 
 class GameSettingsScreen : public Screen
 {
@@ -180,10 +210,11 @@ public:
             Track("layout");
         }
 
+        DrawWidescreen(app, config);
+
         SectionLabel(app, "Coming later");
         // the app's other per-game settings, for the phases that build what they need
         MenuRow(app, "##mic", Icon::Mic, "Microphone source", "Coming later", false, false);
-        MenuRow(app, "##wide", Icon::AspectRatio, "Widescreen (WideMelon)", "Coming later", false, false);
         MenuRow(app, "##mods", Icon::Extension, "Mods", "Coming later", false, false);
 
         ImGui::Dummy(ImVec2(1, app.Px(8)));
@@ -205,13 +236,102 @@ public:
             FooterHints(app, {{"A|Enter", "Rename"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
         else if (FocusedRow == "gbarom")
             FooterHints(app, {{"A|Enter", "Choose file"}, {"X|Del", "Clear"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
-        else if (FocusedRow == "console" || FocusedRow == "gbaslot")
+        else if (FocusedRow == "console" || FocusedRow == "gbaslot" || FocusedRow == "wideaspect" || FocusedRow == "widemax")
             FooterHints(app, {{"A|Enter", "Change"}, {"\xe2\x80\xb9 \xe2\x80\xba", "Previous / next"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
         else
             FooterHints(app, {{"A|Enter", "Choose"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
     }
 
 private:
+    // RomModsUi's widescreen section, its rows and notes in its order: widescreen and its ratio, then the camera's rows while it's on. The
+    // width is kept with the software renderer, for when it's switched to OpenGL or Compute, as the app keeps it
+    void DrawWidescreen(App& app, RomConfig config)
+    {
+        Host& host = app.GetHost();
+        SectionLabel(app, "Widescreen");
+        if (host.Settings && host.Settings->GetString("video_renderer", "compute") == "software")
+            Note(app, "Needs the OpenGL or Compute renderer. With the software renderer the game shows at its normal width.");
+        std::optional<int> wideViewWidth = Frontend::ValidWideViewWidth(config.WideViewWidth);
+        if (ToggleRow(app, "##wide", Icon::AspectRatio, "Use widescreen", "Widens the 3D view; 2D, menus and touch stay the same. Applies "
+                "when the game starts", wideViewWidth.has_value()))
+        {
+            config.WideViewWidth = wideViewWidth ? std::nullopt : std::optional<int>(AspectViewWidth(kDefaultAspect));
+            Store(app, config);
+        }
+        Track("wide");
+        if (!wideViewWidth)
+            return;
+
+        const std::vector<std::string>& aspects = Frontend::WidescreenAspectKeys();
+        int aspect = AspectIndexOf(*wideViewWidth);
+        if (int change = ChoiceRow(app, "##wideaspect", Icon::Straighten, "Aspect ratio", aspects[aspect].c_str()))
+        {
+            int count = (int)aspects.size();
+            config.WideViewWidth = AspectViewWidth(aspects[(aspect + change + count) % count]);
+            Store(app, config);
+        }
+        Track("wideaspect");
+
+        if (ToggleRow(app, "##widecamera", Icon::Joystick, "Camera", "Look around with the right stick, zoom out with the zoom hotkey, or "
+                "drag and scroll the top screen. Applies when the game starts", config.WideCamera))
+        {
+            config.WideCamera = !config.WideCamera;
+            Store(app, config);
+        }
+        Track("widecamera");
+        if (!config.WideCamera)
+            return;
+        DrawCameraRows(app, config, *wideViewWidth);
+    }
+
+    void DrawCameraRows(App& app, RomConfig config, int shownWidth)
+    {
+        // only widths past the shown one zoom out at all; a stored width that isn't one of them shows as it is, with none picked
+        std::vector<int> widths;
+        for (int w : kCameraMaxWidths)
+        {
+            if (w > shownWidth)
+                widths.push_back(w);
+        }
+        int maxWidth = Frontend::ValidWideCameraMaxWidth(config.WideCameraMaxWidth);
+        int index = (int)(std::find(widths.begin(), widths.end(), maxWidth) - widths.begin());
+        std::string value = std::to_string(maxWidth) + " pixels wide";
+        if (int change = ChoiceRow(app, "##widemax", Icon::FitScreen, "Zoom out up to", value.c_str()); change && !widths.empty())
+        {
+            int count = (int)widths.size();
+            index = index >= count ? (change > 0 ? 0 : count - 1) : (index + change + count) % count;
+            config.WideCameraMaxWidth = widths[index];
+            Store(app, config);
+        }
+        Track("widemax");
+        if (maxWidth <= shownWidth)
+            Note(app, "That isn't wider than the screen is shown, so the camera stays off. Pick a wider one.");
+        if (ToggleRow(app, "##widecenter", Icon::Gamepad, "Return to center when moving", "Eases the view back to the middle while you walk "
+                "with the D-pad or left stick", config.WideCameraReturnToCenter))
+        {
+            config.WideCameraReturnToCenter = !config.WideCameraReturnToCenter;
+            Store(app, config);
+        }
+        Track("widecenter");
+        if (ToggleRow(app, "##widetext", Icon::Title, "Auto zoom in on text", "Pok\xc3\xa9mon Platinum, HG/SS and Gen 5 zoom back in for text "
+                "boxes; battles and menus always do", config.WideCameraZoomOnText))
+        {
+            config.WideCameraZoomOnText = !config.WideCameraZoomOnText;
+            Store(app, config);
+        }
+        Track("widetext");
+    }
+
+    // a line of text under the rows, as the settings' notes
+    static void Note(App& app, const char* text)
+    {
+        float w = ImGui::GetContentRegionAvail().x - app.Px(40);
+        ImVec2 pos = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(1, app.Px(6)));
+        ImVec2 s = TextAt(app, app.Regular, 14, ImVec2(pos.x + app.Px(20), pos.y + app.Px(6)), app.Colors().OnSurfaceVariant, text, w);
+        ImGui::Dummy(ImVec2(1, s.y));
+    }
+
     template <typename T, size_t N> static int IndexOf(const T (&values)[N], T value)
     {
         for (size_t i = 0; i < N; i++)

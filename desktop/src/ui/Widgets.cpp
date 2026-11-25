@@ -187,12 +187,12 @@ bool MenuRow(App& app, const char* id, ImWchar icon, const char* label, const ch
     return pressed;
 }
 
-bool ToggleRow(App& app, const char* id, ImWchar icon, const char* label, const char* detail, bool value, bool isDefault)
+bool ToggleRow(App& app, const char* id, ImWchar icon, const char* label, const char* detail, bool value, bool isDefault, bool enabled)
 {
     const Palette& p = app.Colors();
     ImVec2 pos = ImGui::GetCursorScreenPos();
     ImVec2 size(ImGui::GetContentRegionAvail().x, app.Px(kRowHeight));
-    bool pressed = Item(id, size, true);
+    bool pressed = Item(id, size, enabled);
     app.TrackFocus(isDefault);
     ItemState state = StateOfLastItem();
     ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -201,24 +201,25 @@ bool ToggleRow(App& app, const char* id, ImWchar icon, const char* label, const 
     draw->AddRectFilled(pos, max, RowBackground(app, state, 0), radius);
     if (state.Focused)
         FocusRing(app, draw, pos, max, radius);
-    ImU32 text = state.Focused ? p.OnSecondaryContainer : p.OnSurface;
-    ImU32 sub = state.Focused ? p.OnSecondaryContainer : p.OnSurfaceVariant;
+    ImU32 text = !enabled ? WithAlpha(p.OnSurface, 0.38f) : state.Focused ? p.OnSecondaryContainer : p.OnSurface;
+    ImU32 sub = !enabled ? WithAlpha(p.OnSurface, 0.38f) : state.Focused ? p.OnSecondaryContainer : p.OnSurfaceVariant;
     float cy = pos.y + size.y / 2;
     IconAt(app, icon, 26, ImVec2(pos.x + app.Px(33), cy), text);
 
-    // the switch: M3's 52 x 32 track, the thumb 24 on and 16 off
+    // the switch: M3's 52 x 32 track, the thumb 24 on and 16 off; faded like the text when the row is disabled
     float trackW = app.Px(52), trackH = app.Px(32);
     ImVec2 t0(max.x - app.Px(20) - trackW, cy - trackH / 2), t1(t0.x + trackW, t0.y + trackH);
+    auto shade = [&](ImU32 color) { return enabled ? color : WithAlpha(color, 0.38f); };
     if (value)
     {
-        draw->AddRectFilled(t0, t1, p.Primary, trackH / 2);
-        draw->AddCircleFilled(ImVec2(t1.x - trackH / 2, cy), app.Px(12), p.OnPrimary);
+        draw->AddRectFilled(t0, t1, shade(p.Primary), trackH / 2);
+        draw->AddCircleFilled(ImVec2(t1.x - trackH / 2, cy), app.Px(12), shade(p.OnPrimary));
     }
     else
     {
-        draw->AddRectFilled(t0, t1, p.SurfaceContainerHighest, trackH / 2);
-        draw->AddRect(t0, t1, p.Outline, trackH / 2, std::max(1.f, app.Px(2)));
-        draw->AddCircleFilled(ImVec2(t0.x + trackH / 2, cy), app.Px(8), p.Outline);
+        draw->AddRectFilled(t0, t1, shade(p.SurfaceContainerHighest), trackH / 2);
+        draw->AddRect(t0, t1, shade(p.Outline), trackH / 2, std::max(1.f, app.Px(2)));
+        draw->AddCircleFilled(ImVec2(t0.x + trackH / 2, cy), app.Px(8), shade(p.Outline));
     }
 
     float labelX = pos.x + app.Px(64);

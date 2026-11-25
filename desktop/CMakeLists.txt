@@ -94,6 +94,14 @@ add_executable(melonade-desktop
     src/ArtImage.h
     src/Audio.cpp
     src/Audio.h
+    src/camera/LuaWideCameraRequests.cpp
+    src/camera/LuaWideCameraRequests.h
+    src/camera/WideCamera.cpp
+    src/camera/WideCamera.h
+    src/camera/WideCameraController.cpp
+    src/camera/WideCameraController.h
+    src/camera/WidescreenLaunch.cpp
+    src/camera/WidescreenLaunch.h
     src/Controls.cpp
     src/Controls.h
     src/DesktopEventMessenger.cpp
@@ -163,6 +171,8 @@ add_executable(melonade-desktop
     src/Settings.h
     src/UiScript.cpp
     src/UiScript.h
+    src/VsyncSource.cpp
+    src/VsyncSource.h
     src/ui/GameDetailsScreen.cpp
     src/ui/GameSettingsScreen.cpp
     src/ui/Host.h
@@ -245,9 +255,9 @@ target_compile_definitions(melonade-desktop PRIVATE _WIN32_WINNT=0x0A00)
 # our own code builds with these warnings, and changes add none (docs/coding-standards.md, rule 7)
 target_compile_options(melonade-desktop PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
 # ole32/uuid: COM for the file dialog (shell32) and the slot screenshots (windowscodecs, WIC); winhttp for the metadata sync's requests,
-# bcrypt for the ROMs' MD5 and SHA1, crypt32 for the Web API key (DPAPI); all system DLLs
+# bcrypt for the ROMs' MD5 and SHA1, crypt32 for the Web API key (DPAPI), dxgi for the monitor's vsyncs (frame pacing); all system DLLs
 # rhash-rom before melonade-shared, whose rcheevos it calls into
-target_link_libraries(melonade-desktop PRIVATE rhash-rom melonade-shared core imgui sqlite3 miniz lzma7z nanosvg SDL2::SDL2main SDL2::SDL2 winmm ole32 uuid shell32 windowscodecs winhttp bcrypt crypt32)
+target_link_libraries(melonade-desktop PRIVATE rhash-rom melonade-shared core imgui sqlite3 miniz lzma7z nanosvg SDL2::SDL2main SDL2::SDL2 winmm ole32 uuid shell32 windowscodecs winhttp bcrypt crypt32 dxgi)
 
 if (MINGW)
     # a GUI program (no console window of its own; a run from a console writes to it, see AttachParentConsole in main.cpp); static so the
@@ -260,4 +270,33 @@ if (MINGW)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL2::SDL2> $<TARGET_FILE_DIR:melonade-desktop>
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/third_party/gamecontrollerdb/gamecontrollerdb.txt"
             $<TARGET_FILE_DIR:melonade-desktop>)
+endif()
+
+# melonade-desktop-tests: the desktop's pure logic (the WideMelon camera and the layout geometry) with the app's Kotlin tests ported, built
+# from those sources alone (no SDL, GL or core); desktop/build.sh builds and runs it (README.md, Tests)
+add_executable(melonade-desktop-tests
+    tests/Test.h
+    tests/TestMain.cpp
+    tests/LuaWideCameraRequestsTests.cpp
+    tests/ScreensDrawingTests.cpp
+    tests/WideCameraControllerTests.cpp
+    tests/WideCameraTests.cpp
+    tests/WidescreenLaunchTests.cpp
+    src/camera/LuaWideCameraRequests.cpp
+    src/camera/LuaWideCameraRequests.h
+    src/camera/WideCamera.cpp
+    src/camera/WideCamera.h
+    src/camera/WideCameraController.cpp
+    src/camera/WideCameraController.h
+    src/camera/WidescreenLaunch.cpp
+    src/camera/WidescreenLaunch.h
+    src/layout/LayoutGeometry.cpp
+    src/layout/LayoutGeometry.h)
+target_include_directories(melonade-desktop-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party" "${APP_CPP}")
+target_compile_options(melonade-desktop-tests PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
+if (MINGW)
+    # a console program that runs without MSYS2 on PATH, as the exe does
+    target_link_options(melonade-desktop-tests PRIVATE -static-libgcc -static-libstdc++)
+    target_link_libraries(melonade-desktop-tests PRIVATE -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic)
 endif()

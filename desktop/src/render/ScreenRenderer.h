@@ -70,18 +70,21 @@ struct SurfaceBackground
 class Shader;
 
 // where a layout's [screens] (not AsPlaced) are drawn for a frame [frameTopWidth] DS pixels wide with [frameMargin] rows above and below its
-// top screen, [frameGuard] of each of them the sun's guard band that isn't shown, on a surface [surfaceWidth] wide (getScreensDrawing)
+// top screen, [frameGuard] of each of them the sun's guard band that isn't shown, on a surface [surfaceWidth] wide, with the WideMelon
+// camera's [wideWindow] (getScreensDrawing)
 ScreensDrawing DrawingFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, const MelonDSAndroid::FrameGuard& frameGuard,
-    float surfaceWidth);
+    float surfaceWidth, const WideWindow* wideWindow = nullptr);
 
 // where the screens end up, in the surface's pixels (W 0 for one not drawn): the top screen's picture, and the bottom screen's middle 256
-// columns (where touches go); the places as they are for AsPlaced
+// columns (where touches go); the places as they are for AsPlaced, but a camera window's picture inside the top screen's
 struct ScreenRects
 {
     Rect Top, Bottom;
 };
 ScreenRects RectsFor(const SurfaceScreens& screens, int frameTopWidth, int frameMargin, const MelonDSAndroid::FrameGuard& frameGuard,
-    float surfaceWidth);
+    float surfaceWidth, const WideWindow* wideWindow = nullptr);
+// a desktop placement's [rect] on whole pixels (its edges rounded), for GetWindowedScreenDrawing
+IntRect RoundedRect(const Rect& rect);
 
 // RuntimeRendererConfiguration.kt without the internal resolution: the video filter (video_filtering), deband (video_deband), the DS screen
 // colors (video_ds_screen_colors, Pokefan531's color profile) and the screen shadow (video_screen_shadow)
@@ -137,7 +140,8 @@ public:
 
 private:
     void ApplyRendererConfiguration();
-    void UpdateScreenCoordinates();
+    // [isWindowOnly]: only the camera's window moved, so the shadows are filled again only if a screen's drawn rect changed
+    void UpdateScreenCoordinates(bool isWindowOnly = false);
     void UpdateShadowCoordinates(const Rect* top, const Rect* bottom, float topAlpha, float bottomAlpha);
     void UpdateShader();
     void EnsureGlObjects();
@@ -185,6 +189,9 @@ private:
     int FrameTopScreenWidth = 256;
     int FrameTopScreenMargin = 0;
     MelonDSAndroid::FrameGuard FrameTopScreenGuard {};
+    // the camera's window the quads were built for (none without the camera), and the drawn rects the shadows were built for
+    std::optional<WideWindow> FrameWideWindow;
+    std::optional<Rect> ShadowTopRect, ShadowBottomRect;
     SurfaceScreens Screens;
     float Width = 0, Height = 0;
     // AreScreensSwapped as it was when the quads were built, given to the filters so they keep the same screen's sides (the desktop's own

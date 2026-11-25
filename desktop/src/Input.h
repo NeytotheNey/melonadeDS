@@ -36,13 +36,15 @@ enum class Action
     TouchTap,
     // hotkeys
     Pause, FastForwardHold, FastForward, QuickSave, QuickLoad, SwapScreens, DetachScreens, Screenshot, Fullscreen, Rewind,
+    // the WideMelon camera's next zoom step (the app's CAMERA_ZOOM)
+    WideCameraZoom,
     Count
 };
 constexpr int kActionCount = (int)Action::Count;
 constexpr int kDsButtonCount = 12;
 
-// the name in input.json: the app's Input names (A, START, FAST_FORWARD_HOLD, QUICK_SAVE, ...), and DETACH_SCREENS, SCREENSHOT,
-// FULLSCREEN and TOUCH_TAP for the desktop's own
+// the name in input.json: the app's Input names (A, START, FAST_FORWARD_HOLD, QUICK_SAVE, CAMERA_ZOOM, ...), and DETACH_SCREENS,
+// SCREENSHOT, FULLSCREEN and TOUCH_TAP for the desktop's own
 const char* ActionKey(Action action);
 // "Fast forward (hold)"
 const char* ActionLabel(Action action);
@@ -156,6 +158,11 @@ public:
     // after
     struct Cursor { bool Visible = false; float X = 128, Y = 96; bool Pressed = false; };
     Cursor GetCursor() const;
+    // whether the right stick moves the touch cursor (off while it pans the WideMelon camera)
+    bool RightStickMovesCursor = true;
+    // For the WideMelon camera: the right stick of the pad pushed furthest (-1 to 1, right and down positive), skipping pads whose profile
+    // binds the right stick to something as the cursor does, and whether any pad's left stick is pushed past [leftThreshold] (of 1)
+    void CameraSticks(float& rightX, float& rightY, bool& isLeftStickPushed, float leftThreshold);
 
     // the menus: what a controller's button does there (A and B by the pad's face layout; a pad that isn't open gets Nintendo's)
     MenuAction MenuButton(SDL_JoystickID which, int button) const;
@@ -207,7 +214,10 @@ private:
         std::array<std::array<std::chrono::steady_clock::time_point, 2>, kActionCount> Since {};
         std::array<std::array<bool, 2>, kActionCount> ComboOn {};
         int RightX = 0, RightY = 0;
+        int LeftX = 0, LeftY = 0;
     };
+    // whether [profile] binds the right stick, which then neither moves the cursor nor pans the camera
+    static bool BindsRightStick(const DeviceProfile& profile);
     DeviceState& State(SDL_JoystickID source);
     DeviceProfile& ProfileFor(SDL_JoystickID source);
     const Pad* FindPad(SDL_JoystickID id) const;
