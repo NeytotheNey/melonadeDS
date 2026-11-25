@@ -1,5 +1,5 @@
-// Rules for the modules (require) and PNG images (melon.image.load) a linked folder offers its scripts, ported from the app's
-// impl/LuaScriptFolderContent.kt: the folder walk with its caps and name rules, kept apart from the file system (LuaScriptStorage.h lists
+// Rules for which files in a linked folder are scripts, and for the modules (require) and PNG images (melon.image.load) it offers them,
+// ported from the app's impl/LuaScriptFolderContent.kt: the folder walk with its caps and name rules, kept apart from the file system (LuaScriptStorage.h lists
 // and reads the real folder) so the tests can walk a made-up one, and the budgets that leave out modules and images past the caps. Paths
 // and names are UTF-8, with `/` between a path's parts
 #pragma once
@@ -14,6 +14,8 @@
 #include <utility>
 #include <vector>
 
+#include "lua/LuaScriptHeaderParser.h"
+
 namespace Frontend::LuaScriptFolderContent
 {
 
@@ -21,6 +23,8 @@ constexpr int MAX_DEPTH = 4;
 constexpr int MAX_FOLDERS = 64;
 // modules and images the walk finds before it gives up, so a folder with thousands of files can't hold up the launch
 constexpr int MAX_FOUND_FILES = 4096;
+// subfolder .lua files whose first line a listing reads to tell scripts from modules
+constexpr int MAX_SUBFOLDER_SCRIPT_CANDIDATES = 256;
 
 constexpr int MEGA = 1024 * 1024;
 
@@ -72,7 +76,7 @@ struct Child
     T Handle;
 };
 
-// a module or image found by Walk, with its [Path] relative to the linked folder
+// a script, module or image found by Walk, with its [Path] relative to the linked folder
 template <class T>
 struct FoundFile
 {
@@ -88,14 +92,33 @@ struct Module
     FoundFile<T> File;
 };
 
-// what Walk found, in path order, with [GaveUp] set when a cap stopped it early
+// What Walk found, each list in path order: the modules and images, the top-level .lua files (always scripts), and every .lua file in the
+// subfolders it listed (scripts only if their first line says so, see ListScripts). [GaveUp] is set when a cap stopped it early and
+// [SkippedFolder] when a subfolder couldn't be listed
 template <class T>
 struct WalkResult
 {
     std::vector<Module<T>> Modules;
     std::vector<FoundFile<T>> Images;
+    std::vector<FoundFile<T>> TopLevelScripts;
+    std::vector<FoundFile<T>> ScriptCandidates;
     bool GaveUp = false;
+    bool SkippedFolder = false;
 };
+
+// the scripts a listing found, in path order, with [IsComplete] false when some could be missing (see ListScripts)
+template <class T>
+struct ScriptListing
+{
+    std::vector<FoundFile<T>> Scripts;
+    bool IsComplete = true;
+};
+
+template <class T>
+void SortByPath(std::vector<FoundFile<T>>& files)
+{
+    std::stable_sort(files.begin(), files.end(), [](const FoundFile<T>& a, const FoundFile<T>& b) { return NameLess(a.Path, b.Path); });
+}
 
 // one file per module name: x.lua wins over x/init.lua like in Lua's own search order, otherwise the first in path order wins
 template <class T>
@@ -118,9 +141,10 @@ std::vector<Module<T>> PickModules(std::vector<Module<T>> modules)
 }
 
 // Walks breadth first from [root], at most MAX_DEPTH deep and MAX_FOLDERS folders. [listChildren] takes a handle and gives its folder's
-// std::optional<std::vector<Child<T>>>: a folder it can't read (none) is skipped, an unreadable root returns none
+// std::optional<std::vector<Child<T>>>: a folder it can't read (none) is skipped, an unreadable root returns none. A subfolder .lua file in
+// [scriptPaths] (the known scripts) isn't a module and doesn't count toward MAX_FOUND_FILES
 template <class T, class ListChildren>
-std::optional<WalkResult<T>> Walk(const T& root, ListChildren&& listChildren)
+std::optional<WalkResult<T>> Walk(const T& root, ListChildren&& listChildren, const std::set<std::string>& scriptPaths = {})
 {
     std::optional<std::vector<Child<T>>> rootChildren = listChildren(root);
     if (!rootChildren)
@@ -158,14 +182,28 @@ std::optional<WalkResult<T>> Walk(const T& root, ListChildren&& listChildren)
                 continue;
             }
 
+            if (IsLuaScriptName(child->Name))
+            {
+                FoundFile<T> scriptFile {path, child->Size, child->Handle};
+                if (depth == 0)
+                {
+                    result.TopLevelScripts.push_back(std::move(scriptFile));
+                    continue;
+                }
+                result.ScriptCandidates.push_back(std::move(scriptFile));
+                if (scriptPaths.count(path))
+                    continue;
+            }
+
             std::optional<std::string> moduleName = depth > 0 ? GetModuleName(path) : std::nullopt;
             bool isImage = !moduleName && IsImagePath(path);
             if (!moduleName && !isImage)
                 continue;
+            // The rest of the folder is still gone through for its scripts
             if (result.Modules.size() + result.Images.size() >= (size_t)MAX_FOUND_FILES)
             {
                 result.GaveUp = true;
-                return;
+                continue;
             }
             FoundFile<T> file {path, child->Size, child->Handle};
             if (moduleName)
@@ -187,16 +225,47 @@ std::optional<WalkResult<T>> Walk(const T& root, ListChildren&& listChildren)
         folders.pop_front();
         listedFolderCount++;
         std::optional<std::vector<Child<T>>> children = listChildren(folder.Handle);
-        if (children)
+        if (!children)
+            result.SkippedFolder = true;
+        else
             addChildren(*children, folder.Path, folder.Depth);
     }
 
     result.Modules = PickModules(std::move(result.Modules));
     std::stable_sort(result.Modules.begin(), result.Modules.end(),
         [](const Module<T>& a, const Module<T>& b) { return NameLess(a.File.Path, b.File.Path); });
-    std::stable_sort(result.Images.begin(), result.Images.end(),
-        [](const FoundFile<T>& a, const FoundFile<T>& b) { return NameLess(a.Path, b.Path); });
+    SortByPath(result.Images);
+    SortByPath(result.TopLevelScripts);
+    SortByPath(result.ScriptCandidates);
     return result;
+}
+
+// The folder's scripts, or none when the root can't be listed: every top-level .lua file, and each subfolder one whose first line is a
+// description (see LuaScriptHeaderParser::StartsWithDescription), read with [readStart] (a FoundFile<T> to std::optional<std::string>, none
+// when the file can't be read). At most MAX_SUBFOLDER_SCRIPT_CANDIDATES subfolder files are read, in path order. The listing is incomplete
+// when the walk gave up or skipped a folder, there were more subfolder files than that, or one of them couldn't be read
+template <class T, class ListChildren, class ReadStart>
+std::optional<ScriptListing<T>> ListScripts(const T& root, ListChildren&& listChildren, ReadStart&& readStart)
+{
+    std::optional<WalkResult<T>> walk = Walk(root, listChildren);
+    if (!walk)
+        return std::nullopt;
+
+    ScriptListing<T> listing;
+    listing.Scripts = walk->TopLevelScripts;
+    listing.IsComplete = !walk->GaveUp && !walk->SkippedFolder && walk->ScriptCandidates.size() <= (size_t)MAX_SUBFOLDER_SCRIPT_CANDIDATES;
+    size_t candidateCount = std::min(walk->ScriptCandidates.size(), (size_t)MAX_SUBFOLDER_SCRIPT_CANDIDATES);
+    for (size_t i = 0; i < candidateCount; i++)
+    {
+        const FoundFile<T>& candidate = walk->ScriptCandidates[i];
+        std::optional<std::string> start = readStart(candidate);
+        if (!start)
+            listing.IsComplete = false;
+        else if (LuaScriptHeaderParser::StartsWithDescription(*start))
+            listing.Scripts.push_back(candidate);
+    }
+    SortByPath(listing.Scripts);
+    return listing;
 }
 
 // Takes modules in path order until a cap is hit; after the first one that doesn't fit, every later one is left out. The reasons are the

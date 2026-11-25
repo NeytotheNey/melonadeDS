@@ -27,9 +27,14 @@ internal const val LUA_LOG_TAG = LogTags.LUA
 class LuaScriptStorage(private val context: Context) {
 
     /**
-     * A `.lua` file at the top of a linked folder
+     * A script in a linked folder, [name] being its path in it (`aim.lua`, `my-mod/main.lua`)
      */
     class ScriptFile(val name: String, val uri: Uri)
+
+    /**
+     * The scripts in a linked folder, in path order, with [isComplete] false when some could be missing (see [LuaScriptFolderSync.sync])
+     */
+    class ScriptListing(val scripts: List<ScriptFile>, val isComplete: Boolean)
 
     sealed class ReadResult {
         class Success(val source: ByteArray) : ReadResult()
@@ -40,17 +45,39 @@ class LuaScriptStorage(private val context: Context) {
     }
 
     /**
-     * Top-level `.lua` files, unordered, or null when the folder can't be read (lost permission, moved, missing card, cloud still fetching)
+     * The folder's scripts (rules in [LuaScriptFolderContent.listScripts]), or null when the folder can't be read (lost permission, moved,
+     * missing card, cloud still fetching); it walks the subfolders and reads the start of their `.lua` files, so never call it on the main
+     * thread
      */
-    fun listScripts(folderUri: Uri): List<ScriptFile>? {
+    fun listScripts(folderUri: Uri): ScriptListing? {
         return try {
             // Checked first because some providers list a missing folder as empty (and isDirectory is false once the permission is gone)
             val folder = DocumentFile.fromTreeUri(context, folderUri)?.takeIf { it.isDirectory } ?: return null
-            listChildren(folder.uri, DocumentsContract.getDocumentId(folder.uri))
-                ?.filter { !it.isFolder && LuaScriptFolderContent.isLuaScriptName(it.name) }
-                ?.map { ScriptFile(it.name, DocumentsContract.buildDocumentUriUsingTree(folder.uri, it.handle)) }
+            val treeUri = folder.uri
+            val listing = LuaScriptFolderContent.listScripts(
+                DocumentsContract.getDocumentId(treeUri),
+                { documentId -> listFolder(treeUri, documentId) },
+                { file -> readDocument(DocumentsContract.buildDocumentUriUsingTree(treeUri, file.handle), LuaScriptHeaderParser.FIRST_LINE_READ_LIMIT) },
+            ) ?: return null
+            if (!listing.isComplete) {
+                Log.w(LUA_LOG_TAG, "The script folder couldn't be listed whole: scripts in its subfolders that aren't listed are kept")
+            }
+            val scripts = listing.scripts.map { ScriptFile(it.path, DocumentsContract.buildDocumentUriUsingTree(treeUri, it.handle)) }
+            ScriptListing(scripts, listing.isComplete)
         } catch (e: Exception) {
             Log.w(LUA_LOG_TAG, "Could not list the script folder", e)
+            null
+        }
+    }
+
+    /**
+     * [listChildren] for a walk, where a folder that fails to list is skipped rather than ending the walk
+     */
+    private fun listFolder(treeUri: Uri, documentId: String): List<LuaScriptFolderContent.Child<String>>? {
+        return try {
+            listChildren(treeUri, documentId)
+        } catch (e: Exception) {
+            Log.w(LUA_LOG_TAG, "Could not list a folder in the script folder", e)
             null
         }
     }
@@ -89,20 +116,18 @@ class LuaScriptStorage(private val context: Context) {
 
     /**
      * Reads and decodes the scripts' modules and images (rules in [LuaScriptFolderContent]), or null if the folder can't be read; it lists up
-     * to 65 folders and reads a few MB, so never call it on the main thread
+     * to 65 folders and reads a few MB, so never call it on the main thread. [scriptPaths] are the game's scripts (its whole list), which
+     * aren't modules.
      */
-    fun readFolderContent(folderUri: Uri): FolderContent? {
+    fun readFolderContent(folderUri: Uri, scriptPaths: Set<String>): FolderContent? {
         return try {
             val folder = DocumentFile.fromTreeUri(context, folderUri)?.takeIf { it.isDirectory } ?: return null
             val treeUri = folder.uri
-            val walk = LuaScriptFolderContent.walk(DocumentsContract.getDocumentId(treeUri)) { documentId ->
-                try {
-                    listChildren(treeUri, documentId)
-                } catch (e: Exception) {
-                    Log.w(LUA_LOG_TAG, "Could not list a folder in the script folder", e)
-                    null
-                }
-            } ?: return null
+            val walk = LuaScriptFolderContent.walk(
+                DocumentsContract.getDocumentId(treeUri),
+                { documentId -> listFolder(treeUri, documentId) },
+                scriptPaths,
+            ) ?: return null
             if (walk.gaveUp) {
                 Log.w(LUA_LOG_TAG, "The script folder has too many folders or files: the rest are left out")
             }
@@ -193,7 +218,7 @@ class LuaScriptStorage(private val context: Context) {
      * with an empty listing, which is taken as a hidden folder (see [LuaScriptFolderSync.sync]).
      */
     fun readScripts(folderUri: Uri?, fileNames: List<String>): List<Pair<String, ReadResult>> {
-        val scriptFiles = folderUri?.let { listScripts(it) }
+        val scriptFiles = folderUri?.let { listScripts(it) }?.scripts
             ?.takeUnless { listed -> LuaScriptFolderSync.isSuspiciouslyEmpty(fileNames.size, listed.map { it.name }) }
             ?.associateBy { it.name }
         return fileNames.map { fileName ->

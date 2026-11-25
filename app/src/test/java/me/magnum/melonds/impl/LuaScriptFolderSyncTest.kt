@@ -99,6 +99,51 @@ class LuaScriptFolderSyncTest {
     }
 
     @Test
+    fun incompleteListingKeepsSubfolderScriptsButDropsGoneTopLevelOnes() {
+        val scripts = listOf(
+            RomLuaScript("aim.lua", enabled = true),
+            RomLuaScript("pokemon-battle-info/battle_info.lua", enabled = true, options = mapOf("hud" to "true")),
+            RomLuaScript("turbo.lua", enabled = true),
+        )
+
+        val synced = LuaScriptFolderSync.sync(scripts, hasFolder = true, folderScriptNames = listOf("turbo.lua", "new.lua"), isListingComplete = false)
+
+        assertEquals(
+            listOf(
+                RomLuaScript("new.lua", enabled = false),
+                RomLuaScript("pokemon-battle-info/battle_info.lua", enabled = true, options = mapOf("hud" to "true")),
+                RomLuaScript("turbo.lua", enabled = true),
+            ),
+            synced,
+        )
+    }
+
+    @Test
+    fun incompleteListingStillAddsAndKeepsListedSubfolderScripts() {
+        val scripts = listOf(RomLuaScript("a/one.lua", enabled = true))
+
+        val synced = LuaScriptFolderSync.sync(scripts, hasFolder = true, folderScriptNames = listOf("a/one.lua", "b/two.lua"), isListingComplete = false)
+
+        assertEquals(listOf(RomLuaScript("a/one.lua", enabled = true), RomLuaScript("b/two.lua", enabled = false)), synced)
+    }
+
+    @Test
+    fun completeListingDropsGoneSubfolderScripts() {
+        val scripts = listOf(RomLuaScript("aim.lua", enabled = true), RomLuaScript("pokemon-battle-info/battle_info.lua", enabled = true))
+
+        val synced = LuaScriptFolderSync.sync(scripts, hasFolder = true, folderScriptNames = listOf("aim.lua"), isListingComplete = true)
+
+        assertEquals(listOf(RomLuaScript("aim.lua", enabled = true)), synced)
+    }
+
+    @Test
+    fun subfolderScriptsAreSortedByTheirWholePath() {
+        val synced = LuaScriptFolderSync.sync(emptyList(), hasFolder = true, folderScriptNames = listOf("zed.lua", "mod/main.lua", "Aim.lua"))
+
+        assertEquals(listOf("Aim.lua", "mod/main.lua", "zed.lua"), synced.map { it.fileName })
+    }
+
+    @Test
     fun optionsAreKeptWhenSyncing() {
         val scripts = listOf(RomLuaScript("aim.lua", enabled = true, options = mapOf("speed" to "7")))
 

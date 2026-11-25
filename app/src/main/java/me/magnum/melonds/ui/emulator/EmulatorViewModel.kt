@@ -1137,10 +1137,11 @@ class EmulatorViewModel @Inject constructor(
         val libraryRom = getLibraryRom(rom)
         val config = (libraryRom ?: rom).config
         val mods = config.mods
-        val folderScriptNames = withContext(Dispatchers.IO) {
-            mods.luaScriptFolder?.let { luaScriptStorage.listScripts(it) }?.map { it.name }
+        val listing = withContext(Dispatchers.IO) {
+            mods.luaScriptFolder?.let { luaScriptStorage.listScripts(it) }
         }
-        val syncedScripts = LuaScriptFolderSync.sync(mods.luaScripts, mods.luaScriptFolder != null, folderScriptNames)
+        val folderScriptNames = listing?.scripts?.map { it.name }
+        val syncedScripts = LuaScriptFolderSync.sync(mods.luaScripts, mods.luaScriptFolder != null, folderScriptNames, listing?.isComplete ?: true)
         if (libraryRom != null && syncedScripts != mods.luaScripts) {
             romsRepository.updateRomConfig(libraryRom, config.copy(mods = mods.copy(luaScripts = syncedScripts)))
         }

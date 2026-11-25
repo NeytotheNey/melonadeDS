@@ -1,5 +1,6 @@
 // LuaScriptFolderContentTest.kt, case for case
 #include <algorithm>
+#include <cstdio>
 #include <map>
 #include <set>
 #include <string>
@@ -45,9 +46,9 @@ struct FakeTree
     }
 };
 
-WalkResult<std::string> WalkTree(FakeTree& tree)
+WalkResult<std::string> WalkTree(FakeTree& tree, const std::set<std::string>& scriptPaths = {})
 {
-    auto result = Walk(std::string(), [&](const std::string& path) { return tree.List(path); });
+    auto result = Walk(std::string(), [&](const std::string& path) { return tree.List(path); }, scriptPaths);
     return result ? *result : WalkResult<std::string> {};
 }
 
@@ -216,6 +217,201 @@ TEST(LuaScriptFolderContent, sameNameListedTwiceIsOneFile)
 
     CHECK_SAME(Names {"a.x"}, ModuleNames(WalkTree(tree)));
     CHECK_SAME((Names {"", "a"}), tree.Listed);
+}
+
+namespace
+{
+
+// File contents for ListScripts by path, with the paths it read in [Read]; a path not in [Files] can't be read
+struct FakeFiles
+{
+    std::map<std::string, std::string> Files;
+    Names Read;
+
+    std::optional<std::string> ReadStart(const FoundFile<std::string>& file)
+    {
+        Read.push_back(file.Path);
+        auto found = Files.find(file.Handle);
+        if (found == Files.end())
+            return std::nullopt;
+        return found->second;
+    }
+};
+
+std::optional<ScriptListing<std::string>> ListTreeScripts(FakeTree& tree, FakeFiles& files)
+{
+    return ListScripts(
+        std::string(), [&](const std::string& path) { return tree.List(path); },
+        [&](const FoundFile<std::string>& file) { return files.ReadStart(file); });
+}
+
+Names Paths(const std::vector<FoundFile<std::string>>& files)
+{
+    Names paths;
+    for (const FoundFile<std::string>& file : files)
+        paths.push_back(file.Path);
+    return paths;
+}
+
+FakeTree ModTree()
+{
+    return {{
+        {"", {"aim.lua", "hud.png", "pokemon-battle-info/"}},
+        {"pokemon-battle-info", {"battle_info.lua", "pbi/", "img/"}},
+        {"pokemon-battle-info/pbi", {"ui.lua"}},
+        {"pokemon-battle-info/img", {"icons.png"}},
+    }};
+}
+
+FakeFiles ModFiles()
+{
+    return {{
+        {"pokemon-battle-info/battle_info.lua", "-- description: Shows battle info\nlocal ui = require(\"pbi.ui\")\n"},
+        {"pokemon-battle-info/pbi/ui.lua", "-- UI for battle_info.lua\nlocal M = {}\nreturn M\n"},
+    }};
+}
+
+}
+
+TEST(LuaScriptFolderContent, nestedModListsOnlyItsScript)
+{
+    FakeTree modTree = ModTree();
+    FakeFiles modFiles = ModFiles();
+    ScriptListing<std::string> listing = SOME(ListTreeScripts(modTree, modFiles));
+
+    CHECK_SAME((Names {"aim.lua", "pokemon-battle-info/battle_info.lua"}), Paths(listing.Scripts));
+    CHECK(listing.IsComplete);
+    // Top-level files are scripts without being read
+    CHECK_SAME((Names {"pokemon-battle-info/battle_info.lua", "pokemon-battle-info/pbi/ui.lua"}), modFiles.Read);
+}
+
+TEST(LuaScriptFolderContent, nestedModsModuleAndImageHaveTheirFullNames)
+{
+    FakeTree modTree = ModTree();
+    WalkResult<std::string> result = WalkTree(modTree, {"aim.lua", "pokemon-battle-info/battle_info.lua"});
+
+    CHECK_SAME((std::vector<std::pair<std::string, std::string>> {{"pokemon-battle-info.pbi.ui", "pokemon-battle-info/pbi/ui.lua"}}),
+        NamesAndPaths(result));
+    CHECK_SAME((Names {"hud.png", "pokemon-battle-info/img/icons.png"}), ImagePaths(result));
+    CHECK_SAME(Names {"aim.lua"}, Paths(result.TopLevelScripts));
+    CHECK_SAME((Names {"pokemon-battle-info/battle_info.lua", "pokemon-battle-info/pbi/ui.lua"}), Paths(result.ScriptCandidates));
+}
+
+TEST(LuaScriptFolderContent, knownScriptPathsAreNotModules)
+{
+    FakeTree modTree = ModTree();
+    CHECK_SAME((Names {"pokemon-battle-info.battle_info", "pokemon-battle-info.pbi.ui"}), ModuleNames(WalkTree(modTree)));
+    CHECK_SAME(Names {"pokemon-battle-info.pbi.ui"}, ModuleNames(WalkTree(modTree, {"pokemon-battle-info/battle_info.lua"})));
+}
+
+TEST(LuaScriptFolderContent, knownScriptsDontCountTowardTheFileCap)
+{
+    // "main.lua" comes after every "i<n>.png" in name order
+    FakeTree tree {{{"", {"mod/"}}, {"mod", {"main.lua"}}}};
+    for (int i = 1; i <= MAX_FOUND_FILES; i++)
+        tree.Folders["mod"].push_back("i" + std::to_string(i) + ".png");
+
+    WalkResult<std::string> asScript = WalkTree(tree, {"mod/main.lua"});
+    CHECK(!asScript.GaveUp);
+    CHECK_SAME((size_t)MAX_FOUND_FILES, asScript.Images.size());
+    CHECK(asScript.Modules.empty());
+
+    CHECK(WalkTree(tree).GaveUp);
+}
+
+TEST(LuaScriptFolderContent, subfolderScriptNameCanBeAnything)
+{
+    FakeTree tree {{{"", {"mod/"}}, {"mod", {"My Script.v2.LUA"}}}};
+    FakeFiles files {{{"mod/My Script.v2.LUA", "-- description: x\n"}}};
+
+    CHECK_SAME(Names {"mod/My Script.v2.LUA"}, Paths(SOME(ListTreeScripts(tree, files)).Scripts));
+}
+
+TEST(LuaScriptFolderContent, flatFolderListsItsTopLevelScriptsWithoutReadingThem)
+{
+    FakeTree tree {{{"", {"b.lua", "A.lua", "notes.txt", "hud.png", "x.LUA"}}}};
+    FakeFiles files;
+
+    ScriptListing<std::string> listing = SOME(ListTreeScripts(tree, files));
+
+    CHECK_SAME((Names {"A.lua", "b.lua", "x.LUA"}), Paths(listing.Scripts));
+    CHECK(listing.IsComplete);
+    CHECK(files.Read.empty());
+}
+
+TEST(LuaScriptFolderContent, listingChecksAtMost256SubfolderFiles)
+{
+    FakeTree tree {{{"", {"mods/"}}}};
+    FakeFiles files;
+    for (int i = 1; i <= 300; i++)
+    {
+        char name[16];
+        snprintf(name, sizeof(name), "s%03d.lua", i);
+        tree.Folders["mods"].push_back(name);
+        files.Files["mods/" + std::string(name)] = "-- description: " + std::string(name) + "\n";
+    }
+
+    ScriptListing<std::string> listing = SOME(ListTreeScripts(tree, files));
+
+    CHECK_SAME((size_t)MAX_SUBFOLDER_SCRIPT_CANDIDATES, listing.Scripts.size());
+    CHECK_SAME(std::string("mods/s256.lua"), listing.Scripts.back().Path);
+    CHECK_SAME((size_t)MAX_SUBFOLDER_SCRIPT_CANDIDATES, files.Read.size());
+    CHECK(!listing.IsComplete);
+}
+
+TEST(LuaScriptFolderContent, listingIsIncompleteWhenAFirstLineCantBeRead)
+{
+    FakeTree tree {{{"", {"mod/"}}, {"mod", {"a.lua", "b.lua"}}}};
+    FakeFiles files {{{"mod/b.lua", "-- description: b\n"}}};
+
+    ScriptListing<std::string> listing = SOME(ListTreeScripts(tree, files));
+
+    CHECK_SAME(Names {"mod/b.lua"}, Paths(listing.Scripts));
+    CHECK(!listing.IsComplete);
+}
+
+TEST(LuaScriptFolderContent, listingIsIncompleteWhenASubfolderCantBeListed)
+{
+    FakeTree tree {{{"", {"aim.lua", "a/", "b/"}}, {"b", {"x.lua"}}}, {"a"}};
+    FakeFiles files {{{"b/x.lua", "-- description: x\n"}}};
+
+    ScriptListing<std::string> listing = SOME(ListTreeScripts(tree, files));
+
+    CHECK_SAME((Names {"aim.lua", "b/x.lua"}), Paths(listing.Scripts));
+    CHECK(!listing.IsComplete);
+}
+
+TEST(LuaScriptFolderContent, listingIsIncompleteWhenTheWalkGivesUp)
+{
+    FakeTree tree;
+    for (int i = 1; i <= 100; i++)
+        tree.Folders[""].push_back("f" + std::to_string(i) + "/");
+    FakeFiles files;
+
+    CHECK(!SOME(ListTreeScripts(tree, files)).IsComplete);
+}
+
+TEST(LuaScriptFolderContent, listingOfAnUnreadableRootIsNull)
+{
+    FakeTree tree;
+    tree.Unreadable = {""};
+    FakeFiles files;
+
+    CHECK_NONE(ListTreeScripts(tree, files));
+}
+
+TEST(LuaScriptFolderContent, topLevelScriptsAreListedPastTheFileCap)
+{
+    FakeTree tree;
+    for (int i = 1; i <= 5000; i++)
+        tree.Folders[""].push_back("i" + std::to_string(i) + ".png");
+    tree.Folders[""].push_back("z.lua");
+    FakeFiles files;
+
+    ScriptListing<std::string> listing = SOME(ListTreeScripts(tree, files));
+
+    CHECK_SAME(Names {"z.lua"}, Paths(listing.Scripts));
+    CHECK(!listing.IsComplete);
 }
 
 TEST(LuaScriptFolderContent, moduleBudgetLeavesOutLargeFilesAndStopsAtTheTotal)

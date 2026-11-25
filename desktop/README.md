@@ -526,7 +526,10 @@ app's Kotlin side ported in `src/lua/`.
   step with the folder (`LuaScriptFolderSync`: new scripts start off, gone ones are dropped, an unreadable or suddenly empty folder keeps
   the list) and stored if it changed. Then the enabled scripts are read (1 MB each), their headers parsed and their option values
   resolved. The game settings' Lua scripts section links the folder and switches scripts on ([Menus](#menus), Mods); `--lua-script` runs
-  scripts for one run.
+  scripts for one run. As in the app, a mod can sit in its own subfolder (`pokemon-battle-info/battle_info.lua`): a subfolder `.lua` file
+  is a script when its first line is a `-- description:` header, it's known by its path with `/`, and it takes its modules and images
+  from its own folder; a listing that isn't whole keeps the known subfolder scripts and says so on stderr (MODS.md, "Script folder and
+  the Mods tab").
 - **What they get.** The folder's modules and PNGs, within `LuaScriptFolderContent`'s caps (an image's size is read with WIC first, so
   one over 1024 a side or past the 4M pixel budget is never decoded); their saved `melon.storage` from
   `<profile>/lua-data/<game code>/<script>.bin` (homebrew by a hash of the game's settings key); and `melon.state` loads, which the app

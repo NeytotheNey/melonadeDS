@@ -118,37 +118,39 @@ std::optional<std::vector<LuaScriptFolderContent::Child<fs::path>>> ListChildren
     return children;
 }
 
-std::optional<std::vector<ScriptFile>> ListScripts(const fs::path& folder)
+std::optional<ScriptListing> ListScripts(const fs::path& folder)
 {
     // checked first, because listing a file or a missing folder would fail anyway but says less
     std::error_code error;
     if (!fs::is_directory(folder, error))
         return std::nullopt;
-    std::optional<std::vector<LuaScriptFolderContent::Child<fs::path>>> children = ListChildren(folder);
-    if (!children)
+    auto listing = LuaScriptFolderContent::ListScripts(
+        folder, [](const fs::path& path) { return ListChildren(path); },
+        [](const LuaScriptFolderContent::FoundFile<fs::path>& file) {
+            return ReadAtMost(file.Handle, (size_t)LuaScriptHeaderParser::FIRST_LINE_READ_LIMIT);
+        });
+    if (!listing)
         return std::nullopt;
-    std::vector<ScriptFile> scripts;
-    for (LuaScriptFolderContent::Child<fs::path>& child : *children)
-    {
-        if (!child.IsFolder && LuaScriptFolderContent::IsLuaScriptName(child.Name))
-            scripts.push_back({std::move(child.Name), std::move(child.Handle)});
-    }
+    ScriptListing scripts;
+    for (LuaScriptFolderContent::FoundFile<fs::path>& file : listing->Scripts)
+        scripts.Scripts.push_back({std::move(file.Path), std::move(file.Handle)});
+    scripts.IsComplete = listing->IsComplete;
     return scripts;
 }
 
 std::vector<std::pair<std::string, ReadResult>> ReadScripts(const std::optional<fs::path>& folder, const std::vector<std::string>& fileNames)
 {
     std::optional<std::map<std::string, ScriptFile>> scriptFiles;
-    std::optional<std::vector<ScriptFile>> listed = folder ? ListScripts(*folder) : std::nullopt;
+    std::optional<ScriptListing> listed = folder ? ListScripts(*folder) : std::nullopt;
     if (listed)
     {
         std::vector<std::string> names;
-        for (const ScriptFile& script : *listed)
+        for (const ScriptFile& script : listed->Scripts)
             names.push_back(script.Name);
         if (!LuaScriptFolderSync::IsSuspiciouslyEmpty(fileNames.size(), names))
         {
             scriptFiles.emplace();
-            for (ScriptFile& script : *listed)
+            for (ScriptFile& script : listed->Scripts)
                 (*scriptFiles)[script.Name] = std::move(script);
         }
     }
@@ -203,12 +205,12 @@ std::optional<std::string> ReadAtMost(const fs::path& file, size_t limit)
     return data;
 }
 
-std::optional<FolderContent> ReadFolderContent(const fs::path& folder, const ImageDecoder& decoder)
+std::optional<FolderContent> ReadFolderContent(const fs::path& folder, const std::set<std::string>& scriptPaths, const ImageDecoder& decoder)
 {
     std::error_code error;
     if (!fs::is_directory(folder, error))
         return std::nullopt;
-    auto walk = LuaScriptFolderContent::Walk(folder, [](const fs::path& path) { return ListChildren(path); });
+    auto walk = LuaScriptFolderContent::Walk(folder, [](const fs::path& path) { return ListChildren(path); }, scriptPaths);
     if (!walk)
         return std::nullopt;
 

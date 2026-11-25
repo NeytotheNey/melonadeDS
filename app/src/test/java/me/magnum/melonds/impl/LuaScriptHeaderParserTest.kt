@@ -2,7 +2,9 @@ package me.magnum.melonds.impl
 
 import me.magnum.melonds.domain.model.emulator.LuaScriptOption
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LuaScriptHeaderParserTest {
@@ -251,5 +253,45 @@ class LuaScriptHeaderParserTest {
         assertEquals(16, header.options.size)
         assertEquals("S16", header.options.last().section)
         assertEquals(0, header.unreadableOptionCount)
+    }
+
+    private fun startsWithDescription(source: String) = LuaScriptHeaderParser.startsWithDescription(source.encodeToByteArray())
+
+    @Test
+    fun firstLineDescriptionMakesAScript() {
+        assertTrue(startsWithDescription("-- description: Shows battle info\nlocal ui = require(\"pbi.ui\")\n"))
+        assertTrue(startsWithDescription("--Description:Shows battle info"))
+        assertTrue(startsWithDescription("  ---- description : Shows battle info  \n"))
+    }
+
+    @Test
+    fun firstLineCheckSkipsTheBomAndCarriageReturn() {
+        assertTrue(startsWithDescription("﻿-- description: Shows battle info\r\nprint(1)\r\n"))
+        assertTrue(startsWithDescription("-- description: x\r"))
+    }
+
+    @Test
+    fun descriptionMustBeOnTheFirstLine() {
+        assertFalse(startsWithDescription("\n-- description: Shows battle info\n"))
+        assertFalse(startsWithDescription("-- UI helpers\n-- description: Shows battle info\n"))
+        assertFalse(startsWithDescription("#!/usr/bin/lua\n-- description: Shows battle info\n"))
+        assertFalse(startsWithDescription("local M = {} -- description: x\n"))
+        assertFalse(startsWithDescription(""))
+    }
+
+    @Test
+    fun blockCommentOrEmptyDescriptionIsNotAScript() {
+        assertFalse(startsWithDescription("--[[ description: Shows battle info ]]\n"))
+        assertFalse(startsWithDescription("--[==[ description: Shows battle info\n]==]\n"))
+        assertFalse(startsWithDescription("-- description:\nprint(1)\n"))
+        assertFalse(startsWithDescription("-- description:   \r\n"))
+        assertFalse(startsWithDescription("-- descriptions: x\n"))
+    }
+
+    @Test
+    fun firstLineCheckReadsOnlyTheLimit() {
+        val padding = " ".repeat(LuaScriptHeaderParser.FIRST_LINE_READ_LIMIT)
+        assertFalse(startsWithDescription("--${padding}description: x\n"))
+        assertTrue(startsWithDescription("-- description: x$padding\n"))
     }
 }

@@ -158,7 +158,7 @@ TEST(LuaScriptStorage, scriptsAreListedAndReadWithTheirCap)
     auto listed = LuaScriptStorage::ListScripts(folder.Path);
     CHECK(listed.has_value());
     std::vector<std::string> names;
-    for (const LuaScriptStorage::ScriptFile& script : *listed)
+    for (const LuaScriptStorage::ScriptFile& script : listed->Scripts)
         names.push_back(script.Name);
     std::sort(names.begin(), names.end());
     CHECK_SAME((std::vector<std::string> {"aim.lua", "big.LUA"}), names);
@@ -186,6 +186,33 @@ TEST(LuaScriptStorage, aMissingFolderIsNotFound)
     CHECK(results[0].second.ResultKind == LuaScriptStorage::ReadResult::Kind::FolderNotFound);
 }
 
+// not in the Kotlin, which has no storage tests: a subfolder script is listed, read and left out of the modules by its path with `/`
+TEST(LuaScriptStorage, subfolderScriptsAreListedReadAndNotModules)
+{
+    TempFolder folder("storage-subfolder");
+    fs::create_directories(folder.Path / "mod" / "lib");
+    WriteFile(folder.Path / "aim.lua", "print(1)");
+    WriteFile(folder.Path / "mod" / "main.lua", "-- description: Main\nprint(2)\n");
+    WriteFile(folder.Path / "mod" / "lib" / "util.lua", "return {}");
+
+    auto listed = LuaScriptStorage::ListScripts(folder.Path);
+    CHECK(listed.has_value());
+    CHECK(listed->IsComplete);
+    std::vector<std::string> names;
+    for (const LuaScriptStorage::ScriptFile& script : listed->Scripts)
+        names.push_back(script.Name);
+    CHECK_SAME((std::vector<std::string> {"aim.lua", "mod/main.lua"}), names);
+
+    auto results = LuaScriptStorage::ReadScripts(folder.Path, {"mod/main.lua"});
+    CHECK(results[0].second.ResultKind == LuaScriptStorage::ReadResult::Kind::Success);
+    CHECK_SAME(std::string("-- description: Main\nprint(2)\n"), results[0].second.Source);
+
+    auto content = LuaScriptStorage::ReadFolderContent(folder.Path, {"aim.lua", "mod/main.lua"}, {});
+    CHECK(content.has_value());
+    CHECK_SAME(1ull, content->Modules.size());
+    CHECK_SAME(std::string("mod.lib.util"), content->Modules[0].Name);
+}
+
 TEST(LuaScriptStorage, folderContentHasModulesAndDecodedImages)
 {
     TempFolder folder("storage-content");
@@ -211,7 +238,7 @@ TEST(LuaScriptStorage, folderContentHasModulesAndDecodedImages)
         pixels = {0x80FF0000, 0xFF00FF00};
         return true;
     };
-    auto content = LuaScriptStorage::ReadFolderContent(folder.Path, decoder);
+    auto content = LuaScriptStorage::ReadFolderContent(folder.Path, {}, decoder);
     CHECK(content.has_value());
     CHECK(!content->GaveUp);
     CHECK_SAME(1ull, content->Modules.size());
@@ -249,7 +276,7 @@ TEST(LuaScriptStorage, anImageOverTheCapsIsNeverDecoded)
         pixels.assign((size_t)width * height, 0xFFFFFFFF);
         return true;
     };
-    auto content = LuaScriptStorage::ReadFolderContent(folder.Path, decoder);
+    auto content = LuaScriptStorage::ReadFolderContent(folder.Path, {}, decoder);
     CHECK(content.has_value());
     CHECK_SAME(3ull, content->Images.size());
     CHECK_SAME(std::string(LuaScriptFolderContent::REASON_IMAGE_TOO_LARGE), content->Images[0].LeftOutReason);

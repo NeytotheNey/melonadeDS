@@ -27,9 +27,12 @@ namespace LuaScriptFolderSync
 //
 // An empty listing while scripts are known also keeps the list: Android can hide a folder for a few minutes and list it as empty with no
 // error flag, and taking that as "every script was deleted" would lose the switches and options for good. The cost is that deleting every
-// script by hand leaves their entries until a script is added back or the folder is unlinked
+// script by hand leaves their entries until a script is added back or the folder is unlinked.
+//
+// A listing that isn't complete ([isListingComplete] false, see LuaScriptFolderContent::ListScripts) keeps the known scripts in subfolders
+// (names with `/`) that it doesn't have; top-level scripts still follow the listing
 std::vector<RomLuaScript> Sync(const std::vector<RomLuaScript>& scripts, bool hasFolder,
-    const std::optional<std::vector<std::string>>& folderScriptNames);
+    const std::optional<std::vector<std::string>>& folderScriptNames, bool isListingComplete = true);
 
 // whether a listing of [folderScriptNames] should count as unreadable because it's empty while [knownScriptCount] scripts are expected in it
 bool IsSuspiciouslyEmpty(size_t knownScriptCount, const std::vector<std::string>& folderScriptNames);

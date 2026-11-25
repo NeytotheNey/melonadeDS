@@ -82,6 +82,15 @@ std::optional<View> MatchKey(View text, View key)
     return rest;
 }
 
+// what follows `description:` in a comment's [text], trimmed, or none when it isn't a description line
+std::optional<View> GetDescriptionValue(View text)
+{
+    std::optional<View> match = MatchKey(text, u"description");
+    if (!match)
+        return std::nullopt;
+    return LuaText::Trim(*match);
+}
+
 // where `^--\[=*\[` ends in [line], or none
 std::optional<size_t> FindBlockCommentOpener(View line)
 {
@@ -433,12 +442,11 @@ LuaScriptHeader Parse(std::string_view source)
             continue;
         }
 
-        if (std::optional<View> descriptionText = MatchKey(text, u"description"))
+        if (std::optional<View> descriptionText = GetDescriptionValue(text))
         {
             // The first non-empty description line wins, and an empty one is never used as the fallback either
-            View trimmed = LuaText::Trim(*descriptionText);
-            if (!description && !trimmed.empty())
-                description = CapText(trimmed, MAX_DESCRIPTION_LENGTH);
+            if (!description && !descriptionText->empty())
+                description = CapText(*descriptionText, MAX_DESCRIPTION_LENGTH);
             continue;
         }
         // Banner lines like "-- ==========" have no letters or digits, so they aren't a description
@@ -450,6 +458,25 @@ LuaScriptHeader Parse(std::string_view source)
         description = CapText(*firstLine, MAX_DESCRIPTION_LENGTH);
     header.Description = ToUtf8(description);
     return header;
+}
+
+bool StartsWithDescription(std::string_view bytes)
+{
+    std::u16string decoded = LuaText::ToUtf16(bytes.substr(0, std::min(bytes.size(), (size_t)FIRST_LINE_READ_LIMIT)));
+    View text = decoded;
+    if (!text.empty() && text[0] == 0xFEFF)
+        text.remove_prefix(1);
+    size_t newlineIndex = text.find(u'\n');
+    View firstLine = newlineIndex == View::npos ? text : text.substr(0, newlineIndex);
+    if (!firstLine.empty() && firstLine.back() == u'\r')
+        firstLine.remove_suffix(1);
+    View line = LuaText::Trim(firstLine);
+    if (line.size() < 2 || line[0] != '-' || line[1] != '-' || FindBlockCommentOpener(line))
+        return false;
+
+    size_t dashes = line.find_first_not_of(u'-');
+    std::optional<View> value = GetDescriptionValue(LuaText::Trim(dashes == View::npos ? View() : line.substr(dashes)));
+    return value && !value->empty();
 }
 
 }

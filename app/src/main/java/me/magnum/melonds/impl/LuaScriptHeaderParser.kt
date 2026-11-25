@@ -8,6 +8,8 @@ import me.magnum.melonds.domain.model.emulator.LuaScriptOption
  */
 object LuaScriptHeaderParser {
     const val READ_LIMIT = 8 * 1024
+    // What startsWithDescription() needs of a file
+    const val FIRST_LINE_READ_LIMIT = 512
     const val MAX_OPTIONS = 16
     const val MAX_LABEL_LENGTH = 60
     const val MAX_CHOICE_VALUES = 8
@@ -110,10 +112,9 @@ object LuaScriptHeaderParser {
                 continue
             }
 
-            val descriptionMatch = DESCRIPTION_KEY.matchEntire(text)
-            if (descriptionMatch != null) {
+            val descriptionText = getDescriptionValue(text)
+            if (descriptionText != null) {
                 // The first non-empty description line wins, and an empty one is never used as the fallback either
-                val descriptionText = descriptionMatch.groupValues[1].trim()
                 if (description == null && descriptionText.isNotEmpty()) {
                     description = capText(descriptionText, MAX_DESCRIPTION_LENGTH)
                 }
@@ -130,6 +131,32 @@ object LuaScriptHeaderParser {
             options = options,
             unreadableOptionCount = unreadableOptionCount,
         )
+    }
+
+    /**
+     * Whether [bytes], the start of a file (the first [FIRST_LINE_READ_LIMIT] are looked at), open with a description line: after a UTF-8
+     * BOM, the first line is a `--` line comment (not a block comment opener) reading `description: ...` with a non-empty value. This is
+     * what makes a `.lua` file in a subfolder a script rather than a module.
+     */
+    fun startsWithDescription(bytes: ByteArray): Boolean {
+        val text = bytes.copyOf(minOf(bytes.size, FIRST_LINE_READ_LIMIT)).decodeToString().removePrefix("\uFEFF")
+        val newlineIndex = text.indexOf('\n')
+        val firstLine = if (newlineIndex < 0) text else text.substring(0, newlineIndex)
+        val line = firstLine.removeSuffix("\r").trim()
+        if (!line.startsWith("--") || BLOCK_COMMENT_OPENER.find(line) != null) {
+            return false
+        }
+
+        val value = getDescriptionValue(line.trimStart('-').trim())
+        return value != null && value.isNotEmpty()
+    }
+
+    /**
+     * What follows `description:` in a comment's [text], trimmed, or null when it isn't a description line
+     */
+    private fun getDescriptionValue(text: String): String? {
+        val match = DESCRIPTION_KEY.matchEntire(text) ?: return null
+        return match.groupValues[1].trim()
     }
 
     /**

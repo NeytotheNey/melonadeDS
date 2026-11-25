@@ -419,13 +419,17 @@ private:
         if (!config.LuaScriptFolder.empty())
             folder = Frontend::PathFromUtf8(config.LuaScriptFolder);
         std::optional<std::vector<std::string>> names;
+        bool isListingComplete = true;
         std::map<std::string, Frontend::LuaScriptHeader> headers;
         if (folder)
         {
             if (auto listed = Frontend::LuaScriptStorage::ListScripts(*folder))
             {
                 names.emplace();
-                for (const Frontend::LuaScriptStorage::ScriptFile& file : *listed)
+                isListingComplete = listed->IsComplete;
+                if (!isListingComplete)
+                    fprintf(stderr, "lua: the script folder couldn't be listed whole: scripts in its subfolders that aren't listed are kept\n");
+                for (const Frontend::LuaScriptStorage::ScriptFile& file : listed->Scripts)
                 {
                     names->push_back(file.Name);
                     if (std::optional<Frontend::LuaScriptHeader> header = Frontend::LuaScriptStorage::ReadHeader(file.Path))
@@ -439,7 +443,8 @@ private:
                 fprintf(stderr, "lua: the game's script folder %s can't be read, so its script list stays as it was\n",
                     config.LuaScriptFolder.c_str());
         }
-        std::vector<Frontend::RomLuaScript> synced = Frontend::LuaScriptFolderSync::Sync(config.LuaScripts, folder.has_value(), names);
+        std::vector<Frontend::RomLuaScript> synced =
+            Frontend::LuaScriptFolderSync::Sync(config.LuaScripts, folder.has_value(), names, isListingComplete);
         if (synced != config.LuaScripts)
         {
             config.LuaScripts = synced;

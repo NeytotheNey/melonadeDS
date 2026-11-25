@@ -80,9 +80,10 @@ std::shared_ptr<MelonDSAndroid::LuaFolderContent> ToNative(LuaScriptStorage::Fol
 }
 
 // the folder's modules and images for the session, or an empty set when there's no folder or it can't be read
-std::shared_ptr<MelonDSAndroid::LuaFolderContent> ReadContent(const std::optional<fs::path>& folder)
+std::shared_ptr<MelonDSAndroid::LuaFolderContent> ReadContent(const std::optional<fs::path>& folder, const std::set<std::string>& scriptPaths)
 {
-    std::optional<LuaScriptStorage::FolderContent> content = folder ? LuaScriptStorage::ReadFolderContent(*folder, MakeImageDecoder()) : std::nullopt;
+    std::optional<LuaScriptStorage::FolderContent> content =
+        folder ? LuaScriptStorage::ReadFolderContent(*folder, scriptPaths, MakeImageDecoder()) : std::nullopt;
     if (!content)
     {
         if (folder)
@@ -230,7 +231,7 @@ void LuaSession::Start(MelonDSAndroid::MelonInstance& instance, const LuaLaunch&
         // anything left from the last session is written first, so the data read below is the newest
         SaveData();
         Store.SetSessionGameKey(launch.DataGameKey);
-        std::shared_ptr<MelonDSAndroid::LuaFolderContent> content = ReadContent(launch.ContentFolder);
+        std::shared_ptr<MelonDSAndroid::LuaFolderContent> content = ReadContent(launch.ContentFolder, launch.ContentScriptPaths);
         std::vector<MelonDSAndroid::LuaScriptSource> sources;
         for (int id = 0; id < State.LoadedCount; id++)
         {

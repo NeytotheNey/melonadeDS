@@ -63,7 +63,7 @@ struct LuaEffects
 };
 
 // What a launch runs: the enabled scripts in order with how they read, each one's stored option values by file name, the folder whose
-// modules and images they get (none for none), the key their saved data is kept under (none: it lasts for the session only), whether
+// modules and images they get (none for none) with the game's scripts in it (its whole list, enabled or not, which aren't modules), the key their saved data is kept under (none: it lasts for the session only), whether
 // melon.state may load states (the app's areSaveStateLoadsAllowed), and whether option changes are saved to the game's settings (not for
 // the command line's --lua-script, whose scripts aren't the game's)
 struct LuaLaunch
@@ -71,6 +71,7 @@ struct LuaLaunch
     std::vector<std::pair<std::string, LuaScriptStorage::ReadResult>> Scripts;
     std::map<std::string, std::map<std::string, std::string>> StoredOptions;
     std::optional<std::filesystem::path> ContentFolder;
+    std::set<std::string> ContentScriptPaths;
     std::optional<std::string> DataGameKey;
     bool AreStateLoadsAllowed = true;
     bool SavesOptions = true;

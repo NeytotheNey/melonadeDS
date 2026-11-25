@@ -1,8 +1,8 @@
 package me.magnum.melonds.impl
 
 /**
- * Rules for the modules (`require`) and PNG images (`melon.image.load`) a linked folder offers its scripts, kept free of Android so they can be
- * unit tested.
+ * Rules for which files in a linked folder are scripts, and for the modules (`require`) and PNG images (`melon.image.load`) it offers them,
+ * kept free of Android so they can be unit tested.
  */
 object LuaScriptFolderContent {
 
@@ -10,6 +10,8 @@ object LuaScriptFolderContent {
     const val MAX_FOLDERS = 64
     // Modules and images the walk finds before it gives up, so a folder with thousands of files can't hold up the launch
     const val MAX_FOUND_FILES = 4096
+    // Subfolder `.lua` files whose first line a listing reads to tell scripts from modules
+    const val MAX_SUBFOLDER_SCRIPT_CANDIDATES = 256
 
     private const val MEGA = 1024 * 1024
 
@@ -47,16 +49,30 @@ object LuaScriptFolderContent {
     class Child<T>(val name: String, val isFolder: Boolean, val size: Long?, val handle: T)
 
     /**
-     * A module or image found by [walk], with its [path] relative to the linked folder and `/` between parts
+     * A script, module or image found by [walk], with its [path] relative to the linked folder and `/` between parts
      */
     class FoundFile<T>(val path: String, val size: Long?, val handle: T)
 
     class Module<T>(val name: String, val file: FoundFile<T>)
 
     /**
-     * What [walk] found, in path order, with [gaveUp] set when a cap stopped it early
+     * What [walk] found, each list in path order: the modules and images, the top-level `.lua` files (always scripts), and every `.lua` file in
+     * the subfolders it listed (scripts only if their first line says so, see [listScripts]). [gaveUp] is set when a cap stopped it early and
+     * [skippedFolder] when a subfolder couldn't be listed.
      */
-    class WalkResult<T>(val modules: List<Module<T>>, val images: List<FoundFile<T>>, val gaveUp: Boolean)
+    class WalkResult<T>(
+        val modules: List<Module<T>>,
+        val images: List<FoundFile<T>>,
+        val topLevelScripts: List<FoundFile<T>>,
+        val scriptCandidates: List<FoundFile<T>>,
+        val gaveUp: Boolean,
+        val skippedFolder: Boolean,
+    )
+
+    /**
+     * The scripts a listing found, in path order, with [isComplete] false when some could be missing (see [listScripts])
+     */
+    class ScriptListing<T>(val scripts: List<FoundFile<T>>, val isComplete: Boolean)
 
     fun isNamePartAllowed(part: String): Boolean {
         return NAME_PART.matches(part)
@@ -104,17 +120,21 @@ object LuaScriptFolderContent {
 
     /**
      * Walks breadth first from [root], at most [MAX_DEPTH] deep and [MAX_FOLDERS] folders; a folder [listChildren] can't read is skipped, an
-     * unreadable root returns null
+     * unreadable root returns null. A subfolder `.lua` file in [scriptPaths] (the known scripts) isn't a module and doesn't count toward
+     * [MAX_FOUND_FILES].
      */
-    fun <T> walk(root: T, listChildren: (T) -> List<Child<T>>?): WalkResult<T>? {
+    fun <T> walk(root: T, listChildren: (T) -> List<Child<T>>?, scriptPaths: Set<String> = emptySet()): WalkResult<T>? {
         val rootChildren = listChildren(root) ?: return null
 
         val modules = mutableListOf<Module<T>>()
         val images = mutableListOf<FoundFile<T>>()
+        val topLevelScripts = mutableListOf<FoundFile<T>>()
+        val scriptCandidates = mutableListOf<FoundFile<T>>()
         // Folders waiting to be listed, with their path and depth (1 for the root's subfolders)
         val folders = ArrayDeque<Triple<T, String, Int>>()
         var listedFolderCount = 0
         var gaveUp = false
+        var skippedFolder = false
 
         fun addChildren(children: List<Child<T>>, folderPath: String, depth: Int) {
             // Some providers list two documents with the same name, and only the first one counts
@@ -127,14 +147,27 @@ object LuaScriptFolderContent {
                     continue
                 }
 
+                if (isLuaScriptName(child.name)) {
+                    val scriptFile = FoundFile(path, child.size, child.handle)
+                    if (depth == 0) {
+                        topLevelScripts.add(scriptFile)
+                        continue
+                    }
+                    scriptCandidates.add(scriptFile)
+                    if (path in scriptPaths) {
+                        continue
+                    }
+                }
+
                 val moduleName = if (depth > 0) getModuleName(path) else null
                 val isImage = moduleName == null && isImagePath(path)
                 if (moduleName == null && !isImage) {
                     continue
                 }
+                // The rest of the folder is still gone through for its scripts
                 if (modules.size + images.size >= MAX_FOUND_FILES) {
                     gaveUp = true
-                    return
+                    continue
                 }
                 val file = FoundFile(path, child.size, child.handle)
                 if (moduleName != null) {
@@ -153,14 +186,46 @@ object LuaScriptFolderContent {
             }
             val (folder, path, depth) = folders.removeFirst()
             listedFolderCount++
-            listChildren(folder)?.let { addChildren(it, path, depth) }
+            val children = listChildren(folder)
+            if (children == null) {
+                skippedFolder = true
+            } else {
+                addChildren(children, path, depth)
+            }
         }
 
+        val pathOrder = compareBy<FoundFile<T>, String>(NAME_ORDER) { it.path }
         return WalkResult(
             modules = pickModules(modules).sortedWith(compareBy(NAME_ORDER) { it.file.path }),
-            images = images.sortedWith(compareBy(NAME_ORDER) { it.path }),
+            images = images.sortedWith(pathOrder),
+            topLevelScripts = topLevelScripts.sortedWith(pathOrder),
+            scriptCandidates = scriptCandidates.sortedWith(pathOrder),
             gaveUp = gaveUp,
+            skippedFolder = skippedFolder,
         )
+    }
+
+    /**
+     * The folder's scripts, or null when the root can't be listed: every top-level `.lua` file, and each subfolder one whose first line is a
+     * description (see [LuaScriptHeaderParser.startsWithDescription]), read with [readStart] (null when the file can't be read). At most
+     * [MAX_SUBFOLDER_SCRIPT_CANDIDATES] subfolder files are read, in path order. The listing is incomplete when the walk gave up or skipped a
+     * folder, there were more subfolder files than that, or one of them couldn't be read.
+     */
+    fun <T> listScripts(root: T, listChildren: (T) -> List<Child<T>>?, readStart: (FoundFile<T>) -> ByteArray?): ScriptListing<T>? {
+        val walk = walk(root, listChildren) ?: return null
+
+        val scripts = mutableListOf<FoundFile<T>>()
+        scripts.addAll(walk.topLevelScripts)
+        var isComplete = !walk.gaveUp && !walk.skippedFolder && walk.scriptCandidates.size <= MAX_SUBFOLDER_SCRIPT_CANDIDATES
+        for (candidate in walk.scriptCandidates.take(MAX_SUBFOLDER_SCRIPT_CANDIDATES)) {
+            val start = readStart(candidate)
+            if (start == null) {
+                isComplete = false
+            } else if (LuaScriptHeaderParser.startsWithDescription(start)) {
+                scripts.add(candidate)
+            }
+        }
+        return ScriptListing(scripts.sortedWith(compareBy(NAME_ORDER) { it.path }), isComplete)
     }
 
     /**

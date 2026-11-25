@@ -14,8 +14,16 @@ object LuaScriptFolderSync {
      * An empty listing while scripts are known also keeps the list: Android can hide a folder for a few minutes and list it as empty with no
      * error flag, and taking that as "every script was deleted" would lose the switches and options for good. The cost is that deleting every
      * script by hand leaves their entries until a script is added back or the folder is unlinked.
+     *
+     * A listing that isn't complete ([isListingComplete] false, see [LuaScriptFolderContent.listScripts]) keeps the known scripts in
+     * subfolders (names with `/`) that it doesn't have; top-level scripts still follow the listing.
      */
-    fun sync(scripts: List<RomLuaScript>, hasFolder: Boolean, folderScriptNames: Collection<String>?): List<RomLuaScript> {
+    fun sync(
+        scripts: List<RomLuaScript>,
+        hasFolder: Boolean,
+        folderScriptNames: Collection<String>?,
+        isListingComplete: Boolean = true,
+    ): List<RomLuaScript> {
         if (!hasFolder) {
             return emptyList()
         }
@@ -25,7 +33,15 @@ object LuaScriptFolderSync {
 
         val knownScripts = scripts.associateBy { it.fileName }
         // Some providers can list two documents with the same name, but scripts are known by name, so they're one entry
-        return folderScriptNames.distinct().sortedWith(LuaScriptFolderContent.NAME_ORDER).map { knownScripts[it] ?: RomLuaScript(fileName = it, enabled = false) }
+        val names = LinkedHashSet(folderScriptNames)
+        if (!isListingComplete) {
+            for (script in scripts) {
+                if (script.fileName.contains('/')) {
+                    names.add(script.fileName)
+                }
+            }
+        }
+        return names.sortedWith(LuaScriptFolderContent.NAME_ORDER).map { knownScripts[it] ?: RomLuaScript(fileName = it, enabled = false) }
     }
 
     /**

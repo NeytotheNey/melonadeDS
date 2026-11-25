@@ -611,8 +611,10 @@ class AndroidEmulatorManager(
             // Null if the ROM's header couldn't be read, in which case the scripts' data lives for the session only rather than under a guessed key
             val dataGameKey = getDataGameKey()
             luaScriptDataStore.setSessionGameKey(dataGameKey)
-            // Modules and images come from the whole folder tree; without them require() or image.load() say what's missing
-            val folderContent = luaScriptFolder?.let { luaScriptStorage.readFolderContent(it) }
+            // Modules and images come from the whole folder tree; without them require() or image.load() say what's missing. Every script the
+            // game has, enabled or not, is left out of the modules
+            val scriptPaths = luaScripts.map { it.fileName }.toSet()
+            val folderContent = luaScriptFolder?.let { luaScriptStorage.readFolderContent(it, scriptPaths) }
             DebugLog.event {
                 val modules = folderContent?.modules.orEmpty()
                 val images = folderContent?.images.orEmpty()

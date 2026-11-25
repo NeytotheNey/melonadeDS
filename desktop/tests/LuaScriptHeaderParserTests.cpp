@@ -268,3 +268,51 @@ TEST(LuaScriptHeaderParser, sectionLinesDontCountTowardTheOptionLimit)
     CHECK_SAME(std::optional<std::string>("S16"), header.Options.back().Section);
     CHECK_SAME(0, header.UnreadableOptionCount);
 }
+
+namespace
+{
+
+bool StartsWithDescription(const std::string& source)
+{
+    return LuaScriptHeaderParser::StartsWithDescription(source);
+}
+
+}
+
+TEST(LuaScriptHeaderParser, firstLineDescriptionMakesAScript)
+{
+    CHECK(StartsWithDescription("-- description: Shows battle info\nlocal ui = require(\"pbi.ui\")\n"));
+    CHECK(StartsWithDescription("--Description:Shows battle info"));
+    CHECK(StartsWithDescription("  ---- description : Shows battle info  \n"));
+}
+
+TEST(LuaScriptHeaderParser, firstLineCheckSkipsTheBomAndCarriageReturn)
+{
+    CHECK(StartsWithDescription("\xEF\xBB\xBF-- description: Shows battle info\r\nprint(1)\r\n"));
+    CHECK(StartsWithDescription("-- description: x\r"));
+}
+
+TEST(LuaScriptHeaderParser, descriptionMustBeOnTheFirstLine)
+{
+    CHECK(!StartsWithDescription("\n-- description: Shows battle info\n"));
+    CHECK(!StartsWithDescription("-- UI helpers\n-- description: Shows battle info\n"));
+    CHECK(!StartsWithDescription("#!/usr/bin/lua\n-- description: Shows battle info\n"));
+    CHECK(!StartsWithDescription("local M = {} -- description: x\n"));
+    CHECK(!StartsWithDescription(""));
+}
+
+TEST(LuaScriptHeaderParser, blockCommentOrEmptyDescriptionIsNotAScript)
+{
+    CHECK(!StartsWithDescription("--[[ description: Shows battle info ]]\n"));
+    CHECK(!StartsWithDescription("--[==[ description: Shows battle info\n]==]\n"));
+    CHECK(!StartsWithDescription("-- description:\nprint(1)\n"));
+    CHECK(!StartsWithDescription("-- description:   \r\n"));
+    CHECK(!StartsWithDescription("-- descriptions: x\n"));
+}
+
+TEST(LuaScriptHeaderParser, firstLineCheckReadsOnlyTheLimit)
+{
+    std::string padding = Repeat(" ", LuaScriptHeaderParser::FIRST_LINE_READ_LIMIT);
+    CHECK(!StartsWithDescription("--" + padding + "description: x\n"));
+    CHECK(StartsWithDescription("-- description: x" + padding + "\n"));
+}

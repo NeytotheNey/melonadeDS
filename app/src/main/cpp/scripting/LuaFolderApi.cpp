@@ -59,6 +59,33 @@ static const typename Map::mapped_type* findInFolder(const Map* folder, const ch
 }
 
 /**
+ * The length of the folder the script is in, relative to the linked folder: its name up to the last '/', 0 for a top-level script
+ */
+static size_t getScriptFolderLength(const LuaScript& script)
+{
+    size_t slash = script.source.name.rfind('/');
+    return slash == std::string::npos ? 0 : slash;
+}
+
+/**
+ * Pushes the key of [name] in a subfolder script's own folder (its first [folderLength] chars of [folder]), with [separator] between the
+ * parts: "pbi.ui" in "mod/sub" is "mod.sub.pbi.ui" with '.', "img/a.png" is "mod/sub/img/a.png" with '/'. Built on the Lua stack, so that
+ * no C++ object is alive if it raises a memory error.
+ */
+static const char* pushFolderKey(lua_State* L, const char* folder, size_t folderLength, char separator, const char* name, size_t nameLength,
+                                 size_t* keyLength)
+{
+    luaL_Buffer buffer;
+    luaL_buffinit(L, &buffer);
+    for (size_t i = 0; i < folderLength; i++)
+        luaL_addchar(&buffer, folder[i] == '/' ? separator : folder[i]);
+    luaL_addchar(&buffer, separator);
+    luaL_addlstring(&buffer, name, nameLength);
+    luaL_pushresult(&buffer);
+    return lua_tolstring(L, -1, keyLength);
+}
+
+/**
  * Raises the string at the top of the stack as an error, with the caller's position in front like luaL_error()
  */
 static int raiseWithPosition(lua_State* L)
@@ -112,16 +139,30 @@ int LuaFolderApi::require(lua_State* L)
         return raiseWithPosition(L);
     }
 
-    const LuaFolderContent* folderContent = getScript(L).engine->folderContent.get();
-    const LuaFolderContent::Module* module = findInFolder(folderContent ? &folderContent->modules : nullptr, name, nameLength);
+    // A script in a subfolder (and every module it requires) looks for modules in that folder: "pbi.ui" from "mod/main.lua" is "mod.pbi.ui"
+    const LuaScript& script = getScript(L);
+    const char* folder = script.source.name.c_str();
+    size_t folderLength = getScriptFolderLength(script);
+    const char* key = name;
+    size_t keyLength = nameLength;
+    if (folderLength > 0)
+        key = pushFolderKey(L, folder, folderLength, '.', name, nameLength, &keyLength);
+
+    const LuaFolderContent* folderContent = script.engine->folderContent.get();
+    const LuaFolderContent::Module* module = findInFolder(folderContent ? &folderContent->modules : nullptr, key, keyLength);
     if (!module)
     {
         // As a path: lib.util is lib/util.lua or lib/util/init.lua
         const char* path = luaL_gsub(L, name, ".", "/");
-        return luaL_error(L, "module '%s' not found (looked for %s.lua and %s/init.lua in the script folder's subfolders)", name, path, path);
+        if (folderLength == 0)
+            return luaL_error(L, "module '%s' not found (looked for %s.lua and %s/init.lua in the script folder's subfolders)", name, path, path);
+        const char* folderName = lua_pushlstring(L, folder, folderLength);
+        return luaL_error(L, "module '%s' not found (looked for %s.lua and %s/init.lua in %s/)", name, path, path, folderName);
     }
     if (!module->source)
         return luaL_error(L, "module '%s' wasn't loaded: %s", name, module->leftOutReason.c_str());
+    // The key isn't needed anymore, and the slots from 4 on are used below
+    lua_settop(L, 3);
 
     melonade_charge_work(L, (lua_Integer) module->source->size());
     // "=lib/util.lua", so that errors read "lib/util.lua:12: ..."
@@ -168,19 +209,34 @@ static LuaImage* pushImage(lua_State* L, int width, int height, const u32* pixel
 }
 
 /**
- * melon.image.load(path): an image from the script folder by its path in it ("img/hud.png"), or nil and why not
+ * melon.image.load(path): an image from the script folder by its path in it ("img/hud.png"), or from the script's own folder for a script in
+ * a subfolder, or nil and why not
  */
 int LuaFolderApi::imageLoad(lua_State* L)
 {
     size_t pathLength;
     const char* path = luaL_checklstring(L, 1, &pathLength);
-    const LuaFolderContent* folderContent = getScript(L).engine->folderContent.get();
-    const LuaFolderContent::Image* image = findInFolder(folderContent ? &folderContent->images : nullptr, path, pathLength);
+    const LuaScript& script = getScript(L);
+    const char* folder = script.source.name.c_str();
+    size_t folderLength = getScriptFolderLength(script);
+    const char* key = path;
+    size_t keyLength = pathLength;
+    if (folderLength > 0)
+        key = pushFolderKey(L, folder, folderLength, '/', path, pathLength, &keyLength);
 
+    const LuaFolderContent* folderContent = script.engine->folderContent.get();
+    const LuaFolderContent::Image* image = findInFolder(folderContent ? &folderContent->images : nullptr, key, keyLength);
     if (!image)
     {
+        if (folderLength == 0)
+        {
+            lua_pushnil(L);
+            lua_pushfstring(L, "image '%s' not found in the script folder", path);
+            return 2;
+        }
+        const char* folderName = lua_pushlstring(L, folder, folderLength);
         lua_pushnil(L);
-        lua_pushfstring(L, "image '%s' not found in the script folder", path);
+        lua_pushfstring(L, "image '%s' not found in %s/", path, folderName);
         return 2;
     }
     if (image->pixels.empty())

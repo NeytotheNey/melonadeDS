@@ -266,12 +266,12 @@ class RomDetailsViewModel @Inject constructor(
             // Synced against the newest config, or the sync would save the old one back
             pendingRomReload?.join()
             val folderUri = _romConfig.value.mods.luaScriptFolder
-            val (listedScriptFiles, headers) = withContext(Dispatchers.IO) {
-                val scriptFiles = folderUri?.let { luaScriptStorage.listScripts(it) }
-                val headers = scriptFiles.orEmpty().mapNotNull { scriptFile ->
+            val (listing, headers) = withContext(Dispatchers.IO) {
+                val folderListing = folderUri?.let { luaScriptStorage.listScripts(it) }
+                val headers = folderListing?.scripts.orEmpty().mapNotNull { scriptFile ->
                     luaScriptStorage.readHeader(scriptFile)?.let { scriptFile.name to it }
                 }.toMap()
-                scriptFiles to headers
+                folderListing to headers
             }
 
             // Applied to the config as it is now, so switches flipped while the folder was read are kept
@@ -280,8 +280,9 @@ class RomDetailsViewModel @Inject constructor(
                 return@launch
             }
             // An empty listing with scripts known is taken as a hidden folder (see LuaScriptFolderSync.sync), so the screen says it can't be read
-            val scriptFiles = listedScriptFiles?.takeUnless { LuaScriptFolderSync.isSuspiciouslyEmpty(romConfig.mods.luaScripts.size, it.map { file -> file.name }) }
-            val syncedScripts = LuaScriptFolderSync.sync(romConfig.mods.luaScripts, folderUri != null, scriptFiles?.map { it.name })
+            val scriptFiles = listing?.scripts?.takeUnless { LuaScriptFolderSync.isSuspiciouslyEmpty(romConfig.mods.luaScripts.size, it.map { file -> file.name }) }
+            val isListingComplete = listing?.isComplete ?: true
+            val syncedScripts = LuaScriptFolderSync.sync(romConfig.mods.luaScripts, folderUri != null, scriptFiles?.map { it.name }, isListingComplete)
             if (syncedScripts != romConfig.mods.luaScripts) {
                 applyRomConfig(romConfig.withLuaScripts { syncedScripts })
             }

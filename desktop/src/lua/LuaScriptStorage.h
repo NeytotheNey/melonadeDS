@@ -1,13 +1,14 @@
 // Reads a game's Lua scripts, their headers, modules and images from its linked folder, ported from the app's impl/LuaScriptStorage.kt
 // (listScripts, readScripts, readHeader and readFolderContent) over std::filesystem instead of the Storage Access Framework. The app never
 // writes to the folder and native never opens script files. Nothing here logs: what the app logs comes back in the results (the read
-// results, the left-out reasons, FolderContent::GaveUp) for the caller to log
+// results, ScriptListing::IsComplete, the left-out reasons, FolderContent::GaveUp) for the caller to log
 #pragma once
 
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -20,11 +21,18 @@ namespace Frontend::LuaScriptStorage
 
 constexpr int MAX_SCRIPT_SIZE = 1024 * 1024;
 
-// a .lua file at the top of a linked folder
+// a script in a linked folder, [Name] being its path in it (aim.lua, my-mod/main.lua)
 struct ScriptFile
 {
     std::string Name;
     std::filesystem::path Path;
+};
+
+// the scripts in a linked folder, in path order, with [IsComplete] false when some could be missing (see LuaScriptFolderSync::Sync)
+struct ScriptListing
+{
+    std::vector<ScriptFile> Scripts;
+    bool IsComplete = true;
 };
 
 struct ReadResult
@@ -45,8 +53,9 @@ struct ReadResult
 // the result's name, as the app logs it ("Skipping Lua script x.lua: FileNotFound")
 const char* ResultName(ReadResult::Kind kind);
 
-// top-level .lua files, unordered, or none when the folder can't be read (missing, not a folder, or the listing failed)
-std::optional<std::vector<ScriptFile>> ListScripts(const std::filesystem::path& folder);
+// the folder's scripts (rules in LuaScriptFolderContent::ListScripts), or none when the folder can't be read (missing, not a folder, or the
+// listing failed); it walks the subfolders and reads the start of their .lua files, so not on the emulator thread's frame loop
+std::optional<ScriptListing> ListScripts(const std::filesystem::path& folder);
 
 // reads the given scripts in order from [folder], listing it once; with no folder every result is FolderNotFound, and so with an empty
 // listing, which is taken as a hidden folder (see LuaScriptFolderSync::Sync)
@@ -103,7 +112,8 @@ struct ImageDecoder
 
 // Reads the scripts' modules and decodes their images with [decoder] (rules in LuaScriptFolderContent; an image's size is read first, so
 // one over the caps is never decoded), or none if the folder can't be read; it lists up to 65 folders and reads a few MB, so not on the UI
-// or emulator thread's frame loop
-std::optional<FolderContent> ReadFolderContent(const std::filesystem::path& folder, const ImageDecoder& decoder);
+// or emulator thread's frame loop. [scriptPaths] are the game's scripts (its whole list), which aren't modules
+std::optional<FolderContent> ReadFolderContent(const std::filesystem::path& folder, const std::set<std::string>& scriptPaths,
+    const ImageDecoder& decoder);
 
 }

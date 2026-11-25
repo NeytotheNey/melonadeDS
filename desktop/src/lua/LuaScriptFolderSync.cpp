@@ -9,7 +9,7 @@ namespace Frontend::LuaScriptFolderSync
 {
 
 std::vector<RomLuaScript> Sync(const std::vector<RomLuaScript>& scripts, bool hasFolder,
-    const std::optional<std::vector<std::string>>& folderScriptNames)
+    const std::optional<std::vector<std::string>>& folderScriptNames, bool isListingComplete)
 {
     if (!hasFolder)
         return {};
@@ -28,6 +28,14 @@ std::vector<RomLuaScript> Sync(const std::vector<RomLuaScript>& scripts, bool ha
     {
         if (seen.insert(name).second)
             names.push_back(name);
+    }
+    if (!isListingComplete)
+    {
+        for (const RomLuaScript& script : scripts)
+        {
+            if (script.FileName.find('/') != std::string::npos && seen.insert(script.FileName).second)
+                names.push_back(script.FileName);
+        }
     }
     std::stable_sort(names.begin(), names.end(),
         [](const std::string& a, const std::string& b) { return LuaScriptFolderContent::NameLess(a, b); });

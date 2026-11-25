@@ -2680,6 +2680,8 @@ int main(int argc, char** argv)
                 std::string name = Frontend::PathToUtf8(scriptPath.filename());
                 launch.Scripts.emplace_back(name, Frontend::LuaScriptStorage::ReadScriptFile(scriptPath));
                 launch.StoredOptions[name] = opts.LuaOptions;
+                // top-level names in the first one's folder, which aren't modules there either
+                launch.ContentScriptPaths.insert(name);
                 printf("Lua script: %s\n", file.c_str());
             }
             std::error_code pathError;
@@ -2695,19 +2697,24 @@ int main(int argc, char** argv)
             if (!config.LuaScriptFolder.empty())
                 folder = Frontend::PathFromUtf8(config.LuaScriptFolder);
             std::optional<std::vector<std::string>> folderNames;
+            bool isListingComplete = true;
             if (folder)
             {
                 if (auto listed = Frontend::LuaScriptStorage::ListScripts(*folder))
                 {
                     folderNames.emplace();
-                    for (const Frontend::LuaScriptStorage::ScriptFile& script : *listed)
+                    for (const Frontend::LuaScriptStorage::ScriptFile& script : listed->Scripts)
                         folderNames->push_back(script.Name);
+                    isListingComplete = listed->IsComplete;
+                    if (!isListingComplete)
+                        fprintf(stderr, "lua: the script folder couldn't be listed whole: scripts in its subfolders that aren't listed are kept\n");
                 }
                 else
                     fprintf(stderr, "lua: the game's script folder %s can't be read, so its script list stays as it was\n",
                         config.LuaScriptFolder.c_str());
             }
-            std::vector<Frontend::RomLuaScript> synced = Frontend::LuaScriptFolderSync::Sync(config.LuaScripts, folder.has_value(), folderNames);
+            std::vector<Frontend::RomLuaScript> synced =
+                Frontend::LuaScriptFolderSync::Sync(config.LuaScripts, folder.has_value(), folderNames, isListingComplete);
             if (synced != config.LuaScripts)
             {
                 config.LuaScripts = synced;
@@ -2717,6 +2724,8 @@ int main(int argc, char** argv)
             std::vector<std::string> enabled;
             for (const Frontend::RomLuaScript& script : synced)
             {
+                // every script the game has, enabled or not, is left out of the modules
+                launch.ContentScriptPaths.insert(script.FileName);
                 if (!script.Enabled)
                     continue;
                 enabled.push_back(script.FileName);

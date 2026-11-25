@@ -165,6 +165,158 @@ class LuaScriptFolderContentTest {
         assertEquals(listOf("", "a"), tree.listed)
     }
 
+    /**
+     * File contents for [LuaScriptFolderContent.listScripts] by path, with the paths it read in [read]; a path not in [files] can't be read
+     */
+    private class FakeFiles(private val files: Map<String, String>) {
+        val read = mutableListOf<String>()
+
+        fun readStart(file: LuaScriptFolderContent.FoundFile<String>): ByteArray? {
+            read.add(file.path)
+            return files[file.handle]?.encodeToByteArray()
+        }
+    }
+
+    private val modTree = FakeTree(
+        mapOf(
+            "" to listOf("aim.lua", "hud.png", "pokemon-battle-info/"),
+            "pokemon-battle-info" to listOf("battle_info.lua", "pbi/", "img/"),
+            "pokemon-battle-info/pbi" to listOf("ui.lua"),
+            "pokemon-battle-info/img" to listOf("icons.png"),
+        )
+    )
+    private val modFiles = FakeFiles(
+        mapOf(
+            "pokemon-battle-info/battle_info.lua" to "-- description: Shows battle info\nlocal ui = require(\"pbi.ui\")\n",
+            "pokemon-battle-info/pbi/ui.lua" to "-- UI for battle_info.lua\nlocal M = {}\nreturn M\n",
+        )
+    )
+
+    @Test
+    fun nestedModListsOnlyItsScript() {
+        val listing = LuaScriptFolderContent.listScripts("", modTree::list, modFiles::readStart)!!
+
+        assertEquals(listOf("aim.lua", "pokemon-battle-info/battle_info.lua"), listing.scripts.map { it.path })
+        assertTrue(listing.isComplete)
+        // Top-level files are scripts without being read
+        assertEquals(listOf("pokemon-battle-info/battle_info.lua", "pokemon-battle-info/pbi/ui.lua"), modFiles.read)
+    }
+
+    @Test
+    fun nestedModsModuleAndImageHaveTheirFullNames() {
+        val result = LuaScriptFolderContent.walk("", modTree::list, setOf("aim.lua", "pokemon-battle-info/battle_info.lua"))!!
+
+        assertEquals(listOf("pokemon-battle-info.pbi.ui" to "pokemon-battle-info/pbi/ui.lua"), result.modules.map { it.name to it.file.path })
+        assertEquals(listOf("hud.png", "pokemon-battle-info/img/icons.png"), result.images.map { it.path })
+        assertEquals(listOf("aim.lua"), result.topLevelScripts.map { it.path })
+        assertEquals(listOf("pokemon-battle-info/battle_info.lua", "pokemon-battle-info/pbi/ui.lua"), result.scriptCandidates.map { it.path })
+    }
+
+    @Test
+    fun knownScriptPathsAreNotModules() {
+        assertEquals(
+            listOf("pokemon-battle-info.battle_info", "pokemon-battle-info.pbi.ui"),
+            walk(modTree).modules.map { it.name },
+        )
+        assertEquals(
+            listOf("pokemon-battle-info.pbi.ui"),
+            LuaScriptFolderContent.walk("", modTree::list, setOf("pokemon-battle-info/battle_info.lua"))!!.modules.map { it.name },
+        )
+    }
+
+    @Test
+    fun knownScriptsDontCountTowardTheFileCap() {
+        // "main.lua" comes after every "i<n>.png" in name order
+        val tree = FakeTree(mapOf("" to listOf("mod/"), "mod" to listOf("main.lua") + (1..LuaScriptFolderContent.MAX_FOUND_FILES).map { "i$it.png" }))
+
+        val asScript = LuaScriptFolderContent.walk("", tree::list, setOf("mod/main.lua"))!!
+        assertFalse(asScript.gaveUp)
+        assertEquals(LuaScriptFolderContent.MAX_FOUND_FILES, asScript.images.size)
+        assertTrue(asScript.modules.isEmpty())
+
+        assertTrue(walk(tree).gaveUp)
+    }
+
+    @Test
+    fun subfolderScriptNameCanBeAnything() {
+        val tree = FakeTree(mapOf("" to listOf("mod/"), "mod" to listOf("My Script.v2.LUA")))
+        val files = FakeFiles(mapOf("mod/My Script.v2.LUA" to "-- description: x\n"))
+
+        assertEquals(listOf("mod/My Script.v2.LUA"), LuaScriptFolderContent.listScripts("", tree::list, files::readStart)!!.scripts.map { it.path })
+    }
+
+    @Test
+    fun flatFolderListsItsTopLevelScriptsWithoutReadingThem() {
+        val tree = FakeTree(mapOf("" to listOf("b.lua", "A.lua", "notes.txt", "hud.png", "x.LUA")))
+        val files = FakeFiles(emptyMap())
+
+        val listing = LuaScriptFolderContent.listScripts("", tree::list, files::readStart)!!
+
+        assertEquals(listOf("A.lua", "b.lua", "x.LUA"), listing.scripts.map { it.path })
+        assertTrue(listing.isComplete)
+        assertTrue(files.read.isEmpty())
+    }
+
+    @Test
+    fun listingChecksAtMost256SubfolderFiles() {
+        val names = (1..300).map { "s" + it.toString().padStart(3, '0') + ".lua" }
+        val tree = FakeTree(mapOf("" to listOf("mods/"), "mods" to names))
+        val files = FakeFiles(names.associate { "mods/$it" to "-- description: $it\n" })
+
+        val listing = LuaScriptFolderContent.listScripts("", tree::list, files::readStart)!!
+
+        assertEquals(LuaScriptFolderContent.MAX_SUBFOLDER_SCRIPT_CANDIDATES, listing.scripts.size)
+        assertEquals("mods/s256.lua", listing.scripts.last().path)
+        assertEquals(LuaScriptFolderContent.MAX_SUBFOLDER_SCRIPT_CANDIDATES, files.read.size)
+        assertFalse(listing.isComplete)
+    }
+
+    @Test
+    fun listingIsIncompleteWhenAFirstLineCantBeRead() {
+        val tree = FakeTree(mapOf("" to listOf("mod/"), "mod" to listOf("a.lua", "b.lua")))
+        val files = FakeFiles(mapOf("mod/b.lua" to "-- description: b\n"))
+
+        val listing = LuaScriptFolderContent.listScripts("", tree::list, files::readStart)!!
+
+        assertEquals(listOf("mod/b.lua"), listing.scripts.map { it.path })
+        assertFalse(listing.isComplete)
+    }
+
+    @Test
+    fun listingIsIncompleteWhenASubfolderCantBeListed() {
+        val tree = FakeTree(mapOf("" to listOf("aim.lua", "a/", "b/"), "b" to listOf("x.lua")), unreadable = setOf("a"))
+        val files = FakeFiles(mapOf("b/x.lua" to "-- description: x\n"))
+
+        val listing = LuaScriptFolderContent.listScripts("", tree::list, files::readStart)!!
+
+        assertEquals(listOf("aim.lua", "b/x.lua"), listing.scripts.map { it.path })
+        assertFalse(listing.isComplete)
+    }
+
+    @Test
+    fun listingIsIncompleteWhenTheWalkGivesUp() {
+        val tree = FakeTree(mapOf("" to (1..100).map { "f$it/" }))
+
+        assertFalse(LuaScriptFolderContent.listScripts("", tree::list, FakeFiles(emptyMap())::readStart)!!.isComplete)
+    }
+
+    @Test
+    fun listingOfAnUnreadableRootIsNull() {
+        val tree = FakeTree(emptyMap(), unreadable = setOf(""))
+
+        assertNull(LuaScriptFolderContent.listScripts("", tree::list, FakeFiles(emptyMap())::readStart))
+    }
+
+    @Test
+    fun topLevelScriptsAreListedPastTheFileCap() {
+        val tree = FakeTree(mapOf("" to (1..5000).map { "i$it.png" } + "z.lua"))
+
+        val listing = LuaScriptFolderContent.listScripts("", tree::list, FakeFiles(emptyMap())::readStart)!!
+
+        assertEquals(listOf("z.lua"), listing.scripts.map { it.path })
+        assertFalse(listing.isComplete)
+    }
+
     @Test
     fun moduleBudgetLeavesOutLargeFilesAndStopsAtTheTotal() {
         val budget = LuaScriptFolderContent.ModuleBudget()

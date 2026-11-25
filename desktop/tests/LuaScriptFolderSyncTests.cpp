@@ -19,9 +19,9 @@ RomLuaScript Script(const std::string& fileName, bool enabled, std::map<std::str
     return {fileName, enabled, std::move(options)};
 }
 
-Scripts Sync(const Scripts& scripts, bool hasFolder, const std::optional<Names>& folderScriptNames)
+Scripts Sync(const Scripts& scripts, bool hasFolder, const std::optional<Names>& folderScriptNames, bool isListingComplete = true)
 {
-    return LuaScriptFolderSync::Sync(scripts, hasFolder, folderScriptNames);
+    return LuaScriptFolderSync::Sync(scripts, hasFolder, folderScriptNames, isListingComplete);
 }
 
 }
@@ -116,6 +116,52 @@ TEST(LuaScriptFolderSync, sameNameListedTwiceIsOneEntry)
     Scripts synced = Sync({}, true, Names {"aim.lua", "aim.lua"});
 
     CHECK_SAME(Scripts {Script("aim.lua", false)}, synced);
+}
+
+TEST(LuaScriptFolderSync, incompleteListingKeepsSubfolderScriptsButDropsGoneTopLevelOnes)
+{
+    Scripts scripts = {
+        Script("aim.lua", true),
+        Script("pokemon-battle-info/battle_info.lua", true, {{"hud", "true"}}),
+        Script("turbo.lua", true),
+    };
+
+    Scripts synced = Sync(scripts, true, Names {"turbo.lua", "new.lua"}, false);
+
+    CHECK_SAME((Scripts {
+                   Script("new.lua", false),
+                   Script("pokemon-battle-info/battle_info.lua", true, {{"hud", "true"}}),
+                   Script("turbo.lua", true),
+               }),
+        synced);
+}
+
+TEST(LuaScriptFolderSync, incompleteListingStillAddsAndKeepsListedSubfolderScripts)
+{
+    Scripts scripts = {Script("a/one.lua", true)};
+
+    Scripts synced = Sync(scripts, true, Names {"a/one.lua", "b/two.lua"}, false);
+
+    CHECK_SAME((Scripts {Script("a/one.lua", true), Script("b/two.lua", false)}), synced);
+}
+
+TEST(LuaScriptFolderSync, completeListingDropsGoneSubfolderScripts)
+{
+    Scripts scripts = {Script("aim.lua", true), Script("pokemon-battle-info/battle_info.lua", true)};
+
+    Scripts synced = Sync(scripts, true, Names {"aim.lua"}, true);
+
+    CHECK_SAME(Scripts {Script("aim.lua", true)}, synced);
+}
+
+TEST(LuaScriptFolderSync, subfolderScriptsAreSortedByTheirWholePath)
+{
+    Scripts synced = Sync({}, true, Names {"zed.lua", "mod/main.lua", "Aim.lua"});
+
+    Names names;
+    for (const RomLuaScript& script : synced)
+        names.push_back(script.FileName);
+    CHECK_SAME((Names {"Aim.lua", "mod/main.lua", "zed.lua"}), names);
 }
 
 TEST(LuaScriptFolderSync, optionsAreKeptWhenSyncing)
