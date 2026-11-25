@@ -11,7 +11,7 @@
 #include "SaveSlots.h"
 #include "layout/LayoutEditing.h"
 
-namespace Frontend { class Settings; class Input; class Library; class MetadataSync; class Layouts; class Backgrounds; class LuaSession; class Achievements; }
+namespace Frontend { class Settings; class Input; class Library; class MetadataSync; class Layouts; class Backgrounds; class LuaSession; class Achievements; class BadgeCache; }
 
 namespace Ui
 {
@@ -38,6 +38,8 @@ struct Host
 
     // RetroAchievements (Settings > Achievements: the login and its settings); IsEnabled() is false with --no-ra
     Frontend::Achievements* Achievements = nullptr;
+    // its badges and game icons on disk (the popups, the indicators and the achievement list); null with --no-ra
+    Frontend::BadgeCache* Badges = nullptr;
     // the running game's session is hardcore (no state loads, no Lua), and a game started now would be (the game settings' Lua section)
     std::function<bool()> HardcoreSession;
     std::function<bool()> HardcoreAtNextStart;

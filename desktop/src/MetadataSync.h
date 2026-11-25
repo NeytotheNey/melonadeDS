@@ -18,6 +18,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -81,6 +82,8 @@ public:
     // Clear downloaded art: the sync stopped and every file in the media folder deleted (on the worker); the art goes from the menus at once.
     // The next sync downloads it again, with no API calls
     void ClearArt();
+    // runs on the worker right after a clear removed the media folder (RetroAchievements' badges are in it too); set before Open()
+    std::function<void()> OnArtCleared;
 
     // the key tried with one API_GetGame call (for game 1), on a thread of its own; the result in GetStatus().Test
     enum class KeyTest { Idle, Testing, Valid, Rejected, Failed, Empty };

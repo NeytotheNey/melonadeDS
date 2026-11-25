@@ -49,7 +49,8 @@ camera (`src/camera/`: `WideCameraTest`, `WideCameraControllerTest`, `Widescreen
 `LuaWideCameraRequestsTest`), the screens' placement (`src/layout/LayoutGeometry`: `ScreensDrawingTest`), the Lua scripts' side
 of the app (`src/lua/`: the header parser, options, folder content and sync, saved data, the arbiters) and the game settings' script list
 (`RomConfig`), with the same expected values, plus the RetroAchievements client's pure parts (`src/achievements/AchievementsLogic`: the
-console's memory as `rc_client` reads it, the ping's rich presence shim, the events' copies), which need only `rc_client.h`'s types. It's built from those sources alone, with no SDL, GL or core, and lives in `tests/` (a tiny harness in
+console's memory as `rc_client` reads it, the ping's rich presence shim, the events' copies, the badges' file names and the popups'
+titles), which need only `rc_client.h`'s types. It's built from those sources alone, with no SDL, GL or core, and lives in `tests/` (a tiny harness in
 `tests/Test.h`, no test library). To run it by hand, from PowerShell:
 
     & .\build-desktop\melonade-desktop-tests.exe            # all of them
@@ -116,7 +117,7 @@ main ones:
 | `--set Name=Value` | a core debug switch on `GPU`, e.g. `--set LateBlit=0` (`--list-sets`) |
 | `--frames N` | quit after N frames and print frame time stats: the game's frames, plus the UI's while no game frame runs (the start screen, a menu over the paused game), how many presented frames had a screen at 1x (GPU::Comp1x), and with [frame pacing](#frame-pacing) on, a `pacing` line |
 | `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window, menus included, when `--frames` or `--ui-script` ends the run; detached, the windows as `F_top.bmp` and `F_bottom.bmp`. The window shot has the Lua drawings; the frame only with `video_lua_drawings_in_state_pictures` on, as the app's save state pictures |
-| `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `library/settings/mods` (its settings at the Lua scripts), `pause`, `pause/save`, `pause/load`, `pause/layout`, `pause/mods`, `pause/mods/options/ID` (a script's options by its id, from 0), `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`, `achievements`), `settings/achievements/login` (the RetroAchievements login panel; not with `--no-ra`), `layouts` (the global layout's list), `layout-editor` (the [layout editor](#layout-editor) on the layout in use), `layout-editor/new`, `layout-editor/ID` (a custom layout by its id), `input`, `keyboard`; with a game, once its first frame is shown |
+| `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `library/settings/mods` (its settings at the Lua scripts), `pause`, `pause/save`, `pause/load`, `pause/layout`, `pause/mods`, `pause/mods/options/ID` (a script's options by its id, from 0), `pause/achievements` (the RetroAchievements list, once the game's achievements have loaded, or after about 600 frames when they don't), `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`, `achievements`), `settings/achievements/login` (the RetroAchievements login panel; not with `--no-ra`), `layouts` (the global layout's list), `layout-editor` (the [layout editor](#layout-editor) on the layout in use), `layout-editor/new`, `layout-editor/ID` (a custom layout by its id), `input`, `keyboard`; with a game, once its first frame is shown |
 | `--layout NAME\|ID` | the [layout](#layouts-and-backgrounds) for the run, over the game's own and the settings' (never stored): a layout's name in any case or its id from `layouts.json`, `default` (the app's Default), or the desktop's `vertical`, `horizontal`, `top`, `bottom`; an unknown one lists them and quits. It also means the screens together, unless `--detach` is given too (then it's the layout for when they're together again, and its detached windows' layouts) |
 | `--background FILE\|NAME` | the background for the run, over the layout's: an image (PNG, JPEG, BMP, GIF) or SVG file, a background's name (`crimson`, `pearl-tech`, `Pearl Tech`, or a user background's name from `backgrounds.json`) or id, or `none` |
 | `--background-mode MODE` | how it's placed for the run: `stretch`, `fit-center`, `fit-top`, `fit-left`, `fit-bottom`, `fit-right` (the app's `BackgroundMode`, `FIT_CENTER` style too) |
@@ -464,9 +465,9 @@ The achievements while playing (`src/achievements/`) run on rcheevos' `rc_client
 app's `RetroAchievementsManager` and its `rc_runtime`, which stays empty on the desktop. `rc_client` loads a game's achievements,
 leaderboards and rich presence by its RetroAchievements hash (the library's, `rc_hash`'s DS method), runs them each frame and sends
 the unlocks, scores and pings itself. It needs rcheevos' server API (`src/rapi`), which the app's `rcheevos` target leaves out: the
-desktop builds it as `rcheevos-rapi` (`desktop/CMakeLists.txt`). Settings > Achievements has the login and the settings; there are no
-popups, indicators or achievement list yet, so the events are printed (`ra: ...` lines on stdout) and `rc_client`'s own log goes to the
-log at INFO (`ra: ...` on stderr).
+desktop builds it as `rcheevos-rapi` (`desktop/CMakeLists.txt`). Settings > Achievements has the login and the settings; the running
+game shows popups and indicators and the pause menu has the achievement list (all below). The events are also printed (`ra: ...` lines on stdout, a tracker's every change left out) and `rc_client`'s own log goes to the log at
+INFO (`ra: ...` on stderr).
 
 `Achievements` (`src/achievements/Achievements.h`, which documents its API and threads) owns the one client:
 
@@ -511,11 +512,53 @@ logged out or with a failed login since):
 "Logged in as NAME" with the hardcore and softcore points, and Log out, asked first), then Hardcore mode (`ra_hardcore_enabled`, off),
 Rich presence (`ra_rich_presence`, on; shown on and disabled while hardcore is on, by the switch or `--ra-hardcore on`), and the
 Challenge, Progress and Leaderboard indicators (`ra_active_challenge_indicators`, `ra_progress_indicators`, `ra_leaderboard_indicators`,
-all on, for the indicators still to come). Hardcore and rich presence apply when a game starts; changed while one runs, a toast says to
+all on; each hides its indicators at once). Hardcore and rich presence apply when a game starts; changed while one runs, a toast says to
 restart it. Log in opens a panel over it (`--open settings/achievements/login`): Username and Password (the on-screen keyboard, the
 password as dots), then Log in once both are filled; a failure toasts `rc_client`'s message and stays, a success toasts and goes back.
 The password is cleared once it's sent and never printed. With `--no-ra` the tab says RetroAchievements is off for the run and nothing
 else. The Web API key stays on the Library tab.
+
+**Popups** (`src/ui/RaOverlay.cpp`, the app's `AchievementUpdatesUi`) come at the top center of the main window, queued and one at a
+time, 5.5 seconds each with a 150 ms fade in and out: a card (at most 420 wide, 16 less than the window on each side) with an image on
+the left, a small label, a title and a line or two of text. An unlock ("Achievement unlocked", the title without a trailing `[m]`, the
+description, the badge); the game loaded ("Achievements loaded", " · Hardcore" in hardcore, "Unlocked: X/Y", the game's icon), "This
+game has no achievements", "Failed to load achievements"; "RetroAchievements login expired"; a game or set completed ("Mastered" in
+hardcore, "Completed" in softcore, with the player's name); a leaderboard score sent ("<score> • Rank N of M" once the server's rank
+comes, or "Submitted: <score>" when none comes within 3 seconds) or failed ("Attempt failed"); "Can't reach RetroAchievements" and
+"RetroAchievements is back" (`rc_client`'s disconnected and reconnected events; both dropped when it's back before "Can't reach" was
+shown) and a server error's message. Each is printed as `ui:
+ra popup "LABEL" "TITLE"` when it's queued.
+
+**Indicators** stack at the top left (8 from the edges, 6 apart, at most 260 wide) for as long as `rc_client` shows them: a challenge
+(the badge and the achievement's title, while it can be earned; Challenge indicators), the progress of one achievement at a time
+(its badge and "12/50"; Progress indicators), and each leaderboard's tracker (a timer and its value; Leaderboard trackers), plus
+"Leaderboard attempt started" with the leaderboard's title for 3 seconds when one starts (also Leaderboard trackers). The switches
+apply at once. Where the column would overlap the popup (a narrow window), it starts 8 under the popup, moving with its fade. A game
+that stops takes its indicators and the popups still waiting with it.
+
+Both draw over the game without taking any input, also under the pause menu and its dimming, in the main window only when the screens
+are detached, and in `--window-shot` and the `shot` script step but never in the game's own frame (`--screenshot`, `--at F:shot`, the
+`screenshot` step, F12). While a popup is up the window is drawn every pass, as with a toast; an indicator alone is drawn with each frame
+the game presents. Nothing is allocated between events: the text is fitted once per popup and scale and kept.
+
+**The achievement list** (`src/ui/AchievementsScreen.cpp`, the app's `AchievementList`; Achievements in the pause menu, with a trophy,
+while the session has a loaded game with achievements; `--open pause/achievements`): the game's icon, title, "X of Y unlocked · P of Q
+points" for the whole game and a Hardcore or Softcore chip on top; a tab per set when the game has more than one (core first, L / R);
+then the set's achievements in `rc_client`'s progress grouping, a section each in this order, empty ones left out: Not sent yet, Active
+challenges, Recently unlocked, Almost there, Locked, Unlocked, Unsupported. A row has the badge (the locked one while it's locked), the
+title with a Missable chip, two lines of description, a locked one's progress bar and measured value, and the points. It's virtualized
+per section and moves with the controller, keyboard and mouse like the library's list. Confirm opens
+`https://retroachievements.org/achievement/<id>` in the default browser (in exclusive fullscreen a toast says to leave it first; a hidden
+run only prints `ui: open URL`). It's copied out of `rc_client`'s lists when it opens and again on an unlock, a reset or a state load,
+and Back returns to the pause menu.
+
+**Badges** (`src/achievements/BadgeCache.h`) are kept by URL in `<profile>\media\ra\badges\<the URL's file name>` (letters, digits, `-`,
+`_` and `.` only, an image's extension, at most 100 bytes); the game's icon is the library's `media\ra\<game id>\icon.png` when the sync
+saved one. They're looked for and downloaded on two threads of their own (their own HTTP client, so two downloads at most), never on the
+UI or emulator thread, checked as images before they're saved, and a URL that fails isn't tried again in the run. Until one's there a
+trophy on a grey square stands in. Each is printed once: `ra: badge NAME downloaded`, `... from the cache`, or why it failed. Clear
+downloaded art (Settings > Library) deletes them with the rest of the media folder, and once it's gone the cache forgets everything
+(`MetadataSync::OnArtCleared`; a download still in flight saves nothing), so they're downloaded again.
 
 The flags, all for the run only: `--no-ra` (no client at all, an Achievements tab with nothing on it), `--ra-hardcore on|off` (over the
 Hardcore switch for every game of the run; the tab says so under the switch, which then changes only the stored setting), `--ra-host

@@ -213,4 +213,27 @@ TEST(AchievementsEvents, unknownTypesAreSkipped)
     CHECK(copy.Kind == AchievementEvent::Type::Disconnected);
 }
 
+TEST(AchievementsBadges, fileNameComesFromTheUrl)
+{
+    CHECK(std::string("00101.png") == BadgeFileName("https://media.retroachievements.org/Badge/00101.png"));
+    CHECK(std::string("00101_lock.png") == BadgeFileName("http://127.0.0.1:8765/Badge/00101_lock.png?x=1#y"));
+    CHECK(std::string("a_b.PNG") == BadgeFileName("https://host/Images/a b.PNG"));
+    CHECK(std::string("x.webp") == BadgeFileName("x.webp"));
+    // what could leave the folder or isn't an image is nothing
+    CHECK(std::string("") == BadgeFileName("https://host/Badge/"));
+    CHECK(std::string("") == BadgeFileName("https://host/Badge/.png"));
+    CHECK(std::string("") == BadgeFileName("https://host/Badge/.."));
+    CHECK(std::string("") == BadgeFileName("https://host/Badge/run.exe"));
+    CHECK(std::string("") == BadgeFileName("https://host/" + std::string(120, 'a') + ".png"));
+    CHECK(std::string("x.png") == BadgeFileName("https://host/..\\x.png"));
+}
+
+TEST(AchievementsBadges, titleTagIsDropped)
+{
+    CHECK(std::string("Catch them all") == TitleWithoutTag("Catch them all [m]"));
+    CHECK(std::string("Catch them all") == TitleWithoutTag("Catch them all[M]  "));
+    CHECK(std::string("No tag") == TitleWithoutTag("No tag"));
+    CHECK(std::string("[m]") == TitleWithoutTag("[m]"));
+}
+
 }

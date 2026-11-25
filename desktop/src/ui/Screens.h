@@ -14,6 +14,7 @@ namespace Ui
 {
 
 class App;
+struct Host;
 
 // what the library opens by itself once its scan is done (--open library/details, library/settings, library/settings/mods): the first
 // game's details or settings, or its settings at the Lua scripts
@@ -31,6 +32,11 @@ std::unique_ptr<Screen> MakePauseScreen();
 std::unique_ptr<Screen> MakePendingUnlocksQuestion(std::function<void()> stop);
 // the pause menu's Mods: the session's scripts, each with a switch for this session only and its Options (ui/ModsScreen.cpp)
 std::unique_ptr<Screen> MakeModsScreen();
+// the pause menu's Achievements (ui/AchievementsScreen.cpp): the session's achievements by set and by progress, each opening its page on
+// retroachievements.org; shown while HasAchievementList
+std::unique_ptr<Screen> MakeAchievementsScreen();
+// the running game's RetroAchievements session has its game loaded, with achievements
+bool HasAchievementList(Host& host);
 // a script's options over the pause menu: saved to the game's settings and the script restarted with them, or cancelled
 std::unique_ptr<Screen> MakeLuaOptionsScreen(const Frontend::LuaScriptStatus& script);
 // the savestate slots, on the Save tab or the Load tab

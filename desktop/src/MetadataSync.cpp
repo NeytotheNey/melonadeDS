@@ -920,6 +920,8 @@ void MetadataSync::Run()
                 RaFiles.clear();
                 LibretroFiles.clear();
             }
+            if (OnArtCleared)
+                OnArtCleared();
             Publish(true);
             lock.lock();
             continue;

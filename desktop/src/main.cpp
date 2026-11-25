@@ -53,6 +53,7 @@
 #include "retroachievements/RetroAchievementsManager.h"
 
 #include "achievements/Achievements.h"
+#include "achievements/BadgeCache.h"
 #include "Audio.h"
 #include "Controls.h"
 #include "DesktopEventMessenger.h"
@@ -2133,9 +2134,13 @@ int main(int argc, char** argv)
     library.SetFolders(settings.GetStringList("rom_search_dirs"), settings.IsOverridden("rom_search_dirs"));
     library.PretendTitleArt = opts.PretendTitleArt;
     library.PretendWideOneIn = opts.PretendWideOneIn;
+    // the badges and game icons the menus' popups, indicators and achievement list show (achievements/BadgeCache.h), in the media
+    // folder, so Clear downloaded art forgets them too; opened once RetroAchievements is
+    Frontend::BadgeCache badges;
     // the metadata and art sync, asked for after each scan (on the library's worker)
     Frontend::MetadataSync metadata;
     library.OnScanDone = [&] { metadata.Request(); };
+    metadata.OnArtCleared = [&] { badges.Clear(); };
     library.Open(profileDir, Frontend::BannerLanguage());
     {
         Frontend::MetadataSync::Config config;
@@ -2470,8 +2475,15 @@ int main(int argc, char** argv)
         };
         achievements.Open(config, std::move(hooks));
     }
-    // the UI thread's copy of the events it takes each pass (Achievements::DrainEvents), printed until the menus show them
+    // the UI thread's copy of the events it takes each pass (Achievements::DrainEvents), printed and handed to the menus
     std::vector<Frontend::AchievementEvent> achievementEvents;
+    // the badge cache's workers, with RetroAchievements (none with --no-ra)
+    if (achievements.IsEnabled())
+        badges.Open(library.ProfileDir() / "media", "melonadeDS-desktop/" MELONADE_VERSION_NAME);
+    // the game stopped (stopGame): the menus drop its indicators and popups; set once the menus are there
+    std::function<void()> onAchievementSessionEnd = [] {};
+    // the session's game got its answer (loaded, none, failed), which --open pause/achievements waits for
+    bool raLoadSettled = false;
     // Frame pacing as the run has it (FramePacingOn, frame_pacing_buffer): the vsync thread on the main window's monitor, the main window's
     // swap interval and the emulator thread's pacing, at the start and when the settings change
     bool framePacingRan = false; // the vsync thread ran in this run: the summary has a pacing line
@@ -2855,6 +2867,7 @@ int main(int argc, char** argv)
         emu = nullptr;
         // the achievements' game unloaded, now that no frame can run
         achievements.EndSession();
+        onAchievementSessionEnd();
         bootHardcore = false;
         // the scripts' last storage saved, their requests undone, and their events still on the way dropped
         messenger->EndLuaSession();
@@ -3122,6 +3135,7 @@ int main(int argc, char** argv)
         emuThread.Start(emuWindow, emuContext, std::move(instance), callbacks);
         // the achievements' session, once the thread can take what it posts: its game loads by hash, with hardcore fixed from here on
         achievements.SetRichPresence(settings.GetBool("ra_rich_presence", true));
+        raLoadSettled = false;
         achievements.BeginSession(identity.RaHash, settings.GetBool("ra_hardcore_enabled", false));
         audio.SetInstance(started);
         audio.SetRunning(true);
@@ -3147,7 +3161,8 @@ int main(int argc, char** argv)
         emu->touchScreen((u16)std::clamp(tx, 0, 255), (u16)std::clamp(ty, 0, 191));
     };
 
-    // The menus. They draw into the main window after the game, only when a screen, toast or the keyboard is up (uiBuilt)
+    // The menus. They draw into the main window after the game, only when a screen, toast, the keyboard or a RetroAchievements popup or
+    // indicator is up (uiBuilt)
     Ui::App ui;
     Ui::Host host;
     bool uiBuilt = false;
@@ -3228,6 +3243,8 @@ int main(int argc, char** argv)
     host.Metadata = &metadata;
     host.Lua = &luaSession;
     host.Achievements = &achievements;
+    host.Badges = achievements.IsEnabled() ? &badges : nullptr;
+    onAchievementSessionEnd = [&] { ui.EndAchievementSession(); };
     host.HardcoreSession = [&] { return emu != nullptr && hardcoreNow(); };
     host.HardcoreAtNextStart = [&] { return achievements.WouldStartHardcore(settings.GetBool("ra_hardcore_enabled", false)); };
     // the player stopping the game or quitting: asked first while an unlock or a score hasn't reached RetroAchievements yet
@@ -3293,6 +3310,8 @@ int main(int argc, char** argv)
                 instance.reset();
                 SetDateTime(opts, *instance.getNds());
                 printf("reset\n");
+                // (the reset reset the achievements' progress too: the list shows it)
+                messenger->Post([&] { ui.AchievementsChanged(); });
             });
     };
     host.ListSlots = [&] { return slots.List(); };
@@ -3354,7 +3373,12 @@ int main(int argc, char** argv)
         {
             std::vector<u8> data;
             bool ok = ReadPath(file, data) && LoadStateBytes(opts, instance, data, Frontend::PathToUtf8(file));
-            messenger->Post([done, ok] { done(ok); });
+            // (the state brought its achievements' progress: the list shows it)
+            messenger->Post([&, done, ok]
+            {
+                ui.AchievementsChanged();
+                done(ok);
+            });
         });
     };
     host.QuitToStart = [&]
@@ -4490,20 +4514,26 @@ int main(int argc, char** argv)
         // the emulator's events (its stop), what the emulator thread waits for (--at shot, --at key), and the menus' queued actions (a
         // game booted or stopped)
         messenger->Drain();
-        // the achievements' events, printed (a tracker's every change left out) until the menus show them
+        // the achievements' events, printed (a tracker's every change left out) and shown by the menus (popups, indicators, the list)
         achievements.DrainEvents(achievementEvents);
         for (const Frontend::AchievementEvent& event : achievementEvents)
         {
-            if (event.Kind != Frontend::AchievementEvent::Type::LeaderboardTrackerUpdate)
+            using RaEvent = Frontend::AchievementEvent::Type;
+            if (event.Kind != RaEvent::LeaderboardTrackerUpdate)
                 printf("ra: %s\n", Frontend::DescribeEvent(event).c_str());
+            if (event.Kind == RaEvent::GameLoaded || event.Kind == RaEvent::GameHasNoAchievements || event.Kind == RaEvent::GameLoadFailed)
+                raLoadSettled = true;
+            ui.OnAchievementEvent(event);
         }
         if (!achievementEvents.empty())
             fflush(stdout);
         if (!running || (emu && emuThread.IsFinished()))
             break;
 
-        // --open, once there's something to open it over
-        if (!pendingOpen.empty() && (!emu || presentedThisGame > 0))
+        // --open, once there's something to open it over; pause/achievements once the game's achievements have loaded (or not), for about
+        // ten seconds of frames at most
+        bool waitForRa = pendingOpen == "pause/achievements" && emu && achievements.IsEnabled() && !raLoadSettled && presentedThisGame < 600;
+        if (!pendingOpen.empty() && (!emu || presentedThisGame > 0) && !waitForRa)
         {
             if (!ui.OpenPath(pendingOpen))
             {
@@ -4584,8 +4614,9 @@ int main(int argc, char** argv)
                 if (std::chrono::steady_clock::now() < due)
                     std::this_thread::sleep_until(due);
             }
-            uiBuilt = uiActive;
-            if (uiActive)
+            // RetroAchievements' indicators go with each present, without drawing every pass as the screens and popups do
+            uiBuilt = uiActive || ui.HasIndicators();
+            if (uiBuilt)
                 ui.BuildFrame();
             present(frame);
             lastPresent = std::chrono::steady_clock::now();
@@ -4705,6 +4736,7 @@ int main(int argc, char** argv)
     ui.Shutdown();
     // the sync stopped (its requests cancelled), then the library's worker (a scan stops between two files)
     metadata.Close();
+    badges.Close();
     library.Close();
     // RetroAchievements' last requests (an unlock on its way gets a moment), then its client, and its last events printed
     achievements.Close();

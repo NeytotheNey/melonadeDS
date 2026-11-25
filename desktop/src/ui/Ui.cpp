@@ -194,7 +194,7 @@ void App::ApplyTheme()
 
 bool App::Active() const
 {
-    return !Stack.empty() || !Toasts.empty() || KeyboardTarget != nullptr;
+    return !Stack.empty() || !Toasts.empty() || KeyboardTarget != nullptr || Ra.Animating();
 }
 
 std::string App::TopId() const
@@ -251,6 +251,8 @@ void App::BuildFrame()
 
     auto now = std::chrono::steady_clock::now();
     Toasts.erase(std::remove_if(Toasts.begin(), Toasts.end(), [&](const ToastItem& t) { return t.Until <= now; }), Toasts.end());
+    // RetroAchievements' popups and indicators with the game, under a screen and its dimming
+    Ra.Draw(*this, ImGui::GetBackgroundDrawList());
 
     if (Screen* top = Top())
     {
@@ -474,6 +476,15 @@ bool App::OpenPath(const std::string& path)
         if (script)
             Push(MakeLuaOptionsScreen(*script));
     }
+    else if (path == "pause/achievements")
+    {
+        // the session's achievement list, while it has a game with achievements
+        if (!game || !HasAchievementList(*HostPtr))
+            return false;
+        if (Stack.empty())
+            OpenPause();
+        Push(MakeAchievementsScreen());
+    }
     else if (path == "pause" || path == "pause/save" || path == "pause/load" || path == "pause/layout")
     {
         if (!game)
@@ -546,6 +557,29 @@ void App::Toast(const std::string& text)
         Toasts.erase(Toasts.begin());
     printf("ui: toast \"%s\"\n", text.c_str());
     fflush(stdout);
+}
+
+void App::OpenUrl(const std::string& url)
+{
+    // (exclusive fullscreen is SDL_WINDOW_FULLSCREEN without the desktop bit; the browser coming up would take the display from it)
+    Uint32 flags = SDL_GetWindowFlags(Window);
+    if ((flags & SDL_WINDOW_FULLSCREEN_DESKTOP) == SDL_WINDOW_FULLSCREEN)
+    {
+        Toast("Leave fullscreen to open the page");
+        return;
+    }
+    printf("ui: open %s\n", url.c_str());
+    fflush(stdout);
+    if (Hidden)
+        return;
+    int size = MultiByteToWideChar(CP_UTF8, 0, url.c_str(), -1, nullptr, 0);
+    if (size <= 0)
+        return;
+    std::wstring wide(size, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, url.c_str(), -1, wide.data(), size);
+    // ShellExecuteW's result is a fake HINSTANCE: above 32 for success
+    if ((INT_PTR)ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL) <= 32)
+        Toast("Couldn't open the page");
 }
 
 void App::DrawToasts()
@@ -1100,7 +1134,11 @@ GLuint App::ArtTexture(const std::string& file, uint64_t stamp, bool topScreen, 
     width = height = 0;
     if (file.empty())
         return 0;
-    std::string key = topScreen ? file + "#top" : file;
+    // (a whole screen's file is its own key, not copied: the popups ask for theirs every frame)
+    std::string topKey;
+    if (topScreen)
+        topKey = file + "#top";
+    const std::string& key = topScreen ? topKey : file;
     ArtTex& texture = ArtTextures[key];
     texture.LastUsed = FrameNumber;
     // the file saved again since (art replaced, or cleared and downloaded again): read again

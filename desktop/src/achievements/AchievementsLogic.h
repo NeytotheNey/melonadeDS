@@ -82,6 +82,12 @@ struct AchievementEvent
     int Result = 0;
 };
 
+// The file a badge or icon at [url] is cached as (BadgeCache.h): the URL's last path segment without its query, characters other than
+// A-Z a-z 0-9 - _ . made _, at most 100 bytes, and only with an image's extension (png, jpg, jpeg, gif, webp); empty for anything else
+std::string BadgeFileName(const std::string& url);
+// an achievement's title as the popups show it: without a trailing "[m]" (the missable tag some sets put there) and the spaces before it
+std::string TitleWithoutTag(const std::string& title);
+
 // [event] copied, with [frame]; false for a type it doesn't know (rc_client's newer ones)
 bool CopyClientEvent(const rc_client_event_t& event, uint32_t frame, AchievementEvent& out);
 // the type's name ("achievement triggered"), and one line about [event] for the log

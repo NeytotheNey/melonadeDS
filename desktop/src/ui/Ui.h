@@ -1,6 +1,7 @@
 // The menus: Dear ImGui (SDL2 and OpenGL3 backends, the GLES 3 shader path) drawn into the main window after the game frame, with the screen
-// stack, the input routing between the menus and the game, toasts, the on-screen keyboard and the slot thumbnails' textures. Nothing is
-// drawn and no ImGui frame is made while no screen, toast or keyboard is up, so the window shows the game exactly as without the menus.
+// stack, the input routing between the menus and the game, toasts, RetroAchievements' popups and indicators (RaOverlay.h), the on-screen
+// keyboard and the slot thumbnails' textures. Nothing is drawn and no ImGui frame is made while none of those is up, so the window shows
+// the game exactly as without the menus.
 // UI thread only
 #pragma once
 
@@ -21,6 +22,7 @@
 #include "imgui.h"
 #include "Controls.h"
 #include "Host.h"
+#include "RaOverlay.h"
 #include "Screen.h"
 #include "Screens.h"
 #include "Theme.h"
@@ -48,7 +50,7 @@ public:
 
     // a screen is open: the game is paused behind it and gets no input
     bool IsOpen() const { return !Stack.empty(); }
-    // there's something to draw (a screen, a toast or the keyboard), so the window is drawn every frame
+    // there's something to draw (a screen, a toast, the keyboard or a RetroAchievements popup), so the window is drawn every frame
     bool Active() const;
     std::string TopId() const;
     // a screen called [id] is open, anywhere on the stack
@@ -66,13 +68,25 @@ public:
     // the library alone (no game), the home screen; [open] as MakeLibraryScreen's
     void ShowStart(LibraryOpen open = LibraryOpen::None);
     // --open: "library" (or "start"), "library/details", "library/settings", "library/settings/mods", "pause", "pause/save", "pause/load",
-    // "pause/mods", "pause/mods/options/<script id>", "settings", "settings/library", "settings/achievements",
+    // "pause/mods", "pause/mods/options/<script id>", "pause/achievements" (false until the game's achievements loaded), "settings", "settings/library", "settings/achievements",
     // "settings/achievements/login", "keyboard", "layouts", "layout-editor" (the layout in use), "layout-editor/new",
     // "layout-editor/<id>"; false for a name it doesn't know. In a RetroAchievements hardcore session "pause/load" is the pause menu
     bool OpenPath(const std::string& path);
     void OpenPause();
 
     void Toast(const std::string& text);
+
+    // RetroAchievements: an event from Achievements::DrainEvents for the popups, the indicators and the achievement list; the game's
+    // session ended (its indicators and popups go); something the list shows changed outside the events (a state loaded, a reset)
+    void OnAchievementEvent(const Frontend::AchievementEvent& event) { Ra.OnEvent(*this, event); }
+    void EndAchievementSession() { Ra.EndSession(); }
+    void AchievementsChanged() { Ra.Changed(); }
+    uint32_t AchievementChanges() const { return Ra.Changes(); }
+    // an indicator is up: the menus' frame is built with each present (drawn over the game), without drawing every pass as Active() does
+    bool HasIndicators() { return Ra.HasIndicators(*this); }
+    // [url] in the default browser (ShellExecuteW); a toast instead in exclusive fullscreen, which it would leave, and only printed in a
+    // hidden run
+    void OpenUrl(const std::string& url);
 
     // the theme from desktop_theme, again (after the setting changed)
     void ApplyTheme();
@@ -158,6 +172,7 @@ private:
 
     struct ToastItem { std::string Text; std::chrono::steady_clock::time_point Until; };
     std::vector<ToastItem> Toasts;
+    RaOverlay Ra;
 
     std::string* KeyboardTarget = nullptr;
     std::string KeyboardTitle;

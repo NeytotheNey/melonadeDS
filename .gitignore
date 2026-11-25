@@ -10,7 +10,7 @@
 .kotlin
 /logs
 # PC frontend build (desktop/)
-/build-desktop
+/build-desktop*
 # tools/jitverify builds
 /build-jitverify
 

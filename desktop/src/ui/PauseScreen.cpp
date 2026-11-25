@@ -1,6 +1,7 @@
 // The pause menu: a panel along the left over the game's last frame, dimmed. Resume, savestates, the screens (together or detached, swap),
-// the layout (pick one, or edit the one in use), the Lua scripts (Mods, while the game runs any), settings, reset and quitting. A
-// RetroAchievements hardcore session has no Load state and no Mods, as the app's filterRomPauseMenuOption
+// the layout (pick one, or edit the one in use), the achievements (while the session has a game with any), the Lua scripts (Mods, while
+// the game runs any), settings, reset and quitting. A RetroAchievements hardcore session has no Load state and no Mods, as the app's
+// filterRomPauseMenuOption
 #include "Icons.h"
 #include "Screens.h"
 #include "Ui.h"
@@ -99,6 +100,9 @@ public:
         }
         Divider(app);
 
+        // while the RetroAchievements session has a game with achievements
+        if (HasAchievementList(host) && MenuRow(app, "##achievements", Icon::Trophy, "Achievements", nullptr))
+            app.Push(MakeAchievementsScreen());
         // while this session loaded a script, even once they're all switched off (the app's filterRomPauseMenuOption)
         if (!hardcore && host.Lua && host.Lua->HasScripts() && MenuRow(app, "##mods", Icon::Extension, "Mods", nullptr))
             app.Push(MakeModsScreen());

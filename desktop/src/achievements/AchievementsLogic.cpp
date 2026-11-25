@@ -1,5 +1,6 @@
 #include "AchievementsLogic.h"
 
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -143,6 +144,41 @@ std::string RequestApi(const std::string& body)
             return field.substr(2);
     }
     return "";
+}
+
+std::string BadgeFileName(const std::string& url)
+{
+    std::string path = url.substr(0, url.find_first_of("?#"));
+    size_t slash = path.find_last_of("/\\");
+    std::string name = slash == std::string::npos ? path : path.substr(slash + 1);
+    for (char& c : name)
+    {
+        if (!isalnum((unsigned char)c) && c != '-' && c != '_' && c != '.')
+            c = '_';
+    }
+    size_t dot = name.rfind('.');
+    if (name.empty() || name.size() > 100 || dot == std::string::npos || dot == 0 || name.find_first_not_of('.') == std::string::npos)
+        return "";
+    std::string ext = name.substr(dot + 1);
+    for (char& c : ext)
+        c = (char)tolower((unsigned char)c);
+    if (ext != "png" && ext != "jpg" && ext != "jpeg" && ext != "gif" && ext != "webp")
+        return "";
+    return name;
+}
+
+std::string TitleWithoutTag(const std::string& title)
+{
+    std::string out = title;
+    while (!out.empty() && out.back() == ' ')
+        out.pop_back();
+    if (out.size() >= 3 && out[out.size() - 3] == '[' && (out[out.size() - 2] == 'm' || out[out.size() - 2] == 'M') && out.back() == ']')
+    {
+        out.resize(out.size() - 3);
+        while (!out.empty() && out.back() == ' ')
+            out.pop_back();
+    }
+    return out.empty() ? title : out;
 }
 
 bool CopyClientEvent(const rc_client_event_t& event, uint32_t frame, AchievementEvent& out)

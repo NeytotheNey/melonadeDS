@@ -108,6 +108,8 @@ add_executable(melonade-desktop
     src/achievements/Achievements.h
     src/achievements/AchievementsLogic.cpp
     src/achievements/AchievementsLogic.h
+    src/achievements/BadgeCache.cpp
+    src/achievements/BadgeCache.h
     src/ArtImage.cpp
     src/ArtImage.h
     src/Audio.cpp
@@ -198,6 +200,7 @@ add_executable(melonade-desktop
     src/UiScript.h
     src/VsyncSource.cpp
     src/VsyncSource.h
+    src/ui/AchievementsScreen.cpp
     src/ui/GameDetailsScreen.cpp
     src/ui/GameSettingsScreen.cpp
     src/ui/Host.h
@@ -218,6 +221,8 @@ add_executable(melonade-desktop
     src/ui/MosaicLayout.h
     src/ui/PanelScreen.cpp
     src/ui/PauseScreen.cpp
+    src/ui/RaOverlay.cpp
+    src/ui/RaOverlay.h
     src/ui/Screen.h
     src/ui/Screens.h
     src/ui/SettingsScreen.cpp
