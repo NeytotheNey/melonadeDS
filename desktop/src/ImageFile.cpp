@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <wincodec.h>
 
+#include <climits>
 #include <cstdio>
 #include <system_error>
 
@@ -81,6 +82,23 @@ bool WritePng(const std::filesystem::path& path, const std::vector<u8>& rgba, in
         std::filesystem::remove(temp, ec);
         return false;
     }
+    return true;
+}
+
+bool ReadImageSize(const std::filesystem::path& path, int& width, int& height)
+{
+    Com<IWICImagingFactory> factory;
+    if (!MakeFactory(factory))
+        return false;
+    Com<IWICBitmapDecoder> decoder;
+    Com<IWICBitmapFrameDecode> frame;
+    UINT w = 0, h = 0;
+    // the decoder reads the header here; the pixels only when they're copied out, which this never does
+    if (FAILED(factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder))
+        || FAILED(decoder->GetFrame(0, &frame)) || FAILED(frame->GetSize(&w, &h)) || w == 0 || h == 0 || w > INT_MAX || h > INT_MAX)
+        return false;
+    width = (int)w;
+    height = (int)h;
     return true;
 }
 

@@ -265,7 +265,7 @@ public:
         }
         Shape = shape;
 
-        // --open library/details or library/settings: the first game's, once the scan is done
+        // --open library/details, library/settings or library/settings/mods: the first game's, once the scan is done
         if (OpenFirst != LibraryOpen::None && lib && !lib->Busy() && progress.Scanned)
         {
             LibraryOpen open = OpenFirst;
@@ -273,7 +273,10 @@ public:
             if (!Visible.empty())
             {
                 FocusedRom = Visible[0]->Id;
-                app.Push(open == LibraryOpen::Settings ? MakeGameSettingsScreen(*Visible[0]) : MakeGameDetailsScreen(*Visible[0]));
+                if (open == LibraryOpen::Details)
+                    app.Push(MakeGameDetailsScreen(*Visible[0]));
+                else
+                    app.Push(MakeGameSettingsScreen(*Visible[0], open == LibraryOpen::SettingsMods));
             }
         }
 

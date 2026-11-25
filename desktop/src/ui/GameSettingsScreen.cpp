@@ -1,19 +1,23 @@
 // A game's own settings, the app's ROM settings screen (RomConfigUi) for what the desktop can apply when the game boots: its display
 // name (on the on-screen keyboard), the console it boots as (locked to DSi for a DSiWare title, as the app does), the GBA slot, its own
-// layout (or the global one) and the Mods tab's widescreen section (RomModsUi: widescreen, its ratio and the WideMelon camera; the app's
-// wide layout pick is left out, as the desktop picks its layouts its own way). They're kept by the ROM's RetroAchievements hash, so every
-// copy of the game shares them. The app's other per-game settings belong to later phases and are listed disabled ("Coming later"): the
-// microphone (phase 6) and mods (phase 4).
+// layout (or the global one) and the Mods tab's widescreen and Lua scripts sections (RomModsUi: widescreen, its ratio and the WideMelon
+// camera; the script folder, the scripts' switches, options and saved data; the app's wide layout pick is left out, as the desktop picks its
+// layouts its own way). They're kept by the ROM's RetroAchievements hash, so every copy of the game shares them. The microphone source
+// belongs to phase 6 and is listed disabled ("Coming later").
 // Changes go to library.db at once (Library::SetConfig) and apply the next time the game starts, from the library or the command line.
 // Reached from the details screen, a featured mosaic tile's menu button, or by holding confirm (or the mouse) on a tile
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <map>
 #include <string>
 #include <vector>
 
 #include "Icons.h"
 #include "Library.h"
 #include "LibraryCards.h"
+#include "LuaOptionControls.h"
 #include "Screens.h"
 #include "Settings.h"
 #include "Ui.h"
@@ -22,6 +26,10 @@
 #include "layout/LayoutEditing.h"
 #include "layout/LayoutGeometry.h"
 #include "layout/Layouts.h"
+#include "lua/LuaScriptDataStore.h"
+#include "lua/LuaScriptFolderSync.h"
+#include "lua/LuaScriptStorage.h"
+#include "lua/LuaSession.h"
 
 namespace Ui
 {
@@ -63,7 +71,7 @@ int AspectIndexOf(int viewWidth)
 class GameSettingsScreen : public Screen
 {
 public:
-    explicit GameSettingsScreen(const LibraryEntry& entry) : Entry(entry) {}
+    GameSettingsScreen(const LibraryEntry& entry, bool atMods) : Entry(entry), AtMods(atMods) {}
 
     const char* Id() const override { return "library/game-settings"; }
 
@@ -141,7 +149,7 @@ public:
         SectionLabel(app, "Game");
         {
             std::string detail = config.CustomName.empty() ? BannerName() + "  (from the banner)" : config.CustomName;
-            if (DetailRow(app, "##name", Icon::Edit, "Display name", detail.c_str(), true))
+            if (DetailRow(app, "##name", Icon::Edit, "Display name", detail.c_str(), !AtMods))
             {
                 NameBuffer = config.CustomName.empty() ? BannerName() : config.CustomName;
                 EditingName = true;
@@ -211,11 +219,11 @@ public:
         }
 
         DrawWidescreen(app, config);
+        DrawLuaScripts(app);
 
         SectionLabel(app, "Coming later");
         // the app's other per-game settings, for the phases that build what they need
         MenuRow(app, "##mic", Icon::Mic, "Microphone source", "Coming later", false, false);
-        MenuRow(app, "##mods", Icon::Extension, "Mods", "Coming later", false, false);
 
         ImGui::Dummy(ImVec2(1, app.Px(8)));
         if (MenuRow(app, "##reset", Icon::RestartAlt, "Reset to defaults", config.IsDefault() ? "Nothing changed" : nullptr, false, !config.IsDefault()))
@@ -238,6 +246,8 @@ public:
             FooterHints(app, {{"A|Enter", "Choose file"}, {"X|Del", "Clear"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
         else if (FocusedRow == "console" || FocusedRow == "gbaslot" || FocusedRow == "wideaspect" || FocusedRow == "widemax")
             FooterHints(app, {{"A|Enter", "Change"}, {"\xe2\x80\xb9 \xe2\x80\xba", "Previous / next"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
+        else if (FocusedRow == "luachange")
+            FooterHints(app, {{"A|Enter", "Choose"}, {"\xe2\x80\xb9 \xe2\x80\xba", "Change"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
         else
             FooterHints(app, {{"A|Enter", "Choose"}, {"B|Esc", "Back"}}, p.SurfaceContainerLowest);
     }
@@ -322,6 +332,211 @@ private:
         Track("widetext");
     }
 
+    // RomModsUi's Lua scripts section: the script folder (picked, removed, or picked again when it can't be read), then each script of the
+    // synced list with its switch, its options while it's on, and its saved data. Changes apply when the game next starts
+    void DrawLuaScripts(App& app)
+    {
+        // read when the section first shows, as the app syncs when the Mods tab shows
+        if (!LuaSynced)
+            SyncLuaScripts(app);
+        RomConfig config = Current(app);
+        SectionLabel(app, "Lua scripts");
+        std::string folder = config.LuaScriptFolder.empty() ? "None" : config.LuaScriptFolder;
+        if (DetailRow(app, "##luafolder", Icon::Folder, "Script folder", folder.c_str(), AtMods))
+            PickLuaFolder(app);
+        Track("luafolder");
+        if (!config.LuaScriptFolder.empty() && MenuRow(app, "##luaremove", Icon::Close, "Remove folder", nullptr))
+        {
+            SetLuaFolder(app, "");
+            return;
+        }
+        if (LuaFolderRead == config.LuaScriptFolder && !LuaFolderReadable)
+        {
+            if (DetailRow(app, "##luamissing", Icon::FolderOpen, "Can't find the folder", "Pick it again to use its scripts"))
+                PickLuaFolder(app);
+        }
+        else if (!config.LuaScriptFolder.empty() && config.LuaScripts.empty())
+            Note(app, "No .lua files in this folder");
+        for (const Frontend::RomLuaScript& script : config.LuaScripts)
+        {
+            ImGui::PushID(script.FileName.c_str());
+            DrawLuaScript(app, script);
+            ImGui::PopID();
+        }
+    }
+
+    void DrawLuaScript(App& app, const Frontend::RomLuaScript& script)
+    {
+        auto found = LuaHeaders.find(script.FileName);
+        const Frontend::LuaScriptHeader* header = found != LuaHeaders.end() ? &found->second : nullptr;
+        std::string detail = header && header->Description ? *header->Description : "";
+        if (header && header->UnreadableOptionCount > 0)
+        {
+            int count = header->UnreadableOptionCount;
+            detail += (detail.empty() ? "" : " \xc2\xb7 ") + std::to_string(count) + (count == 1 ? " option line skipped" : " option lines skipped");
+        }
+        if (ToggleRow(app, "##luascript", Icon::Code, script.FileName.c_str(), detail.c_str(), script.Enabled))
+        {
+            RomConfig config = Current(app);
+            for (Frontend::RomLuaScript& s : config.LuaScripts)
+            {
+                if (s.FileName == script.FileName)
+                    s.Enabled = !s.Enabled;
+            }
+            Store(app, config);
+        }
+        Track("luascript");
+
+        bool showOptions = script.Enabled && header && !header->Options.empty();
+        auto size = LuaDataSizes.find(script.FileName);
+        if (!showOptions && size == LuaDataSizes.end())
+            return;
+        ImGui::Indent(app.Px(32));
+        if (showOptions)
+        {
+            GameSettingsScreen* self = this;
+            std::string fileName = script.FileName;
+            if (LuaOptionRows(app, header->Options, Frontend::ResolveValues(header->Options, script.Options),
+                    [self, fileName](App& app, const std::string& key, const std::string& value) { self->StoreLuaOption(app, fileName, key, value); }))
+                FocusedRow = "luachange";
+        }
+        if (size != LuaDataSizes.end())
+        {
+            // rounded up, so a few bytes don't show as 0 KB
+            std::string label = "Saved data: " + std::to_string((size->second + 1023) / 1024) + " KB";
+            if (MenuRow(app, "##luadata", Icon::DeleteSweep, label.c_str(), "Clear"))
+                AskClearLuaData(app, script.FileName);
+        }
+        ImGui::Unindent(app.Px(32));
+    }
+
+    // the app's syncLuaScripts: the list brought in step with the folder and stored if that changed, the headers read, the sizes again
+    void SyncLuaScripts(App& app)
+    {
+        LuaSynced = true;
+        RomConfig config = Current(app);
+        std::optional<std::filesystem::path> folder;
+        if (!config.LuaScriptFolder.empty())
+            folder = Frontend::PathFromUtf8(config.LuaScriptFolder);
+        std::optional<std::vector<std::string>> names;
+        std::map<std::string, Frontend::LuaScriptHeader> headers;
+        if (folder)
+        {
+            if (auto listed = Frontend::LuaScriptStorage::ListScripts(*folder))
+            {
+                names.emplace();
+                for (const Frontend::LuaScriptStorage::ScriptFile& file : *listed)
+                {
+                    names->push_back(file.Name);
+                    if (std::optional<Frontend::LuaScriptHeader> header = Frontend::LuaScriptStorage::ReadHeader(file.Path))
+                        headers[file.Name] = *header;
+                }
+                // an empty listing while scripts are known is taken as a hidden folder (see LuaScriptFolderSync::Sync)
+                if (Frontend::LuaScriptFolderSync::IsSuspiciouslyEmpty(config.LuaScripts.size(), *names))
+                    names.reset();
+            }
+            if (!names)
+                fprintf(stderr, "lua: the game's script folder %s can't be read, so its script list stays as it was\n",
+                    config.LuaScriptFolder.c_str());
+        }
+        std::vector<Frontend::RomLuaScript> synced = Frontend::LuaScriptFolderSync::Sync(config.LuaScripts, folder.has_value(), names);
+        if (synced != config.LuaScripts)
+        {
+            config.LuaScripts = synced;
+            Store(app, config);
+        }
+        // while the folder can't be read, the headers read from it before stay
+        if (names)
+            LuaHeaders = std::move(headers);
+        else if (LuaFolderRead != config.LuaScriptFolder)
+            LuaHeaders.clear();
+        LuaFolderRead = config.LuaScriptFolder;
+        LuaFolderReadable = !folder || names.has_value();
+        RefreshLuaDataSizes(app);
+    }
+
+    void PickLuaFolder(App& app)
+    {
+        Host& host = app.GetHost();
+        if (host.Hidden || !host.PickFolder)
+        {
+            app.Toast("The folder picker doesn't open in a hidden run");
+            return;
+        }
+        if (std::optional<std::string> picked = host.PickFolder(Current(app).LuaScriptFolder))
+            SetLuaFolder(app, *picked);
+    }
+
+    // the app's updateLuaScriptFolder: the same folder again keeps the switches and is read again, another one (or none) starts the list over
+    void SetLuaFolder(App& app, const std::string& folder)
+    {
+        RomConfig config = Current(app);
+        if (folder != config.LuaScriptFolder)
+        {
+            config.LuaScriptFolder = folder;
+            config.LuaScripts.clear();
+            Store(app, config);
+        }
+        SyncLuaScripts(app);
+    }
+
+    void StoreLuaOption(App& app, const std::string& fileName, const std::string& key, const std::string& value)
+    {
+        RomConfig config = Current(app);
+        for (Frontend::RomLuaScript& script : config.LuaScripts)
+        {
+            if (script.FileName == fileName)
+            {
+                script.Options[key] = value;
+                Store(app, config);
+                return;
+            }
+        }
+    }
+
+    // the key the scripts' data is kept under, as a boot makes it; none without a game code (nothing is shown then, as in the app)
+    std::optional<std::string> LuaDataGameKey() const
+    {
+        if (Entry.GameCode.empty())
+            return std::nullopt;
+        return Frontend::LuaScriptDataStore::GetGameKey(Entry.GameCode, Frontend::Library::ConfigKey(Entry));
+    }
+
+    void RefreshLuaDataSizes(App& app)
+    {
+        LuaDataSizes.clear();
+        Frontend::LuaSession* lua = app.GetHost().Lua;
+        std::optional<std::string> key = LuaDataGameKey();
+        if (!lua || !key)
+            return;
+        for (const Frontend::RomLuaScript& script : Current(app).LuaScripts)
+        {
+            if (int64_t size = lua->DataStore().GetSize(*key, script.FileName); size > 0)
+                LuaDataSizes[script.FileName] = size;
+        }
+    }
+
+    void AskClearLuaData(App& app, const std::string& fileName)
+    {
+        GameSettingsScreen* self = this;
+        app.Push(MakePanelScreen("library/game-settings/clear-lua-data", "Clear saved data?",
+            "What " + fileName + " saved for this game is deleted. This can't be undone.", [self, fileName](App& app)
+            {
+                if (MenuRow(app, "##cancel", Icon::Close, "Cancel", nullptr, true))
+                    app.Pop();
+                else if (MenuRow(app, "##clear", Icon::DeleteSweep, "Clear", nullptr))
+                {
+                    app.Pop();
+                    // not while the game runs scripts, which would write it back (LuaScriptDataStore::SetSessionGameKey)
+                    Frontend::LuaSession* lua = app.GetHost().Lua;
+                    std::optional<std::string> key = self->LuaDataGameKey();
+                    if (lua && key)
+                        lua->DataStore().Delete(*key, fileName);
+                    self->RefreshLuaDataSizes(app);
+                }
+            }));
+    }
+
     // a line of text under the rows, as the settings' notes
     static void Note(App& app, const char* text)
     {
@@ -370,16 +585,26 @@ private:
     }
 
     LibraryEntry Entry;
+    // --open library/settings/mods: the focus starts on the script folder, scrolled to it
+    bool AtMods = false;
     std::string FocusedRow;
     std::string NameBuffer;
     bool EditingName = false;
+
+    // the script folder as last read (the app's LuaScriptFolderState): which folder, whether it could be read, and each script's header by
+    // file name; then the scripts' saved data sizes, leaving out the ones that saved nothing
+    bool LuaSynced = false;
+    std::string LuaFolderRead;
+    bool LuaFolderReadable = true;
+    std::map<std::string, Frontend::LuaScriptHeader> LuaHeaders;
+    std::map<std::string, int64_t> LuaDataSizes;
 };
 
 }
 
-std::unique_ptr<Screen> MakeGameSettingsScreen(const LibraryEntry& entry)
+std::unique_ptr<Screen> MakeGameSettingsScreen(const LibraryEntry& entry, bool atMods)
 {
-    return std::make_unique<GameSettingsScreen>(entry);
+    return std::make_unique<GameSettingsScreen>(entry, atMods);
 }
 
 }

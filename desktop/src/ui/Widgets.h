@@ -2,6 +2,7 @@
 // mouse, keyboard and controller navigation all work on it. Sizes are reference pixels (App::Px)
 #pragma once
 
+#include <functional>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -33,8 +34,14 @@ bool MenuRow(App& app, const char* id, ImWchar icon, const char* label, const ch
 bool ToggleRow(App& app, const char* id, ImWchar icon, const char* label, const char* detail, bool value, bool isDefault = false,
     bool enabled = true);
 // A row with a value: confirm or Right goes to the next value (1), Left to the previous one (-1); 0 when nothing happened
-// [detail], when given, is a second line under the label
-int ChoiceRow(App& app, const char* id, ImWchar icon, const char* label, const char* value, bool isDefault = false, const char* detail = nullptr);
+// [detail], when given, is a second line under the label. With [confirmed], confirm (or a click) sets it instead of going to the next
+// value, for a row whose confirm opens a list of the values
+int ChoiceRow(App& app, const char* id, ImWchar icon, const char* label, const char* value, bool isDefault = false, const char* detail = nullptr,
+    bool* confirmed = nullptr);
+// A row with the label, the value [format] gives for the step shown, and a slider of [stepCount] steps under them: Left / Right move it a
+// step, the mouse drags it (the step it's dragged to shows meanwhile). Returns the step it moved to, once the mouse lets go of it, or -1
+int SliderRow(App& app, const char* id, ImWchar icon, const char* label, const std::function<std::string(int step)>& format, int step,
+    int stepCount, bool isDefault = false);
 // A row with a label over a second line (a folder, a binding), and a chevron; true when chosen
 bool DetailRow(App& app, const char* id, ImWchar icon, const char* label, const char* detail, bool isDefault = false, bool enabled = true);
 // Tabs along a line at [pos], with the bumper caps that switch them on either side (clickable, not stops for the controller's focus);

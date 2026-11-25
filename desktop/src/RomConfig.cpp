@@ -1,9 +1,12 @@
 #include "RomConfig.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+
+#include "picojson/picojson.h"
 
 namespace Frontend
 {
@@ -23,9 +26,102 @@ constexpr const char* kWideCameraMaxWidthKey = "mods.wideCameraMaxWidth";
 constexpr const char* kWideCameraReturnToCenterKey = "mods.wideCameraReturnToCenter";
 constexpr const char* kWideCameraZoomKey = "mods.wideCameraZoom";
 constexpr const char* kWideCameraZoomOnTextKey = "mods.wideCameraZoomOnText";
+constexpr const char* kLuaScriptFolderKey = "mods.luaScriptFolder";
+// RomModsConfigDto.luaScripts as JSON: [{"fileName": ..., "enabled": ..., "options": {key: value}}]
+constexpr const char* kLuaScriptsKey = "mods.luaScripts";
 // a stored width or zoom past these is no setting the app could have written, so it reads as none
 constexpr long MAX_STORED_WIDTH = 100000;
 constexpr float MAX_STORED_ZOOM = 100.f;
+// the most scripts and option values per script read back; past them the rest are dropped (a folder walk finds at most 4096 files, and a
+// header declares at most 16 options, so the app writes far fewer)
+constexpr size_t MAX_STORED_SCRIPTS = 4096;
+constexpr size_t MAX_STORED_OPTIONS = 256;
+
+std::string LuaScriptsJson(const std::vector<RomLuaScript>& scripts)
+{
+    picojson::array list;
+    for (const RomLuaScript& script : scripts)
+    {
+        picojson::object options;
+        for (const auto& [key, value] : script.Options)
+            options[key] = picojson::value(value);
+        picojson::object entry;
+        entry["fileName"] = picojson::value(script.FileName);
+        entry["enabled"] = picojson::value(script.Enabled);
+        entry["options"] = picojson::value(std::move(options));
+        list.push_back(picojson::value(std::move(entry)));
+    }
+    return picojson::value(std::move(list)).serialize();
+}
+
+// whether [text]'s arrays and objects nest no deeper than [maxDepth], so picojson's recursive parse can't run out of stack
+bool IsNestingWithin(const std::string& text, int maxDepth)
+{
+    int depth = 0;
+    bool inString = false, escaped = false;
+    for (char c : text)
+    {
+        if (inString)
+        {
+            if (escaped)
+                escaped = false;
+            else if (c == '\\')
+                escaped = true;
+            else if (c == '"')
+                inString = false;
+            continue;
+        }
+        if (c == '"')
+            inString = true;
+        else if ((c == '[' || c == '{') && ++depth > maxDepth)
+            return false;
+        else if (c == ']' || c == '}')
+            depth--;
+    }
+    return true;
+}
+
+// As RomModsConfigDto.toModel reads Gson's: entries without a file name are dropped, a missing switch is off, and option values that aren't
+// text are dropped (Gson's own leniency reads booleans and numbers as their text, kept here too); JSON that doesn't parse is no scripts
+std::vector<RomLuaScript> ParseLuaScripts(const std::string& text)
+{
+    // the list, its entries and their options: three levels, with room to spare
+    constexpr int MAX_NESTING = 8;
+    std::vector<RomLuaScript> scripts;
+    picojson::value root;
+    if (text.empty() || !IsNestingWithin(text, MAX_NESTING) || !picojson::parse(root, text).empty() || !root.is<picojson::array>())
+        return scripts;
+    for (const picojson::value& item : root.get<picojson::array>())
+    {
+        if (scripts.size() >= MAX_STORED_SCRIPTS)
+            break;
+        if (!item.is<picojson::object>())
+            continue;
+        const picojson::object& entry = item.get<picojson::object>();
+        auto fileName = entry.find("fileName");
+        if (fileName == entry.end() || !fileName->second.is<std::string>())
+            continue;
+        RomLuaScript script;
+        script.FileName = fileName->second.get<std::string>();
+        auto enabled = entry.find("enabled");
+        script.Enabled = enabled != entry.end() && enabled->second.is<bool>() && enabled->second.get<bool>();
+        auto options = entry.find("options");
+        if (options != entry.end() && options->second.is<picojson::object>())
+        {
+            for (const auto& [key, value] : options->second.get<picojson::object>())
+            {
+                if (script.Options.size() >= MAX_STORED_OPTIONS)
+                    break;
+                if (value.is<std::string>())
+                    script.Options[key] = value.get<std::string>();
+                else if (value.is<bool>() || value.is<double>())
+                    script.Options[key] = value.to_str();
+            }
+        }
+        scripts.push_back(std::move(script));
+    }
+    return scripts;
+}
 
 // the whole of [text] as a whole number within +-MAX_STORED_WIDTH, or none
 std::optional<int> ParseWidth(const std::string& text)
@@ -98,7 +194,7 @@ const char* GbaValue(RomConfig::GbaSlot s)
 const std::vector<std::string>& RomConfig::Keys()
 {
     static const std::vector<std::string> keys = {kConsoleKey, kNameKey, kGbaKey, kGbaRomKey, kLayoutKey, kWideViewWidthKey, kWideCameraKey,
-        kWideCameraMaxWidthKey, kWideCameraReturnToCenterKey, kWideCameraZoomKey, kWideCameraZoomOnTextKey};
+        kWideCameraMaxWidthKey, kWideCameraReturnToCenterKey, kWideCameraZoomKey, kWideCameraZoomOnTextKey, kLuaScriptFolderKey, kLuaScriptsKey};
     return keys;
 }
 
@@ -133,6 +229,10 @@ std::map<std::string, std::string> RomConfig::ToFields() const
         fields[kWideCameraZoomKey] = ZoomText(*WideCameraZoom);
     if (!WideCameraZoomOnText)
         fields[kWideCameraZoomOnTextKey] = "false";
+    if (!LuaScriptFolder.empty())
+        fields[kLuaScriptFolderKey] = LuaScriptFolder;
+    if (!LuaScripts.empty())
+        fields[kLuaScriptsKey] = LuaScriptsJson(LuaScripts);
     return fields;
 }
 
@@ -162,6 +262,8 @@ RomConfig RomConfig::FromFields(const std::map<std::string, std::string>& fields
     c.WideCameraReturnToCenter = get(kWideCameraReturnToCenterKey) != "false";
     c.WideCameraZoom = ParseZoom(get(kWideCameraZoomKey));
     c.WideCameraZoomOnText = get(kWideCameraZoomOnTextKey) != "false";
+    c.LuaScriptFolder = get(kLuaScriptFolderKey);
+    c.LuaScripts = ParseLuaScripts(get(kLuaScriptsKey));
     return c;
 }
 
@@ -280,6 +382,13 @@ std::string RomConfig::Describe() const
         add("camera zoom " + ZoomText(*WideCameraZoom));
     if (!WideCameraZoomOnText)
         add("camera stays out on text");
+    if (!LuaScriptFolder.empty())
+        add("Lua script folder " + LuaScriptFolder);
+    if (!LuaScripts.empty())
+    {
+        size_t on = std::count_if(LuaScripts.begin(), LuaScripts.end(), [](const RomLuaScript& s) { return s.Enabled; });
+        add(std::to_string(LuaScripts.size()) + " Lua scripts (" + std::to_string(on) + " on)");
+    }
     return text.empty() ? "defaults" : text;
 }
 

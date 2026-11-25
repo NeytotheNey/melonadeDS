@@ -81,6 +81,8 @@ public:
     // together <-> detached, saved as desktop_screens
     void SetDetached(bool detached);
     void ToggleSwap();
+    // the swap a Lua script asks for (melon.screen.swap), not stored: desktop_swap_screens stays the player's
+    void SetSwapped(bool swapped);
     // the layout the windows show (the frontend picks it: the run's, the game's or the settings'), and the run's background over its own
     // (--background, --background-mode)
     void SetLayout(const LayoutChoice& choice);

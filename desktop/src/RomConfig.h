@@ -1,8 +1,9 @@
 // A game's own settings, the app's RomConfig (phase 2 step B): kept in library.db's rom_config table by the ROM's RetroAchievements hash
 // (by its path when rc_hash refused it), so they survive the file being moved or renamed, two copies of a game share them, and a game
 // started from the command line has them too. Only what differs from the default is stored, one row per field under the app's
-// RomConfigDto names (runtimeConsoleType, customName, gbaSlotConfig.type, gbaSlotConfig.gbaRomPath, layoutId, and the widescreen ones under
-// mods.) with its enum names as values (DS, DSi, GbaRom, RumblePak, MemoryExpansion), so a later import from the app maps one to one. Rows
+// RomConfigDto names (runtimeConsoleType, customName, gbaSlotConfig.type, gbaSlotConfig.gbaRomPath, layoutId, and the widescreen and Lua
+// ones under mods., the script list as RomModsConfigDto's luaScripts JSON) with its enum names as values (DS, DSi, GbaRom, RumblePak,
+// MemoryExpansion), so a later import from the app maps one to one. Rows
 // with other keys (a newer build's fields) are left alone.
 //
 // What the desktop applies when a game boots: the console, the GBA slot (None, an empty slot, by default, as in the app) and widescreen
@@ -13,6 +14,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "lua/LuaScriptFolderSync.h"
 
 namespace Frontend
 {
@@ -41,6 +44,10 @@ struct RomConfig
     bool WideCameraReturnToCenter = true;
     std::optional<float> WideCameraZoom;
     bool WideCameraZoomOnText = true;
+    // the app's RomModsConfig Lua fields: the folder the game's scripts are read from (a path, UTF-8; empty: none linked, where the app
+    // keeps a tree URI), and the scripts found in it with their switches and option values, kept in step with it by LuaScriptFolderSync
+    std::string LuaScriptFolder;
+    std::vector<RomLuaScript> LuaScripts;
 
     // RomModsConfig.validWideCameraZoom: the remembered zoom if it's a usable one (the camera clamps it to the game's range), otherwise 1
     float ValidWideCameraZoom() const;
@@ -51,7 +58,7 @@ struct RomConfig
         return ConsoleType == o.ConsoleType && CustomName == o.CustomName && Gba == o.Gba && GbaRomPath == o.GbaRomPath && LayoutId == o.LayoutId
             && WideViewWidth == o.WideViewWidth && WideCamera == o.WideCamera && WideCameraMaxWidth == o.WideCameraMaxWidth
             && WideCameraReturnToCenter == o.WideCameraReturnToCenter && WideCameraZoom == o.WideCameraZoom
-            && WideCameraZoomOnText == o.WideCameraZoomOnText;
+            && WideCameraZoomOnText == o.WideCameraZoomOnText && LuaScriptFolder == o.LuaScriptFolder && LuaScripts == o.LuaScripts;
     }
     bool operator!=(const RomConfig& o) const { return !(*this == o); }
 

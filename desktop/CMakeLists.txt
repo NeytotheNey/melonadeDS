@@ -132,6 +132,13 @@ add_executable(melonade-desktop
     src/Library.h
     src/LibraryDb.cpp
     src/LibraryDb.h
+    src/lua/LuaSession.cpp
+    src/lua/LuaSession.h
+    src/lua/requests/LuaEffectRequests.h
+    src/lua/requests/LuaLayoutRequests.cpp
+    src/lua/requests/LuaLayoutRequests.h
+    src/lua/requests/LuaUiOverrides.cpp
+    src/lua/requests/LuaUiOverrides.h
     src/Metadata.h
     src/MetadataSync.cpp
     src/MetadataSync.h
@@ -186,6 +193,9 @@ add_executable(melonade-desktop
     src/ui/LibraryCards.cpp
     src/ui/LibraryCards.h
     src/ui/LibraryScreen.cpp
+    src/ui/LuaOptionControls.cpp
+    src/ui/LuaOptionControls.h
+    src/ui/ModsScreen.cpp
     src/ui/MosaicLayout.cpp
     src/ui/MosaicLayout.h
     src/ui/PanelScreen.cpp
@@ -277,6 +287,13 @@ endif()
 add_executable(melonade-desktop-tests
     tests/Test.h
     tests/TestMain.cpp
+    tests/LuaBloomRequestsTests.cpp
+    tests/LuaDepthOfFieldRequestsTests.cpp
+    tests/LuaLayoutRequestsTests.cpp
+    tests/LuaShadeRequestsTests.cpp
+    tests/LuaSunRequestsTests.cpp
+    tests/LuaTiltShiftRequestsTests.cpp
+    tests/LuaUiOverridesTests.cpp
     tests/LuaWideCameraRequestsTests.cpp
     tests/ScreensDrawingTests.cpp
     tests/WideCameraControllerTests.cpp
@@ -292,6 +309,43 @@ add_executable(melonade-desktop-tests
     src/camera/WidescreenLaunch.h
     src/layout/LayoutGeometry.cpp
     src/layout/LayoutGeometry.h)
+# the scripts' arbiters (src/lua/requests); the effects' values are render/PresentFrame.h's, whose core and GL headers are only declarations
+target_sources(melonade-desktop-tests PRIVATE
+    src/lua/requests/LuaEffectRequests.h
+    src/lua/requests/LuaLayoutRequests.cpp
+    src/lua/requests/LuaLayoutRequests.h
+    src/lua/requests/LuaUiOverrides.cpp
+    src/lua/requests/LuaUiOverrides.h)
+# the scripts' folder, headers, options and saved data (src/lua, the app's Kotlin side of the Lua mods), in the exe and tested here; the
+# saved data's file names hash with bcrypt's SHA-256
+set(LUA_SCRIPT_SOURCES
+    src/lua/LuaScriptDataStore.cpp
+    src/lua/LuaScriptDataStore.h
+    src/lua/LuaScriptFolderContent.cpp
+    src/lua/LuaScriptFolderContent.h
+    src/lua/LuaScriptFolderSync.cpp
+    src/lua/LuaScriptFolderSync.h
+    src/lua/LuaScriptHeaderParser.cpp
+    src/lua/LuaScriptHeaderParser.h
+    src/lua/LuaScriptOption.cpp
+    src/lua/LuaScriptOption.h
+    src/lua/LuaScriptStorage.cpp
+    src/lua/LuaScriptStorage.h
+    src/lua/LuaText.cpp
+    src/lua/LuaText.h)
+target_sources(melonade-desktop PRIVATE ${LUA_SCRIPT_SOURCES})
+target_sources(melonade-desktop-tests PRIVATE ${LUA_SCRIPT_SOURCES}
+    tests/LuaScriptDataStoreTests.cpp
+    tests/LuaScriptFolderContentTests.cpp
+    tests/LuaScriptFolderSyncTests.cpp
+    tests/LuaScriptHeaderParserTests.cpp
+    tests/LuaScriptOptionTests.cpp
+    tests/LuaScriptTestText.h
+    tests/RomConfigTests.cpp
+    src/RomConfig.cpp
+    src/RomConfig.h)
+target_link_libraries(melonade-desktop-tests PRIVATE bcrypt)
+target_include_directories(melonade-desktop-tests PRIVATE "${CORE_LIB}/src")
 target_include_directories(melonade-desktop-tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/tests"
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party" "${APP_CPP}")
 target_compile_options(melonade-desktop-tests PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)

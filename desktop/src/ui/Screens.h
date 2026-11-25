@@ -8,20 +8,28 @@
 #include "Library.h"
 #include "Screen.h"
 
+namespace Frontend { struct LuaScriptStatus; }
+
 namespace Ui
 {
 
 class App;
 
-// what the library opens by itself once its scan is done (--open library/details, library/settings): the first game's details or settings
-enum class LibraryOpen { None, Details, Settings };
+// what the library opens by itself once its scan is done (--open library/details, library/settings, library/settings/mods): the first
+// game's details or settings, or its settings at the Lua scripts
+enum class LibraryOpen { None, Details, Settings, SettingsMods };
 // the game library, the home screen when no game runs
 std::unique_ptr<Screen> MakeLibraryScreen(LibraryOpen open = LibraryOpen::None);
 // a game's details, with Play and its settings
 std::unique_ptr<Screen> MakeGameDetailsScreen(const Frontend::LibraryEntry& entry);
-// a game's own settings (RomConfig: its display name, console, GBA slot and layout), kept in the library by its RetroAchievements hash
-std::unique_ptr<Screen> MakeGameSettingsScreen(const Frontend::LibraryEntry& entry);
+// a game's own settings (RomConfig: its display name, console, GBA slot, layout, widescreen and Lua scripts), kept in the library by its
+// RetroAchievements hash; [atMods]: scrolled to the Lua scripts, the focus on the script folder
+std::unique_ptr<Screen> MakeGameSettingsScreen(const Frontend::LibraryEntry& entry, bool atMods = false);
 std::unique_ptr<Screen> MakePauseScreen();
+// the pause menu's Mods: the session's scripts, each with a switch for this session only and its Options (ui/ModsScreen.cpp)
+std::unique_ptr<Screen> MakeModsScreen();
+// a script's options over the pause menu: saved to the game's settings and the script restarted with them, or cancelled
+std::unique_ptr<Screen> MakeLuaOptionsScreen(const Frontend::LuaScriptStatus& script);
 // the savestate slots, on the Save tab or the Load tab
 std::unique_ptr<Screen> MakeStatesScreen(bool save);
 // the settings, on one of its tabs: video, display, emulation, audio, controls, library

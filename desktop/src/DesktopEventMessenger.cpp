@@ -13,6 +13,16 @@ void DesktopEventMessenger::Post(std::function<void()> task)
     Pending.push_back(std::move(task));
 }
 
+void DesktopEventMessenger::PostLua(std::function<void()> task)
+{
+    unsigned session = LuaSession.load();
+    Post([this, session, task = std::move(task)]
+    {
+        if (session == LuaSession.load())
+            task();
+    });
+}
+
 void DesktopEventMessenger::Drain()
 {
     std::vector<std::function<void()>> tasks;
@@ -77,48 +87,70 @@ void DesktopEventMessenger::onLeaderboardAttemptCompleted(long leaderboardId, in
 
 void DesktopEventMessenger::onLuaScriptStopped(int scriptId, const std::string& error)
 {
-    Post([=, this]
+    PostLua([=, this]
     {
         Platform::Log(Platform::LogLevel::Info, "Lua script %d stopped: %s\n", scriptId, error.c_str());
         if (OnLuaScriptStopped)
-            OnLuaScriptStopped(scriptId);
+            OnLuaScriptStopped(scriptId, error);
     });
 }
 
-void DesktopEventMessenger::onLuaSwapScreens(int scriptId, bool swapped) { POST_LOG("Lua script %d: swap screens %d\n", scriptId, swapped); }
-void DesktopEventMessenger::onLuaShowControls(int scriptId, bool visible) { POST_LOG("Lua script %d: show controls %d\n", scriptId, visible); }
-void DesktopEventMessenger::onLuaFastForward(int scriptId, bool enabled) { POST_LOG("Lua script %d: fast forward %d\n", scriptId, enabled); }
+void DesktopEventMessenger::onLuaSwapScreens(int scriptId, bool swapped)
+{
+    PostLua([=, this] { if (OnLuaSwapScreens) OnLuaSwapScreens(scriptId, swapped); });
+}
+
+void DesktopEventMessenger::onLuaShowControls(int scriptId, bool visible)
+{
+    PostLua([=, this] { if (OnLuaShowControls) OnLuaShowControls(scriptId, visible); });
+}
+
+void DesktopEventMessenger::onLuaFastForward(int scriptId, bool enabled)
+{
+    PostLua([=, this] { if (OnLuaFastForward) OnLuaFastForward(scriptId, enabled); });
+}
 
 void DesktopEventMessenger::onLuaSetLayout(int scriptId, const std::string& optionKey)
 {
-    POST_LOG("Lua script %d: layout %s\n", scriptId, optionKey.c_str());
+    // an empty key is set_layout(nil), the player's layout back
+    std::optional<std::string> key = optionKey.empty() ? std::nullopt : std::optional<std::string>(optionKey);
+    PostLua([=, this] { if (OnLuaSetLayout) OnLuaSetLayout(scriptId, key); });
 }
 
-void DesktopEventMessenger::onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation, float contrast, float color)
+void DesktopEventMessenger::onLuaTiltShift(int scriptId, float top, float bottom, float center, float width, float radius, float saturation,
+    float contrast, float color)
 {
-    POST_LOG("Lua script %d: tilt shift %.2f %.2f\n", scriptId, top, bottom);
+    // the color is negative when the script didn't pass it
+    TiltShift tiltShift {top, bottom, center, width, radius, saturation, contrast, color >= 0.f ? std::optional<float>(color) : std::nullopt};
+    PostLua([=, this] { if (OnLuaTiltShift) OnLuaTiltShift(scriptId, tiltShift); });
 }
 
 void DesktopEventMessenger::onLuaBloom(int scriptId, float strength, float threshold, float radius, float vignette, float vignetteSize,
     bool onlyThreeD, float haze, int hazeColor, float hazeStart, float hazeFalloff, bool lights, float lightThreshold, float lightStrength)
 {
-    POST_LOG("Lua script %d: bloom %.2f vignette %.2f haze %.2f lights %d\n", scriptId, strength, vignette, haze, lights ? 1 : 0);
+    Bloom bloom {strength, threshold, radius, onlyThreeD, vignette, vignetteSize, haze, (u32)hazeColor, hazeStart, hazeFalloff, lights,
+        lightThreshold, lightStrength};
+    PostLua([=, this] { if (OnLuaBloom) OnLuaBloom(scriptId, bloom); });
 }
 
-void DesktopEventMessenger::onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth, float range, float falloff)
+void DesktopEventMessenger::onLuaDepthOfField(int scriptId, float strength, float radius, float focusX, float focusY, float focusDepth,
+    float range, float falloff)
 {
-    POST_LOG("Lua script %d: depth of field %.2f radius %.2f\n", scriptId, strength, radius);
+    DepthOfField depthOfField {strength, radius, focusX, focusY, focusDepth, range, falloff};
+    PostLua([=, this] { if (OnLuaDepthOfField) OnLuaDepthOfField(scriptId, depthOfField); });
 }
 
 void DesktopEventMessenger::onLuaShade(int scriptId, float strength, float radius, float range, int color)
 {
-    POST_LOG("Lua script %d: shade %.2f radius %.2f\n", scriptId, strength, radius);
+    Shade shade {strength, radius, range, (u32)color};
+    PostLua([=, this] { if (OnLuaShade) OnLuaShade(scriptId, shade); });
 }
 
 void DesktopEventMessenger::onLuaSun(int scriptId, float strength, const std::array<float, 3>& direction, const std::array<float, 3>& up,
     float length, int steps, float bias, float softness, int color, float nearLimit)
 {
-    POST_LOG("Lua script %d: sun %.2f length %.1f steps %d\n", scriptId, strength, length, steps);
+    Sun sun {strength, direction, up, length, steps, bias, softness, (u32)color, nearLimit};
+    PostLua([=, this] { if (OnLuaSun) OnLuaSun(scriptId, sun); });
 }
 
 void DesktopEventMessenger::onLuaWideCamera(int scriptId, float zoom, bool hasPan, float pan, bool holdNative, bool hasPanY, float panY)
@@ -132,7 +164,7 @@ void DesktopEventMessenger::onLuaWideCamera(int scriptId, float zoom, bool hasPa
     request.HoldNative = holdNative;
     if (hasPanY)
         request.PanY = panY;
-    Post([this, scriptId, request]
+    PostLua([this, scriptId, request]
     {
         Platform::Log(Platform::LogLevel::Debug, "Lua script %d: wide camera zoom %.2f\n", scriptId, request.Zoom.value_or(0.f));
         if (OnLuaWideCamera)
@@ -140,7 +172,20 @@ void DesktopEventMessenger::onLuaWideCamera(int scriptId, float zoom, bool hasPa
     });
 }
 
-void DesktopEventMessenger::onLuaStateLoaded() { POST_LOG("Lua script loaded a state\n"); }
-void DesktopEventMessenger::onLuaStorageSaved() { POST_LOG("Lua storage saved\n"); }
+void DesktopEventMessenger::onLuaStateLoaded()
+{
+    PostLua([this]
+    {
+        Platform::Log(Platform::LogLevel::Debug, "Lua script loaded a state\n");
+        if (OnLuaStateLoaded)
+            OnLuaStateLoaded();
+    });
+}
+
+void DesktopEventMessenger::onLuaStorageSaved()
+{
+    if (OnLuaStorageSaved)
+        OnLuaStorageSaved();
+}
 
 }

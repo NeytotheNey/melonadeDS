@@ -46,8 +46,9 @@ run it again only if that header changes.
 `build.sh` also builds `melonade-desktop-tests.exe` and runs it after the exe; a failing test stops the script before the
 release folder. It's a console program with the app's Kotlin tests ported for the desktop's pure logic: the WideMelon
 camera (`src/camera/`: `WideCameraTest`, `WideCameraControllerTest`, `WidescreenLaunchCameraTest`,
-`LuaWideCameraRequestsTest`) and the screens' placement (`src/layout/LayoutGeometry`: `ScreensDrawingTest`), with the same
-expected values. It's built from those sources alone, with no SDL, GL or core, and lives in `tests/` (a tiny harness in
+`LuaWideCameraRequestsTest`), the screens' placement (`src/layout/LayoutGeometry`: `ScreensDrawingTest`), the Lua scripts' side
+of the app (`src/lua/`: the header parser, options, folder content and sync, saved data, the arbiters) and the game settings' script list
+(`RomConfig`), with the same expected values. It's built from those sources alone, with no SDL, GL or core, and lives in `tests/` (a tiny harness in
 `tests/Test.h`, no test library). To run it by hand, from PowerShell:
 
     & .\build-desktop\melonade-desktop-tests.exe            # all of them
@@ -88,8 +89,8 @@ main ones:
 | `--vsync on\|off`, `--frame-buffer on\|off` | [frame pacing](#frame-pacing) (`frame_pacing_vsync`) and its Triple buffering (`frame_pacing_buffer`) for the run |
 | `--filter NAME` | the [screen filter](#screen-filters) for the run (`video_filtering`): `none`, `linear`, `xbr2`, `hq2x`, `hq4x`, `quilez`, `lcd`, `scanlines`, `scale2x`, `fxaa`, `sharp`, `mmpx`, the app's `VideoFiltering` names in any case; `--linear` is `--filter linear` |
 | `--deband on\|off`, `--ds-colors on\|off`, `--screen-shadow on\|off` | smooth gradients (`video_deband`), the DS screen colors (`video_ds_screen_colors`) and the screen shadow (`video_screen_shadow`) for the run |
-| `--tilt-shift TOP,BOTTOM,CENTER,WIDTH,RADIUS[,SATURATION,CONTRAST[,COLOR]]` | the Lua tilt-shift's passes over the top screen, for tests until scripts drive them (phase 4): the blur's strength above and below the sharp band (0-1), the band's center and width (fractions of the screen's height), the radius in DS pixels (up to 64), and the color boost with what it follows (the app's `TiltShift`) |
-| `--bloom STRENGTH[,THRESHOLD,RADIUS[,VIGNETTE,SIZE]]` | the Lua bloom's and vignette's passes over the top screen, for tests until scripts drive them, clamped as `melon.screen.bloom` and `vignette` clamp them: the glow's strength (0-2), the luma it starts at (0-1, 0.7 left out) and its radius in DS pixels (0-8, 3), then the vignette's strength (0-1) and where it starts as a fraction of the half-diagonal (0-1, 0.6); both strengths at 0 is none (the app's `Bloom`). As Lua's default `only_3d`, only the 3D glows, not 2D drawn over it such as text boxes: the glow asks the core for each frame's depth, which only `--renderer gl` hands out, and without it every bright pixel glows. Only `--window-shot` shows them |
+| `--tilt-shift TOP,BOTTOM,CENTER,WIDTH,RADIUS[,SATURATION,CONTRAST[,COLOR]]` | the Lua tilt-shift's passes over the top screen, for tests, over any script's tilt-shift for the run: the blur's strength above and below the sharp band (0-1), the band's center and width (fractions of the screen's height), the radius in DS pixels (up to 64), and the color boost with what it follows (the app's `TiltShift`) |
+| `--bloom STRENGTH[,THRESHOLD,RADIUS[,VIGNETTE,SIZE]]` | the Lua bloom's and vignette's passes over the top screen, for tests, over any script's bloom for the run (as `--haze`, `--dof`, `--shade` and `--sun` are over the scripts' haze, depth of field, shading and sun), clamped as `melon.screen.bloom` and `vignette` clamp them: the glow's strength (0-2), the luma it starts at (0-1, 0.7 left out) and its radius in DS pixels (0-8, 3), then the vignette's strength (0-1) and where it starts as a fraction of the half-diagonal (0-1, 0.6); both strengths at 0 is none (the app's `Bloom`). As Lua's default `only_3d`, only the 3D glows, not 2D drawn over it such as text boxes: the glow asks the core for each frame's depth, which only `--renderer gl` hands out, and without it every bright pixel glows. Only `--window-shot` shows them |
 | `--bloom-all` | with `--bloom`, every bright pixel glows, 2D included, as `only_3d = false` does, and the glow needs no depth |
 | `--bloom-lights [THRESHOLD[,STRENGTH]]` | with `--bloom`, bloom's `lights = true`: the pixels of the light textures (`--light-textures`, flag 32) glow by their brightest channel from THRESHOLD (0-1, 0.65) at STRENGTH times the rest of the glow (0-4, 1), and those at least THRESHOLD bright stay lit under `--shade` and `--sun`. The value is optional: the next argument is only taken when it's a whole THRESHOLD or THRESHOLD,STRENGTH. Asks the core for each frame's depth, as `--bloom` does, and does nothing without it |
 | `--haze STRENGTH[,START,FALLOFF[,RRGGBB]]` | the Lua haze over the top screen's 3D, for tests, clamped as `melon.screen.haze` clamps it: how far the farthest 3D goes towards the color (0-1), the raw depth where it starts and how far past that it reaches full strength (0-1, 0.9968 and 0.0008, tuned for Pokémon White's field), and the color as hex RRGGBB (DCE6F0). 2D over the 3D and what's behind the 3D stay as they are. It asks the core for each frame's depth, which only `--renderer gl` hands out; without it there's no haze. Only `--window-shot` shows it |
@@ -98,7 +99,8 @@ main ones:
 | `--sun STRENGTH[,LENGTH,STEPS,BIAS[,SOFTNESS[,RRGGBB[,DX,DY,DZ[,UX,UY,UZ[,NEAR]]]]]]` | the Lua sun shadows over the top screen's 3D, for tests, clamped as `melon.screen.sun` clamps them: how far shadowed pixels go towards the tint (0-1), how far the march reaches in the camera's view-space units (1-1024, 96) in how many steps (1-128, 64), the bias in units (0-64, 1), the softness in DS pixels (0-8, 1.5), the tint as hex RRGGBB (33384F), the direction towards the sun (0.50,0.83,0.26) and the world's up (0.0006,0.607,0.794) in view space, both normalized, and how far from the camera 3D has to be to cast, in units (0-1024, 0: everything casts) (defaults tuned for Pokémon White's field). The core gets the direction and up as well and draws the characters' own shadows into the depth's flags (flag 16), as `melon.screen.sun` has it. 2D over the 3D and what's behind the 3D stay as they are. It runs after `--shade` and before `--dof`, which blurs it with the rest. It asks the core for each frame's depth, which only `--renderer gl` hands out, and needs the frame's depth camera (`--camera-shown` shows it); without either there are no shadows. Only `--window-shot` shows it |
 | `--sun-guard G` | `--sun`'s guard band, as `melon.screen.sun`'s `guard` asks for it (`MelonInstance::setFrontendSunGuard`): while `--sun` is on and no script's sun is, OpenGL renders G more DS pixels past the sides of the top screen the sun's march can leave it through, as columns on the left or right and rows above or below (0-128, rounded up to even on each side unless all four are guarded, kept within WideMelon's 768 wide and 128 margin rows around `--wide`'s view; above `--scale 4` each side gets G * 4 / scale rounded up to even, at most G, so 64 is 44 at 6x and 32 at 8x, as `sunGuardForScale` has it), which the filters and the sun's march take in but the window doesn't show, so casters just off screen still cast. The sides come from the sun's direction and the last frame's valid depth camera (all four until there is one); a `SUNGUARD left right top bottom` line on stderr gives each change. Each frame carries its own (`Frame::topScreenGuard`, per side), which the window crops and the output cap leaves out. A side's lower guard only applies after 3 s, as the script's does |
 | `--sun-guard-sides auto\|all` | which sides the guard band of `--sun-guard` or a script's `guard` goes on: `auto` (the default) the ones the sun's march can leave the screen through, `all` all four, as before sides were picked |
-| `--lua-script FILE.lua` | a Lua script run with the command line's game, as the app runs its scripts (`LuaEngine`), for tests, with `melon.options` at the defaults its header's `-- option:` lines give: what it asks of the core (its sun and `guard`, hidden, light and UI textures) takes effect, but the window doesn't draw its screen effects, which `--sun` and the other flags stand in for |
+| `--lua-script FILE.lua` | a Lua script the command line's game runs instead of its own scripts, for the run only (never stored; repeatable, in order), as the app runs a game's scripts ([Lua scripts](#lua-scripts)): the first one's folder gives them their modules and images (`require`, `melon.image.load`), their `melon.storage` is kept with the game's, and options changed meanwhile aren't saved. A script that can't be read is reported as switched off |
+| `--lua-option KEY=VALUE` | `melon.options`' KEY for every `--lua-script` whose header declares it (repeatable): the value is checked as a stored one is (`LuaScriptOption.resolve`: a number goes onto the slider's steps, and one that doesn't fit gets the default); for the run only |
 | `--output-cap` | the windows' screen size goes to the core after each present (GPU::OutputCap, as the app's surfaces send it), so the frame is drawn no bigger than the screens are shown; without it the frame stays at the internal resolution |
 | `--window-shot-linear` | the window shot drawn with the linear filter, whatever the run's filter |
 | `--depth-shot FILE.png` | when `--frames` or `--ui-script` ends the run, the last frame's top screen depth (OpenGL only; the core's depth for the Lua post effects, asked for by this flag alone) as a grayscale PNG: the 3D from near (dark) to far (light) over the range it covers, 2D on top black, transparent 3D white. It prints the depth range, how many distinct depth values the 3D has (and how many of them 16 bits would tell apart), and how many pixels carry each flag |
@@ -112,8 +114,8 @@ main ones:
 | `--focus-textures HASH,...` | `--dof` focuses on the polygon of these textures that covers the biggest box on screen, as `melon.gpu.focus_textures` has it (hex content hashes from `--list-textures`, at most 64; OpenGL only), eased from scene to scene and held 8 frames once it's gone; a script's own list wins over it, and `--dof`'s focus depth over both. White's female player is `A762276B` |
 | `--set Name=Value` | a core debug switch on `GPU`, e.g. `--set LateBlit=0` (`--list-sets`) |
 | `--frames N` | quit after N frames and print frame time stats: the game's frames, plus the UI's while no game frame runs (the start screen, a menu over the paused game), how many presented frames had a screen at 1x (GPU::Comp1x), and with [frame pacing](#frame-pacing) on, a `pacing` line |
-| `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window, menus included, when `--frames` or `--ui-script` ends the run; detached, the windows as `F_top.bmp` and `F_bottom.bmp` |
-| `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `pause`, `pause/save`, `pause/load`, `pause/layout`, `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`), `layouts` (the global layout's list), `layout-editor` (the [layout editor](#layout-editor) on the layout in use), `layout-editor/new`, `layout-editor/ID` (a custom layout by its id), `input`, `keyboard`; with a game, once its first frame is shown |
+| `--screenshot F.bmp` / `--window-shot F.bmp` | save the last frame (internal resolution) / the window, menus included, when `--frames` or `--ui-script` ends the run; detached, the windows as `F_top.bmp` and `F_bottom.bmp`. The window shot has the Lua drawings; the frame only with `video_lua_drawings_in_state_pictures` on, as the app's save state pictures |
+| `--open SCREEN` | open a menu screen at the start: `library` (or `start`), `library/details` or `library/settings` (the first game's details or game settings once the scan is done), `library/settings/mods` (its settings at the Lua scripts), `pause`, `pause/save`, `pause/load`, `pause/layout`, `pause/mods`, `pause/mods/options/ID` (a script's options by its id, from 0), `settings`, `settings/video` (or `display`, `emulation`, `audio`, `controls`, `library`), `layouts` (the global layout's list), `layout-editor` (the [layout editor](#layout-editor) on the layout in use), `layout-editor/new`, `layout-editor/ID` (a custom layout by its id), `input`, `keyboard`; with a game, once its first frame is shown |
 | `--layout NAME\|ID` | the [layout](#layouts-and-backgrounds) for the run, over the game's own and the settings' (never stored): a layout's name in any case or its id from `layouts.json`, `default` (the app's Default), or the desktop's `vertical`, `horizontal`, `top`, `bottom`; an unknown one lists them and quits. It also means the screens together, unless `--detach` is given too (then it's the layout for when they're together again, and its detached windows' layouts) |
 | `--background FILE\|NAME` | the background for the run, over the layout's: an image (PNG, JPEG, BMP, GIF) or SVG file, a background's name (`crimson`, `pearl-tech`, `Pearl Tech`, or a user background's name from `backgrounds.json`) or id, or `none` |
 | `--background-mode MODE` | how it's placed for the run: `stretch`, `fit-center`, `fit-top`, `fit-left`, `fit-bottom`, `fit-right` (the app's `BackgroundMode`, `FIT_CENTER` style too) |
@@ -162,7 +164,7 @@ runs never read or change the real one, visible or not. Keys the app has use its
 desktop-only ones start with `desktop_`. Keys the desktop doesn't know are kept.
 
 Options that set a setting (`--renderer`, `--scale`, `--filter`, `--linear`, `--deband`, `--ds-colors`, `--screen-shadow`, `--vsync`,
-`--frame-buffer`, `--smooth30`, `--no-audio`, `--detach`, `--rom-folder`, `--setting`) apply to that run only and are never written; a hotkey that changes one of
+`--frame-buffer`, `--smooth30`, `--no-audio`, `--detach`, `--rom-folder`, `--setting`, `--lua-script`, `--lua-option`) apply to that run only and are never written; a hotkey that changes one of
 them during that run changes it for the run only too. Hotkeys change and save the others. `--layout` and `--background` are the run's
 too: a layout picked while one is given (F2, the pause menu) changes the run's, and nothing is stored. `--layout`
 also means the screens together for that run, unless `--detach` is given too.
@@ -176,6 +178,7 @@ also means the screens together for that run, unless `--detach` is given too.
 | `video_ds_screen_colors` | `true`, `false` | the DS screen colors (default off; the app took its switch out and reads it as off whatever is stored) |
 | `video_screen_shadow` | `true`, `false` | a soft shadow around the screens (default off, as in the app) |
 | `video_hires_capture`, `video_filter_2d`, `video_sharper_rotated_2d`, `video_edge_marking`, `video_precise_depth`, `video_gl_seams` | `true`, `false` | the renderer settings, applied to a running game at once (desktop defaults: edge marking on, the rest off) |
+| `video_lua_drawings_in_state_pictures` | `true`, `false` | the app's "Show script drawings in save state pictures": Lua scripts' `melon.draw` drawings in the slots' pictures, and here in `--screenshot`, the `screenshot` step and F12 too (default off, as in the app; no menu entry yet, `--setting` for a run) |
 | `frame_pacing_vsync` | `true`, `false` | [frame pacing](#frame-pacing): the main window waits for vsync and the game's frames are paced to its monitor (default on, as in the app; `--vsync`). An older profile's `desktop_vsync` is carried over to it once and no longer written |
 | `frame_pacing_buffer` | `true`, `false` | Triple buffering: paced frames are due a refresh later (default on, as in the app; `--frame-buffer`) |
 | `frame_pacing_smooth_30fps` | `true`, `false` | Frame interpolation: in-between 3D scenes in 30 fps games, OpenGL and Compute only (default off, as in the app; `--smooth30`) |
@@ -236,16 +239,30 @@ no menu, toast or keyboard is up, so the window shows the game exactly as before
   Aspect ratio, 16:10, 16:9, 20:9 or 21:9; Camera, and while it's on Zoom out up to, the widths past the shown one of 426, 448, 512, 640
   and 768, with the app's note when the stored one isn't wider, Return to center when moving and Auto zoom in on text; with the
   software renderer in the settings, the app's note that it shows the normal width, the width kept for OpenGL and Compute; the app's
-  wide layout pick is left out, as the desktop picks its layouts its own way), then Reset to defaults. They're kept by the ROM's
+  wide layout pick is left out, as the desktop picks its layouts its own way), Lua scripts (see Mods below), then Reset to defaults.
+  They're kept by the ROM's
   RetroAchievements hash, so they survive the file being moved or renamed and every copy of the game shares them (by path for a ROM
-  rc_hash refuses). The app's microphone source and mods are listed as "Coming later" (phases 6 and 4), and its Motion Paks are
+  rc_hash refuses). The app's microphone source is listed as "Coming later" (phase 6), and its Motion Paks are
   left out until the desktop reads a controller's gyro. Changes are stored at once and apply the next time the game starts, from the
   library or the command line. The command line beats them: `--rom-config` for the run, then `--console`, `--gba` and the `--wide` flags.
-  `--open library/settings` opens the first game's.
+  `--open library/settings` opens the first game's, `--open library/settings/mods` scrolled to its Lua scripts.
 - **Pause menu** (the Pause binding: Esc, Guide, or Select + Start held; over the last frame, dimmed): Resume, Save state, Load state,
   Detached screens, Swap screens, Layout (the list of layouts, the one in use marked; a pick is stored where that one came from: the
   game's own layout, the run's `--layout`, or the global one, and a line over the list says which), Edit layout (the [layout
-  editor](#layout-editor) on the layout in use; "New layout from this one" for a built-in one), Settings, Reset, Quit to library, Quit.
+  editor](#layout-editor) on the layout in use; "New layout from this one" for a built-in one), Mods (while the game runs
+  [Lua scripts](#lua-scripts)), Settings, Reset, Quit to library, Quit.
+- **Mods** (the app's Mods tab and its pause menu dialogs, `src/ui/GameSettingsScreen.cpp`, `src/ui/ModsScreen.cpp`, the shared option
+  controls in `src/ui/LuaOptionControls.cpp`): a game's settings have a Lua scripts section after Widescreen: Script folder (the Windows
+  folder picker; another folder starts the script list over, the same one keeps the switches), Remove folder, a row to pick the folder
+  again when it can't be read, then each `.lua` file at the folder's top with its description (and how many option lines were skipped)
+  and its switch. Under a switched-on script with options are its options: a switch, a slider (Left / Right move a step, the mouse drags
+  it), a choice (Left / Right go through the values, confirm opens the list) or a layout ("Don't change" or one of the layouts, from a
+  list), under the header's section headings. A script that saved data has "Saved data: N KB", which clears it once asked. The list is
+  brought in step with the folder when the screen opens, and the changes apply when the game next starts. In the pause menu, Mods lists
+  the session's scripts with their description or why they're off (an error, switched off, or why the file couldn't be read, which can't
+  be switched on) and a switch that stops or starts one for this session only; Options… opens a script's options, and Save and restart
+  saves them to the game's settings and restarts it with them. `--open pause/mods` and `--open pause/mods/options/ID` (a script's id,
+  from 0 in the list's order) open them over a running game.
 - **Save state / Load state**: the app's nine slots next to the ROM (`<rom>.ml0`, the quick slot, to
   `.ml8`, so states move between phone and PC), saved and loaded through `MelonInstance` on the
   emulator thread. Loading a state takes its save into memory only (`SaveManager::SyncFromState`), so
@@ -488,13 +505,44 @@ from: the filters and the Lua passes run over the whole frame, and the quads are
 shows it: the app's layouts through `GetScreensDrawing`, the desktop's own arrangements and a detached window's fit shaped for the shown
 width at 192 rows, whatever width the core renders at. Touch on the bottom screen goes through the drawn native rect as before, also
 when a layout swaps it into the wide rect (the camera stays at 1x then). The window goes to the scripts' `melon.wide.camera()`
-(`updateWideCamera`), and the scripts' `melon.wide` requests come in through `DesktopEventMessenger` (phase 4 runs the scripts).
+(`updateWideCamera`), and the scripts' `melon.wide` requests come in through `DesktopEventMessenger` ([Lua scripts](#lua-scripts)). As in the app they do
+nothing while the camera is off (no `--wide-camera on` or game setting), and the camera eases to them in wall-clock time, so a short
+unthrottled run shows only part of the move, and only `--window-shot` shows the camera's window (`--screenshot` is the whole frame).
 
 Input, while it's on and no menu is over the game: the right stick pans (see [Input](#input) for R3), the D-pad and the left stick count
 as the player moving (Return to center when moving), the Wide camera zoom hotkey steps out a quarter at a time to the widest view and
 back to 1x, and the step it picks is remembered in the game's settings (`mods.wideCameraZoom`) to start from next time. The mouse on the
 top screen's picture drags it (left button) and zooms with the wheel (each notch a pinch of 1.08, away from you in), as a finger does on
 the phone; neither is remembered. A menu opening over the game, a pause or the window losing the focus lets go of what was held.
+
+### Lua scripts
+
+A game's Lua mods run as in the app ([MODS.md](../MODS.md) has the rules and the API). The shared `LuaEngine` runs them inside
+`MelonInstance`, and `src/lua/LuaSession.cpp` does what the app's `AndroidEmulatorManager` and `EmulatorViewModel` do around it, with the
+app's Kotlin side ported in `src/lua/`.
+
+- **Which scripts.** A game's settings keep its script folder (`mods.luaScriptFolder`, a path) and its scripts with their switches and
+  option values (`mods.luaScripts`, the app's `RomModsConfigDto` JSON) in `library.db`'s `rom_config`. At each boot the list is brought in
+  step with the folder (`LuaScriptFolderSync`: new scripts start off, gone ones are dropped, an unreadable or suddenly empty folder keeps
+  the list) and stored if it changed. Then the enabled scripts are read (1 MB each), their headers parsed and their option values
+  resolved. The game settings' Lua scripts section links the folder and switches scripts on ([Menus](#menus), Mods); `--lua-script` runs
+  scripts for one run.
+- **What they get.** The folder's modules and PNGs, within `LuaScriptFolderContent`'s caps (an image's size is read with WIC first, so
+  one over 1024 a side or past the 4M pixel budget is never decoded); their saved `melon.storage` from
+  `<profile>/lua-data/<game code>/<script>.bin` (homebrew by a hash of the game's settings key); and `melon.state` loads, which the app
+  only refuses under RetroAchievements hardcore, which the desktop doesn't have. A script that can't be read is reported as switched off
+  with the app's reason, as a toast and on stderr, like a script that stops on an error.
+- **Storage.** Snapshots are written on a thread of the session's own whenever native says some are waiting (every 10 s of changes, a
+  `flush()`, a pause), and on the spot before the next boot reads them and when the game stops or the app quits.
+- **Requests.** Each `melon.screen`, `melon.emu` and `melon.wide` request goes through the app's arbiters (`src/lua/requests/`,
+  `src/camera/LuaWideCameraRequests`) on the UI thread: the newest running script wins, a stopped script's requests go away, and the
+  session's end puts everything back. The effects go to the presenter, where a `--tilt-shift`, `--bloom` or `--haze`, `--dof`, `--shade`
+  or `--sun` given for the run wins over the scripts' effect of that kind. The swap is the windows' swap for the session only
+  (`desktop_swap_screens` stays the player's), fast forward is the toggle (a held Tab isn't touched), and a layout goes between `--layout`
+  and the game's own ([Layouts and backgrounds](#layouts-and-backgrounds)). The player's own swap, fast forward toggle or layout pick ends
+  a script's hold on it, as in the app. `show_controls` has nothing to show here (no touch controls), so it changes nothing. A state a
+  script loads is logged (the app resets its achievement indicators there). Events still on their way from a session that ended are
+  dropped, so a stopping script can't reach the next game.
 
 ### Sound
 
@@ -554,6 +602,14 @@ filters are the app's twelve (`VideoFiltering`; the settings list leaves out Sca
 from the [layouts](#layouts-and-backgrounds). `--window-shot` shows the filtered screens with their background, `--screenshot` the raw frame
 as before.
 
+A Lua script's `melon.draw` drawings (the frame's overlay texture, `FrameQueue::updateOverlay`) go on as `DSRenderer` puts them: each screen,
+then its drawings, so a screen drawn over the other covers the other's drawings too. They're never filtered: the app's `OverlayShader`, nearest
+and premultiplied (`GL_ONE, GL_ONE_MINUS_SRC_ALPHA`), at the screen's opacity, over the native 256 x 192 of that screen (`ScreenDrawing.overlay`):
+with the WideMelon camera that rect in the window, cut to the picture, and for the desktop's own placements and a detached window's fit the
+native screen in the middle of the shown one. Each window draws its own screen's. `--screenshot`, the `screenshot` step, F12 and the slots'
+pictures blend them over the frame only with `video_lua_drawings_in_state_pictures` on, as the app's save state pictures
+(`ScreenshotRenderer`): nearest from the 2x drawings, averaged 2 x 2 at 1x.
+
 The shaders aren't copied by hand. `shaders/` holds what `ShaderProgramSource.kt` and `VideoFilterShaderProvider.kt` give: a `.vert`
 and a `.frag` for every shader (the tilt-shift and bloom ones built on each `get()` too), and `shaders.json` with each shader's texture filtering
 and the filter table (each filter's screen shader, its pre-passes with their scale and `nativeResolutionOnly`, and whether it can fold
@@ -591,8 +647,8 @@ they fit at their shape, WideMelon's width and its camera margin rows included, 
 `melonade-desktop-layout:<vertical|horizontal|top|bottom>`, so they keep theirs everywhere, and they're never written to `layouts.json`),
 then the custom layouts from `layouts.json` in the profile folder in the file's order (an unnamed one is "Unnamed layout", numbered when there
 are several, as the app's `LuaLayoutChoice`). Which one shows: the run's `--layout`, else the game's own (`RomConfig.layoutId`; one that's no
-longer in the file falls back; `--rom-config layout=` stands in for it for the run), else the global one (`input_layout_id`), else the Default; a Lua script's layout request (phase 4) will go
-between the run's and the game's, as the app's `LuaLayoutRequests`. A fresh profile gets the app's Default, which in the default window
+longer in the file falls back; `--rom-config layout=` stands in for it for the run), else the global one (`input_layout_id`), else the Default; a Lua script's layout (`melon.screen.set_layout`) goes
+between the run's and the game's, as the app's `LuaLayoutRequests`, until the player picks one (F2, the pause menu, the global layout setting). A fresh profile gets the app's Default, which in the default window
 (two screens tall) is the same as Top over bottom; scripted runs that relied on the old default in a window wider than tall (`--window
 1280,720`, `--wide`) pass `--layout vertical` to keep it.
 
@@ -781,12 +837,12 @@ A scripted check, e.g. comparing renderers on the same frame:
   the grid following the main window's monitor only), but not with its on-screen controls (a PC has none to touch). The layout editor edits the screens only, and differs from the app's in the ways [its section](#layout-editor) lists. A window picks or scales a layout's variant by its own rule, SVG backgrounds draw no
   `<text>`, and WebP or HEIF background images aren't read. The app draws a background with whatever blending the previous frame left on,
   so a translucent pixel of a background comes out darker on the phone; the desktop draws it opaque. The built-in backgrounds are opaque
-  (or fully transparent), so they look the same. Lua scripts, rewind and
+  (or fully transparent), so they look the same. Rewind and
   RetroAchievements are compiled in (shared code) but not set up yet. Force 60 Hz picks the mode exclusive fullscreen takes (60 Hz, else
   120, 180, ...), where the app asks for the phone's 60 Hz mode for its window; windowed and borderless it does nothing here.
 - DS mode only (no DSi NAND), no multiplayer, Wi-Fi, mic or camera.
 - The library reads banner titles in Windows' display language (English when the banner has none in it); the app reads English.
-- The game settings have no microphone or mods yet, and widescreen has no wide layout pick; the app's long press is holding confirm or the
+- The game settings have no microphone source yet, and widescreen has no wide layout pick; the app's long press is holding confirm or the
   mouse for half a second here. They're kept by RetroAchievements hash, where the app keeps them with each ROM file. The WideMelon camera's
   zoom has no default controller button (the app's is R3, which switches the right stick here), and the mouse stands in for drag and pinch.
 - A hidden run (`--hidden`) takes no input from real controllers, only `--ui-script`'s and its `--virtual-pad`'s, and never

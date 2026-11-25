@@ -17,6 +17,7 @@
 #include <fstream>
 #include <functional>
 #include <future>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -72,9 +73,11 @@
 #include "Settings.h"
 #include "UiScript.h"
 #include "VsyncSource.h"
-#include "camera/LuaWideCameraRequests.h"
 #include "camera/WideCameraController.h"
 #include "camera/WidescreenLaunch.h"
+#include "lua/LuaScriptDataStore.h"
+#include "lua/LuaScriptStorage.h"
+#include "lua/LuaSession.h"
 #include "version.h"
 #include "ui/Host.h"
 #include "ui/Ui.h"
@@ -166,6 +169,7 @@ struct Options
         bool PreciseDepth = false; // GPU::PreciseDepth, the app's "Precise depth" setting
         bool GlSeams = false;
         bool Smooth30Fps = false;  // frame_pacing_smooth_30fps, the app's "Frame interpolation" (--smooth30 for the run)
+        bool LuaDrawingsInScreenshots = false; // LuaDrawingsInStatePictures
     } Toggles;
     int Filter2DMode = -1;     // --filter2d-mode: 2 or 3, the debug modes without a setting
     int Gpu2D = 0;             // the GPU 2D shadow renderer (GPU::SetShadow2D): 0 off, 1, 2 all, 3 all + log, 4 check
@@ -210,8 +214,10 @@ struct Options
     // --sun-guard-sides all: any sun's band on all four sides, not only the ones its march can leave the screen through
     int SunGuard = 0;
     bool SunGuardOnAllSides = false;
-    // --lua-script: a Lua script the game runs, as the app's scripts run (LuaEngine), for tests; empty for none
-    std::string LuaScriptPath;
+    // --lua-script (repeatable): Lua scripts the command line's game runs instead of its own for the run, and --lua-option's KEY=VALUE
+    // values for every one of them whose header declares the key (run-only, never stored)
+    std::vector<std::string> LuaScriptPaths;
+    std::map<std::string, std::string> LuaOptions;
     // --output-cap: the windows' output scale need goes to the core (GPU::OutputCap) after each present, as the app's surfaces send theirs
     bool OutputCap = false;
     bool Hidden = false;
@@ -391,8 +397,10 @@ void Usage()
         "                              take in but the window doesn't show, so casters just off screen still cast\n"
         "  --sun-guard-sides auto|all  which sides any sun's guard band goes on: the ones its march can leave the screen\n"
         "                              through, by the last scene's camera (auto, the default), or all four (all)\n"
-        "  --lua-script FILE.lua       run a Lua script with the game, as the app runs its scripts, for tests (its sun,\n"
-        "                              guard, hidden, light and UI textures reach the core; its screen effects aren't drawn)\n"
+        "  --lua-script FILE.lua       run this Lua script with the command line's game instead of its own scripts, for\n"
+        "                              the run (repeatable; the first one's folder gives require() and melon.image.load)\n"
+        "  --lua-option KEY=VALUE      melon.options' KEY for every --lua-script whose header declares it, checked as a\n"
+        "                              stored value is (one that doesn't fit gets the default; repeatable)\n"
         "  --output-cap                send the windows' screen size to the core (GPU::OutputCap), as the app does: the\n"
         "                              frame is drawn no bigger than the screens are shown\n"
         "  --vsync on|off              frame pacing (frame_pacing_vsync): the main window waits for vsync and the game's\n"
@@ -430,7 +438,9 @@ void Usage()
         "\n"
         "  --open SCREEN               open a menu screen at the start: library (or start), library/details or\n"
         "                              library/settings (the first game's details or game settings, once the scan\n"
-        "                              is done), pause, pause/save, pause/load, pause/layout, layouts,\n"
+        "                              is done), library/settings/mods (at its Lua scripts), pause, pause/save,\n"
+        "                              pause/load, pause/layout, pause/mods, pause/mods/options/ID (a script's\n"
+        "                              options by its id, from 0), layouts,\n"
         "                              layout-editor (the layout in use), layout-editor/new, layout-editor/ID,\n"
         "                              settings, settings/video (display, emulation, audio, controls, library),\n"
         "                              input, keyboard (a text field and the on-screen keyboard); with a\n"
@@ -949,7 +959,18 @@ bool ParseArgs(int argc, char** argv, Options& opts)
             }
             opts.SunGuardOnAllSides = sides == "all";
         }
-        else if (arg == "--lua-script") opts.LuaScriptPath = next();
+        else if (arg == "--lua-script") opts.LuaScriptPaths.push_back(next());
+        else if (arg == "--lua-option")
+        {
+            std::string spec = next();
+            size_t eq = spec.find('=');
+            if (eq == std::string::npos || eq == 0)
+            {
+                fprintf(stderr, "bad --lua-option %s (KEY=VALUE)\n", spec.c_str());
+                return false;
+            }
+            opts.LuaOptions[spec.substr(0, eq)] = spec.substr(eq + 1);
+        }
         else if (arg == "--output-cap") opts.OutputCap = true;
         else if (arg == "--vsync" || arg == "--frame-buffer")
         {
@@ -1064,6 +1085,13 @@ bool ParseArgs(int argc, char** argv, Options& opts)
     return true;
 }
 
+// the app's "Show script drawings in save state pictures" (video_lua_drawings_in_state_pictures, off by default), which also has them in
+// --screenshot and the F12 screenshots here
+bool LuaDrawingsInStatePictures(const Frontend::Settings& settings)
+{
+    return settings.GetBool("video_lua_drawings_in_state_pictures", false);
+}
+
 // the renderer settings from the settings (with the command line's in them); the desktop's defaults stay the test frontend's
 Options::RenderToggles ReadToggles(const Options& opts, const Frontend::Settings& settings)
 {
@@ -1075,6 +1103,7 @@ Options::RenderToggles ReadToggles(const Options& opts, const Frontend::Settings
     t.PreciseDepth = settings.GetBool("video_precise_depth", false);
     t.GlSeams = settings.GetBool("video_gl_seams", false);
     t.Smooth30Fps = settings.GetBool("frame_pacing_smooth_30fps", false);
+    t.LuaDrawingsInScreenshots = LuaDrawingsInStatePictures(settings);
     return t;
 }
 
@@ -1241,7 +1270,7 @@ std::shared_ptr<MelonDSAndroid::EmulatorConfiguration> MakeConfiguration(const O
     // on by default, the core's default (GPU::GLEdgeMark 1); --set GLEdgeMark goes through the switches
     config->edgeMarking = opts.Toggles.EdgeMarking;
     config->glSeams = opts.Toggles.GlSeams;
-    config->luaDrawingsInScreenshots = false;
+    config->luaDrawingsInScreenshots = opts.Toggles.LuaDrawingsInScreenshots;
     config->wideViewWidth = opts.WideWidth;
     config->wideViewMargin = opts.WideMargin;
     config->dsiSdCardSettings = {};
@@ -1442,106 +1471,6 @@ bool ReadPath(const fs::path& path, std::vector<u8>& out)
         return false;
     out.resize((size_t)size);
     return (bool)in.read((char*)out.data(), size);
-}
-
-// `name=value` pairs split by spaces, a value quoted ("...") when it holds spaces; empty for a malformed line
-static std::vector<std::pair<std::string, std::string>> LuaOptionAttributes(const std::string& text)
-{
-    std::vector<std::pair<std::string, std::string>> attributes;
-    size_t position = 0;
-    while (true)
-    {
-        position = text.find_first_not_of(" \t", position);
-        if (position == std::string::npos)
-            return attributes;
-        size_t equals = text.find('=', position);
-        if (equals == std::string::npos)
-            return {};
-        std::string name = text.substr(position, equals - position);
-        position = equals + 1;
-        size_t end = text.find_first_of(" \t", position);
-        if (position < text.size() && text[position] == '"')
-        {
-            end = text.find('"', position + 1);
-            if (end == std::string::npos)
-                return {};
-            attributes.emplace_back(name, text.substr(position + 1, end - position - 1));
-            position = end + 1;
-            continue;
-        }
-        attributes.emplace_back(name, text.substr(position, end == std::string::npos ? std::string::npos : end - position));
-        position = end == std::string::npos ? text.size() : end;
-    }
-}
-
-// melon.options as the app gives a script it has no saved values for: each `-- option:` line of the header's leading comment block at
-// its default (a number's min, a choice's first value, a toggle off and a layout "Don't change" when there's none), typed as the app
-// types it (LuaScriptOption.toNativeValue); the app's header parser (LuaScriptHeaderParser.kt) is Kotlin, so this is a small copy of it
-// that doesn't check ranges or steps, as --lua-script is for tests
-static std::vector<MelonDSAndroid::LuaOptionValue> LuaOptionDefaults(const std::string& source)
-{
-    constexpr size_t READ_LIMIT = 8 * 1024;
-    constexpr size_t MAX_OPTIONS = 16;
-    std::vector<MelonDSAndroid::LuaOptionValue> options;
-    size_t position = 0;
-    while (position < std::min(source.size(), READ_LIMIT) && options.size() < MAX_OPTIONS)
-    {
-        size_t end = source.find('\n', position);
-        std::string line = source.substr(position, end == std::string::npos ? std::string::npos : end - position);
-        position = end == std::string::npos ? source.size() : end + 1;
-        size_t first = line.find_first_not_of(" \t\r");
-        if (first == std::string::npos)
-            continue;
-        // Code: the leading comment block is over
-        if (line.compare(first, 2, "--") != 0)
-            break;
-        size_t text = line.find_first_not_of("- \t", first);
-        if (text == std::string::npos || line.compare(text, 7, "option:") != 0)
-            continue;
-        std::string rest = line.substr(text + 7);
-        rest.erase(rest.find_last_not_of(" \t\r") + 1);
-        size_t keyStart = rest.find_first_not_of(" \t");
-        if (keyStart == std::string::npos)
-            continue;
-        size_t keyEnd = std::min(rest.find_first_of(" \t", keyStart), rest.size());
-        MelonDSAndroid::LuaOptionValue option;
-        option.key = rest.substr(keyStart, keyEnd - keyStart);
-        std::string type, value, min, values;
-        for (const auto& [name, attribute] : LuaOptionAttributes(rest.substr(keyEnd)))
-        {
-            if (name == "type") type = attribute;
-            else if (name == "default") value = attribute;
-            else if (name == "min") min = attribute;
-            else if (name == "values") values = attribute;
-        }
-        if (type == "toggle" || type == "layout")
-        {
-            option.type = type == "toggle" ? MelonDSAndroid::LuaOptionValue::Type::Boolean : MelonDSAndroid::LuaOptionValue::Type::Layout;
-            option.boolean = type == "toggle" && value == "true";
-        }
-        else if (type == "number")
-        {
-            char* parsedEnd = nullptr;
-            std::string number = value.empty() ? min : value;
-            double parsed = strtod(number.c_str(), &parsedEnd);
-            if (number.empty() || *parsedEnd != '\0')
-                continue;
-            // Whole numbers are Lua integers, as in the app
-            bool isWhole = parsed == std::floor(parsed) && std::fabs(parsed) < 9007199254740992.0;
-            option.type = isWhole ? MelonDSAndroid::LuaOptionValue::Type::Integer : MelonDSAndroid::LuaOptionValue::Type::Number;
-            option.integer = isWhole ? (int64_t)parsed : 0;
-            option.number = parsed;
-        }
-        else if (type == "choice")
-        {
-            option.type = MelonDSAndroid::LuaOptionValue::Type::String;
-            option.string = value.empty() ? values.substr(0, values.find(',')) : value;
-        }
-        else
-            continue;
-        options.push_back(std::move(option));
-    }
-    return options;
 }
 
 // the renderer's scale, which drops below --scale when that doesn't fit the GPU's limits; emulator thread
@@ -2003,22 +1932,27 @@ int main(int argc, char** argv)
         }
         runBackground = key;
     }
-    // The layout the windows show, as the app picks it (EmulatorViewModel.startObservingLayoutForRom): the run's (--layout), else the game's
-    // own while one runs (RomConfig.LayoutId), else the settings' (input_layout_id, the app's key), else the app's Default. Before a profile
+    // The layout the windows show, as the app picks it (EmulatorViewModel.startObservingLayoutForRom): the run's (--layout), else a Lua
+    // script's, else the game's own while one runs (RomConfig.LayoutId), else the settings' (input_layout_id, the app's key), else the app's Default. Before a profile
     // had input_layout_id, the desktop kept its arrangement in desktop_layout, which then still picks it. One that's gone (a game's layout
     // removed from layouts.json) falls through to the next, as the app's falls back to the global layout. A game's layout from --rom-config
     // (layout=ID, or layout=global, the global one whatever the game's own is) is the run's like --layout: a pick then stays in the run
     std::string gameLayoutId, gameConfigKey;
     std::optional<std::string> gameRunLayoutId;
-    enum class LayoutFrom { Run, Game, Global, Default };
-    auto resolveLayout = [&](LayoutFrom* from) -> const Frontend::LayoutChoice&
+    // the layout a Lua script holds (LuaSession's LuaLayoutRequests), none for the player's
+    std::optional<std::string> luaLayoutId;
+    enum class LayoutFrom { Run, Script, Game, Global, Default };
+    // [withScript] false: the player's layout, as a pick of theirs would change it
+    auto resolveLayout = [&](LayoutFrom* from, bool withScript = true) -> const Frontend::LayoutChoice&
     {
         LayoutFrom source = LayoutFrom::Default;
         const Frontend::LayoutChoice* choice = runLayout;
         if (choice)
             source = LayoutFrom::Run;
-        // (phase 4: a Lua script's layout request, LuaLayoutChoice, goes here: over the game's and the settings', under the run's, and a
-        // layout the player picks by hand wins over it, as the app's LuaLayoutRequests)
+        // a Lua script's layout: over the game's (--rom-config layout= too, which stands in for it) and the settings', under the run's
+        // --layout; a layout the player picks by hand ends it, as the app's LuaLayoutRequests has it
+        if (!choice && withScript && luaLayoutId && (choice = layouts.Find(*luaLayoutId)))
+            source = LayoutFrom::Script;
         bool runsGlobal = false;
         if (!choice && gameRunLayoutId)
         {
@@ -2264,14 +2198,13 @@ int main(int argc, char** argv)
 
     // The WideMelon camera, as the app's EmulatorActivity and EmulatorViewModel wire it (UI thread, which presents): the booted game's
     // launch (WidescreenLaunch) and the width it's shown at, the camera session (one per boot), the zoom it starts at, the render width and
-    // margin last sent to the core, the last window presented (for window shots), and what the scripts ask of it
+    // margin last sent to the core and the last window presented (for window shots); what the scripts ask of it comes from luaSession
     Frontend::WidescreenLaunch wideLaunch;
     int wideShowWidth = 0;
     int wideSession = 0;
     float wideStartZoom = 1.f;
     int wideRenderWidth = 256, wideRenderMargin = 0;
     std::optional<Frontend::WideWindow> lastWideWindow;
-    Frontend::LuaWideCameraRequests luaWideCamera;
     // the right stick pans the camera (true) or moves the touch cursor; R3 switches, and each boot starts on the camera
     bool rightStickCamera = true;
     // the mouse's left button dragging the top screen's camera window, and where it was last (window points)
@@ -2314,12 +2247,24 @@ int main(int argc, char** argv)
         printf("wide camera: render zoom %g, width %d, margin %d\n", zoom, width, margin);
     };
     Frontend::WideCameraController camera(cameraCallbacks);
-    // the scripts' melon.wide requests (phase 4 runs them), picked a part at a time as the app's LuaWideCameraRequests does
-    messenger->OnLuaWideCamera = [&](int scriptId, const Frontend::WideCameraRequest& request)
-    {
-        camera.SetScriptRequest(luaWideCamera.OnScriptRequest(scriptId, request));
-    };
-    messenger->OnLuaScriptStopped = [&](int scriptId) { camera.SetScriptRequest(luaWideCamera.OnScriptStopped(scriptId)); };
+    // The game's Lua scripts (lua/LuaSession.h): set up at each boot, their requests from the messenger routed to its arbiters here, on the
+    // UI thread, and what those pick applied through its Hooks (set once the menus are there, below)
+    Frontend::LuaSession luaSession(profileDir);
+    messenger->OnLuaScriptStopped = [&](int scriptId, const std::string& error) { luaSession.OnScriptStopped(scriptId, error); };
+    messenger->OnLuaSwapScreens = [&](int scriptId, bool value) { luaSession.OnUiRequest(Frontend::LuaUiSetting::SwapScreens, scriptId, value); };
+    messenger->OnLuaShowControls = [&](int scriptId, bool value) { luaSession.OnUiRequest(Frontend::LuaUiSetting::ShowControls, scriptId, value); };
+    messenger->OnLuaFastForward = [&](int scriptId, bool value) { luaSession.OnUiRequest(Frontend::LuaUiSetting::FastForward, scriptId, value); };
+    messenger->OnLuaSetLayout = [&](int scriptId, const std::optional<std::string>& key) { luaSession.OnLayoutRequest(scriptId, key); };
+    messenger->OnLuaTiltShift = [&](int scriptId, const Frontend::TiltShift& request) { luaSession.OnTiltShift(scriptId, request); };
+    messenger->OnLuaBloom = [&](int scriptId, const Frontend::Bloom& request) { luaSession.OnBloom(scriptId, request); };
+    messenger->OnLuaDepthOfField = [&](int scriptId, const Frontend::DepthOfField& request) { luaSession.OnDepthOfField(scriptId, request); };
+    messenger->OnLuaShade = [&](int scriptId, const Frontend::Shade& request) { luaSession.OnShade(scriptId, request); };
+    messenger->OnLuaSun = [&](int scriptId, const Frontend::Sun& request) { luaSession.OnSun(scriptId, request); };
+    messenger->OnLuaWideCamera = [&](int scriptId, const Frontend::WideCameraRequest& request) { luaSession.OnWideCamera(scriptId, request); };
+    messenger->OnLuaStateLoaded = [&] { luaSession.OnStateLoaded(); };
+    // on the emulator thread: wakes the session's writer
+    messenger->OnLuaStorageSaved = [&] { luaSession.RequestDataSave(); };
+    luaSession.Hooks.OnWideCameraChanged = [&](const Frontend::WideCameraRequest& request) { camera.SetScriptRequest(request); };
     // a new session for the game booting with [game]'s settings (--rom-config's on them): its widescreen and camera as the app's
     // getWidescreenLaunch resolves them, with the command line's flags over them for the run, and the width and margin the core starts at
     // (opts.WideWidth and WideMargin, which MakeConfiguration hands it)
@@ -2356,7 +2301,8 @@ int main(int argc, char** argv)
         opts.WideMargin = wideRenderMargin;
         lastWideWindow.reset();
         camera.SetState({wideSession, settings, wideStartZoom});
-        camera.SetScriptRequest(luaWideCamera.OnSessionEnded());
+        // no script of this session has asked anything yet (the last one's requests went as it ended)
+        camera.SetScriptRequest(Frontend::WideCameraRequest());
         // the right stick pans the camera from the start of each game
         rightStickCamera = true;
         input.RightStickMovesCursor = !settings;
@@ -2385,7 +2331,7 @@ int main(int argc, char** argv)
         if (frame)
         {
             PrepareFrame(frame);
-            ok = presenter.ReadFrame(Frontend::FrameView::Of(*frame), pixels, w, h);
+            ok = presenter.ReadFrame(Frontend::FrameView::Of(*frame), pixels, w, h, LuaDrawingsInStatePictures(settings));
             ReleaseFrame(frame);
         }
         if (ok && Frontend::WriteBMP(path.c_str(), pixels, w, h))
@@ -2695,8 +2641,10 @@ int main(int argc, char** argv)
         const Frontend::LayoutChoice* choice = layouts.Find(id);
         if (!choice)
             return;
+        // the player's pick wins over a script's layout
+        luaSession.OnPlayerPickedLayout();
         LayoutFrom from;
-        resolveLayout(&from);
+        resolveLayout(&from, false);
         if (from == LayoutFrom::Run && runLayout)
         {
             runLayout = choice;
@@ -2718,6 +2666,76 @@ int main(int argc, char** argv)
         applyLayout();
     };
 
+    // The scripts a boot runs, as the app's EmulatorViewModel.launchRom picks them: the command line's --lua-script files for its game
+    // (with the first one's folder for require and melon.image.load, and --lua-option's values), else the game's enabled scripts from its
+    // linked folder, after its script list is brought in step with the folder and stored if that changed (getSyncedLuaScripts)
+    auto makeLuaLaunch = [&](bool commandLine, MelonDSAndroid::MelonInstance& instance)
+    {
+        Frontend::LuaLaunch launch;
+        if (commandLine && !opts.LuaScriptPaths.empty())
+        {
+            for (const std::string& file : opts.LuaScriptPaths)
+            {
+                fs::path scriptPath = Frontend::PathFromUtf8(file);
+                std::string name = Frontend::PathToUtf8(scriptPath.filename());
+                launch.Scripts.emplace_back(name, Frontend::LuaScriptStorage::ReadScriptFile(scriptPath));
+                launch.StoredOptions[name] = opts.LuaOptions;
+                printf("Lua script: %s\n", file.c_str());
+            }
+            std::error_code pathError;
+            fs::path first = fs::absolute(Frontend::PathFromUtf8(opts.LuaScriptPaths[0]), pathError);
+            if (!pathError)
+                launch.ContentFolder = first.parent_path();
+            launch.SavesOptions = false;
+        }
+        else
+        {
+            Frontend::RomConfig config = library.GetConfig(gameConfigKey);
+            std::optional<fs::path> folder;
+            if (!config.LuaScriptFolder.empty())
+                folder = Frontend::PathFromUtf8(config.LuaScriptFolder);
+            std::optional<std::vector<std::string>> folderNames;
+            if (folder)
+            {
+                if (auto listed = Frontend::LuaScriptStorage::ListScripts(*folder))
+                {
+                    folderNames.emplace();
+                    for (const Frontend::LuaScriptStorage::ScriptFile& script : *listed)
+                        folderNames->push_back(script.Name);
+                }
+                else
+                    fprintf(stderr, "lua: the game's script folder %s can't be read, so its script list stays as it was\n",
+                        config.LuaScriptFolder.c_str());
+            }
+            std::vector<Frontend::RomLuaScript> synced = Frontend::LuaScriptFolderSync::Sync(config.LuaScripts, folder.has_value(), folderNames);
+            if (synced != config.LuaScripts)
+            {
+                config.LuaScripts = synced;
+                if (!library.SetConfig(gameConfigKey, config))
+                    fprintf(stderr, "lua: couldn't store the game's script list\n");
+            }
+            std::vector<std::string> enabled;
+            for (const Frontend::RomLuaScript& script : synced)
+            {
+                if (!script.Enabled)
+                    continue;
+                enabled.push_back(script.FileName);
+                launch.StoredOptions[script.FileName] = script.Options;
+            }
+            if (!enabled.empty())
+                launch.Scripts = Frontend::LuaScriptStorage::ReadScripts(folder, enabled);
+            launch.ContentFolder = folder;
+        }
+        // where the scripts' saved data is kept: by the cart's game code, or for homebrew's placeholder codes by the game's settings key
+        std::optional<std::string> gameCode;
+        if (NDSCart::CartCommon* cart = instance.getNds()->NDSCartSlot.GetCart())
+            gameCode = std::string(cart->GetHeader().GameCode, strnlen(cart->GetHeader().GameCode, 4));
+        launch.DataGameKey = Frontend::LuaScriptDataStore::GetGameKey(gameCode, gameConfigKey);
+        // the app allows melon.state's loads unless RetroAchievements hardcore is on, which the desktop doesn't have
+        launch.AreStateLoadsAllowed = true;
+        return launch;
+    };
+
     // Boots [path] (UTF-8): the instance made and its ROM loaded with its save, then the emulator thread started. The command line's
     // game (commandLine) also gets its --gba, --state, --at, --press and --touch. False, with the reason on stderr, when the ROM doesn't load
     auto stopGame = [&]
@@ -2736,6 +2754,9 @@ int main(int argc, char** argv)
         }
         emuThread.Stop();
         emu = nullptr;
+        // the scripts' last storage saved, their requests undone, and their events still on the way dropped
+        messenger->EndLuaSession();
+        luaSession.End();
         romPath.clear();
         slots.Clear();
         commandLineGame = false;
@@ -2748,7 +2769,6 @@ int main(int argc, char** argv)
         // the camera off, its session over (a pick or a resize still on its way is dropped), and the scripts' requests with it
         wideSession++;
         camera.SetState({wideSession, std::nullopt, 1.f});
-        camera.SetScriptRequest(luaWideCamera.OnSessionEnded());
         lastWideWindow.reset();
         cameraDragging = false;
         input.RightStickMovesCursor = true;
@@ -2895,22 +2915,6 @@ int main(int argc, char** argv)
         auto instance = std::make_unique<MelonDSAndroid::MelonInstance>(0, MakeConfiguration(opts, renderer, scale), std::move(args),
             std::make_shared<Net>(), std::make_unique<MelonDSAndroid::ScreenshotRenderer>(screenshotBuffer.data()), opts.ConsoleType);
         instance->setDebugOverrides(ApplySwitches(opts, *instance->getNds()));
-        // --lua-script for the command line's game: given before the emulator thread starts, which loads it with the game
-        if (commandLine && !opts.LuaScriptPath.empty())
-        {
-            std::vector<u8> script;
-            if (!ReadPath(Frontend::PathFromUtf8(opts.LuaScriptPath), script))
-            {
-                fprintf(stderr, "can't read the Lua script %s\n", opts.LuaScriptPath.c_str());
-                return false;
-            }
-            MelonDSAndroid::LuaScriptSource source;
-            source.name = Frontend::PathToUtf8(Frontend::PathFromUtf8(opts.LuaScriptPath).filename());
-            source.source.assign(script.begin(), script.end());
-            source.options = LuaOptionDefaults(source.source);
-            instance->setLuaScripts({std::move(source)}, nullptr, true);
-            printf("Lua script: %s\n", opts.LuaScriptPath.c_str());
-        }
 
         // the save: --sav for the command line's game only; otherwise the one next to the ROM, or in a test run (a temporary profile) a
         // copy of it in the profile, so a test never writes a real save
@@ -2965,6 +2969,8 @@ int main(int argc, char** argv)
             else
                 printf("GBA slot: %s\n", gbaRom.c_str());
         }
+        // the scripts, before the emulator thread starts, whose MelonInstance::start() loads them with the game
+        luaSession.Start(*instance, makeLuaLaunch(commandLine, *instance), windows.IsSwapped());
         emu = instance.get();
         romPath = path;
         commandLineGame = commandLine;
@@ -3056,9 +3062,62 @@ int main(int argc, char** argv)
     // the rumble the game asks for (the Rumble Pak), on the pad that played last
     messenger->OnRumble = [&](int durationMs) { input.Rumble(durationMs); };
     messenger->OnRumbleStop = [&] { input.StopRumble(); };
+
+    // what the scripts' arbiters pick, applied as the app's EmulatorActivity applies it. A screen effect given for the run (--tilt-shift,
+    // --bloom and --haze, --dof, --shade, --sun) wins over the scripts' one of that kind, so a test shows what it asked for
+    luaSession.Hooks.OnEffectsChanged = [&](const Frontend::LuaEffects& effects)
+    {
+        presenter.SetTiltShift(opts.TiltShift ? opts.TiltShift : effects.TiltShiftEffect);
+        presenter.SetBloom(opts.Bloom ? opts.Bloom : effects.BloomEffect);
+        presenter.SetDepthOfField(opts.DepthOfField ? opts.DepthOfField : effects.DepthOfFieldEffect);
+        presenter.SetShade(opts.Shade ? opts.Shade : effects.ShadeEffect);
+        presenter.SetSun(opts.Sun ? opts.Sun : effects.SunEffect);
+        redraw = true;
+    };
+    luaSession.Hooks.OnLayoutChanged = [&](const std::optional<std::string>& layoutId)
+    {
+        luaLayoutId = layoutId;
+        applyLayout();
+        redraw = true;
+    };
+    luaSession.Hooks.LayoutExists = [&](const std::string& id) { return layouts.Find(id) != nullptr; };
+    // the swap and the fast forward toggle (not the held one), as getLuaUiSetting reads them; show_controls has no desktop equivalent
+    luaSession.Hooks.GetUiSetting = [&](Frontend::LuaUiSetting setting)
+    {
+        return setting == Frontend::LuaUiSetting::SwapScreens ? windows.IsSwapped() : setting == Frontend::LuaUiSetting::FastForward && ffToggle;
+    };
+    luaSession.Hooks.ApplyUiSetting = [&](Frontend::LuaUiSetting setting, bool value)
+    {
+        if (setting == Frontend::LuaUiSetting::SwapScreens)
+        {
+            windows.SetSwapped(value);
+            refreshTouchRect();
+            redraw = true;
+        }
+        else if (setting == Frontend::LuaUiSetting::FastForward)
+        {
+            ffToggle = value;
+            updateFastForward();
+        }
+    };
+    luaSession.Hooks.OnScriptSwitchedOff = [&](const std::string& name, const std::string& error)
+    {
+        fprintf(stderr, "lua: script %s was switched off: %s\n", name.c_str(), error.c_str());
+        ui.Toast("Script " + name + " was switched off: " + error);
+    };
+    // the pause menu's Options dialog saves the values to the game's settings, into the newest config (the app's setLuaScriptOptions)
+    luaSession.Hooks.SaveOptions = [&](const std::string& fileName, const std::map<std::string, std::string>& values)
+    {
+        Frontend::RomConfig config = library.GetConfig(gameConfigKey);
+        if (Frontend::LuaSession::MergeOptions(config.LuaScripts, fileName, values) && !library.SetConfig(gameConfigKey, config))
+            fprintf(stderr, "lua: couldn't store %s's options in the game's settings\n", fileName.c_str());
+    };
+    // the app resets the achievements' indicators here; the desktop has none yet
+    luaSession.Hooks.OnStateLoaded = [] { printf("lua: a script loaded a state\n"); };
     host.Settings = &settings;
     host.Library = &library;
     host.Metadata = &metadata;
+    host.Lua = &luaSession;
     // the key in use: the command line's (for the run), the saved one, or none
     std::string raKeySource = !opts.RaWebApiKey.empty() ? "command line" : metadata.HasApiKey() ? "saved" : "";
     host.RaKeySource = [&] { return raKeySource; };
@@ -3141,7 +3200,7 @@ int main(int argc, char** argv)
                     {
                         PrepareFrame(frame);
                         view = Frontend::FrameView::Of(*frame);
-                        bool read = presenter.ReadFrame(view, pixels, w, h);
+                        bool read = presenter.ReadFrame(view, pixels, w, h, LuaDrawingsInStatePictures(settings));
                         ReleaseFrame(frame);
                         if (read && slots.WriteScreenshot(slot, pixels, w, h, view.TopWidth, view.TopMargin, view.NativeLeft(), view.NativeTop()))
                             printf("slot %d screenshot: %s\n", slot, Frontend::PathToUtf8(slots.ScreenshotPath(slot)).c_str());
@@ -3230,8 +3289,9 @@ int main(int argc, char** argv)
     host.LayoutInUse = [&] { return windows.GetLayout().Id(); };
     host.LayoutSource = [&]() -> std::string
     {
+        // where a pick goes, which a script's layout doesn't change
         LayoutFrom from;
-        resolveLayout(&from);
+        resolveLayout(&from, false);
         return from == LayoutFrom::Run ? "run" : from == LayoutFrom::Game ? "game" : "global";
     };
     host.PickLayoutInGame = [&](const std::string& id) { pickLayout(id); };
@@ -3277,6 +3337,7 @@ int main(int argc, char** argv)
     host.IsSwapped = [&] { return windows.IsSwapped(); };
     host.ToggleSwap = [&]
     {
+        luaSession.OnPlayerChanged(Frontend::LuaUiSetting::SwapScreens);
         windows.ToggleSwap();
         refreshTouchRect();
     };
@@ -3347,12 +3408,17 @@ int main(int argc, char** argv)
         if (key == "desktop_swap_screens")
         {
             if (value.evaluate_as_boolean() != windows.IsSwapped())
+            {
+                luaSession.OnPlayerChanged(Frontend::LuaUiSetting::SwapScreens);
                 windows.ToggleSwap();
+            }
             refreshTouchRect();
             return true;
         }
         if (key == "input_layout_id")
         {
+            // the player's pick of the global layout wins over a script's
+            luaSession.OnPlayerPickedLayout();
             settings.Set(key, value);
             applyLayout();
             return true;
@@ -3459,7 +3525,7 @@ int main(int argc, char** argv)
 
     // the command line's ROM, unless --open asks for the library
     bool openLibrary = opts.OpenScreen == "start" || opts.OpenScreen == "library" || opts.OpenScreen == "library/details"
-        || opts.OpenScreen == "library/settings";
+        || opts.OpenScreen == "library/settings" || opts.OpenScreen == "library/settings/mods";
     if (!opts.RomPath.empty() && !openLibrary)
     {
         if (!bootGame(opts.RomPath, true))
@@ -3467,7 +3533,8 @@ int main(int argc, char** argv)
     }
     else
         ui.ShowStart(opts.OpenScreen == "library/details" ? Ui::LibraryOpen::Details
-                     : opts.OpenScreen == "library/settings" ? Ui::LibraryOpen::Settings : Ui::LibraryOpen::None);
+                     : opts.OpenScreen == "library/settings" ? Ui::LibraryOpen::Settings
+                     : opts.OpenScreen == "library/settings/mods" ? Ui::LibraryOpen::SettingsMods : Ui::LibraryOpen::None);
     // --open: with a game once its first frame is shown, like the script
     std::string pendingOpen = openLibrary ? "" : opts.OpenScreen;
 
@@ -3665,6 +3732,7 @@ int main(int argc, char** argv)
         case Action::FastForward:
             if (!emu || ui.IsOpen())
                 break;
+            luaSession.OnPlayerChanged(Frontend::LuaUiSetting::FastForward);
             ffToggle = !ffToggle;
             updateFastForward();
             ui.Toast(ffToggle ? "Fast forward on" : "Fast forward off");
@@ -3690,7 +3758,12 @@ int main(int argc, char** argv)
             save ? host.SaveSlot(0, done) : host.LoadSlot(0, done);
             break;
         }
-        case Action::SwapScreens: windows.ToggleSwap(); redraw = true; break;
+        case Action::SwapScreens:
+            // the player's swap: no script holds it anymore
+            luaSession.OnPlayerChanged(Frontend::LuaUiSetting::SwapScreens);
+            windows.ToggleSwap();
+            redraw = true;
+            break;
         case Action::DetachScreens:
             // the layout editor edits one window's layout: the windows stay as they are until it's closed
             if (ui.HasScreen("layout-editor"))
@@ -4474,6 +4547,9 @@ int main(int argc, char** argv)
     input.StopRumble();
     emuThread.Stop();
     emu = nullptr;
+    // the scripts' last storage, which the instance's stop put in the outbox
+    messenger->EndLuaSession();
+    luaSession.End();
     // before the main window it watches goes
     vsyncSource.Stop();
     // what waited to be written (the library's last focused game)

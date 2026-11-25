@@ -50,6 +50,10 @@ struct FrameView
     // the WideMelon camera's window for this present (WideCameraController::OnFrame, set once per presented frame so every window shows
     // the same one), of the shown frame inside the guard band; none without the camera
     std::optional<WideWindow> Window;
+    // the frame's Lua drawings (Frame::overlayTexture: the frame's layout without a margin at 2x, premultiplied, in the frame texture's
+    // byte order) and the screens that have some this frame (bit 0 the top one, bit 1 the bottom one, as the app's overlayScreens)
+    GLuint OverlayTexture = 0;
+    int OverlayScreens = 0;
 
     bool IsValid() const { return Texture != 0; }
     // the top screen's half of the frame in DS pixels (192 plus the margin on both sides), and the whole frame's

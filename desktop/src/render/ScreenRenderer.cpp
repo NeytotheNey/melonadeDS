@@ -31,6 +31,10 @@ constexpr int FLOATS_PER_VERTEX = 5;
 constexpr int BACKGROUND_FLOATS_PER_VERTEX = 4;
 constexpr int VERTICES_PER_SCREEN = 6;
 
+// PresentFrameWrapper.kt's OVERLAY_SCREEN_TOP and OVERLAY_SCREEN_BOTTOM (FrameView::OverlayScreens' bits)
+constexpr int OVERLAY_SCREEN_TOP = 1;
+constexpr int OVERLAY_SCREEN_BOTTOM = 2;
+
 // FrameTextureLayout.kt: the v coordinates of the screens' rows in a frame whose top screen's half is 192 + 2 * margin rows
 struct FrameTextureLayout
 {
@@ -63,6 +67,12 @@ struct FrameTextureLayout
     int BottomScreenStartRow;
     float TopScreenBottomV = 0, BottomScreenTopV = 0;
 };
+
+// start to end at t (0 to 1), landing on the ends exactly (DSRenderer.lerpV)
+float LerpV(float start, float end, float t)
+{
+    return t <= 0.f ? start : t >= 1.f ? end : start + (end - start) * t;
+}
 
 // the output cap's need for a screen whose middle columns are shown at [width] x [height]
 int GetOutputScaleNeed(float width, float height)
@@ -172,6 +182,8 @@ void ScreenRenderer::Release()
     ScreenFilter.reset();
     ShadowShader.reset();
     IsShadowShaderTried = false;
+    OverlayShader.reset();
+    IsOverlayShaderTried = false;
     // a decode still running is told to stop and dropped
     DropBackgroundLoad();
     BackgroundFailed = false;
@@ -284,12 +296,13 @@ void ScreenRenderer::UpdateScreenCoordinates(bool isWindowOnly)
     // Each screen's quad: where it's drawn, the columns and rows of its half it shows, and the size its middle 256 columns and 192 rows are
     // shown at (the output cap's need). The app's layouts go through getScreensDrawing; the desktop's own placements are drawn where they
     // are, on fractional pixels as the test frontend drew them, the top screen's whole half (the camera's margin too, not the guard band)
-    // where the app shows its middle rows
+    // where the app shows its middle rows. Overlay is where the screen's Lua drawings go: on its native 256 x 192, cut to the picture
     struct ScreenQuad
     {
         Rect Draw;
         float LeftU = 0, RightU = 1, TopRow = 0, BottomRow = SCREEN_HEIGHT;
         float NativeW = 0, NativeH = 0;
+        OverlayDrawing Overlay;
     };
     std::optional<ScreenQuad> top, bottom;
     const WideWindow* wideWindow = FrameWideWindow ? &*FrameWideWindow : nullptr;
@@ -304,14 +317,19 @@ void ScreenRenderer::UpdateScreenCoordinates(bool isWindowOnly)
             ScreenDrawing d = GetWindowedScreenDrawing(RoundedRect(Screens.PlacedTop), *window);
             top = ScreenQuad {Rect::Of(d.DrawRect), (guard.left + d.LeftU * shownWidth) / frameWidth,
                 (guard.left + d.RightU * shownWidth) / frameWidth, d.TopRow + guard.top, d.BottomRow + guard.top, (float)d.NativeRectAt1x.W,
-                (float)d.NativeRectAt1x.H};
+                (float)d.NativeRectAt1x.H, d.Overlay};
         }
         else if (Screens.Top && Screens.PlacedTop.W > 0 && Screens.PlacedTop.H > 0)
         {
             const Rect& r = Screens.PlacedTop;
             int shownRows = layout.TopScreenRows - guard.top - guard.bottom;
+            // the native screen in the middle of the shown columns and rows (FrameView::NativeLeft and NativeTop without the guard)
+            float nativeLeft = r.X + r.W * ((shownWidth - SCREEN_WIDTH) / 2) / shownWidth;
+            float nativeTop = r.Y + r.H * ((shownRows - SCREEN_HEIGHT) / 2) / shownRows;
+            OverlayDrawing overlay {nativeLeft, nativeTop, nativeLeft + r.W * SCREEN_WIDTH / shownWidth,
+                nativeTop + r.H * SCREEN_HEIGHT / shownRows};
             top = ScreenQuad {r, guard.left / (float)frameWidth, 1.f - guard.right / (float)frameWidth, (float)guard.top,
-                (float)(layout.TopScreenRows - guard.bottom), r.W * SCREEN_WIDTH / shownWidth, r.H * SCREEN_HEIGHT / shownRows};
+                (float)(layout.TopScreenRows - guard.bottom), r.W * SCREEN_WIDTH / shownWidth, r.H * SCREEN_HEIGHT / shownRows, overlay};
         }
         if (Screens.Bottom && Screens.PlacedBottom.W > 0 && Screens.PlacedBottom.H > 0)
         {
@@ -321,7 +339,7 @@ void ScreenRenderer::UpdateScreenCoordinates(bool isWindowOnly)
             int nativeLeft = guard.left + (frameWidth - guard.left - guard.right - SCREEN_WIDTH) / 2;
             float leftU = nativeLeft / (float)frameWidth;
             float rightU = 1.f - (frameWidth - nativeLeft - SCREEN_WIDTH) / (float)frameWidth;
-            bottom = ScreenQuad {r, leftU, rightU, 0.f, (float)SCREEN_HEIGHT, r.W, r.H};
+            bottom = ScreenQuad {r, leftU, rightU, 0.f, (float)SCREEN_HEIGHT, r.W, r.H, OverlayDrawing {r.X, r.Y, r.X + r.W, r.Y + r.H}};
         }
     }
     else
@@ -332,7 +350,7 @@ void ScreenRenderer::UpdateScreenCoordinates(bool isWindowOnly)
         auto quad = [](const ScreenDrawing& d)
         {
             return ScreenQuad {Rect::Of(d.DrawRect), d.LeftU, d.RightU, d.TopRow, d.BottomRow, (float)d.NativeRectAt1x.W,
-                (float)d.NativeRectAt1x.H};
+                (float)d.NativeRectAt1x.H, d.Overlay};
         };
         if (drawing.Top && drawing.Top->DrawRect.W > 0 && drawing.Top->DrawRect.H > 0)
             top = quad(*drawing.Top);
@@ -367,14 +385,17 @@ void ScreenRenderer::UpdateScreenCoordinates(bool isWindowOnly)
 
     // Under-screen first, then the one drawn over it: the top screen first only when the layout puts the bottom one on top
     ScreenVertexFloats = 0;
+    ScreenQuadCount = 0;
     auto putTop = [&]
     {
         PutQuad(top->Draw, top->LeftU, top->RightU, layout.TopScreenV(top->TopRow), layout.TopScreenV(top->BottomRow), topAlpha);
+        ScreenQuadScreens[ScreenQuadCount++] = OVERLAY_SCREEN_TOP;
     };
     auto putBottom = [&]
     {
         PutQuad(bottom->Draw, bottom->LeftU, bottom->RightU, layout.BottomScreenV(bottom->TopRow), layout.BottomScreenV(bottom->BottomRow),
             bottomAlpha);
+        ScreenQuadScreens[ScreenQuadCount++] = OVERLAY_SCREEN_BOTTOM;
     };
     bool topFirst = Screens.Bottom && Screens.Bottom->OnTop;
     if (topFirst && top)
@@ -383,7 +404,15 @@ void ScreenRenderer::UpdateScreenCoordinates(bool isWindowOnly)
         putBottom();
     if (!topFirst && top)
         putTop();
-    // (the screens' Lua drawings go after both, in the same order: phase 4)
+    // Each screen's Lua drawings after both, in the same order. The overlay keeps the frame's layout without a margin at any margin
+    FrameTextureLayout overlayLayout(0);
+    for (int i = 0; i < ScreenQuadCount; i++)
+    {
+        if (ScreenQuadScreens[i] == OVERLAY_SCREEN_TOP)
+            PutOverlayQuad(top->Overlay, 0.f, overlayLayout.TopScreenBottomV, topAlpha);
+        else
+            PutOverlayQuad(bottom->Overlay, overlayLayout.BottomScreenTopV, 1.f, bottomAlpha);
+    }
 
     glBindVertexArray(ScreensVao);
     glBindBuffer(GL_ARRAY_BUFFER, ScreensVbo);
@@ -395,7 +424,8 @@ void ScreenRenderer::UpdateScreenCoordinates(bool isWindowOnly)
     }
     if (ScreenVertexFloats > 0)
         glBufferSubData(GL_ARRAY_BUFFER, 0, ScreenVertexFloats * sizeof(float), ScreenVertices.data());
-    ScreenIndices = ScreenVertexFloats / FLOATS_PER_VERTEX;
+    // the screens' vertices only; their drawings' follow
+    ScreenIndices = ScreenQuadCount * VERTICES_PER_SCREEN;
 
     std::optional<Rect> topRect = top ? std::optional<Rect>(top->Draw) : std::nullopt;
     std::optional<Rect> bottomRect = bottom ? std::optional<Rect>(bottom->Draw) : std::nullopt;
@@ -425,6 +455,13 @@ void ScreenRenderer::PutQuad(const Rect& rect, float leftU, float rightU, float 
         return;
     std::copy(&quad[0][0], &quad[0][0] + VERTICES_PER_SCREEN * FLOATS_PER_VERTEX, ScreenVertices.begin() + ScreenVertexFloats);
     ScreenVertexFloats += VERTICES_PER_SCREEN * FLOATS_PER_VERTEX;
+}
+
+// A screen's Lua drawings quad: [overlay]'s place, columns and the part of its screen's rows ([topV] to [bottomV] of the overlay texture)
+void ScreenRenderer::PutOverlayQuad(const OverlayDrawing& overlay, float topV, float bottomV, float alpha)
+{
+    Rect rect {overlay.Left, overlay.Top, overlay.Right - overlay.Left, overlay.Bottom - overlay.Top};
+    PutQuad(rect, overlay.LeftU, overlay.RightU, LerpV(topV, bottomV, overlay.TopV), LerpV(topV, bottomV, overlay.BottomV), alpha);
 }
 
 void ScreenRenderer::UpdateShadowCoordinates(const Rect* top, const Rect* bottom, float topAlpha, float bottomAlpha)
@@ -617,9 +654,31 @@ void ScreenRenderer::DrawFrame(const FrameView& frame, const std::optional<TiltS
     // A pre-pass with a scale makes the texture bigger than the frame
     int screenTextureWidth = screenTexture ? screenTexture->Width : frame.Width;
     int screenTextureHeight = screenTexture ? screenTexture->Height : frame.Height;
-    // (with Lua drawings, each screen and then its drawings instead: phase 4)
-    UseScreenShader(*shader, screenTextureId, screenTextureWidth, screenTextureHeight, frame);
-    glDrawArrays(GL_TRIANGLES, 0, ScreenIndices);
+    int overlayScreens = frame.OverlayTexture ? frame.OverlayScreens : 0;
+    const Shader* overlayShader = overlayScreens ? GetOverlayShader() : nullptr;
+    if (!overlayShader)
+    {
+        UseScreenShader(*shader, screenTextureId, screenTextureWidth, screenTextureHeight, frame);
+        glDrawArrays(GL_TRIANGLES, 0, ScreenIndices);
+    }
+    else
+    {
+        // Each screen, then its Lua drawings, so that a screen drawn over the other one also covers the other one's drawings
+        for (int i = 0; i < ScreenQuadCount; i++)
+        {
+            int firstVertex = i * VERTICES_PER_SCREEN;
+            UseScreenShader(*shader, screenTextureId, screenTextureWidth, screenTextureHeight, frame);
+            glDrawArrays(GL_TRIANGLES, firstVertex, VERTICES_PER_SCREEN);
+            if (overlayScreens & ScreenQuadScreens[i])
+            {
+                UseScreenQuadShader(*overlayShader, frame.OverlayTexture);
+                glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+                glDrawArrays(GL_TRIANGLES, ScreenIndices + firstVertex, VERTICES_PER_SCREEN);
+                // everything else (the other screen, and the next frame's background and shadows) is blended with straight alpha
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            }
+        }
+    }
 
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -684,6 +743,21 @@ void ScreenRenderer::RenderScreenShadows()
     SetScreenVertexAttributes(*ShadowShader);
 
     glDrawArrays(GL_TRIANGLES, 0, ShadowIndices);
+}
+
+// ShaderProgramSource.OverlayShader, built on the first frame with drawings; null (logged once) if it doesn't build, and the drawings aren't
+// shown then
+const Shader* ScreenRenderer::GetOverlayShader()
+{
+    if (!IsOverlayShaderTried)
+    {
+        IsOverlayShaderTried = true;
+        const ShaderLibrary* library = ShaderLibrary::Get();
+        OverlayShader = CreateShaderProgramOrNull(library ? library->Find("OverlayShader") : nullptr);
+        if (!OverlayShader)
+            fprintf(stderr, "the Lua drawings' shader failed to build\n");
+    }
+    return OverlayShader.get();
 }
 
 void ScreenRenderer::LoadBackgroundIfNeeded(bool wait)

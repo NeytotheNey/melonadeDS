@@ -1,8 +1,8 @@
 // Port of the screen drawing in the app's DSRenderer.kt, one per window as the app has one per surface: the background (the layout's, an
 // SVG rasterized for the surface or an image), the screen quads where the layout puts them (getScreensDrawing, with each screen's opacity
 // and the one on top drawn last), the screen filter (VideoFilterPipeline, rebuilt when the filter, deband or the DS screen colors change), the
-// screen shadows, GPU::Comp1x's 1x shader, deband in the screen shader where it's cheaper (DebandFold.kt) and the output cap's need. The Lua
-// drawings (phase 4) aren't drawn yet; DrawFrame says where they go. UI thread only, with its GL context current
+// screen shadows, GPU::Comp1x's 1x shader, deband in the screen shader where it's cheaper (DebandFold.kt), each screen's Lua drawings after it
+// (unfiltered, premultiplied) and the output cap's need. UI thread only, with its GL context current
 #pragma once
 
 #include <array>
@@ -146,6 +146,8 @@ private:
     void UpdateShader();
     void EnsureGlObjects();
     void PutQuad(const Rect& rect, float leftU, float rightU, float topV, float bottomV, float alpha);
+    void PutOverlayQuad(const OverlayDrawing& overlay, float topV, float bottomV, float alpha);
+    const Shader* GetOverlayShader();
     int PutShadow(int offset, const Rect& rect, float alpha);
     void UseScreenQuadShader(const Shader& shader, GLuint textureId);
     void UseScreenShader(const Shader& shader, GLuint textureId, int textureWidth, int textureHeight, const FrameView& frame);
@@ -168,12 +170,18 @@ private:
     bool ScreenFilterDeband = false;
     std::unique_ptr<Shader> ShadowShader;
     bool IsShadowShaderTried = false;
+    std::unique_ptr<Shader> OverlayShader;
+    bool IsOverlayShaderTried = false;
 
     GLuint ScreensVbo = 0, ScreensVao = 0;
     GLuint ShadowsVbo = 0, ShadowsVao = 0;
     int ScreenIndices = 0;
     int ShadowIndices = 0;
-    // the screen quads: both screens and, later, their Lua drawings (DSRenderer's MAX_SCREEN_VERTEX_FLOATS), and the shadows' 8 cells a screen
+    // the DS screen (bit 0 the top one, bit 1 the bottom one, as FrameView::OverlayScreens) of each screen quad in draw order; ScreenIndices
+    // vertices of screens are followed by their Lua drawings' quads in the same order
+    std::array<int, 2> ScreenQuadScreens {};
+    int ScreenQuadCount = 0;
+    // the screen quads: both screens and their Lua drawings (DSRenderer's MAX_SCREEN_VERTEX_FLOATS), and the shadows' 8 cells a screen
     std::array<float, 4 * 6 * 5> ScreenVertices {};
     int ScreenVertexFloats = 0;
     std::array<float, 2 * 8 * 6 * 5> ShadowVertices {};

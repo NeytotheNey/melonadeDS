@@ -1053,6 +1053,16 @@ void ScreenWindows::ToggleSwap()
     printf("swap screens: %s\n", Swap ? "on" : "off");
 }
 
+void ScreenWindows::SetSwapped(bool swapped)
+{
+    if (swapped == Swap)
+        return;
+    Swap = swapped;
+    MainRects = SecondRects = {};
+    UpdateTitles(Stats);
+    printf("swap screens: %s (a script's, not stored)\n", Swap ? "on" : "off");
+}
+
 void ScreenWindows::SetLayout(const LayoutChoice& choice)
 {
     bool changed = !Choice.Config.Id || *Choice.Config.Id != choice.Id();

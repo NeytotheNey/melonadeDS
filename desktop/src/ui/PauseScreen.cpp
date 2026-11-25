@@ -1,10 +1,11 @@
 // The pause menu: a panel along the left over the game's last frame, dimmed. Resume, savestates, the screens (together or detached, swap),
-// the layout (pick one, or edit the one in use), settings, reset and quitting
+// the layout (pick one, or edit the one in use), the Lua scripts (Mods, while the game runs any), settings, reset and quitting
 #include "Icons.h"
 #include "Screens.h"
 #include "Ui.h"
 #include "Widgets.h"
 #include "layout/Layouts.h"
+#include "lua/LuaSession.h"
 
 namespace Ui
 {
@@ -96,6 +97,9 @@ public:
         }
         Divider(app);
 
+        // while this session loaded a script, even once they're all switched off (the app's filterRomPauseMenuOption)
+        if (host.Lua && host.Lua->HasScripts() && MenuRow(app, "##mods", Icon::Extension, "Mods", nullptr))
+            app.Push(MakeModsScreen());
         if (MenuRow(app, "##settings", Icon::Settings, "Settings", nullptr))
             app.Push(MakeSettingsScreen());
         if (MenuRow(app, "##reset", Icon::RestartAlt, "Reset", nullptr))

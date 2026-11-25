@@ -19,6 +19,7 @@
 #include "Settings.h"
 #include "Widgets.h"
 #include "layout/Layouts.h"
+#include "lua/LuaSession.h"
 
 using Frontend::MenuAction;
 
@@ -434,12 +435,35 @@ void App::OpenPause()
 bool App::OpenPath(const std::string& path)
 {
     bool game = HostPtr->GameRunning && HostPtr->GameRunning();
-    if (path == "start" || path == "library" || path == "library/details" || path == "library/settings")
+    if (path == "start" || path == "library" || path == "library/details" || path == "library/settings" || path == "library/settings/mods")
     {
         // the home screen, which a running game would have to stop for
         if (game)
             return false;
-        ShowStart(path == "library/details" ? LibraryOpen::Details : path == "library/settings" ? LibraryOpen::Settings : LibraryOpen::None);
+        ShowStart(path == "library/details" ? LibraryOpen::Details : path == "library/settings" ? LibraryOpen::Settings
+                  : path == "library/settings/mods" ? LibraryOpen::SettingsMods : LibraryOpen::None);
+    }
+    else if (path == "pause/mods" || path.rfind("pause/mods/options/", 0) == 0)
+    {
+        // the Mods panel, or a script's options over it by its id
+        Frontend::LuaSession* lua = HostPtr->Lua;
+        if (!game || !lua || !lua->HasScripts())
+            return false;
+        std::optional<Frontend::LuaScriptStatus> script;
+        if (path != "pause/mods")
+        {
+            std::string id = path.substr(19);
+            if (id.empty() || id.size() > 4 || id.find_first_not_of("0123456789") != std::string::npos)
+                return false;
+            script = lua->Script(std::stoi(id));
+            if (!script || script->Options.empty())
+                return false;
+        }
+        if (Stack.empty())
+            OpenPause();
+        Push(MakeModsScreen());
+        if (script)
+            Push(MakeLuaOptionsScreen(*script));
     }
     else if (path == "pause" || path == "pause/save" || path == "pause/load" || path == "pause/layout")
     {

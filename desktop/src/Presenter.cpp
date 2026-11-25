@@ -7,6 +7,7 @@
 
 #include "OpenGLSupport.h"
 #include "renderer/FrameQueue.h"
+#include "scripting/LuaDraw.h"
 
 using namespace melonDS;
 
@@ -51,6 +52,73 @@ void main()
     oColor = vec4(color * alpha * 0.9, alpha * 0.9);
 }
 )";
+
+// a frame's Lua drawings (FrameView::OverlayTexture) as RGBA rows, top row first, through [readFramebuffer]; false if it isn't the overlay's size
+bool ReadDrawings(GLuint readFramebuffer, GLuint texture, std::vector<u8>& drawings)
+{
+    using MelonDSAndroid::LuaOverlay;
+    GLint width = 0, height = 0;
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
+    if (width != LuaOverlay::kWidth || height != LuaOverlay::kHeight)
+    {
+        fprintf(stderr, "frame readback: the Lua drawings' texture %u is %dx%d\n", texture, width, height);
+        return false;
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, readFramebuffer);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+    drawings.resize((size_t)width * height * 4);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, drawings.data());
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    // the frame texture's byte order (BGRA), swapped as ReadFrame swaps the frame's
+    for (size_t i = 0; i < drawings.size(); i += 4)
+        std::swap(drawings[i], drawings[i + 2]);
+    return true;
+}
+
+// [drawings]' DS [screen] (0 top, 1 bottom) blended over that native screen of [frame] read back at [scale] into [pixels] ([width] wide),
+// premultiplied and keeping the frame's alpha, as ScreenshotRenderer::renderOverlay: nearest from the 2x drawings, or at 1x the average of
+// each pixel's 2 x 2 of them, as the app's 1x screenshot takes them
+void BlendDrawings(const std::vector<u8>& drawings, int screen, const FrameView& frame, int scale, std::vector<u8>& pixels, int width)
+{
+    using MelonDSAndroid::LuaOverlay;
+    int left = frame.NativeLeft() * scale;
+    int top = (screen == 0 ? frame.NativeTop() : frame.TopScreenHeight() + 2) * scale;
+    int drawingsTop = screen == 0 ? 0 : LuaOverlay::kBottomScreenRow;
+    for (int y = 0; y < 192 * scale; y++)
+    {
+        u8* row = &pixels[((size_t)(top + y) * width + left) * 4];
+        for (int x = 0; x < 256 * scale; x++)
+        {
+            int source[4] = {};
+            if (scale == 1)
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    const u8* texel = &drawings[((size_t)(drawingsTop + 2 * y + i / 2) * LuaOverlay::kWidth + 2 * x + i % 2) * 4];
+                    for (int c = 0; c < 4; c++)
+                        source[c] += texel[c];
+                }
+                for (int c = 0; c < 4; c++)
+                    source[c] = (source[c] + 2) / 4;
+            }
+            else
+            {
+                // the drawings' texel under this pixel's center
+                const u8* texel = &drawings[((size_t)(drawingsTop + (2 * y + 1) / scale) * LuaOverlay::kWidth + (2 * x + 1) / scale) * 4];
+                for (int c = 0; c < 4; c++)
+                    source[c] = texel[c];
+            }
+            if (source[3] == 0 && source[0] == 0 && source[1] == 0 && source[2] == 0)
+                continue;
+            u8* pixel = &row[x * 4];
+            for (int c = 0; c < 3; c++)
+                pixel[c] = (u8)std::min(255, source[c] + (pixel[c] * (255 - source[3]) + 127) / 255);
+        }
+    }
+}
 
 }
 
@@ -128,6 +196,8 @@ FrameView FrameView::Of(const Frame& frame)
     view.DepthCameraValid = frame.depthCameraValid;
     view.DepthFocus = frame.hasDepth ? frame.depthFocus : -1.f;
     view.TopWingLines = frame.topWingLines;
+    view.OverlayTexture = frame.overlayTexture;
+    view.OverlayScreens = frame.overlayTexture ? (frame.overlayRows[0].isEmpty() ? 0 : 1) | (frame.overlayRows[1].isEmpty() ? 0 : 2) : 0;
     return view;
 }
 
@@ -264,7 +334,7 @@ int Presenter::OutputScaleNeed(int surfaces) const
     return need;
 }
 
-bool Presenter::ReadFrame(const FrameView& frame, std::vector<u8>& pixels, int& width, int& height)
+bool Presenter::ReadFrame(const FrameView& frame, std::vector<u8>& pixels, int& width, int& height, bool withDrawings)
 {
     GLuint texture = frame.Texture;
     if (!texture)
@@ -313,6 +383,25 @@ bool Presenter::ReadFrame(const FrameView& frame, std::vector<u8>& pixels, int& 
             const u8* smallRow = &small[(size_t)(y / up) * smallW * 4];
             for (int x = 0; x < width; x++)
                 memcpy(&row[x * 4], &smallRow[std::min(x / up, smallW - 1) * 4], 4);
+        }
+    }
+
+    if (withDrawings && frame.OverlayTexture && frame.OverlayScreens)
+    {
+        // the native screens' place at the frame's scale, which a frame of an unexpected size can't give
+        int drawingsScale = height / frame.FrameHeight();
+        std::vector<u8> drawings;
+        bool fits = drawingsScale >= 1 && drawingsScale * frame.FrameHeight() == height
+            && (frame.NativeLeft() + 256) * drawingsScale <= width;
+        if (!fits)
+            fprintf(stderr, "frame readback: no Lua drawings on a %dx%d frame\n", width, height);
+        else if (ReadDrawings(ReadFB, frame.OverlayTexture, drawings))
+        {
+            for (int screen = 0; screen < 2; screen++)
+            {
+                if (frame.OverlayScreens & (1 << screen))
+                    BlendDrawings(drawings, screen, frame, drawingsScale, pixels, width);
+            }
         }
     }
     GLenum error = glGetError();

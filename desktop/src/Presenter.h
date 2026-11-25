@@ -79,8 +79,9 @@ public:
     bool DebandsOutput() const { return Config.Deband; }
 
     // a frame's texture as RGBA rows, top row first, at the renderer's internal size. a half the compositor drew at 1x (GPU::Comp1x) is
-    // upscaled into its rows, as the 1x shader shows it
-    bool ReadFrame(const FrameView& frame, std::vector<melonDS::u8>& pixels, int& width, int& height);
+    // upscaled into its rows, as the 1x shader shows it. [withDrawings]: the frame's Lua drawings blended over its native screens, as the
+    // app's ScreenshotRenderer does with "Show script drawings in save state pictures" on
+    bool ReadFrame(const FrameView& frame, std::vector<melonDS::u8>& pixels, int& width, int& height, bool withDrawings = false);
 
     // the touch cursor at x,y (the current window's drawable pixels, y down), [radius] pixels, filled while [pressed]
     void DrawCursor(float x, float y, float radius, bool pressed, int windowW, int windowH);

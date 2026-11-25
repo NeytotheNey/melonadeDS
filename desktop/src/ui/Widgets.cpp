@@ -1,6 +1,7 @@
 #include "Widgets.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #include "imgui_internal.h"
@@ -258,7 +259,8 @@ static void LabelAndDetail(App& app, float x, float cy, float width, ImU32 text,
         TextAt(app, app.Medium, kLabelSize, ImVec2(x, cy - l.y / 2), text, fitted.c_str());
 }
 
-int ChoiceRow(App& app, const char* id, ImWchar icon, const char* label, const char* value, bool isDefault, const char* detail)
+int ChoiceRow(App& app, const char* id, ImWchar icon, const char* label, const char* value, bool isDefault, const char* detail,
+    bool* confirmed)
 {
     const Palette& p = app.Colors();
     ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -266,7 +268,9 @@ int ChoiceRow(App& app, const char* id, ImWchar icon, const char* label, const c
     bool pressed = Item(id, size, true);
     app.TrackFocus(isDefault);
     ItemState state = StateOfLastItem();
-    int change = pressed ? 1 : 0;
+    int change = pressed && !confirmed ? 1 : 0;
+    if (pressed && confirmed)
+        *confirmed = true;
     if (state.Focused && !app.Busy)
     {
         if (PressedLeft())
@@ -302,6 +306,88 @@ int ChoiceRow(App& app, const char* id, ImWchar icon, const char* label, const c
     ImU32 sub = state.Focused ? p.OnSecondaryContainer : p.OnSurfaceVariant;
     LabelAndDetail(app, labelX, cy, lx - h - labelX - app.Px(12), text, sub, label, detail);
     return change;
+}
+
+int SliderRow(App& app, const char* id, ImWchar icon, const char* label, const std::function<std::string(int step)>& format, int step,
+    int stepCount, bool isDefault)
+{
+    const Palette& p = app.Colors();
+    const ImGuiIO& io = ImGui::GetIO();
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    ImVec2 size(ImGui::GetContentRegionAvail().x, app.Px(76));
+    Item(id, size, true);
+    app.TrackFocus(isDefault);
+    ItemState state = StateOfLastItem();
+    ImVec2 max(pos.x + size.x, pos.y + size.y);
+    float labelX = pos.x + app.Px(64);
+    float trackX0 = labelX + app.Px(10), trackX1 = max.x - app.Px(30), trackY = pos.y + app.Px(54);
+    auto stepAt = [&](float x)
+    {
+        float t = trackX1 > trackX0 ? std::clamp((x - trackX0) / (trackX1 - trackX0), 0.f, 1.f) : 0.f;
+        return stepCount > 0 ? (int)std::lround(t * stepCount) : 0;
+    };
+
+    // a drag starts with a press on the track (with some room around it), and the step is taken when the mouse lets go
+    ImGuiID itemId = ImGui::GetItemID();
+    ImGuiStorage* storage = ImGui::GetStateStorage();
+    if (ImGui::IsItemActivated() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    {
+        ImVec2 m = io.MousePos;
+        bool onTrack = m.x >= trackX0 - app.Px(14) && m.x <= trackX1 + app.Px(14) && std::abs(m.y - trackY) <= app.Px(16);
+        storage->SetBool(itemId, onTrack);
+    }
+    int shown = std::clamp(step, 0, std::max(stepCount, 0));
+    int result = -1;
+    if (storage->GetBool(itemId, false))
+    {
+        shown = stepAt(io.MousePos.x);
+        if (!ImGui::IsItemActive())
+        {
+            storage->SetBool(itemId, false);
+            result = shown;
+        }
+    }
+    else if (state.Focused && !app.Busy)
+    {
+        if (PressedLeft() && shown > 0)
+            result = shown - 1;
+        else if (PressedRight() && shown < stepCount)
+            result = shown + 1;
+    }
+
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    float radius = app.Px(26);
+    draw->AddRectFilled(pos, max, RowBackground(app, state, 0), radius);
+    if (state.Focused)
+        FocusRing(app, draw, pos, max, radius);
+    ImU32 text = state.Focused ? p.OnSecondaryContainer : p.OnSurface;
+    ImU32 accent = state.Focused ? p.OnSecondaryContainer : p.Primary;
+    float cy = pos.y + app.Px(26);
+    IconAt(app, icon, 26, ImVec2(pos.x + app.Px(33), cy), text);
+    std::string value = format(shown);
+    ImVec2 v = TextSize(app, app.Medium, kLabelSize, value.c_str());
+    TextAt(app, app.Medium, kLabelSize, ImVec2(max.x - app.Px(20) - v.x, cy - v.y / 2), accent, value.c_str());
+    std::string fitted = Ellipsize(app, app.Medium, kLabelSize, label, max.x - app.Px(36) - v.x - labelX);
+    ImVec2 l = TextSize(app, app.Medium, kLabelSize, fitted.c_str());
+    TextAt(app, app.Medium, kLabelSize, ImVec2(labelX, cy - l.y / 2), text, fitted.c_str());
+
+    // the track, filled up to the thumb, with a tick per step while they don't run together (the app's MAX_TICKED_STEPS)
+    float t = stepCount > 0 ? (float)shown / stepCount : 0;
+    float thumbX = trackX0 + t * (trackX1 - trackX0);
+    float h = app.Px(3);
+    ImU32 inactive = state.Focused ? WithAlpha(p.OnSecondaryContainer, 0.25f) : p.SecondaryContainer;
+    draw->AddRectFilled(ImVec2(trackX0, trackY - h), ImVec2(trackX1, trackY + h), inactive, h);
+    draw->AddRectFilled(ImVec2(trackX0, trackY - h), ImVec2(thumbX, trackY + h), accent, h);
+    if (stepCount > 0 && stepCount <= 20)
+    {
+        for (int i = 0; i <= stepCount; i++)
+        {
+            float x = trackX0 + (float)i / stepCount * (trackX1 - trackX0);
+            draw->AddCircleFilled(ImVec2(x, trackY), app.Px(1.5f), i <= shown ? WithAlpha(p.OnPrimary, 0.7f) : WithAlpha(accent, 0.6f));
+        }
+    }
+    draw->AddCircleFilled(ImVec2(thumbX, trackY), app.Px(10), accent);
+    return result;
 }
 
 bool DetailRow(App& app, const char* id, ImWchar icon, const char* label, const char* detail, bool isDefault, bool enabled)

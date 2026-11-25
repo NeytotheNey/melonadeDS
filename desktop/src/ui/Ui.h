@@ -65,8 +65,9 @@ public:
     void CloseAll();
     // the library alone (no game), the home screen; [open] as MakeLibraryScreen's
     void ShowStart(LibraryOpen open = LibraryOpen::None);
-    // --open: "library" (or "start"), "library/details", "library/settings", "pause", "pause/save", "pause/load", "settings", "settings/library", "keyboard",
-    // "layouts", "layout-editor" (the layout in use), "layout-editor/new", "layout-editor/<id>"; false for a name it doesn't know
+    // --open: "library" (or "start"), "library/details", "library/settings", "library/settings/mods", "pause", "pause/save", "pause/load",
+    // "pause/mods", "pause/mods/options/<script id>", "settings", "settings/library", "keyboard", "layouts", "layout-editor" (the layout in
+    // use), "layout-editor/new", "layout-editor/<id>"; false for a name it doesn't know
     bool OpenPath(const std::string& path);
     void OpenPause();
 
