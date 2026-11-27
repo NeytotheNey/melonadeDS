@@ -13,7 +13,7 @@ PORT=5580
 A=("$ADB" -s "emulator-$PORT")
 OUT="$REPO/logs/emulator"
 APK="$REPO/app/build/intermediates/apk/gitHubProd/debug/app-gitHub-prod-debug.apk"
-PKG=me.magnum.melonds.dev
+PKG=io.github.neytotheney.melonadeds.dev
 PY=(py -I -X utf8 "$HERE/emu_ui.py")
 mkdir -p "$OUT/shots"
 

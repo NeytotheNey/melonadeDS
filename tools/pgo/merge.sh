@@ -1,7 +1,7 @@
 #!/bin/bash
 # Pulls the PGO .profraw files from a phone running a -PnativePgo=generate build and merges them into a profile (tools/pgo/README.md).
-#   tools/pgo/merge.sh <adb serial>                       debug build (me.magnum.melonds.dev) into app/pgo/arm64-v8a.profdata
-#   tools/pgo/merge.sh <adb serial> --release             release build (me.magnum.melonds.pgo) into app/pgo/arm64-v8a-release.profdata
+#   tools/pgo/merge.sh <adb serial>                       debug build (io.github.neytotheney.melonadeds.dev) into app/pgo/arm64-v8a.profdata
+#   tools/pgo/merge.sh <adb serial> --release             release build (io.github.neytotheney.melonadeds.pgo) into app/pgo/arm64-v8a-release.profdata
 #   tools/pgo/merge.sh <adb serial> [--release] --clear   the same, then delete the pulled .profraw files from the phone once the merge worked
 #   tools/pgo/merge.sh --local <dir> [--release]          merge .profraw files already on the PC (no adb)
 # Files come from the external files dir (files/pgo/ under /sdcard/Android/data/<package>, plain adb) and, for a debuggable build, the internal
@@ -38,10 +38,10 @@ for arg in "$@"; do
 done
 
 if [ "$RELEASE" = 1 ]; then
-    PKG="${PKG:-me.magnum.melonds.pgo}"
+    PKG="${PKG:-io.github.neytotheney.melonadeds.pgo}"
     OUT="${OUT:-$ROOT/app/pgo/arm64-v8a-release.profdata}"
 else
-    PKG="${PKG:-me.magnum.melonds.dev}"
+    PKG="${PKG:-io.github.neytotheney.melonadeds.dev}"
     OUT="${OUT:-$ROOT/app/pgo/arm64-v8a.profdata}"
 fi
 
