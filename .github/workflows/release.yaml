@@ -7,9 +7,14 @@ on:
       - '*'
       - '!nightly-release'
 
+  # Manual trigger, dispatched with --ref <tag>
+  workflow_dispatch:
+
 jobs:
   github-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
