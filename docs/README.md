@@ -38,4 +38,4 @@ Notes for working on melonadeDS. The user-facing overview is the [README](../REA
 - [shelved/widemelon-software.md](shelved/widemelon-software.md): WideMelon on the software renderer. Shelved.
 - [shelved/d3-edgefog.md](shelved/d3-edgefog.md) and [shelved/r2-fragdepth.md](shelved/r2-fragdepth.md): two GPU discovery experiments that didn't pay, with their patches.
 
-`PERF-NOTES.md` (phone measurements), `HANDOFF.md` (what's next) and `BUILD-NOTES.md` (build, install and devices) are the maintainer's local files at the repo root. They are not in git, so where these docs cite `PERF-NOTES.md` the numbers only exist on that PC.
+`PERF-NOTES.md` (phone measurements), `HANDOFF.md` (what's next) and `BUILD-NOTES.md` (build, install and devices) are the maintainer's local files at the repo root, and `HANDOFF-gpu-2d.md` (GPU 2D work) is kept in docs/. They are not in git, so where these docs cite `PERF-NOTES.md` the numbers only exist on that PC.
