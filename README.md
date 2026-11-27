@@ -1,4 +1,6 @@
 # melonadeDS
+Yes its AI.
+
 A fork of the [melonDS Android port](https://github.com/rafaelvcaetano/melonDS-android), itself an Android port of [melonDS](https://melonds.kuribo64.net/), a DS and DSi emulator. Needs Android 10 or newer.
 
 |Settings|Layout Editor|Button Styles|
@@ -6,10 +8,15 @@ A fork of the [melonDS Android port](https://github.com/rafaelvcaetano/melonDS-a
 |![Settings](./.github/images/settings.png)|![Layout editor](./.github/images/layout_editor.png)|![Button styles](./.github/images/button_styles.png)|
 
 # What this fork adds
+*  Optimizations for OpenGL and Compute (it's probably faster for your device, idk)
+*  Compute for Mali devices (probably)
+*  Edge rendering
+*  LUA scripts
+*  Frame interpolation for 30fps games
 *  Material 3 settings with Material You colors, and an English-only UI
 *  Controller button styles, in game and in the layout editor
 *  A layout editor with snapping, a grid and aspect-ratio locks
-*  WideMelon, a widened 3D view for wide layouts, and per-game Lua scripts (see [MODS.md](MODS.md))
+*  WideMelon, a widened 3D view for wide layouts, and per-game Lua scripts (also EXPAND from PokeDaisy)
 *  Upscaled display capture, so captured screens stay sharp at higher internal resolutions
 *  Smooth gradients, which blends hard color steps before any screen filter
 *  Precise depth (off by default), which fixes flickering ground shadows and decals
