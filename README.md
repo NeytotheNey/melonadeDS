@@ -21,13 +21,13 @@ Not supported: local multiplayer and DSi SD cards. Full speed needs a 64 bit dev
 
 # Third-party frontends
 ROMs must already be scanned by melonadeDS. Then point the frontend at:
-*  Package: `me.magnum.melonds` (`me.magnum.melonds.nightly` for nightly)
+*  Package: `io.github.neytotheney.melonadeds` (`io.github.neytotheney.melonadeds.nightly` for nightly). This is a different package from upstream melonDS (`me.magnum.melonds`), so it installs beside it.
 *  Activity: `me.magnum.melonds.ui.emulator.EmulatorActivity`
 *  Intent data: the ROM's URI (NDS, ZIP or 7z), with [read permission granted](https://developer.android.com/reference/android/content/Intent#FLAG_GRANT_READ_URI_PERMISSION). The older `uri` and `PATH` string extras still work but are deprecated.
 
 Pegasus metadata: [melonds.metadata.txt](./.github/pegasus/melonds.metadata.txt), [melonds-nightly.metadata.txt](./.github/pegasus/melonds-nightly.metadata.txt).
 
-If a launched ROM wasn't scanned before, its save goes to `Android/data/me.magnum.melonds/files/saves` instead of next to the ROM.
+If a launched ROM wasn't scanned before, its save goes to `Android/data/io.github.neytotheney.melonadeds/files/saves` instead of next to the ROM.
 
 # Building
 You need JDK 21+, the Android SDK, NDK and CMake.
@@ -39,7 +39,7 @@ git clone --recurse-submodules https://github.com/NeytotheNey/melonadeDS.git
 
 Use `gradlew.bat` on Windows, and `x86_64` instead of `arm64-v8a` for the Android emulator. The APK lands in `app/build/intermediates/apk/gitHubProd/debug/`. To install it with `adb install`, add `-Pandroid.injected.testOnly=false`.
 
-Flavors are `gitHub` (also builds 32 bit ARM) or `playStore`, crossed with `prod` or `nightly`. Debug builds install beside the release app as `me.magnum.melonds.dev` and have optimized native code, so they work for performance tests; add `-PnativeBuildType=Debug` for an unoptimized native build.
+Flavors are `gitHub` (also builds 32 bit ARM) or `playStore`, crossed with `prod` or `nightly`. Debug builds install beside the release app as `io.github.neytotheney.melonadeds.dev` and have optimized native code, so they work for performance tests; add `-PnativeBuildType=Debug` for an unoptimized native build.
 
 There's also a Windows desktop build in `desktop/` for testing the core and renderers without a phone (see `desktop/README.md`).
 

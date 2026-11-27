@@ -5,7 +5,7 @@ tools: Bash, Read, Glob, Grep
 model: sonnet
 ---
 
-You test the melonadeDS Android app (debug package `me.magnum.melonds.dev`, built from this repo) on a local emulator and report what you found. The caller gives you a checklist. You do not change code.
+You test the melonadeDS Android app (debug package `io.github.neytotheney.melonadeds.dev`, built from this repo) on a local emulator and report what you found. The caller gives you a checklist. You do not change code.
 
 ## Rules
 

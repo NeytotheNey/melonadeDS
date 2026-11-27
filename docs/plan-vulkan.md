@@ -54,11 +54,11 @@ Gate: proceed to Phase 2 if (1) is wanted, or (2)/(3) show a measurable cost, or
 
 ### Profile recipe (Phase 0, reused as Phase 2's before/after)
 
-Fresh app start, White 2 at the usual overworld spot, OpenGL 4x, JIT on, fast-forward off, performance logging on so `_summary.txt` comes out of the same run. Debug build (`gitHubProdDebug`, package `me.magnum.melonds.dev`): it is debuggable, so simpleperf attaches without root, and native code is RelWithDebInfo with symbols (keep the unstripped `.so` from `app/build/intermediates/merged_native_libs/` for `--symfs`).
+Fresh app start, White 2 at the usual overworld spot, OpenGL 4x, JIT on, fast-forward off, performance logging on so `_summary.txt` comes out of the same run. Debug build (`gitHubProdDebug`, package `io.github.neytotheney.melonadeds.dev`): it is debuggable, so simpleperf attaches without root, and native code is RelWithDebInfo with symbols (keep the unstripped `.so` from `app/build/intermediates/merged_native_libs/` for `--symfs`).
 
 ```bash
-adb shell "ps -T -p $(adb shell pidof me.magnum.melonds.dev) | grep -E 'EmulatorThread|GPU2DThread'"
-adb shell simpleperf record --app me.magnum.melonds.dev -t <EmulatorThread tid>,<GPU2DThread tid> -e cpu-clock -f 4000 --duration 60 -o /data/local/tmp/melon.data
+adb shell "ps -T -p $(adb shell pidof io.github.neytotheney.melonadeds.dev) | grep -E 'EmulatorThread|GPU2DThread'"
+adb shell simpleperf record --app io.github.neytotheney.melonadeds.dev -t <EmulatorThread tid>,<GPU2DThread tid> -e cpu-clock -f 4000 --duration 60 -o /data/local/tmp/melon.data
 adb pull /data/local/tmp/melon.data && simpleperf report -i melon.data --symfs <dir with unstripped libmelonDS-android-frontend.so> --tids <EmulatorThread tid> --sort dso,symbol -n | head -80
 # in parallel, GPU clock and busy on Adreno, once a second
 adb shell 'for i in $(seq 60); do echo "$(cat /sys/class/kgsl/kgsl-3d0/gpuclk) $(cat /sys/class/kgsl/kgsl-3d0/gpubusy)"; sleep 1; done'

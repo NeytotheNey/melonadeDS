@@ -16,3 +16,9 @@
 
 # PGO profiles (tools/pgo/README.md) stay local; PGO is opt-in with -PnativePgo=use
 /app/pgo/*
+
+# Maintainer's local notes, kept out of git
+HANDOFF.md
+HANDOFF-gpu-2d.md
+PERF-NOTES.md
+BUILD-NOTES.md
